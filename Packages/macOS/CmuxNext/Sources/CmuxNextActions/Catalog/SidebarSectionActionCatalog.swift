@@ -249,6 +249,20 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
             ),
+            // Leo (2026-10-18): with the session tree on, a window's sidebar keeps its rows in place
+            // or moves a session that needs you to the top (`sidebar.rowOrder`, this window only).
+            ActionDescriptor(
+                id: "sidebar.rowOrder.stable", title: t("action.sidebar.rowOrder.stable", "Keep Rows in Place"),
+                keywords: ["sidebar", "tree", "order", "stable", "still", "place", "reorder", "jump"], category: .sidebar, symbol: "pin",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 128, folder: .options)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.rowOrder.attention", title: t("action.sidebar.rowOrder.attention", "Move Sessions That Need You to Top"),
+                keywords: ["sidebar", "tree", "order", "attention", "top", "move", "recency", "reorder", "jump"], category: .sidebar,
+                symbol: "arrow.up.to.line", surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 129, folder: .options)])
+            ),
             // cx-13w3: compact (one line), comfortable (one line, taller) or expanded
             // (T3 Code / Codex style) workspace rows (`sidebar.density`); the sidebar's
             // Options offers the ones that do not apply now.

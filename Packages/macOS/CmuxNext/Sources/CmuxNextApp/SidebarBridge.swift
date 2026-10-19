@@ -53,7 +53,7 @@ final class SidebarBridge {
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
-        container = SidebarContainerView(model: model)
+        container = SidebarContainerView(model: SidebarRowOrderMemory().restoring(model, window: state.id)) // + its row order
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places
         // groups among them (`personal-mixed-order-v1`); refreshed on show.
@@ -396,6 +396,6 @@ final class SidebarBridge {
 
     /// Applies saved state without animating.
     func restore(width: Double?, hidden: Bool) {
-        container.restore(width: width.map { CGFloat($0) }, presentation: hidden ? .hidden : .shown)
+        container.restore(width: width.map { CGFloat($0) }, presentation: hidden ? .hidden : .shown); if let state { _ = SidebarRowOrderMemory().restoring(model, window: state.id) } // + the row order under the adopted id
     }
 }
