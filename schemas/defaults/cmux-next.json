@@ -506,6 +506,7 @@
     "setting.palette.scopes.tabs.prefix": "@",
     "setting.palette.scopes.workspaces.prefix": "#",
     "setting.phone.allowConnections": false,
+    "setting.phone.cloudReplica": false,
     "setting.phone.keepAwake": "pluggedIn",
     "setting.phone.startSessions": true,
     "setting.picker.pinned": [],
