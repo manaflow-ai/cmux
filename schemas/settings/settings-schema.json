@@ -8124,7 +8124,8 @@
         "dore-empyrean",
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
-        "file:/Users/Shared/Harbor.png"
+        "file:/Users/Shared/Harbor.png",
+        "collage:c-2f9a1b7c04de"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -9406,6 +9407,8 @@
         "system:",
         "file:relative.png",
         "file:",
+        "collage:",
+        "collage:../evil",
         "__not_a_backdrop__",
         1,
         true
@@ -25537,7 +25540,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f5119e2c9dc4d35636278485f5c5f917acddeb28852bdf4b6333a676002f5da0",
+  "schema_hash" : "79cd13ddd968b1ae7fd7dcc6c475963a7830e93036c8109f1e7e8c2f6a211238",
   "sections" : [
     {
       "id" : "general",
