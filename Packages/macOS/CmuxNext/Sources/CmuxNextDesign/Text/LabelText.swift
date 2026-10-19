@@ -125,9 +125,12 @@ enum LabelText {
         var used = CGRect.null
         var baselines: [CGFloat] = []
         manager.enumerateLineFragments(forGlyphRange: range) { rect, usedRect, _, glyphs, stop in
-            used = used.union(usedRect)
             baselines.append(rect.minY + reportedAscent(of: glyphs))
-            if baselines.count >= shownLines { stop.pointee = true }
+            let last = baselines.count >= shownLines
+            // The last line a field shows, when more text follows it, ends at its last visible
+            // glyph: its trailing spaces do not count (they push a full line to the edge).
+            used = used.union(last && NSMaxRange(glyphs) < NSMaxRange(range) ? withoutTrailingSpaces(usedRect, glyphs: glyphs) : usedRect)
+            if last { stop.pointee = true }
         }
         // The extra line after a final line break counts too, as a field's.
         if shownLines == Int.max, !manager.extraLineFragmentUsedRect.isEmpty { used = used.union(manager.extraLineFragmentUsedRect) }
@@ -135,6 +138,20 @@ enum LabelText {
         let textWidth = text.length > 0 ? max(used.maxX - padding * 2, 0) : 0
         let size = NSSize(width: (textWidth * scale).rounded(.up) / scale, height: (used.maxY * scale).rounded(.up) / scale)
         return Metrics(size: size, firstBaseline: baselines.first ?? 0, lastBaselineFromBottom: size.height - (baselines.last ?? 0))
+    }
+
+    /// `usedRect` of the laid-out line `glyphs`, ending where its trailing white space starts.
+    private static func withoutTrailingSpaces(_ usedRect: CGRect, glyphs: NSRange) -> CGRect {
+        let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        let string = storage.string as NSString
+        var end = NSMaxRange(characters)
+        while end > characters.location, let scalar = Unicode.Scalar(string.character(at: end - 1)),
+              CharacterSet.whitespacesAndNewlines.contains(scalar) { end -= 1 }
+        guard end < NSMaxRange(characters) else { return usedRect }
+        // Where the first trailing space starts in the line, plus the right padding.
+        let right = manager.location(forGlyphAt: manager.glyphIndexForCharacter(at: end)).x + padding
+        guard right > usedRect.minX, right < usedRect.maxX else { return usedRect }
+        return CGRect(x: usedRect.minX, y: usedRect.minY, width: right - usedRect.minX, height: usedRect.height)
     }
 
     /// `text` up to the end of its last visible line with an ellipsis in place of the line
