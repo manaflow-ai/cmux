@@ -73,6 +73,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
     outputs:
       runs_on: ${{ steps.pick.outputs.runs_on }}
       reason: ${{ steps.pick.outputs.reason }}
@@ -83,7 +84,43 @@ jobs:
           sparse-checkout: |
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
+            scripts/cmux-next/media/path_map.py
           sparse-checkout-cone-mode: false
+
+      # The changed paths, read here on Linux so a change the Mac tour would
+      # not capture (no UI, or only webview code, which the gallery advisory
+      # run captures in Linux Chromium) never queues for a Mac. The file is
+      # written only when the listing is complete; without it the picker
+      # picks a Mac as before and the tour maps the paths itself.
+      - name: List the changed paths
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          listing="$RUNNER_TEMP/changed-files.jsonl"
+          if [ -n "$PR" ]; then
+            expected=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .changed_files)
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | @json' > "$listing"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$SHA" --jq '.files[] | @json' > "$listing"
+            expected=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$SHA" --jq '.files | length')
+            # The compare API lists at most 300 files.
+            [ "$expected" -lt 300 ] || expected=-1
+          fi
+          python3 - "$listing" "$expected" "$RUNNER_TEMP/changed-paths.txt" <<'PY'
+          import json, pathlib, sys
+          rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+          if len(rows) != int(sys.argv[2]):
+              print(f"listed {len(rows)} of {sys.argv[2]} changed files; the Mac maps the paths itself")
+              sys.exit(0)
+          paths = sorted({p for row in rows for p in (row.get("filename"), row.get("previous_filename")) if p})
+          pathlib.Path(sys.argv[3]).write_text("\n".join(paths) + "\n")
+          print(f"{len(paths)} changed path(s)")
+          PY
 
       - name: Pick an owned gui runner
         id: pick
@@ -92,7 +129,7 @@ jobs:
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           SAME_REPO: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
-        run: python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO"
+        run: python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO" --paths-file "$RUNNER_TEMP/changed-paths.txt"
 
   tour:
     name: Tour the app

@@ -18,7 +18,6 @@ PICKER = os.path.join(ROOT, "scripts", "ci", "cmux_next_media_runner.py")
 sys.path.insert(0, os.path.join(ROOT, "scripts", "ci"))
 import cmux_next_media_runner  # noqa: E402
 
-OWNED = dict(same_repo=True, owned="1", owned_slots=None, pr_xcode_app=None)
 
 
 class ScopeTests(unittest.TestCase):

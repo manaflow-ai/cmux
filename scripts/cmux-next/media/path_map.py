@@ -4,6 +4,11 @@
 The mapper deliberately uses paths rather than labels, titles, or PR metadata.
 It is a small CLI so the same decision is used by pull-request media jobs and
 incremental DEV builds.
+
+Webview code (webviews/) takes no Mac tour: it renders the same in Linux
+Chromium, where the gallery advisory run (gallery-advisory.yml) captures its
+fixture states. Those paths are listed under "gallery". Glass and themes still
+tour on the Mac, since they show the webview over the native window backdrop.
 """
 
 from __future__ import annotations
@@ -27,6 +32,8 @@ AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IG
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
+# Webview code: the gallery advisory run captures it on Linux (glass and themes excepted).
+WEBVIEW = re.compile(r"^webviews/")
 # A tour's own file: a pull request that edits a tour gets that tour's shots.
 TOUR_FILE = re.compile(r"^scripts/cmux-next/media/tours/([a-z0-9-]+)\.json$")
 
@@ -43,6 +50,8 @@ def tours_for_path(path: str) -> list[str]:
         return [tour_file[1]] if tour_file[1] in TOUR_ORDER else []
     if not is_ui_path(normalized):
         return []
+    if WEBVIEW.search(normalized):
+        return ["glass"] if GLASS.search(normalized) else []
     selected: list[str] = []
     if NEW_TAB.search(normalized):
         selected.append("new-tab")
@@ -57,6 +66,12 @@ def tours_for_path(path: str) -> list[str]:
     return selected
 
 
+def is_gallery_path(path: str) -> bool:
+    """Webview code the gallery advisory run captures on Linux instead of a Mac tour."""
+    normalized = path.strip().lstrip("./")
+    return bool(WEBVIEW.search(normalized)) and not tours_for_path(normalized)
+
+
 def map_paths(paths: list[str]) -> dict[str, object]:
     clean = sorted({path.strip() for path in paths if path.strip()})
     matches: dict[str, list[str]] = {tour: [] for tour in TOUR_ORDER}
@@ -68,6 +83,7 @@ def map_paths(paths: list[str]) -> dict[str, object]:
         "is_ui": bool(tours),
         "tours": tours,
         "matches": matches,
+        "gallery": [path for path in clean if is_gallery_path(path)],
         "paths": clean,
     }
 
