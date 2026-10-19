@@ -1,8 +1,8 @@
 /**
  * Identity tables of mesh M4 (migrations/0007_cmux_vm_mesh_m4.sql): the shared
  * positive Stack membership cache (cx-0op.7) and the record of processed Stack
- * webhook deliveries (G1, cx-0op.6). Both are keyed by Stack ids and hold no
- * secret.
+ * webhook deliveries (G1, cx-0op.6). Daytona delivery ids use the additive 0014
+ * table in the same store module; all rows hold no secret.
  */
 import { Context, Effect, Layer, Schema } from "effect";
 import { MembershipCache, type MembershipCacheService } from "../auth/membership-cache.ts";
