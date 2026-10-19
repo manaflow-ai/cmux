@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
 import stat
 import subprocess
 import sys
@@ -25,6 +26,16 @@ FAKE_APP = r'''#!/usr/bin/env python3
 import json, os, socket, threading
 path = os.environ["CMUX_NEXT_SOCKET_PATH"]
 log = os.environ["FAKE_LOG"]
+# The launch: where its harness profiles come from (a tour's `harnesses`).
+xdg = os.environ.get("XDG_CONFIG_HOME")
+profiles = {}
+if xdg and os.path.isdir(os.path.join(xdg, "cmux/harnesses")):
+    folder = os.path.join(xdg, "cmux/harnesses")
+    for name in sorted(os.listdir(folder)):
+        with open(os.path.join(folder, name)) as profile:
+            profiles[name] = profile.read()
+with open(log, "a") as out:
+    out.write(json.dumps({"method": "launch", "params": {"xdg": xdg, "profiles": profiles}}) + "\n")
 server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 server.bind(path)
 server.listen(8)
@@ -49,6 +60,13 @@ def answer(connection):
             with open(params["path"], "wb") as image:
                 image.write(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
             result = {"path": params["path"], "width": 1600, "height": 1200, "method": "composited"}
+        elif method == "debug.key":
+            result = {"error": os.environ["FAKE_KEY_ERROR"]} if os.environ.get("FAKE_KEY_ERROR") else {"delivered": True}
+        elif method == "debug.agent_pane" and params.get("action") == "chat_state":
+            with open(os.environ["FAKE_CHAT_STATE"]) as state:
+                result = json.load(state)
+        elif method == "debug.agent_pane":
+            result = {"pane": "p1", "sent": True}
         else:
             connection.sendall(json.dumps({"id": 1, "ok": False, "error": "unknown method"}).encode() + b"\n")
             return
@@ -253,6 +271,194 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         self.assertEqual(manifest["result"], "failed")
         self.assertEqual(manifest["steps"][1]["status"], "failed")
+
+    def requests(self, method: str) -> list[dict]:
+        lines = self.log.read_text(encoding="utf-8").splitlines()
+        return [entry["params"] for entry in map(json.loads, lines) if entry["method"] == method]
+
+    def test_input_steps_go_through_the_app_socket(self) -> None:
+        # Keys, typing and page requests reach the app as control-socket
+        # requests (debug.key, debug.agent_pane), never as HID events, so
+        # several tours can share one Mac's console.
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Type", "text": "Hi you", "wait": 0},
+            {"title": "Choose and submit", "keys": ["down", "cmd+return"], "wait": 0},
+            {"title": "Send", "request": {"method": "debug.agent_pane",
+                                          "params": {"action": "send_prompt", "text": "question: Q"}}, "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        keys = [(params["key"], params.get("modifiers", [])) for params in self.requests("debug.key")]
+        self.assertEqual(keys, [("H", []), ("i", []), ("space", []), ("y", []), ("o", []), ("u", []),
+                                ("down", []), ("return", ["cmd"])])
+        self.assertIn({"action": "send_prompt", "text": "question: Q"}, self.requests("debug.agent_pane"))
+        self.assertEqual(manifest["steps"][1]["input"], "keys down, cmd+return")
+        self.assertEqual(manifest["steps"][2]["input"], "debug.agent_pane send_prompt")
+
+    def test_an_input_the_app_refuses_fails_the_step(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Submit", "keys": ["cmd+return"], "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour(FAKE_KEY_ERROR="no key window")
+        self.assertEqual(done.returncode, 1)
+        step = manifest["steps"][0]
+        self.assertEqual(step["status"], "failed")
+        self.assertIn("no key window", step["detail"])
+
+    def test_check_refuses_input_steps_it_cannot_send(self) -> None:
+        bad_steps = [
+            {"title": "Quit", "request": {"method": "debug.quit", "params": {}}},
+            {"title": "Crash", "request": {"method": "debug.agent_pane", "params": {"action": "crash_notice"}}},
+            {"title": "Hyper", "keys": ["hyper+k"]},
+            {"title": "Nothing", "keys": []},
+            {"title": "Two", "keys": ["down"], "text": "x"},
+            {"title": "Odd harness", "wait": 0},
+        ]
+        for step in bad_steps:
+            tour = {"title": "Bad", "steps": [step]}
+            if step["title"] == "Odd harness":
+                tour["harnesses"] = ["claude"]
+            self.tour.write_text(json.dumps(tour), encoding="utf-8")
+            done = subprocess.run([sys.executable, str(SCRIPT), "--check", str(self.tour)],
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(done.returncode, 2, f"{step}: {done.stdout}{done.stderr}")
+
+    def test_a_tour_harness_is_a_private_profile_for_its_launch(self) -> None:
+        # The fake agent from acpmux's tests, as a harness profile in the
+        # launch's own XDG_CONFIG_HOME: a runner with no logged-in agent can
+        # still start a chat, and the runner's own profiles are not touched.
+        self.tour.write_text(json.dumps({"title": "Demo", "harnesses": ["fake-agent"], "steps": [
+            {"title": "Launch", "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        launch = self.requests("launch")[0]
+        self.assertTrue(launch["xdg"], launch)
+        self.assertFalse(launch["xdg"].startswith(str(Path.home())), launch)
+        profile = launch["profiles"]["fake-agent.toml"]
+        self.assertIn('id = "fake-agent"', profile)
+        agent = re.search(r'args = \["([^"]+)"\]', profile).group(1)
+        self.assertTrue(agent.endswith("/fake_agent.py"), profile)
+        self.assertFalse(Path(launch["xdg"]).exists(), "the private profile outlives the tour")
+
+    def test_a_tour_without_harnesses_keeps_the_session_profiles(self) -> None:
+        self.run_tour()
+        self.assertIsNone(self.requests("launch")[0]["xdg"])
+
+    def test_agent_pane_state_postcondition_matches_and_contains(self) -> None:
+        state = self.root / "chat-state.json"
+        state.write_text(json.dumps({"pane": "p1", "permission": None,
+                                     "lastAssistant": {"text": 'chose allow_once {"Q": "Second"}', "streaming": False}}))
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Answered", "wait": 0, "expect": {
+                "method": "debug.agent_pane", "params": {"action": "chat_state"}, "timeout": 5,
+                "fields": {"permission": None}, "contains": {"lastAssistant.text": '"Second"'}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour(FAKE_CHAT_STATE=str(state))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["steps"][0]["postcondition"]["status"], "passed", manifest["steps"][0])
+
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Answered", "wait": 0, "expect": {
+                "method": "debug.agent_pane", "params": {"action": "chat_state"}, "timeout": 1,
+                "contains": {"lastAssistant.text": '"Third"'}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour(FAKE_CHAT_STATE=str(state))
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('lacks "\\"Third\\""', manifest["steps"][0]["postcondition"]["detail"])
+
+    def test_only_read_only_agent_pane_actions_are_postconditions(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Sneaky", "wait": 0, "expect": {
+                "method": "debug.agent_pane", "params": {"action": "send_prompt"}, "fields": {"sent": True}}},
+        ]}), encoding="utf-8")
+        done = subprocess.run([sys.executable, str(SCRIPT), "--check", str(self.tour)],
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+
+
+class QuestionTourTests(unittest.TestCase):
+    """The question-card tour is selected by the paths that change the card, and checks."""
+
+    def test_question_card_paths_select_the_question_tour(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import path_map
+        for path in ("webviews/src/agent-session/acpmux/question/QuestionCard.tsx",
+                     "webviews/src/agent-session/acpmux/question/cardState.ts",
+                     "webviews/src/agent-session/acpmux/QuestionCard.css"):
+            self.assertIn("agent-question", path_map.tours_for_path(path), path)
+        self.assertNotIn("agent-question", path_map.tours_for_path("webviews/src/agent-session/acpmux/Composer.tsx"))
+
+    def test_the_question_tour_exists_and_checks(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import capture_paths
+        tour = capture_paths.TOUR_FILES["agent-question"]
+        done = subprocess.run([sys.executable, str(SCRIPT), "--check", str(tour)],
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        data = json.loads(tour.read_text(encoding="utf-8"))
+        self.assertEqual(data["harnesses"], ["fake-agent"])
+        sent = [step for step in data["steps"] if "text" in step]
+        self.assertTrue(sent and sent[0]["text"].startswith("question:"), "the prompt is typed into the composer")
+        self.assertIn(["down"], [step.get("keys") for step in data["steps"]])
+        self.assertIn(["cmd+return"], [step.get("keys") for step in data["steps"]])
+
+
+class FakeAgentQuestionTests(unittest.TestCase):
+    """The tour's agent: acpmux's fake agent asks a Claude-shaped AskUserQuestion."""
+
+    AGENT = ROOT / "cmux-tui/crates/acpmux/tests/fake_agent.py"
+
+    def ask(self, prompt: str, answer_label: str) -> tuple[dict, str]:
+        agent = subprocess.Popen([sys.executable, str(self.AGENT)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 text=True, env={**os.environ, "FAKE_NO_MODES": "1"})
+        self.addCleanup(agent.kill)
+
+        def send(message: dict) -> None:
+            agent.stdin.write(json.dumps({"jsonrpc": "2.0", **message}) + "\n")
+            agent.stdin.flush()
+
+        def read() -> dict:
+            return json.loads(agent.stdout.readline())
+
+        send({"id": 1, "method": "initialize", "params": {"protocolVersion": 1}})
+        read()
+        send({"id": 2, "method": "session/new", "params": {"cwd": "/tmp", "mcpServers": []}})
+        session = read()["result"]["sessionId"]
+        send({"id": 3, "method": "session/prompt",
+              "params": {"sessionId": session, "prompt": [{"type": "text", "text": prompt}]}})
+        ask = read()
+        while ask.get("method") != "session/request_permission":
+            ask = read()
+        question = ask["params"]["toolCall"]["rawInput"]["questions"][0]["question"]
+        send({"id": ask["id"], "result": {"outcome": {"outcome": "selected", "optionId": "allow_once"},
+                                          "_meta": {"updatedInput": {"answers": {question: answer_label}}}}})
+        reply = ""
+        while True:
+            message = read()
+            if message.get("id") == 3:
+                break
+            update = (message.get("params") or {}).get("update") or {}
+            if update.get("sessionUpdate") == "agent_message_chunk":
+                reply += update["content"]["text"]
+        return ask["params"], reply
+
+    def test_question_options_come_from_the_prompt(self) -> None:
+        params, reply = self.ask("question: Which color? | Red | Green | Blue", "Green")
+        tool = params["toolCall"]
+        self.assertEqual(tool["_meta"]["claude"]["tool"], "AskUserQuestion")
+        item = tool["rawInput"]["questions"][0]
+        self.assertEqual(item["question"], "Which color?")
+        self.assertEqual([option["label"] for option in item["options"]], ["Red", "Green", "Blue"])
+        self.assertEqual(reply, 'chose allow_once {"Which color?": "Green"}')
+
+    def test_a_question_without_options_keeps_a_and_b(self) -> None:
+        params, reply = self.ask("question: Which one?", "B")
+        item = params["toolCall"]["rawInput"]["questions"][0]
+        self.assertEqual(item["question"], "Which one?")
+        self.assertEqual([option["label"] for option in item["options"]], ["A", "B"])
+        self.assertEqual(reply, 'chose allow_once {"Which one?": "B"}')
 
 
 if __name__ == "__main__":

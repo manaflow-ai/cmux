@@ -3,6 +3,7 @@
 
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
+  "question: <q> [| <option>...]" -> Claude Code's AskUserQuestion, then echoes the answers
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
@@ -298,16 +299,20 @@ def handle_prompt(rid, params):
         return
     # "question: Q" asks Q the way Claude Code's AskUserQuestion does and
     # echoes the outcome plus the answers acpmux put into the tool input.
+    # "question: Q | X | Y | Z" offers X, Y and Z instead of A and B (the
+    # media tour's question card, scripts/cmux-next/media/tours).
     if text.startswith("question:"):
+        asked, *labels = [part.strip() for part in text[9:].split("|")]
+        choices = [{"label": label} for label in labels if label] or [{"label": "A", "description": "first"},
+                                                                       {"label": "B"}]
         res = request(
             "session/request_permission",
             {
                 "sessionId": sid,
                 "toolCall": {"toolCallId": "q1", "title": "Question", "kind": "other", "status": "pending",
-                             "rawInput": {"questions": [{"question": text[9:].strip(), "header": "Pick",
+                             "rawInput": {"questions": [{"question": asked, "header": "Pick",
                                                          "multiSelect": False,
-                                                         "options": [{"label": "A", "description": "first"},
-                                                                     {"label": "B"}]}]},
+                                                         "options": choices}]},
                              "_meta": {"claude": {"tool": "AskUserQuestion", "interactive": True}}},
                 "options": [
                     {"optionId": "allow_once", "name": "Answer", "kind": "allow_once"},

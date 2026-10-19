@@ -1,0 +1,23 @@
+{
+  "title": "Agent question card",
+  "harnesses": ["fake-agent"],
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Open agent chat", "cmux": ["agent", "new-chat"], "wait": 4, "shot": false},
+    {"title": "Start a fake-agent chat",
+     "request": {"method": "debug.agent_pane", "params": {"action": "new_chat", "harness": "fake-agent"}},
+     "wait": 2, "shot": false,
+     "expect": {"method": "debug.agent_pane", "params": {"action": "chat_state"}, "timeout": 20,
+                "fields": {"harness": "fake-agent", "isWorking": false}}},
+    {"title": "Type the prompt", "text": "question: Which color should the card use? | Amber | Blue | Green",
+     "wait": 1},
+    {"title": "Send: the agent asks", "keys": ["return"], "wait": 2,
+     "expect": {"method": "debug.agent_pane", "params": {"action": "chat_state"}, "timeout": 20,
+                "contains": {"permission.title": "Question"}}},
+    {"title": "Down: the second option", "keys": ["down"], "wait": 1},
+    {"title": "Cmd-Return: the answer reaches the agent", "keys": ["cmd+return"], "wait": 2,
+     "expect": {"method": "debug.agent_pane", "params": {"action": "chat_state"}, "timeout": 20,
+                "fields": {"permission": null},
+                "contains": {"lastAssistant.text": "\"Which color should the card use?\": \"Blue\""}}}
+  ]
+}
