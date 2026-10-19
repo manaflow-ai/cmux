@@ -23,9 +23,6 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var settings: @MainActor () -> AgentPaneReplySetting = { .fallback }
     /// The site of each URL (key: the URL as the page sent it), from cmux's own caches.
     public var sites: @MainActor ([URL]) -> [URL: AgentPaneReplySite] = { _ in [:] }
-    /// A site's icon fetched from `url` (the host's favicon loader: no cookies, size capped), for
-    /// the Thread details sources with labs `sourceIcons` on. Nil fetches nothing.
-    public var favicon: @MainActor (URL) async -> Data? = { _ in nil }
     /// Asks the user to open a file outside the project (the view's native sheet).
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Shows a folder (in Finder: nothing in it runs).
@@ -81,12 +78,6 @@ extension AgentPaneModel {
             return await loadReplyImage(src)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
-        case .favicon(let url):
-            // The site's own /favicon.ico, so the icon comes from the site the agent read.
-            guard AgentPaneTunables.sourceIcons.value, let host = url.host(percentEncoded: false),
-                  let icon = URL(string: "https://\(host)/favicon.ico"),
-                  let png = await replyLinks.favicon(icon), png.count <= 64 << 10 else { return AgentPaneReply.success() }
-            return AgentPaneReply.success(["icon": "data:image/png;base64," + png.base64EncodedString()])
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
         case .openIn(let url, let browserId):

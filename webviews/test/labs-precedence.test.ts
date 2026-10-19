@@ -84,7 +84,6 @@ test("with nothing set liveRender and renderGuide default on, even after layout 
     "renderExpand",
     "tableScroll",
     "chatViewer",
-    "sourceIcons",
   ]);
   for (const lab of LABS) expect(labOn(lab)).toBe(defaultsOn.has(lab));
   configureLabs({ labs: Object.fromEntries(LABS.map((lab) => [lab, !defaultsOn.has(lab)])) });

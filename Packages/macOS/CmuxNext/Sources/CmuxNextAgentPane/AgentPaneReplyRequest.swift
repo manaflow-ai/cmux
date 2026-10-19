@@ -16,8 +16,6 @@ public import Foundation
 /// - `media.load {src}`: a video or audio file inside the roots, as a URL the pane plays
 ///   (``AgentPaneMediaGrants``). Passive.
 /// - `browser.list {}`: the installed browsers, by opaque id. Passive.
-/// - `link.favicon {url}`: the site icon of a web URL for the Thread details sources, fetched
-///   by the host's favicon loader (no cookies, size capped) with labs `sourceIcons` on. Passive.
 /// - `browser.openIn {url, browserId}`: open a validated http(s) URL in one of them. Spends a
 ///   user gesture.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
@@ -27,11 +25,10 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case loadImage(String)
     case loadMedia(String)
     case listBrowsers
-    case favicon(URL)
     case openIn(url: URL, browserId: String)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
-    public static let methods: Set<String> = ["link.inspect", "link.openPath", "link.readPath", "image.load", "media.load", "browser.list", "browser.openIn", "link.favicon"]
+    public static let methods: Set<String> = ["link.inspect", "link.openPath", "link.readPath", "image.load", "media.load", "browser.list", "browser.openIn"]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list).
     static let knownParams: [String: Set<String>] = [
@@ -42,7 +39,6 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "media.load": ["src"],
         "browser.list": [],
         "browser.openIn": ["url", "browserId"],
-        "link.favicon": ["url"],
     ]
 
     /// Most paths or URLs in one `link.inspect` (one reply's chips).
@@ -53,7 +49,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage, .loadMedia, .favicon: true
+        case .inspect, .listBrowsers, .loadImage, .loadMedia: true
         case .openPath, .readPath, .openIn: false
         }
     }
@@ -99,9 +95,6 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             guard let raw = text("url", Self.maximumURL), let url = Self.webURL(raw),
                   let id = text("browserId", 64) else { return nil }
             self = .openIn(url: url, browserId: id)
-        case "link.favicon":
-            guard let raw = text("url", Self.maximumURL), let url = Self.webURL(raw) else { return nil }
-            self = .favicon(url)
         default:
             return nil
         }

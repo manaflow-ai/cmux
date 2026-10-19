@@ -262,6 +262,3 @@ button.acpmux-thread-details__row:focus-visible {
 :root[data-borders="none"] .acpmux-thread-details__more::before {
   display: none;
 }
-
-/* A source's site icon (labs sourceIcons): the generic row icon's size, a hair of rounding. */
-.acpmux-summary-favicon{flex:none;border-radius:2px;object-fit:contain}
