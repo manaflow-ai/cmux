@@ -54,7 +54,7 @@ Lengths given as numbers are pixels (`em` where noted); strings are CSS values. 
 | `markdown.defaultMode`         | `"rich"`                           | The mode a file opens in: `"rich"` or `"source"`.                                                                 |
 | `markdown.toolbar`             | `true`                             | Show the toolbar (file, save status, mode switch).                                                                |
 | `markdown.font.family`         | system UI font                     | `--cmux-md-font-family`                                                                                           |
-| `markdown.font.size`           | `16`                               | `--cmux-md-font-size`; the default text size (Settings row; Cmd-0 returns to it)                                 |
+| `markdown.font.size`           | `16`                               | `--cmux-md-font-size`; the default text size (Settings row; Cmd-0 returns to it)                                  |
 | `markdown.font.weight`         | `400`                              | `--cmux-md-font-weight`                                                                                           |
 | `markdown.font.lineHeight`     | `1.6`                              | `--cmux-md-line-height`                                                                                           |
 | `markdown.headings.family`     | the body font                      | `--cmux-md-heading-font-family`                                                                                   |
