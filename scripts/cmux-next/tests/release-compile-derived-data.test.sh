@@ -94,16 +94,22 @@ status=0; run STUB_STALE_PCM=1 || status=$?
 #    it on a first build, so refusing it failed every such Release compile
 #    ("refusing unexpected DerivedData path", from 2026-10-18). Other paths
 #    under RUNNER_TEMP stay refused.
-RT=$(mktemp -d /var/tmp/cmux-release-rt.XXXXXX)
+RT=$(mktemp -d /var/tmp/cmux-release-rt.XXXXXX); trap 'rm -rf "$TMP" "$RT"' EXIT
 mkdir -p "$RT/cmux-next-release-compile/Build/Products" "$RT/cmux-next-release-compile/SourcePackages" "$RT/other/Build"
 status=0
 RUNNER_TEMP="$RT" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$RT/cmux-next-release-compile" >"$TMP/out" 2>&1 || status=$?
-[[ $status -eq 0 ]] || { rm -rf "$RT"; fail "RUNNER_TEMP DerivedData refused (exit $status)"; }
+[[ $status -eq 0 ]] || fail "RUNNER_TEMP DerivedData refused (exit $status)"
 [[ ! -e "$RT/cmux-next-release-compile/Build" && -d "$RT/cmux-next-release-compile/SourcePackages" ]] \
-  || { rm -rf "$RT"; fail "RUNNER_TEMP DerivedData was not cleared to its packages"; }
+  || fail "RUNNER_TEMP DerivedData was not cleared to its packages"
 status=0
 RUNNER_TEMP="$RT" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$RT/other" >"$TMP/out" 2>&1 || status=$?
-[[ $status -eq 2 && -d "$RT/other/Build" ]] || { rm -rf "$RT"; fail "an unrelated RUNNER_TEMP path was cleared (exit $status)"; }
-rm -rf "$RT"
+[[ $status -eq 2 && -d "$RT/other/Build" ]] || fail "an unrelated RUNNER_TEMP path was cleared (exit $status)"
+mkdir -p "$RT/cmux-scheme-compile/Build"
+RUNNER_TEMP="$RT" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$RT/cmux-scheme-compile" >"$TMP/out" 2>&1 \
+  || fail "the scheme compile's RUNNER_TEMP DerivedData was refused"
+[[ ! -e "$RT/cmux-scheme-compile/Build" ]] || fail "the scheme compile's RUNNER_TEMP DerivedData was not cleared"
+status=0
+RUNNER_TEMP="$RT" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$RT/cmux-next-x/../other" >"$TMP/out" 2>&1 || status=$?
+[[ $status -eq 2 && -d "$RT/other/Build" ]] || fail "a .. path escaped the guard (exit $status)"
 
 printf 'release compile DerivedData tests: ok\n'
