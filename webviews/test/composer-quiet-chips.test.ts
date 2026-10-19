@@ -137,5 +137,71 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
           if (fine) expect(opened, "the open pill holds the hover step").toEqual(hover);
           await page.close();
         });
+
+    // Leo 2026-10-19, against the Claude app's chips ("Bypass permissions"): at rest every control
+    // shows its icon or label and no pill; the pointer gives a pill to the one button under it.
+    for (const stage of STAGES)
+      test(`${engine}: ${stage.entry} ${stage.variant}: no control draws a pill at rest, and hover pills only the hovered one`, async () => {
+        const page = await open(engine, stage.entry, stage.variant);
+        const pills = () =>
+          page.evaluate(() =>
+            [...document.querySelectorAll<HTMLElement>(":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer)")]
+              .filter((element) => {
+                const rect = element.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility === "visible";
+              })
+              .map((element) => {
+                const style = getComputedStyle(element);
+                const label = element.getAttribute("aria-label") ?? element.textContent?.trim() ?? element.className;
+                const filled = style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent";
+                return { label, pill: filled || style.boxShadow !== "none" };
+              }),
+          );
+        const rest = await pills();
+        expect(rest.length, "the stage shows its controls").toBeGreaterThan(1);
+        expect(rest.filter((each) => each.pill), "no pill at rest").toEqual([]);
+        const fine = await page.evaluate(() => matchMedia("(hover: hover) and (pointer: fine)").matches);
+        if (fine) {
+          const name = stage.chips[0]!;
+          const box = (await page.locator(chip(name)).first().boundingBox())!;
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+          await page.waitForTimeout(300);
+          const hovered = await pills();
+          expect(hovered.filter((each) => each.pill).map((each) => each.label), "only the hovered button pills").toEqual([
+            name,
+          ]);
+        }
+        await page.close();
+      });
+
+    // A press is the Claude app's: a tiny shrink with an almost invisible dip that springs back,
+    // never a brighter or tinted tone (that part is the test above).
+    test(`${engine}: a press shrinks the chip a hair and dips it faintly, then springs back`, async () => {
+      const stage = STAGES[0]!;
+      const page = await open(engine, stage.entry, stage.variant);
+      const read = () =>
+        page
+          .locator(chip(stage.chips[0]!))
+          .first()
+          .evaluate((element) => {
+            const style = getComputedStyle(element);
+            const scale = style.transform === "none" ? 1 : new DOMMatrixReadOnly(style.transform).a;
+            return { scale, opacity: Number(style.opacity) };
+          });
+      const box = (await page.locator(chip(stage.chips[0]!)).first().boundingBox())!;
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.waitForTimeout(200);
+      await page.mouse.down();
+      const pressed = await read();
+      await page.mouse.up();
+      await page.waitForTimeout(400);
+      const after = await read();
+      await page.close();
+      expect(pressed.scale, "the press shrinks the chip").toBeLessThan(0.99);
+      expect(pressed.scale, "only a hair").toBeGreaterThanOrEqual(0.96);
+      expect(pressed.opacity, "a faint dip").toBeLessThan(1);
+      expect(pressed.opacity, "almost imperceptible").toBeGreaterThanOrEqual(0.9);
+      expect(after, "nothing lingers").toEqual({ scale: 1, opacity: 1 });
+    });
   }
 });
