@@ -90,7 +90,10 @@
 #   cmux-tui-agent-screen-detection-<target> goes beside it as
 #   cmux-agent-screen-detection (cmux-agent-screen-detection.sha256), which the
 #   daemon runs by default; the pin carries no plugin fields yet (Release
-#   bundles none until its notices are mapped).
+#   bundles none until its notices are mapped). The slim terminal host rides
+#   the same way, tree mode only: cmux-tui-host-<target> goes beside it as
+#   cmux-tui-host (cmux-tui-host.sha256), which a macOS daemon runs every
+#   terminal host from; without it hosts re-exec the daemon's own binary.
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
@@ -747,7 +750,8 @@ local_build_matches() {
 
 # Fetches a companion binary of tree <key> into <dir>: cmux-tui-<artifact>-<target>
 # (app-host -> cmux-app-host, cloud-server -> cmux-cloud, browser-host ->
-# cmux-browser-host, agent-screen-detection -> cmux-agent-screen-detection) that
+# cmux-browser-host, host -> cmux-tui-host, agent-screen-detection ->
+# cmux-agent-screen-detection) that
 # the commit named by
 # <dir>/source.json published in its attested commit-addressed manifest. Records its
 # sha256, or `none` when that build published none, in <dir>/<file>.sha256.
@@ -841,6 +845,7 @@ fetch_tree_companions() {
   fetch_tree_companion "$1" "$2" app-host cmux-app-host
   fetch_tree_companion "$1" "$2" cloud-server cmux-cloud
   fetch_tree_companion "$1" "$2" browser-host cmux-browser-host
+  fetch_tree_companion "$1" "$2" host cmux-tui-host
   fetch_tree_companion "$1" "$2" agent-screen-detection cmux-agent-screen-detection
   # The app bundles acpmux too; a tree published before its build carried
   # acpmux has none, and the app build compiles it (build-acpmux.sh).

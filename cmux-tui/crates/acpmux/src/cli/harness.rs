@@ -40,6 +40,7 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("gemini", include_str!("../../harnesses/gemini.toml")),
     ("aider", include_str!("../../harnesses/aider.toml")),
     ("muse", include_str!("../../harnesses/muse.toml")),
+    ("unii", include_str!("../../harnesses/unii.toml")),
 ];
 
 /// The guide an agent follows to integrate a harness (`cmux harness guide`).

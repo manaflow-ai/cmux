@@ -8,8 +8,8 @@ extension TabStripView {
     /// Applies the model when it changed since the strip last synced: the App's
     /// calls (a switch shows strip and content in one transaction, L4) and the
     /// observation's echo of the same change do the work once (I6). A tab switch
-    /// updates the two cells whose selection changed; geometry moves only when
-    /// the strip is too narrow for every tab (`dependsOnSelection`).
+    /// updates the two cells whose selection changed; geometry never moves
+    /// (`TabLayoutEngine` lays tabs out without reading the selection).
     public func syncFromModel() {
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
@@ -30,13 +30,9 @@ extension TabStripView {
         if let lastSelectedID { cells[lastSelectedID]?.isSelected = false }
         if let selected { cells[selected]?.isSelected = true }
         lastSyncedInput = input
-        if result.dependsOnSelection {
-            relayout(animated: !reduceMotion)
-        } else {
-            // Same geometry: only what the selected tab draws over or hides changes.
-            TabSeparatorVisibility.apply(to: self)
-            updateOcclusion()
-        }
+        // Same geometry: only what the selected tab draws over or hides changes.
+        TabSeparatorVisibility.apply(to: self)
+        updateOcclusion()
         if let selected { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
         overflowHints.update()
