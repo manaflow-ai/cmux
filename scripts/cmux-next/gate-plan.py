@@ -26,7 +26,9 @@ It runs nothing remote: it reads git, the target graph and the receipt store.
 Usage: scripts/cmux-next/gate-plan.py [--base REF] [--lane NAME] [--out FILE]
 Then:  $HQ_ROOT/.cmux-scratch/nx-worker/gate-run.sh --head $(git rev-parse HEAD) \\
          --out /tmp/gates/<lane>-<sha8>.json --steps FILE
-Commit first: the plan is for HEAD, and gate-run refuses a dirty tree.
+Commit first: the plan is for HEAD, and gate-run refuses a dirty tree. When it
+prints `first:` (a cmux-ci step needs the SHA on origin), run that side push
+before gate-run: a cmux-ci --ref step waits for a commit origin does not have.
 """
 
 from __future__ import annotations
@@ -129,13 +131,15 @@ def suite_filters(graph: dict, target: str, changed: list[str], every: bool = Fa
 
 
 def pushed(head: str) -> bool:
-    """HEAD is in the lane's upstream or in feat-cmux-next (local refs; no network)."""
-    refs = ["origin/feat-cmux-next"]
+    """HEAD is in the lane's upstream, its gate side branch or feat-cmux-next (local refs; no network)."""
+    refs = ["origin/feat-cmux-next", f"origin/cmux-next-gate-{head[:12]}"]
     upstream = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--abbrev-ref", "@{upstream}"],
                               capture_output=True, text=True).stdout.strip()
     if upstream:
         refs.append(upstream)
-    return any(subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", head, ref]).returncode == 0
+    # A ref that does not exist (no gate side branch yet) is not an error.
+    return any(subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", head, ref],
+                              stderr=subprocess.DEVNULL).returncode == 0
                for ref in refs)
 
 
