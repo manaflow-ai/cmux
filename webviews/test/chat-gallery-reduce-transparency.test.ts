@@ -29,7 +29,9 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
   async function open(): Promise<Page> {
     const page = await browser!.newPage();
     await page.setContent(
-      `<style>:root{--agent-page-bg:rgb(30, 30, 30)}${css}</style><div class="acpmux-chat-gallery" id="g"></div>`,
+      // A translucent window (or a custom surface) sends a fully clear page background, so the solid
+      // look must come from the always-opaque surface token, as the composer's does.
+      `<style>:root{--agent-page-bg:transparent;--cmux-surface-solid:rgb(30, 30, 30);--acpmux-base:rgb(40, 40, 40)}${css}</style><div class="acpmux-chat-gallery" id="g"></div>`,
     );
     return page;
   }
@@ -70,7 +72,7 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
       return values;
     });
     expect(set["backdrop-filter"]).toBe("none");
-    expect(set.background ?? set["background-color"]).toBe("var(--agent-page-bg)");
+    expect(set.background ?? set["background-color"]).toBe("var(--cmux-surface-solid, var(--acpmux-base))");
     await page.close();
   });
 });
