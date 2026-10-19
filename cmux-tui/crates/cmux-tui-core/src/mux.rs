@@ -337,6 +337,8 @@ pub use presentation::{
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 use resource_content::ensure_screen_split_public_ids;
+#[cfg(unix)]
+pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
     BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, RoomClose,
 };
@@ -675,6 +677,8 @@ pub struct Mux {
     /// frontend bootstraps an otherwise empty session.
     initial_bootstrap: Mutex<()>,
     resource_creation_execution: Mutex<()>,
+    #[cfg(unix)]
+    agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Terminals with a possibly live host and no runtime surface (R41),

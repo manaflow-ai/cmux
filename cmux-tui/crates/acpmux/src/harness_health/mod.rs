@@ -15,6 +15,10 @@ pub(crate) mod inventory;
 pub(crate) mod inventory_feed;
 mod inventory_refresh;
 pub(crate) use inventory_refresh::INVENTORY_REFRESH_FEATURE;
+mod update_plan;
+pub(crate) use update_plan::UPDATE_PLAN_FEATURE;
+mod update_prepare;
+pub(crate) use update_prepare::UPDATE_PREPARE_FEATURE;
 pub mod latest;
 pub mod probe;
 
