@@ -54,7 +54,8 @@ class ReleaseNotesTests(unittest.TestCase):
     def test_summary_only_build_generates_a_valid_digest(self):
         since = self.head
         for subject in (
-            "feat: Keep favorite destinations within easy reach across all of your open windows",
+            # A digest title keeps a whole line of at most 60 characters (#21873).
+            "feat: Keep favorite destinations within easy reach",
             "fix: Preserve the selected tab when another window closes",
             "perf: Make switching between open windows smoother",
         ):
