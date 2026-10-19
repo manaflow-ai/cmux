@@ -8,6 +8,10 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     public var subtitle: String?
     public var icon: TabIcon
     public var isPinned: Bool
+    /// False for a tab the person cannot close (the Home tab of a pinned
+    /// dock column, `pinned-dock-v1`): it shows no close button, and Cmd-W
+    /// keeps it as it keeps a pinned tab.
+    public var isClosable = true
     /// Neutral notification dot (new output, unread notification).
     public var isUnread: Bool
     /// The state the icon slot shows (`StatusIndicatorLayer`): busy or
