@@ -29,6 +29,13 @@ nonisolated extension DeepLink {
     ///   - adopted: The agent chat tab resuming `harness:session`, if any.
     ///   - terminals: The terminal tabs of the connected machines, in order.
     /// - Returns: The tab id to reveal, or nil.
+    public static func agentTab(harness: String, session: String, adopted: String?,
+                                terminals: [(tab: String, agent: String?, session: String)]) -> String? {
+        agentTab(harness: harness, session: session, adopted: adopted,
+                 terminals: terminals.map { AgentCandidate(tab: $0.tab, harness: $0.agent, session: $0.session) })
+    }
+
+    /// ``agentTab(harness:session:adopted:terminals:)`` over candidate values.
     public static func agentTab(harness: String, session: String, adopted: String?, terminals: [AgentCandidate]) -> String? {
         if let adopted { return adopted }
         return terminals.first { candidate in

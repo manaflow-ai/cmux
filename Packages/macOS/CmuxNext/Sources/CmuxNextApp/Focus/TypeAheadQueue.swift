@@ -7,7 +7,6 @@ struct TypeAheadQueue: Equatable {
     private struct Wire: Codable, Equatable {
         var surface: String?
         var text = ""
-        var startedNs: Int64?
     }
 
     private var wire = Wire()
