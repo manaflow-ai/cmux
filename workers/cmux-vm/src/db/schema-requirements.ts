@@ -49,6 +49,7 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v2_check", migration: "0012" },
   { table: "cmux_vm.mesh_overlay_servers", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0013" },
   { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v3_check", migration: "0013" },
+  { table: "cmux_vm.mesh_overlay_server_codes", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0014" },
 ];
 
 /** The highest migration this build's requirements name. */

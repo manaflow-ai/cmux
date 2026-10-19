@@ -96,6 +96,38 @@ Apply it and grant the Worker SELECT, INSERT and UPDATE on
 schema gate requires the table, these privileges and a validated replay
 constraint; older gateway rows/readers remain unchanged.
 
+An approver can instead issue `POST /v1/meshes/{meshId}/overlay-server-codes`
+with the approved `name`, `wgPublicKey` and `installPublicKey`. The response
+contains an `msc_` code, those bindings, tenant/mesh ids, a reserved device id
+and a 10-minute expiry. Issuance creates no server; the code is shown once
+and only its SHA-256 is stored. Each mesh may issue 20 codes per hour.
+Deliver the response through the approved pairing channel.
+
+The server redeems at `POST /v1/meshes/{meshId}/overlay-server-enrollments`
+without an account credential. Sign `cmux-mesh-v1` with purpose
+`enroll-overlay-server`, mesh id as target, the approved public keys, and
+`<code>:<name>` as the name line. Colons are not allowed in a plain server
+name, so this cannot be replayed as credential enrollment. The signature
+must be fresh and single use. Authentication failures burn unused codes;
+quota and dependency failures leave them usable with a fresh signature.
+Registration and consumption commit atomically. Until expiry, a fresh
+signed retry acknowledges the same live identity; revocation cannot revive
+it. After a lost response the reserved device id also supports signed policy
+recovery, including after code expiry.
+
+Use `device server-code MESH --request binding.json` to approve, and
+`device redeem-server-code MESH --request signed-code.json` to redeem.
+Redemption reads no account configuration and sends no account headers;
+its origin comes from `--base-url`, `CMUX_VM_BASE_URL`, or the default API.
+The code stays in the request file rather than command arguments. Private
+keys remain with the signer. This API does not deliver the code or activate
+a server role; backend pairing still needs to supply the approved channel.
+
+Migration 0014 adds `cmux_vm.mesh_overlay_server_codes`. Apply it through
+the versioned runner and grant the Worker SELECT, INSERT and UPDATE before
+deployment. The schema gate checks those privileges. Gateway codes and
+older readers retain their own table and code prefix.
+
 ## gdp-ts proofs
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,

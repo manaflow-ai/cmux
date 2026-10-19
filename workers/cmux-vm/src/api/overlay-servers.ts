@@ -17,10 +17,29 @@ export class OverlayServerPolicy extends OverlayPolicy.extend<OverlayServerPolic
   tenantId: TenantId.annotations({ description: "The Native tenant that owns this mesh. A backend binding must match its authoritative tenant mapping and both public keys; an opaque mesh id alone is insufficient." }),
 }) {}
 
+export class OverlayServerBinding extends Schema.Class<OverlayServerBinding>("OverlayServerBinding")({
+  name: EnrollDeviceRequest.fields.name, wgPublicKey: WgPublicKey, installPublicKey: InstallPublicKey,
+}) {}
+export const OverlayServerCodeValue = Schema.String.pipe(Schema.pattern(/^msc_[0-9a-hjkmnp-tv-z]{26}$/u));
+export class OverlayServerCode extends Schema.Class<OverlayServerCode>("OverlayServerCode")({
+  code: OverlayServerCodeValue, deviceId: DeviceId, meshId: MeshId, tenantId: TenantId, expiresAt: Schema.String, binding: OverlayServerBinding,
+}, { description: "An approved server-only invitation, valid for 10 minutes. Only its hash is stored. The reserved device id supports signed policy recovery after a lost enrollment response." }) {}
+export class CodeEnrollOverlayServerRequest extends EnrollDeviceRequest.extend<CodeEnrollOverlayServerRequest>("CodeEnrollOverlayServerRequest")({ code: OverlayServerCodeValue }) {}
+
 const PATH = Schema.Struct({ deviceId: Schema.String });
 const MESH_PATH = Schema.Struct({ meshId: Schema.String });
 const EXPERIMENT = "Answers 404 unless the mesh experiment is enabled for this tenant.";
 const OWN = "Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply.";
+
+export const createOverlayServerCodeEndpoint = HttpApiEndpoint.post("createOverlayServerCode", "/v1/meshes/:meshId/overlay-server-codes")
+  .setPath(MESH_PATH).setHeaders(GroupCreateHeaders).setPayload(OverlayServerBinding).addSuccess(OverlayServerCode, { status: 201 })
+  .addError(BadRequest).addError(Forbidden).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
+  .annotateContext(describe("Approve a server enrollment code", "mesh:join", `Pins the approved name, WireGuard and install public keys; creates no server or tunnel. Shown once, 10 minutes, at most 20 per mesh per hour. Deliver through the approved pairing channel. ${EXPERIMENT}`));
+
+export const codeEnrollOverlayServerEndpoint = HttpApiEndpoint.post("codeEnrollOverlayServer", "/v1/meshes/:meshId/overlay-server-enrollments")
+  .setPath(MESH_PATH).setPayload(CodeEnrollOverlayServerRequest).addSuccess(OverlayServer, { status: 201 })
+  .addError(BadRequest).addError(Forbidden).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
+  .annotateContext(OpenApi.annotations({ summary: "Redeem an approved server code", description: `No credential: sign cmux-mesh-v1 with purpose enroll-overlay-server, mesh id as target, the pinned keys, and code:name as the name line. Fresh (120 s), single use. Authentication failures burn unused codes; capacity and dependency failures leave them usable. A fresh signed retry acknowledges the exact live reserved identity until expiry; revocation never recreates it. ${EXPERIMENT}` }));
 
 export const enrollOverlayServerEndpoint = HttpApiEndpoint.post("enrollOverlayServer", "/v1/meshes/:meshId/overlay-servers")
   .setPath(MESH_PATH).setHeaders(GroupCreateHeaders).setPayload(EnrollDeviceRequest).addSuccess(OverlayServer, { status: 201 })
@@ -54,6 +73,6 @@ export const signedRevokeOverlayServerEndpoint = HttpApiEndpoint.post("signedRev
   .annotateContext(OpenApi.annotations({ summary: "A server revokes its own overlay identity", description: `No credential: sign with distinct purpose revoke-overlay-server, device id as target, empty WireGuard key/name and the recorded install key. Fresh and single use. Existing grants do not activate another role. ${EXPERIMENT}` }));
 
 export class OverlayServersGroupDefinition extends HttpApiGroup.make("overlayServers")
-  .add(enrollOverlayServerEndpoint).add(listOverlayServersEndpoint).add(getOverlayServerEndpoint).add(getOverlayServerPolicyEndpoint).add(revokeOverlayServerEndpoint) {}
+  .add(createOverlayServerCodeEndpoint).add(enrollOverlayServerEndpoint).add(listOverlayServersEndpoint).add(getOverlayServerEndpoint).add(getOverlayServerPolicyEndpoint).add(revokeOverlayServerEndpoint) {}
 export class OverlayServerDeviceGroupDefinition extends HttpApiGroup.make("overlayServerDevice")
-  .add(signedOverlayServerPolicyEndpoint).add(signedRevokeOverlayServerEndpoint) {}
+  .add(codeEnrollOverlayServerEndpoint).add(signedOverlayServerPolicyEndpoint).add(signedRevokeOverlayServerEndpoint) {}

@@ -63,6 +63,19 @@ impl<'a> Printer<'a> {
         ))
     }
 
+    pub fn overlay_server_code(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let grant: cmux_vm_client::types::OverlayServerCode = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        self.line(&format!(
+            "{} reserved {} expires {}",
+            grant.code,
+            grant.device_id.as_str(),
+            grant.expires_at.escape_debug()
+        ))
+    }
+
     pub fn overlay_server_list(&mut self, body: &[u8]) -> Result<(), CliError> {
         let list: cmux_vm_client::types::OverlayServerList = decode(body)?;
         if self.json {

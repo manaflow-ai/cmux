@@ -37,6 +37,7 @@ describe("the endpoint table", () => {
       "GET /healthz",
       // No credential (the one-time code is one); test/workers/mesh-m2.test.ts covers it.
       "POST /v1/meshes/{meshId}/device-enrollments",
+      "POST /v1/meshes/{meshId}/overlay-server-enrollments",
       // No credential (the device's install-key signature is one); test/workers/mesh-m3.test.ts covers them.
       "POST /v1/devices/{deviceId}/signed/peers",
       "POST /v1/devices/{deviceId}/signed/tunnel",

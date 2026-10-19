@@ -6,6 +6,7 @@
 import { Effect, Layer, Option } from "effect";
 import { TenantId } from "../lib/ids.ts";
 import type { OverlayServerRow } from "./overlay-servers.ts";
+import type { OverlayServerCodeRow } from "./overlay-server-codes.ts";
 import { MeshStore, type MeshAclVersion, type MeshDeviceRow, type MeshEnrollmentCodeRow, type MeshMemberRow, type MeshRuleRow } from "./mesh.ts";
 
 /** A code row as tests may age it (expiresAt is writable here only). */
@@ -23,8 +24,25 @@ export function makeMemoryMeshStore() {
   const rules: Array<MeshRuleRow & { readonly tenantId: string; deletedAt: Date | null }> = [];
   const signed = new Map<string, Date>();
   const codes: Array<MemoryEnrollmentCode> = [];
+  const serverCodes: Array<OverlayServerCodeRow> = [];
 
   const layer = Layer.succeed(MeshStore, {
+    insertOverlayServerCode: (row) => Effect.sync(() => { serverCodes.push({ ...row }); }),
+    findOverlayServerCode: (hash) => Effect.sync(() => Option.fromNullable(serverCodes.find((row) => row.codeSha256 === hash))),
+    recentOverlayServerCodes: (tenant, mesh, since) => Effect.sync(() => serverCodes.filter((row) => row.tenantId === tenant && row.meshId === mesh && row.createdAt > since)),
+    burnOverlayServerCode: (hash, at) => Effect.sync(() => { const i = serverCodes.findIndex((row) => row.codeSha256 === hash && row.usedAt === null); const row = serverCodes[i]; if (row !== undefined) serverCodes[i] = { ...row, burnedAt: row.burnedAt ?? at }; }),
+    redeemOverlayServerCode: (tenant, hash, mesh, at) => Effect.sync(() => {
+      const i = serverCodes.findIndex((row) => row.tenantId === tenant && row.codeSha256 === hash && row.meshId === mesh && row.burnedAt === null && row.expiresAt > at);
+      const code = serverCodes[i]; if (code === undefined) return false;
+      const existing = servers.find((row) => row.deviceId === code.deviceId);
+      if (existing !== undefined) {
+        if (existing.revokedAt !== null || existing.tenantId !== tenant || existing.meshId !== mesh || existing.createdBy !== code.createdBy || existing.name !== code.name || existing.wgPublicKey !== code.wgPublicKey || existing.installPublicKey !== code.installPublicKey) return false;
+      } else {
+        if (code.usedAt !== null || servers.some((row) => row.revokedAt === null && row.tenantId === tenant && row.meshId === mesh && (row.wgPublicKey === code.wgPublicKey || row.installPublicKey === code.installPublicKey))) return false;
+        servers.push({ deviceId: code.deviceId, meshId: mesh, name: code.name, wgPublicKey: code.wgPublicKey, installPublicKey: code.installPublicKey, createdBy: code.createdBy, createdAt: at, tenantId: tenant, revokedAt: null });
+      }
+      serverCodes[i] = { ...code, usedAt: code.usedAt ?? at }; return true;
+    }),
     recordOverlayServer: (tenantId, row) => Effect.sync(() => {
       if (servers.some((other) => other.deviceId === row.deviceId || (other.revokedAt === null && other.tenantId === tenantId && other.meshId === row.meshId && (other.wgPublicKey === row.wgPublicKey || other.installPublicKey === row.installPublicKey)))) return false;
       servers.push({ ...row, tenantId, revokedAt: null }); return true;
@@ -207,5 +225,6 @@ export function makeMemoryMeshStore() {
     slots,
     /** The stored enrollment codes (hashes only); tests may move `expiresAt`. */
     enrollmentCodes: (): ReadonlyArray<MemoryEnrollmentCode> => codes,
+    overlayServerCodes: (): ReadonlyArray<OverlayServerCodeRow> => serverCodes,
   };
 }

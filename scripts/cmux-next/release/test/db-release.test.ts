@@ -95,8 +95,8 @@ const rows = async (w: World, db: string): Promise<Array<string>> => {
 
 const branchesMade = (w: World) => w.provider.calls.filter((c) => c.startsWith("create ")).map((c) => c.split(" ")[1]!.split("/")[1]!)
 const addExtra = (w: World) => {
-  addMigration(w.root, "cmux-vm", "0014_extra.sql", "CREATE TABLE IF NOT EXISTS cmux_vm.extra (id text PRIMARY KEY);\n")
-  addRequirement(w.root, '{ table: "cmux_vm.extra", migration: "0014" }')
+  addMigration(w.root, "cmux-vm", "0015_extra.sql", "CREATE TABLE IF NOT EXISTS cmux_vm.extra (id text PRIMARY KEY);\n")
+  addRequirement(w.root, '{ table: "cmux_vm.extra", migration: "0015" }')
 }
 /** A git checkout whose origin is a local bare repo with feat-cmux-next at HEAD (tests accept any origin URL). */
 const landed = (w: World) => {
@@ -138,11 +138,11 @@ describe("apply rehearses in the same run, under the same lock", () => {
   it("P2-6 a forged passing rehearsal receipt does not let a failing migration through", async () => {
     const w = await world()
     expect(await w.run("apply", ...S)).toBe(0)
-    addMigration(w.root, "cmux-vm", "0014_bad.sql", "CREATE TABLE cmux_vm.bad (id text REFERENCES cmux_vm.nope (id));\n")
-    addRequirement(w.root, '{ table: "cmux_vm.bad", migration: "0014" }')
+    addMigration(w.root, "cmux-vm", "0015_bad.sql", "CREATE TABLE cmux_vm.bad (id text REFERENCES cmux_vm.nope (id));\n")
+    addRequirement(w.root, '{ table: "cmux_vm.bad", migration: "0015" }')
     for (const set of ["any", "c503862df1a7"]) writeReceipt(w.receipts, { action: "rehearse", tree: "cmux-vm", target: "staging", result: "pass", at: new Date(w.clock).toISOString(), setHash: set, branchDeleted: true, by: "forged" })
     expect(await w.run("apply", ...S)).toBe(1)
-    expect(w.errors.join()).toContain("0014_bad.sql")
+    expect(w.errors.join()).toContain("0015_bad.sql")
     for (const b of branchesMade(w)) expect(await w.provider.exists("cmux-prod", b)).toBe(false)
     expect((await rows(w, w.staging)).length).toBe(baseCount)
   })
@@ -252,7 +252,7 @@ describe("production", () => {
     expect(await w.run("apply", ...P)).toBe(1)
     expect(w.errors.at(-1)).toContain("uncommitted migration changes")
     git(w.root, "add", ".")
-    git(w.root, "commit", "-qm", "0014 not landed")
+    git(w.root, "commit", "-qm", "0015 not landed")
     expect(await w.run("apply", ...P)).toBe(1)
     expect(w.errors.at(-1)).toContain("is not on origin/feat-cmux-next")
     git(w.root, "push", "-q", "origin", "HEAD:refs/heads/feat-cmux-next")
@@ -319,17 +319,17 @@ describe("special files", () => {
   it("a contract migration applies only with --allow-contract naming it", async () => {
     const w = await world()
     expect(await w.run("apply", ...S)).toBe(0)
-    addMigration(w.root, "cmux-vm", "0014_drop_labels_idx.sql", "-- contract: the labels index is unused since the search moved to the API\nDROP INDEX IF EXISTS cmux_vm.resources_labels_idx;\n")
-    addRequirement(w.root, '{ table: "cmux_vm.resources", migration: "0014" }')
+    addMigration(w.root, "cmux-vm", "0015_drop_labels_idx.sql", "-- contract: the labels index is unused since the search moved to the API\nDROP INDEX IF EXISTS cmux_vm.resources_labels_idx;\n")
+    addRequirement(w.root, '{ table: "cmux_vm.resources", migration: "0015" }')
     expect(await w.run("apply", ...S)).toBe(1)
     expect(w.errors.join()).toContain("--allow-contract")
-    expect(await w.run("apply", ...S, "--allow-contract", "0014_drop_labels_idx.sql")).toBe(0)
+    expect(await w.run("apply", ...S, "--allow-contract", "0015_drop_labels_idx.sql")).toBe(0)
   })
 
   it("CREATE INDEX CONCURRENTLY runs outside a transaction and leaves a valid index", async () => {
     const w = await world()
-    addMigration(w.root, "cmux-vm", "0014_resources_created_by.sql", "CREATE INDEX CONCURRENTLY IF NOT EXISTS resources_created_by ON cmux_vm.resources (created_by);\n")
-    addRequirement(w.root, '{ table: "cmux_vm.resources_created_by", migration: "0014" }')
+    addMigration(w.root, "cmux-vm", "0015_resources_created_by.sql", "CREATE INDEX CONCURRENTLY IF NOT EXISTS resources_created_by ON cmux_vm.resources (created_by);\n")
+    addRequirement(w.root, '{ table: "cmux_vm.resources_created_by", migration: "0015" }')
     expect(await w.run("apply", ...S)).toBe(0)
     const s = await w.admin(w.staging)
     const [row] = await s.query<{ v: boolean }>("SELECT indisvalid AS v FROM pg_index WHERE indexrelid = 'cmux_vm.resources_created_by'::regclass")
@@ -348,7 +348,7 @@ describe("special files", () => {
     expect(await w.run("rehearse", ...S, "--adopt-through", "0008")).toBe(0)
     expect(await w.run("adopt", ...S, "--through", "0008")).toBe(0)
     expect(await w.run("apply", ...S)).toBe(0)
-    expect((await rows(w, w.staging)).at(-1)).toBe("0014_extra.sql")
+    expect((await rows(w, w.staging)).at(-1)).toBe("0015_extra.sql")
   })
 
   it("adopt refuses a database that lacks what it would record", async () => {
@@ -362,7 +362,7 @@ describe("special files", () => {
 
   it("rehearse and apply refuse a tree the linter refuses, before any branch", async () => {
     const w = await world()
-    addMigration(w.root, "cmux-vm", "0014_drop.sql", "DROP TABLE cmux_vm.audit_log;\n")
+    addMigration(w.root, "cmux-vm", "0015_drop.sql", "DROP TABLE cmux_vm.audit_log;\n")
     expect(await w.run("rehearse", ...S)).toBe(1)
     expect(w.errors.at(-1)).toContain("migration lint refuses this tree")
     expect(await w.run("apply", ...S)).toBe(1)
@@ -402,7 +402,7 @@ describe("deploy ordering gate (reads the database)", () => {
     expect(w.errors.join("\n")).toContain("mesh_overlay_servers: no INSERT privilege")
     expect(w.logs.join("\n")).toContain("cannot read cmux_vm.schema_migrations")
     await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.stack_webhook_events TO "${role}"`)
-    await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.mesh_overlay_servers TO "${role}"`)
+    await s.query(`GRANT SELECT, INSERT, UPDATE ON cmux_vm.mesh_overlay_server_codes, cmux_vm.mesh_overlay_servers TO "${role}"`)
     expect(await w.run("gate", ...asWorker)).toBe(0)
     await s.query(`REVOKE ALL ON ALL TABLES IN SCHEMA cmux_vm FROM "${role}"; REVOKE ALL ON SCHEMA cmux_vm FROM "${role}"`)
     await s.end()
@@ -439,7 +439,7 @@ describe("acceptance migration 0009 and the receipt format", () => {
     expect(apply.target).toBe("staging")
     expect(apply.pending).toContainEqual({ name: "0009_cmux_vm_mesh_device_address.sql", checksum: sha256(sql) })
     expect(apply.before).toEqual([])
-    expect(apply.after?.at(-1)).toBe("0013_cmux_vm_overlay_servers.sql")
+    expect(apply.after?.at(-1)).toBe("0014_cmux_vm_overlay_server_codes.sql")
     expect(apply.rollback?.[0]).toContain("wrangler rollback")
     expect(apply.rollback).toContainEqual(expect.stringContaining("ALTER TABLE cmux_vm.mesh_devices DROP COLUMN IF EXISTS public_ipv6"))
     expect(apply.runId).toBe("gh:4242/1")
@@ -480,7 +480,7 @@ describe("design B, D, F, G (third review)", () => {
     expect(await w.run("apply", ...P)).toBe(0) // bootstrap: the pending set creates the schema
     addExtra(w)
     git(w.root, "add", ".")
-    git(w.root, "commit", "-qm", "0014")
+    git(w.root, "commit", "-qm", "0015")
     git(w.root, "push", "-q", "origin", "HEAD:refs/heads/feat-cmux-next")
     expect(await w.run("apply", ...S)).toBe(0)
     expect(await w.run("apply", ...P)).toBe(1)
@@ -488,12 +488,12 @@ describe("design B, D, F, G (third review)", () => {
   })
   it("D production reads migration files from git at the verified commit, not from disk", async () => {
     const w = await world()
-    writeFileSync(join(w.root, ".gitignore"), "workers/cmux-vm/migrations/0015_*.sql\n")
+    writeFileSync(join(w.root, ".gitignore"), "workers/cmux-vm/migrations/0016_*.sql\n")
     landed(w)
     expect(await w.run("apply", ...S)).toBe(0)
-    writeFileSync(join(w.root, "workers/cmux-vm/migrations/0015_ignored.sql"), "CREATE TABLE cmux_vm.ignored (id text);\n")
+    writeFileSync(join(w.root, "workers/cmux-vm/migrations/0016_ignored.sql"), "CREATE TABLE cmux_vm.ignored (id text);\n")
     expect(await w.run("apply", ...P)).toBe(0)
-    expect(await rows(w, w.production)).not.toContain("0015_ignored.sql")
+    expect(await rows(w, w.production)).not.toContain("0016_ignored.sql")
     expect(readReceipts(w.receipts).filter((r) => r.action === "apply").at(-1)?.what).toContain("from git")
   })
   it("F production refuses the test-only compat overrides in the environment", async () => {
@@ -553,9 +553,9 @@ describe("rails-hardening-1: owner checks, bootstrap and the environment (P3)", 
   it("P3-3 DROP INDEX CONCURRENTLY runs outside a transaction", async () => {
     const w = await world()
     expect(await w.run("apply", ...S)).toBe(0)
-    addMigration(w.root, "cmux-vm", "0014_drop_idx.sql", "-- contract: the labels index is unused since the search moved to the API\nDROP INDEX CONCURRENTLY IF EXISTS cmux_vm.resources_labels_idx;\n")
-    addRequirement(w.root, '{ table: "cmux_vm.resources", migration: "0014" }')
-    expect(await w.run("apply", ...S, "--allow-contract", "0014_drop_idx.sql")).toBe(0)
+    addMigration(w.root, "cmux-vm", "0015_drop_idx.sql", "-- contract: the labels index is unused since the search moved to the API\nDROP INDEX CONCURRENTLY IF EXISTS cmux_vm.resources_labels_idx;\n")
+    addRequirement(w.root, '{ table: "cmux_vm.resources", migration: "0015" }')
+    expect(await w.run("apply", ...S, "--allow-contract", "0015_drop_idx.sql")).toBe(0)
     const s = await w.admin(w.staging)
     expect((await s.query<{ v: string | null }>("SELECT to_regclass('cmux_vm.resources_labels_idx')::text AS v"))[0]?.v).toBeNull()
     await s.end()
@@ -576,10 +576,10 @@ describe("rails-hardening-2 (fifth review follow-up)", () => {
     const s = await w.owner(w.staging)
     await s.query("DROP INDEX cmux_vm.resources_labels_idx")
     await s.end()
-    addMigration(w.root, "cmux-vm", "0014_drop_idx.sql", "-- contract: the labels index is unused since the search moved to the API\nDROP INDEX CONCURRENTLY cmux_vm.resources_labels_idx;\n")
-    addRequirement(w.root, '{ table: "cmux_vm.resources", migration: "0014" }')
-    expect(await w.run("apply", ...S, "--allow-contract", "0014_drop_idx.sql")).toBe(0)
-    expect((await rows(w, w.staging)).at(-1)).toBe("0014_drop_idx.sql")
+    addMigration(w.root, "cmux-vm", "0015_drop_idx.sql", "-- contract: the labels index is unused since the search moved to the API\nDROP INDEX CONCURRENTLY cmux_vm.resources_labels_idx;\n")
+    addRequirement(w.root, '{ table: "cmux_vm.resources", migration: "0015" }')
+    expect(await w.run("apply", ...S, "--allow-contract", "0015_drop_idx.sql")).toBe(0)
+    expect((await rows(w, w.staging)).at(-1)).toBe("0015_drop_idx.sql")
   })
 })
 
@@ -614,7 +614,7 @@ describe("VM creation receipt migrations", () => {
       expect(indexes).toEqual([{ indisvalid: true }])
       const constraints = await sql.query<{ conname: string }>("SELECT conname FROM pg_constraint WHERE conrelid = 'cmux_vm.resources'::regclass AND conname LIKE 'resources_creation_%' ORDER BY conname")
       expect(constraints.map((r) => r.conname)).toEqual(["resources_creation_key_check", "resources_creation_receipt_check"])
-      expect((await rows(w, w.staging)).slice(-4)).toEqual(["0010_cmux_vm_creation_receipts.sql", "0011_cmux_vm_creation_receipt_index.sql", "0012_cmux_vm_device_overlay_policy.sql", "0013_cmux_vm_overlay_servers.sql"])
+      expect((await rows(w, w.staging)).slice(-5)).toEqual(["0010_cmux_vm_creation_receipts.sql", "0011_cmux_vm_creation_receipt_index.sql", "0012_cmux_vm_device_overlay_policy.sql", "0013_cmux_vm_overlay_servers.sql", "0014_cmux_vm_overlay_server_codes.sql"])
     } finally { await sql.end() }
   })
 })

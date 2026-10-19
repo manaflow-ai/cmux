@@ -179,6 +179,10 @@ enum DeviceCommand {
     OverlayPolicy(DeviceArg),
     /// Enroll a provider-free destination using a locally signed public request
     EnrollServer(ServerEnrollArgs),
+    /// Approve public keys and print a short-lived server enrollment code
+    ServerCode(ServerEnrollArgs),
+    /// Redeem a signed code file without reading account configuration
+    RedeemServerCode(ServerEnrollArgs),
     /// Read a provider-free server's identity
     GetServer(DeviceArg),
     /// List visible provider-free servers in a mesh
@@ -193,7 +197,7 @@ enum DeviceCommand {
 struct ServerEnrollArgs {
     /// Mesh id (mesh_...)
     mesh_id: String,
-    /// JSON containing name, public keys, signedAt, nonce and install signature
+    /// Public binding JSON, or a signed enrollment JSON for enroll/redeem
     #[arg(long)]
     request: PathBuf,
 }
@@ -481,6 +485,21 @@ fn json_requested(args: &[OsString]) -> bool {
         .any(|a| a.as_os_str() == "--json")
 }
 
+// Bound the file and serialize through generated public types so extra local
+// fields (including private keys) cannot enter an API request or an error.
+fn server_request<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T, CliError> {
+    let file =
+        std::fs::File::open(path).map_err(|_| CliError::usage("could not read server request"))?;
+    let mut bytes = Vec::new();
+    file.take(16_385)
+        .read_to_end(&mut bytes)
+        .map_err(|_| CliError::usage("could not read server request"))?;
+    if bytes.len() > 16_384 {
+        return Err(CliError::usage("server request exceeds 16 KiB"));
+    }
+    serde_json::from_slice(&bytes).map_err(|_| CliError::usage("invalid server request"))
+}
+
 async fn execute(
     cli: Cli,
     env: &dyn Fn(&str) -> Option<String>,
@@ -488,6 +507,32 @@ async fn execute(
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), CliError> {
+    if matches!(
+        &cli.command,
+        Command::Device(DeviceCommand::RedeemServerCode(_))
+    ) {
+        if cli.config.is_some() || cli.team.is_some() {
+            return Err(CliError::usage(
+                "server code redemption uses --base-url or CMUX_VM_BASE_URL; --config and --team do not apply",
+            ));
+        }
+        let base_url = cli
+            .base_url
+            .or_else(|| env("CMUX_VM_BASE_URL"))
+            .unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned());
+        let client = cmux_vm_client::unauthenticated_raw_client(
+            &base_url,
+            concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+        )
+        .map_err(|e| CliError::usage(e.to_string()))?;
+        return dispatch(
+            &client,
+            cli.command,
+            prompt,
+            output::Printer::new(cli.json, stdout),
+        )
+        .await;
+    }
     let settings = Settings::resolve(
         cli.base_url.as_deref(),
         cli.team.as_deref(),
@@ -771,23 +816,40 @@ async fn dispatch(
                 .mesh_id
                 .parse::<types::MeshId>()
                 .map_err(|_| CliError::usage("invalid mesh id"))?;
-            let file = std::fs::File::open(&args.request)
-                .map_err(|_| CliError::usage("could not read signed enrollment request"))?;
-            let mut bytes = Vec::new();
-            file.take(16_385)
-                .read_to_end(&mut bytes)
-                .map_err(|_| CliError::usage("could not read signed enrollment request"))?;
-            if bytes.len() > 16_384 {
-                return Err(CliError::usage("signed enrollment request exceeds 16 KiB"));
-            }
-            let request: types::EnrollDeviceRequest = serde_json::from_slice(&bytes)
-                .map_err(|_| CliError::usage("invalid signed enrollment request"))?;
+            let request: types::EnrollDeviceRequest = server_request(&args.request)?;
             let body = fetch_body(client.overlay_servers_enroll_overlay_server(
                 id.as_str(),
                 None,
                 None,
                 &request,
             ))
+            .await?;
+            out.overlay_server(&body)
+        }
+        Command::Device(DeviceCommand::ServerCode(args)) => {
+            let id = args
+                .mesh_id
+                .parse::<types::MeshId>()
+                .map_err(|_| CliError::usage("invalid mesh id"))?;
+            let request: types::OverlayServerBinding = server_request(&args.request)?;
+            let body = fetch_body(client.overlay_servers_create_overlay_server_code(
+                id.as_str(),
+                None,
+                None,
+                &request,
+            ))
+            .await?;
+            out.overlay_server_code(&body)
+        }
+        Command::Device(DeviceCommand::RedeemServerCode(args)) => {
+            let id = args
+                .mesh_id
+                .parse::<types::MeshId>()
+                .map_err(|_| CliError::usage("invalid mesh id"))?;
+            let request: types::CodeEnrollOverlayServerRequest = server_request(&args.request)?;
+            let body = fetch_body(
+                client.overlay_server_device_code_enroll_overlay_server(id.as_str(), &request),
+            )
             .await?;
             out.overlay_server(&body)
         }

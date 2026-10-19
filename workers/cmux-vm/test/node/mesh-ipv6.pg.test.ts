@@ -1,3 +1,4 @@
+import overlayServerCodes from "../../migrations/0014_cmux_vm_overlay_server_codes.sql?raw";
 import overlayServers from "../../migrations/0013_cmux_vm_overlay_servers.sql?raw";
 import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
 import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt_index.sql?raw";
@@ -26,7 +27,7 @@ import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
 
 const BEFORE = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries];
-const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex, overlayPolicy, overlayServers];
+const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex, overlayPolicy, overlayServers, overlayServerCodes];
 
 const sqlOver = (db: PGlite) =>
   Layer.succeed(SqlClient, {
@@ -175,5 +176,57 @@ describe("device addresses", () => {
       expect(await claim()).toBe(false);
     }
     expect(await Effect.runPromise(Effect.provide(checkSchema, sqlOver(pg)))).toEqual([]);
+  });
+});
+
+describe("approved server code storage", () => {
+  const grant = () => ({ tenantId: T, codeSha256: "e".repeat(64), meshId: newMeshId(), deviceId: newDeviceId(), name: "server", wgPublicKey: "public-wg", installPublicKey: "public-install", createdBy: "user:user_ada", createdAt: at(1), expiresAt: at(600_001), usedAt: null, burnedAt: null });
+
+  it("consumes and registers together, then acknowledges only the exact live reservation", async () => {
+    const code = grant();
+    await run(Effect.flatMap(MeshStore, (store) => store.insertOverlayServerCode(code)));
+    const redeem = () => run(Effect.flatMap(MeshStore, (store) => store.redeemOverlayServerCode(T, code.codeSha256, code.meshId, at(2))));
+    expect(await redeem()).toBe(true); expect(await redeem()).toBe(true);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.listOverlayServers(T, code.meshId)))).toEqual([{ deviceId: code.deviceId, meshId: code.meshId, name: code.name, wgPublicKey: code.wgPublicKey, installPublicKey: code.installPublicKey, createdBy: code.createdBy, createdAt: at(2) }]);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.findOverlayServerCode(code.codeSha256)))).toEqual(Option.some({ ...code, usedAt: at(2) }));
+    await run(Effect.flatMap(MeshStore, (store) => store.revokeOverlayServer(T, code.deviceId, at(3))));
+    expect(await redeem()).toBe(false);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.listOverlayServers(T, code.meshId)))).toEqual([]);
+  });
+
+  it("rolls back the identity insert if consumption fails, preserving a usable invitation", async () => {
+    const code = grant();
+    await run(Effect.flatMap(MeshStore, (store) => store.insertOverlayServerCode(code)));
+    await pg.exec("CREATE FUNCTION cmux_vm.fail_code_consumption() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected consumption failure'; END $$; CREATE TRIGGER fail_code_consumption BEFORE UPDATE ON cmux_vm.mesh_overlay_server_codes FOR EACH ROW EXECUTE FUNCTION cmux_vm.fail_code_consumption();");
+    const redeem = () => run(Effect.flatMap(MeshStore, (store) => store.redeemOverlayServerCode(T, code.codeSha256, code.meshId, at(2))));
+    await expect(redeem()).rejects.toThrow();
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.listOverlayServers(T, code.meshId)))).toEqual([]);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.findOverlayServerCode(code.codeSha256)))).toEqual(Option.some(code));
+    await pg.exec("DROP TRIGGER fail_code_consumption ON cmux_vm.mesh_overlay_server_codes");
+    expect(await redeem()).toBe(true);
+  });
+
+  it("isolates tenant, mesh, expiry and burns and does not consume a conflicting reservation", async () => {
+    const code = grant();
+    await run(Effect.flatMap(MeshStore, (store) => store.insertOverlayServerCode(code)));
+    const redeem = (tenant = T, meshId = code.meshId, when = at(2)) => run(Effect.flatMap(MeshStore, (store) => store.redeemOverlayServerCode(tenant, code.codeSha256, meshId, when)));
+    expect(await redeem(TenantId.make("team_other"))).toBe(false);
+    expect(await redeem(T, newMeshId())).toBe(false);
+    expect(await redeem(T, code.meshId, code.expiresAt)).toBe(false);
+    await run(Effect.flatMap(MeshStore, (store) => store.recordOverlayServer(T, { ...code, deviceId: newDeviceId() })));
+    expect(await redeem()).toBe(false);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.findOverlayServerCode(code.codeSha256)))).toEqual(Option.some(code));
+    await run(Effect.flatMap(MeshStore, (store) => store.burnOverlayServerCode(code.codeSha256, at(3))));
+    expect(await redeem()).toBe(false);
+  });
+
+  it("keeps concurrent codes on one reserved identity and never revives a tombstone", async () => {
+    const first = grant(); const second = { ...first, codeSha256: "f".repeat(64) };
+    await run(Effect.gen(function* () { const store = yield* MeshStore; yield* store.insertOverlayServerCode(first); yield* store.insertOverlayServerCode(second); }));
+    const redeem = (hash: string) => run(Effect.flatMap(MeshStore, (store) => store.redeemOverlayServerCode(T, hash, first.meshId, at(2))));
+    expect(await redeem(first.codeSha256)).toBe(true);
+    await run(Effect.flatMap(MeshStore, (store) => store.revokeOverlayServer(T, first.deviceId, at(3))));
+    expect(await redeem(second.codeSha256)).toBe(false);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.listOverlayServers(T, first.meshId)))).toEqual([]);
   });
 });

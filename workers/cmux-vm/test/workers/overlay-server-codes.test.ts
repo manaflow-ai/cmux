@@ -100,6 +100,31 @@ describe("approved provider-free server enrollment codes", () => {
     expect((await redeem(await signed(field(grant, "code")))).status).toBe(404);
   });
 
+  it("expires invitations and stores only their hashes, and rejects gateway codes here", async () => {
+    const grant = await issued(); const code = field(grant, "code");
+    const stored = h.mesh.store.overlayServerCodes()[0];
+    if (stored === undefined) throw new Error("missing invitation fixture");
+    expect(stored.codeSha256).toMatch(/^[0-9a-f]{64}$/u);
+    expect(JSON.stringify(stored)).not.toContain(code);
+    stored.expiresAt.setTime(Date.now() - 1);
+    expect((await redeem(await signed(code))).status).toBe(404);
+    expect((await redeem(await signed("mec_00000000000000000000000000"))).status).toBe(400);
+  });
+
+  it("bounds approvals separately from gateway codes and audits redemption as the reserved device", async () => {
+    await h.dispose(); h = await makeHarness({ mesh: { budgets: { overlayServerCodesPerHour: 1 } } });
+    key = await h.addKey(TEAM, ALL_SCOPES); mesh = field(await json(await call("/v1/meshes", "POST", {})), "id");
+    const grant = await issued();
+    expect((await issue()).status).toBe(429);
+    expect((await call(`/v1/meshes/${mesh}/enrollment-codes`, "POST", {})).status).toBe(201);
+    expect((await redeem(await signed(field(grant, "code")))).status).toBe(201);
+    const audits = h.audit.filter((row) => row.action === "overlay_server.create");
+    expect(audits).toHaveLength(1);
+    expect(audits[0]?.actor).toBe(`device:${field(grant, "deviceId")}`);
+    expect(audits[0]?.ownerActor).toBe(h.audit.find((row) => row.action === "overlay_server.code.create")?.actor);
+    expect(JSON.stringify(h.audit)).not.toContain(field(grant, "code"));
+  });
+
   it("requires fresh membership even after a positive membership cache", async () => {
     h.addMember(TEAM, "user_pair");
     const token = await h.sessionToken("user_pair");

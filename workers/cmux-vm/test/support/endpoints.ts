@@ -137,6 +137,7 @@ export const MESH_ENDPOINTS = [
   { name: "deleteDevice", method: "DELETE", template: "/v1/devices/{deviceId}", scope: "mesh:join", target: "device" },
   { name: "getDevicePeers", method: "GET", template: "/v1/devices/{deviceId}/peers", scope: "mesh:join", target: "device" },
   { name: "getDeviceOverlayPolicy", method: "GET", template: "/v1/devices/{deviceId}/overlay-policy", scope: "mesh:join", target: "device" },
+  { name: "createOverlayServerCode", method: "POST", template: "/v1/meshes/{meshId}/overlay-server-codes", scope: "mesh:join", target: "mesh" },
   { name: "enrollOverlayServer", method: "POST", template: "/v1/meshes/{meshId}/overlay-servers", scope: "mesh:join", target: "mesh" },
   { name: "listOverlayServers", method: "GET", template: "/v1/meshes/{meshId}/overlay-servers", scope: "mesh:read", target: "mesh" },
   { name: "getOverlayServer", method: "GET", template: "/v1/overlay-servers/{deviceId}", scope: "mesh:join", target: "device" },

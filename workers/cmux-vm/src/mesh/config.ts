@@ -38,6 +38,8 @@ export interface MeshBudgets {
   readonly addressChangeIntervalMs: number;
   /** Enrollment codes per mesh per hour (`enrollmentCode.perMeshPerHour`, M2). */
   readonly enrollmentCodesPerHour: number;
+  /** Approved provider-free server invitations per mesh per hour. */
+  readonly overlayServerCodesPerHour: number;
 }
 
 export const DEFAULT_MESH_BUDGETS: MeshBudgets = {
@@ -51,6 +53,7 @@ export const DEFAULT_MESH_BUDGETS: MeshBudgets = {
   aclAppliesPerMinute: 10,
   addressChangeIntervalMs: 10_000,
   enrollmentCodesPerHour: 20,
+  overlayServerCodesPerHour: 20,
 };
 
 /** How long an enrollment code stays valid (DESIGN.md section 3). */

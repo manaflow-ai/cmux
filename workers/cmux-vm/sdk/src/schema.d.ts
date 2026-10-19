@@ -1089,6 +1089,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/meshes/{meshId}/overlay-server-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a server enrollment code
+         * @description Approve a server enrollment code. Requires the mesh:join scope. Pins the approved name, WireGuard and install public keys; creates no server or tunnel. Shown once, 10 minutes, at most 20 per mesh per hour. Deliver through the approved pairing channel. Answers 404 unless the mesh experiment is enabled for this tenant.
+         */
+        post: operations["overlayServers.createOverlayServerCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/meshes/{meshId}/overlay-servers": {
         parameters: {
             query?: never;
@@ -1151,6 +1171,26 @@ export interface paths {
         get: operations["overlayServers.getOverlayServerPolicy"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meshes/{meshId}/overlay-server-enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem an approved server code
+         * @description No credential: sign cmux-mesh-v1 with purpose enroll-overlay-server, mesh id as target, the pinned keys, and code:name as the name line. Fresh (120 s), single use. Authentication failures burn unused codes; capacity and dependency failures leave them usable. A fresh signed retry acknowledges the exact live reserved identity until expiry; revocation never recreates it. Answers 404 unless the mesh experiment is enabled for this tenant.
+         */
+        post: operations["overlayServerDevice.codeEnrollOverlayServer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2099,6 +2139,30 @@ export interface components {
             /** @description The stored address in canonical form (RFC 5952), or null. */
             publicIpv6: string | null;
         };
+        OverlayServerBinding: {
+            /** @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$ */
+            name: string;
+            /** @description The device's WireGuard public key, base64. The private key never leaves the device. */
+            wgPublicKey: string;
+            /** @description The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device. */
+            installPublicKey: string;
+        };
+        /** @description An approved server-only invitation, valid for 10 minutes. Only its hash is stored. The reserved device id supports signed policy recovery after a lost enrollment response. */
+        OverlayServerCode: {
+            /** @description a string matching the pattern ^msc_[0-9a-hjkmnp-tv-z]{26}$ */
+            code: string;
+            /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            deviceId: string;
+            /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
+            meshId: string;
+            /**
+             * maxLength(128)
+             * @description a string matching the pattern ^[A-Za-z0-9_-]+$
+             */
+            tenantId: string;
+            expiresAt: string;
+            binding: components["schemas"]["OverlayServerBinding"];
+        };
         /** @description A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution. */
         OverlayServer: {
             /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -2137,6 +2201,25 @@ export interface components {
              * @description The Native tenant that owns this mesh. A backend binding must match its authoritative tenant mapping and both public keys; an opaque mesh id alone is insufficient.
              */
             tenantId: string;
+        };
+        CodeEnrollOverlayServerRequest: {
+            /** @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$ */
+            name: string;
+            /** @description The device's WireGuard public key, base64. The private key never leaves the device. */
+            wgPublicKey: string;
+            /** @description The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device. */
+            installPublicKey: string;
+            /**
+             * positive
+             * @description When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.
+             */
+            signedAt: components["schemas"]["Int"];
+            /** @description 16 random bytes, base64url without padding. */
+            nonce: string;
+            /** @description ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message. */
+            signature: string;
+            /** @description a string matching the pattern ^msc_[0-9a-hjkmnp-tv-z]{26}$ */
+            code: string;
         };
     };
     responses: never;
@@ -7574,6 +7657,100 @@ export interface operations {
             };
         };
     };
+    "overlayServers.createOverlayServerCode": {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+                /** @description a string at most 255 character(s) long */
+                "idempotency-key"?: string;
+            };
+            path: {
+                meshId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverlayServerBinding"];
+            };
+        };
+        responses: {
+            /** @description An approved server-only invitation, valid for 10 minutes. Only its hash is stored. The reserved device id supports signed policy recovery after a lost enrollment response. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayServerCode"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
     "overlayServers.listOverlayServers": {
         parameters: {
             query?: never;
@@ -7951,6 +8128,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "overlayServerDevice.codeEnrollOverlayServer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                meshId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CodeEnrollOverlayServerRequest"];
+            };
+        };
+        responses: {
+            /** @description A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayServer"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
                 };
             };
             /** @description Forbidden */

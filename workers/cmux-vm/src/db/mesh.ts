@@ -10,6 +10,7 @@ import { Context, Effect, Layer, Option, Schema } from "effect";
 import { TenantId as TenantIdBrand, type TenantId } from "../lib/ids.ts";
 import type { AclDocument, MeshProtocol } from "../mesh/acl.ts";
 import { SqlClient, StoreError } from "./sql.ts";
+import { sqlOverlayServerCodes, type OverlayServerCodeStore } from "./overlay-server-codes.ts";
 import { sqlOverlayServers, type OverlayServerStore } from "./overlay-servers.ts";
 
 export interface MeshDeviceRow {
@@ -63,7 +64,7 @@ export interface MeshRuleRow {
   readonly createdAt: Date;
 }
 
-export interface MeshStoreService extends OverlayServerStore {
+export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeStore {
   /** Claims address slot `slot` for the mesh; false when another mesh holds it. */
   readonly claimSlot: (tenantId: TenantId, meshId: string, slot: number, cidr: string) => Effect.Effect<boolean, StoreError>;
   readonly releaseSlot: (tenantId: TenantId, meshId: string) => Effect.Effect<void, StoreError>;
@@ -227,6 +228,7 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
     const sql = yield* SqlClient;
     const service: MeshStoreService = {
       ...sqlOverlayServers(sql),
+      ...sqlOverlayServerCodes(sql),
       claimSlot: (tenantId, meshId, slot, cidr) =>
         sql
           .query(
