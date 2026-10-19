@@ -191,7 +191,12 @@ pub(super) fn socket_id(path: &std::path::Path) -> Option<SocketId> {
 fn with_socket_lock<T>(path: &std::path::Path, f: impl FnOnce() -> T) -> io::Result<T> {
     let mut lock = path.as_os_str().to_owned();
     lock.push(".lock");
-    let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).open(lock)?;
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(lock)?;
     use std::os::fd::AsRawFd;
     // SAFETY: flock on a descriptor we own; blocks only while another
     // server is between its liveness check and listen(), or removing.

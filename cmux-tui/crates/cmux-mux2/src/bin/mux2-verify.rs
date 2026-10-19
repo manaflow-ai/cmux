@@ -181,9 +181,14 @@ fn main() {
             server_rt == ref_rt && client_rt == ref_rt,
         )
     };
+    // After a resize, reflow packs history pages differently, so the
+    // memory-bounded scrollback may drop its oldest lines at another point
+    // on each side. Accept exactly that: same header, and the shorter body is
+    // a tail of the longer one. Any other difference still fails.
+    let trimmed = if resize { history_trim(&server_rt, &client_rt) } else { None };
     // The slow-viewer run only proves the resync path if it was taken.
     let resync_ok = !slow || snapshots >= 2;
-    let ok = screen_ok && (replay_ok || replay_rt_ok) && resync_ok;
+    let ok = screen_ok && (replay_ok || replay_rt_ok || trimmed.is_some()) && resync_ok;
     // MUX2_VERIFY_DUMP=DIR writes every replay, so a mismatch can be diffed.
     if let Some(dir) = std::env::var_os("MUX2_VERIFY_DUMP") {
         let dir = std::path::PathBuf::from(dir);
@@ -199,12 +204,27 @@ fn main() {
         }
     }
     println!(
-        "{{\"verify\":\"{file}\",\"ok\":{ok},\"screen_match\":{screen_ok},\"replay_exact\":{replay_ok},\"replay_roundtrip\":{replay_rt_ok},\"bytes\":{},\"stream_bytes\":{stream_bytes},\"snapshots\":{snapshots},\"midway\":{midway},\"slow\":{slow},\"resize\":{resize},\"resync_ok\":{resync_ok}}}",
-        data.len()
+        "{{\"verify\":\"{file}\",\"ok\":{ok},\"screen_match\":{screen_ok},\"replay_exact\":{replay_ok},\"replay_roundtrip\":{replay_rt_ok},\"bytes\":{},\"stream_bytes\":{stream_bytes},\"snapshots\":{snapshots},\"midway\":{midway},\"slow\":{slow},\"resize\":{resize},\"resync_ok\":{resync_ok},\"history_trim_bytes\":{}}}",
+        data.len(),
+        trimmed.map_or_else(|| "null".to_owned(), |n| n.to_string())
     );
     if !ok {
         let first_diff = server_screen.iter().zip(&ref_screen).position(|(a, b)| a != b);
         eprintln!("first screen difference at byte {first_diff:?}");
         std::process::exit(1);
     }
+}
+
+/// Bytes of oldest history that one replay holds and the other does not,
+/// when that is the only difference: the replays share a prefix (header and
+/// newest history are equal) and the shorter one is the longer one with a
+/// run removed right after the shared prefix.
+fn history_trim(a: &[u8], b: &[u8]) -> Option<usize> {
+    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    let prefix = short.iter().zip(long).take_while(|(x, y)| x == y).count();
+    if prefix == short.len() {
+        return (short.len() == long.len()).then_some(0);
+    }
+    let suffix = short.iter().rev().zip(long.iter().rev()).take_while(|(x, y)| x == y).count();
+    (prefix + suffix >= short.len()).then(|| long.len() - short.len())
 }
