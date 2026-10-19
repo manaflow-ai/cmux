@@ -298,6 +298,12 @@ pub const LAYOUT_DELTA_CAPABILITY: &str = "layout-delta-v1";
 /// a replacement or a close or move that would remove it answers
 /// `dock-column-permanent`.
 pub const PERMANENT_DOCK_CAPABILITY: &str = "permanent-dock-v1";
+/// A docked column marked pinned (the Home dock) keeps its first tab: no
+/// close, move out or reorder away from the first place, and it takes no
+/// other tab unless its `allow_tabs` is on. `set-column-dock` takes `pinned`;
+/// `column.update` takes `pinned` and `allow_tabs`; refusals answer
+/// `dock-column-pinned`.
+pub const PINNED_DOCK_CAPABILITY: &str = "pinned-dock-v1";
 /// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
@@ -1385,6 +1391,10 @@ enum Command {
         /// `permanent-dock-v1`: mark the column permanent (never cleared once set).
         #[serde(default)]
         permanent: Option<bool>,
+        /// `pinned-dock-v1`: mark the column pinned (the Home dock; never
+        /// cleared once set). Its `allow_tabs` changes only with `column.update`.
+        #[serde(default)]
+        pinned: Option<bool>,
         #[serde(default)]
         role: Option<String>,
         #[serde(default)]
@@ -2768,6 +2778,9 @@ mod device_kind_tests;
 #[cfg(test)]
 #[path = "server/dock_columns_tests.rs"]
 mod dock_columns_tests;
+#[cfg(test)]
+#[path = "server/pinned_columns_tests.rs"]
+mod pinned_columns_tests;
 
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]
