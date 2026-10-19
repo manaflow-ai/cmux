@@ -916,6 +916,10 @@ async fn notify_loop(hub: Arc<Hub>) {
             ),
         };
         let mut c = tokio::process::Command::new("sh");
+        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+        for k in crate::config::inherited_caller_scoped_keys() {
+            c.env_remove(k);
+        }
         crate::login_env::apply_tokio(&mut c);
         c.arg("-c")
             .arg(&cmd)

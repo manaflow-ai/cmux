@@ -486,7 +486,8 @@ fn attach_tty(cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::Fil
             &mut slave,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-            &mut size,
+            // A raw pointer: macOS takes `*mut winsize`, Linux `*const`.
+            std::ptr::addr_of_mut!(size),
         )
     };
     if rc != 0 {
