@@ -3565,8 +3565,15 @@ function AcpmuxPane() {
   }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, asksAside]);
   // The New Tab page lists the chats every page shares (newtab/chatStore.ts): the newest list any
   // page received, drawn on its first frame and updated in place when another page hears a change.
-  // Debug Settings `newTab.privateChatLists` lists this page's own connection's chats, as before.
-  const newTabSessions = useSharedSessions(composerSnapshot.sessions, !newTab?.privateChatLists);
+  // Debug Settings `newTab.privateChatLists` lists this page's own connection's chats, as before;
+  // so does a page on another machine's daemon, whose chats are not this Mac's.
+  const newTabSessions = useSharedSessions(
+    composerSnapshot.sessions,
+    !!newTab &&
+      !newTab.privateChatLists &&
+      composerSnapshot.origin !== "remote" &&
+      composerSnapshot.origin !== "peer",
+  );
   const newTabSnapshot = useMemo(
     () =>
       newTabSessions === composerSnapshot.sessions
@@ -4007,8 +4014,9 @@ function AcpmuxPane() {
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
             harnessProfiles.observe(summary, started);
-            // Every page's New Tab lists one chat store (newtab/chatStore.ts).
-            publishSessions(next);
+            // Every page's New Tab lists one chat store (newtab/chatStore.ts); the mock daemon's
+            // chats are not the app's.
+            if (!mock) publishSessions(next);
             setSnapshot((previous) => {
               if (
                 next.canHandoff &&

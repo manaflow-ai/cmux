@@ -148,3 +148,34 @@ test("a page that is not connected never overwrites the store", async () => {
   // Chats 2 and 3 started in the same second: they tie on their ids.
   expect(store.sharedSessions([]).map((session) => session.sessionId)).toEqual(["s-02", "s-03"]);
 });
+
+test("a connected page keeps publishing on later emits, whatever their reason", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  // The direct client names why it emitted, not whether it is linked: after `connected` come
+  // "session changed", "attached", an event's kind.
+  store.publishSessions({ connection: "connected", origin: "local", sessions: [chat(1)] }, T0 + 1);
+  store.publishSessions({ connection: "session changed", origin: "local", sessions: [chat(2), chat(1)] }, T0 + 2);
+  store.publishSessions({ connection: "permission", origin: "unknown", sessions: [chat(3), chat(2), chat(1)] }, T0 + 3);
+  store.publishSessions({ connection: "disconnected", origin: "local", sessions: [] }, T0 + 4);
+  store.publishSessions({ connection: "reconnecting (2)", origin: "local", sessions: [] }, T0 + 5);
+  store.reloadChatStoreForTests();
+  expect(store.sharedSessions([]).map((session) => session.sessionId)).toEqual(["s-02", "s-03", "s-01"]);
+});
+
+test("a chat on another machine never writes its one chat into this Mac's store", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  store.publishSessions({ connection: "connected", origin: "local", sessions: [chat(2), chat(1)] }, T0 + 1);
+  store.publishSessions({ connection: "connected", origin: "remote", sessions: [chat(7)] }, T0 + 2);
+  store.publishSessions({ connection: "session changed", origin: "peer", sessions: [chat(8)] }, T0 + 3);
+  store.reloadChatStoreForTests();
+  expect(store.sharedSessions([]).map((session) => session.sessionId)).toEqual(["s-02", "s-01"]);
+});
+
+test("a page that lists what the store holds writes nothing", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  store.publishSessions(connected([chat(2), chat(1)]), T0 + 1);
+  const written = window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS);
+  // Another page's emit, new entries with the same fields.
+  store.publishSessions(connected([chat(2), chat(1)]), T0 + 2);
+  expect(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)).toBe(written);
+});

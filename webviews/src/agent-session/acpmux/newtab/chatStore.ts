@@ -23,7 +23,7 @@ type Stored = { at: number; sessions: AcpmuxSessionEntry[] };
 
 let current: Stored | undefined;
 let loaded = false;
-/// The last list this page published (the direct client keeps an unchanged list's identity).
+/// The last list this page published (the direct client keeps an unchanged session's entry).
 let lastPublished: Sessions | undefined;
 let lastText: string | undefined;
 const listeners = new Set<() => void>();
@@ -60,8 +60,11 @@ function onStorage(event: StorageEvent): void {
   if (event.key !== KEY && event.key !== null) return;
   const next = event.key === null ? undefined : parse(event.newValue);
   if (next && current && next.at < current.at) return;
+  const text = next ? JSON.stringify(next.sessions) : undefined;
   current = next;
-  lastText = next ? JSON.stringify(next.sessions) : undefined;
+  // Another page wrote the list this page shows: nothing on screen changes.
+  if (text === lastText) return;
+  lastText = text;
   notify();
 }
 
@@ -104,25 +107,44 @@ function encode(sessions: Sessions, at: number): string {
   return JSON.stringify({ at, sessions: kept(sessions) } satisfies Stored);
 }
 
-/// Takes a page's daemon snapshot into the store: only a connected page's (a page still connecting,
-/// a gallery or a debug page lists nothing real), and only when its list changed.
-export function publishSessions(snapshot: Pick<AcpmuxSnapshot, "connection" | "sessions">, at = Date.now()): void {
-  if (snapshot.connection !== "connected") return;
+function sameEntries(a: Sessions, b: Sessions | undefined): boolean {
+  if (a === b) return true;
+  if (!b || a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return false;
+  return true;
+}
+
+/// Whether `snapshot` is a live list of this Mac's daemon: a page still connecting or cut off, a
+/// gallery or a debug page lists nothing real, and a chat on another machine (`remote`, `peer`)
+/// lists only its own chat.
+function publishable(snapshot: Pick<AcpmuxSnapshot, "connection" | "origin">): boolean {
+  const connection = snapshot.connection;
+  if (snapshot.origin === "remote" || snapshot.origin === "peer") return false;
+  if (connection === "disconnected" || connection === "debug" || connection === "gallery") return false;
+  return !connection.startsWith("connecting") && !connection.startsWith("reconnecting");
+}
+
+/// Takes a page's daemon snapshot into the store, when it is publishable and its list changed.
+/// `connection` is why the client emitted ("connected", "session changed", an event's kind).
+export function publishSessions(
+  snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "sessions">,
+  at = Date.now(),
+): void {
+  if (!publishable(snapshot)) return;
   load();
-  if (snapshot.sessions === lastPublished) return;
+  // Every snapshot (one per transcript row while a turn streams) builds a new list of the same
+  // entries (the direct client keeps an unchanged session's entry): compare entries, not the list.
+  if (sameEntries(snapshot.sessions, lastPublished)) return;
   lastPublished = snapshot.sessions;
   const text = encode(snapshot.sessions, at);
   const stored = JSON.parse(text) as Stored;
   const listed = JSON.stringify(stored.sessions);
+  // The list the store already holds (this page's or another's): no write, no event elsewhere.
+  if (listed === lastText && current) return;
   try {
     storage()?.setItem(KEY, text);
   } catch {
     // A full or blocked store: this page still lists the newest it has.
-  }
-  // The same list again (another identity, or another page's) changes nothing on screen.
-  if (listed === lastText && current) {
-    current = { ...current, at };
-    return;
   }
   current = stored;
   lastText = listed;
@@ -146,10 +168,13 @@ function value(): Stored | undefined {
   return current;
 }
 
+const unsubscribed = () => () => {};
+
 /// `sharedSessions` as a hook: the page re-renders when it or another page publishes. `enabled`
-/// false (Debug Settings `newTab.privateChatLists`) lists the page's own chats, as before.
+/// false (not a New Tab page, a chat on another machine, or Debug Settings
+/// `newTab.privateChatLists`) lists the page's own chats and does not listen.
 export function useSharedSessions(own: Sessions, enabled = true): Sessions {
-  const stored = useSyncExternalStore(subscribe, value, value);
+  const stored = useSyncExternalStore(enabled ? subscribe : unsubscribed, value, value);
   if (!enabled) return own;
   return stored && stored.sessions.length > 0 ? stored.sessions : own;
 }
