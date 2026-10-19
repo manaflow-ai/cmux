@@ -1,6 +1,530 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.appearance.glassLegibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass Over Art"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الزجاج فوق الصورة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staklo preko slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glas over kunst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glas über Kunst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cristal sobre el arte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verre sur l’œuvre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vetro sull’opera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アート上のガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ចក់លើរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아트 위 유리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glass over kunst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szkło nad obrazem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vidro sobre a arte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стекло поверх изображения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กระจกบนภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Resim Üzerinde Cam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скло поверх зображення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kính trên ảnh nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "图片上的玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圖片上的玻璃"
+          }
+        }
+      }
+    },
+    "settings.appearance.glassLegibility.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Main Text keeps primary text readable over any art and lets much more of the art through, like iOS. All Text also keeps secondary and dim text at full contrast, with denser glass."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«النص الرئيسي» يُبقي النص الأساسي مقروءًا فوق أي صورة ويُظهر الكثير منها، مثل iOS. «كل النص» يُبقي النص الثانوي والخافت بتباين كامل أيضًا، بزجاج أكثف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glavni tekst drži primarni tekst čitljivim preko bilo koje slike i propušta mnogo više slike, kao iOS. Sav tekst drži i sekundarni i prigušeni tekst u punom kontrastu, uz gušće staklo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hovedtekst holder primær tekst læsbar over al kunst og lader langt mere af kunsten skinne igennem, som iOS. Al tekst holder også sekundær og dæmpet tekst i fuld kontrast med tættere glas."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Haupttext hält primären Text über jedem Bild lesbar und lässt viel mehr vom Bild durch, wie iOS. Aller Text hält auch sekundären und gedämpften Text bei vollem Kontrast, mit dichterem Glas."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texto principal mantiene legible el texto principal sobre cualquier arte y deja ver mucho más de él, como iOS. Todo el texto mantiene también el texto secundario y tenue con contraste completo, con un cristal más denso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texte principal garde le texte principal lisible sur toute œuvre et laisse passer bien plus de l’œuvre, comme iOS. Tout le texte garde aussi le texte secondaire et atténué à plein contraste, avec un verre plus dense."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Testo principale mantiene leggibile il testo principale su qualsiasi opera e lascia passare molto più dell’opera, come iOS. Tutto il testo mantiene anche il testo secondario e attenuato a pieno contrasto, con un vetro più denso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「メインテキスト」はどのアートの上でも主要なテキストを読みやすく保ち、iOS のようにアートをより多く透かします。「すべてのテキスト」は補助テキストや淡いテキストも完全なコントラストに保ち、ガラスが濃くなります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អត្ថបទមេ រក្សាអត្ថបទចម្បងឱ្យអានបានលើរូបភាពណាមួយ ហើយបង្ហាញរូបភាពច្រើនជាងមុន ដូច iOS។ អត្ថបទទាំងអស់ រក្សាអត្ថបទបន្ទាប់បន្សំ និងអត្ថបទស្រាលក្នុងកម្រិតពន្លឺពេញលេញផងដែរ ជាមួយកញ្ចក់ក្រាស់ជាង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "주요 텍스트는 어떤 아트 위에서도 기본 텍스트를 읽기 쉽게 유지하고 iOS처럼 아트를 훨씬 더 많이 비춥니다. 모든 텍스트는 보조 텍스트와 흐린 텍스트도 완전한 대비로 유지하며 유리가 더 짙어집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hovedtekst holder primærtekst lesbar over all kunst og slipper mye mer av kunsten gjennom, som iOS. All tekst holder også sekundær og dempet tekst i full kontrast, med tettere glass."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Główny tekst utrzymuje czytelność tekstu podstawowego nad każdym obrazem i przepuszcza znacznie więcej obrazu, jak w iOS. Cały tekst utrzymuje też pełny kontrast tekstu pomocniczego i przygaszonego, przy gęstszym szkle."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texto principal mantém o texto principal legível sobre qualquer arte e deixa passar muito mais dela, como no iOS. Todo o texto também mantém o texto secundário e esmaecido com contraste total, com um vidro mais denso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Основной текст» сохраняет читаемость основного текста поверх любого изображения и пропускает гораздо больше изображения, как в iOS. «Весь текст» также сохраняет полный контраст второстепенного и приглушённого текста, а стекло становится плотнее."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อความหลักทำให้ข้อความหลักอ่านได้บนภาพใดก็ได้ และให้เห็นภาพมากขึ้นมาก เหมือน iOS ข้อความทั้งหมดทำให้ข้อความรองและข้อความจางมีคอนทราสต์เต็มที่ด้วย โดยกระจกจะทึบขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana Metin, birincil metni her resmin üzerinde okunur tutar ve iOS gibi resmin çok daha fazlasını gösterir. Tüm Metin, ikincil ve soluk metni de tam kontrastta tutar; cam daha yoğun olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Основний текст» зберігає читабельність основного тексту поверх будь-якого зображення й пропускає значно більше зображення, як в iOS. «Увесь текст» також зберігає повний контраст другорядного й приглушеного тексту, а скло стає щільнішим."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Văn bản chính giữ văn bản chính dễ đọc trên mọi ảnh nền và để lộ nhiều ảnh hơn hẳn, như iOS. Toàn bộ văn bản cũng giữ văn bản phụ và văn bản mờ ở độ tương phản đầy đủ, với lớp kính dày hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“主要文本”让主要文本在任何图片上都清晰可读，并像 iOS 一样透出更多图片。“全部文本”还让次要和暗淡文本保持完整对比度，玻璃会更浓。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「主要文字」讓主要文字在任何圖片上都清晰可讀，並像 iOS 一樣透出更多圖片。「全部文字」也讓次要和暗淡文字保持完整對比度，玻璃會更濃。"
+          }
+        }
+      }
+    },
+    "settings.choice.glassLegibility.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Main Text"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "النص الرئيسي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glavni tekst"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hovedtekst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Haupttext"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texto principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texte principal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Testo principale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メインテキスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អត្ថបទមេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "주요 텍스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hovedtekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Główny tekst"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texto principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Основной текст"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อความหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana Metin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Основний текст"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Văn bản chính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主要文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主要文字"
+          }
+        }
+      }
+    },
+    "settings.choice.glassLegibility.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Text"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كل النص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sav tekst"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al tekst"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aller Text"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todo el texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tout le texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tutto il testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべてのテキスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អត្ថបទទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 텍스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "All tekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cały tekst"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todo o texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Весь текст"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อความทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm Metin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увесь текст"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toàn bộ văn bản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部文本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "全部文字"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {
