@@ -195,6 +195,33 @@ export class MockSettingsProvider {
         return { bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000 };
       },
       "cmux.settings.backdrop.image.reveal": () => ({}),
+      "cmux.settings.backdrop.image.collage.save": (params) => {
+        const { collage } = params as { collage: { name: string; layers: unknown[] } };
+        if (collage.layers.length === 0)
+          throw new ProtocolError("cmux.settings.backdrop.collage.no_pictures", "no pictures");
+        const id = `c-${this.collages.size + 1}`;
+        this.collages.set(id, collage);
+        const rows = this.host.backdrops ?? [];
+        const row = {
+          id: `collage:${id}`,
+          title: collage.name || "Collage",
+          attribution: "Your collage",
+          collection: "collages",
+          collection_title: "Your collages",
+        };
+        this.host = { ...this.host, backdrops: [row, ...rows] };
+        return { id };
+      },
+      "cmux.settings.backdrop.image.collage.get": (params) => this.collages.get(String((params as { id: string }).id)),
+      "cmux.settings.backdrop.image.collage.delete": (params) => {
+        const id = String((params as { id: string }).id);
+        this.collages.delete(id);
+        this.host = {
+          ...this.host,
+          backdrops: (this.host.backdrops ?? []).filter((row) => row.id !== `collage:${id}`),
+        };
+        return {};
+      },
       "cmux.settings.backdrop.image.adjust": () => {
         const current = String(this.values.get("appearance.background") ?? "none");
         if (current === "none" || current === "desktop")
@@ -290,6 +317,9 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.image.remove",
       "cmux.settings.backdrop.image.reveal",
       "cmux.settings.backdrop.image.usage",
+      "cmux.settings.backdrop.image.collage.save",
+      "cmux.settings.backdrop.image.collage.get",
+      "cmux.settings.backdrop.image.collage.delete",
       "cmux.settings.backdrop.image.adjust",
       "cmux.settings.backdrop.workspace",
       "cmux.settings.backdrop.workspace.set",
@@ -366,6 +396,9 @@ export class MockSettingsProvider {
     this.harnesses = harnesses;
     for (const ctx of this.harnessesChanged) ctx.emit(harnesses);
   }
+
+  /** Saved collages by id (backgrounds plan phase 7). */
+  collages = new Map<string, unknown>();
 
   /** What the cmux picker returns for Add Folder… (tests set it). */
   pickedFolders: string[] = ["~/src"];

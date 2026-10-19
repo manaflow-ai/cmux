@@ -34,6 +34,8 @@ import Testing
         defer { window.close() }
         let id = BackdropSelection.art(art).id
         let automatic = try #require(backdrop.artPlacement)
+        // From the middle, so a drag has room both ways whatever the art's automatic framing.
+        store.set(BackdropUserPlacement(centerX: 0.5, centerY: 0.5, zoom: 1), for: id)
         #expect(BackdropAdjustOverlay.begin(in: window))
         let overlay = try #require(BackdropAdjustOverlay.current(in: window))
         #expect(content.alphaValue < 0.5, "the window's content did not fade to show the art")
@@ -44,10 +46,12 @@ import Testing
         #expect(saved.zoom == 2)
         // The picture follows the pointer by exactly the drag: the center point moves the other
         // way by the drag over the picture's size on screen (2x cover, so room to move both ways).
+        // A drag down (dy below 0, y up) shows a point higher in the picture: centerY, measured
+        // from the top, goes down.
         let image = try #require(backdrop.adjustable).imageSize
         let cover = Double(max(backdrop.bounds.width / image.width, backdrop.bounds.height / image.height))
         let shownWidth = Double(image.width) * cover * 2, shownHeight = Double(image.height) * cover * 2
-        let wantX = zoomed.centerX - 200 / shownWidth, wantY = zoomed.centerY + 60 / shownHeight
+        let wantX = zoomed.centerX - 200 / shownWidth, wantY = zoomed.centerY - 60 / shownHeight
         #expect(abs(saved.centerX - wantX) < 1e-6, "a drag right moved the center to \(saved.centerX), not \(wantX)")
         #expect(abs(saved.centerY - wantY) < 1e-6, "a drag down moved the center to \(saved.centerY), not \(wantY)")
         // Past the edge it stops where the picture still covers the window, not at the far side.
@@ -67,7 +71,7 @@ import Testing
         // A view the window adds while placing fades too.
         let toast = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         window.contentView?.addSubview(toast, positioned: .below, relativeTo: overlay)
-        try await Task.sleep(for: .milliseconds(50))
+        window.update()
         #expect(toast.alphaValue < 0.5, "a view added while placing was not faded")
         overlay.done()
         #expect(BackdropAdjustOverlay.current(in: window) == nil && content.alphaValue == 1 && toast.alphaValue == 1)
