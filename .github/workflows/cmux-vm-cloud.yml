@@ -67,6 +67,9 @@ jobs:
       - name: Existing Team VM binding behavior
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/team-vm-bind.test.ts test/team-vm.test.ts test/team-vm-taint.test.ts test/team-vm-retired-fence.test.ts test/team-vm-export.test.ts
+      - name: Current account team selection
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/user-teams-list.test.ts
       - name: Existing server pairing and refusal recovery
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/server-pairing.test.ts test/server-pairing-failures.test.ts

@@ -32,7 +32,8 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(r.body.op).toBe("user.teams.list")
     const teams = r.body.value.teams as Array<{ id: string; display_name: string; kind: string; role: string }>
     expect(teams[0]).toMatchObject({ id: personalTeamIdFor(t.user), kind: "personal", role: "owner", sso_required: false })
-    expect(teams).toContainEqual({ id: t.team, display_name: "Acme Corp", kind: "stack", role: "member", sso_required: false })
+    expect(teams).toContainEqual({ id: t.team, display_name: "Acme Corp", kind: "stack", stack_team: t.stackTeam, role: "member", sso_required: false })
+    expect(teams[0]).not.toHaveProperty("stack_team")
     expect(teams).toHaveLength(2)
     expect(r.body.value.incomplete).toBe(false)
     // The list is the user's, whatever team the request acts in.
@@ -92,7 +93,7 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     const r = await listTeams(t.token)
     expect(r.status, JSON.stringify(r.body)).toBe(200)
     const teams = r.body.value.teams as Array<{ id: string; sso_required: boolean }>
-    expect(teams.find((x) => x.id === t.team)).toMatchObject({ sso_required: true })
+    expect(teams.find((x) => x.id === t.team)).toMatchObject({ stack_team: t.stackTeam, sso_required: true })
     expect(teams[0]).toMatchObject({ kind: "personal", sso_required: false })
     // The server refuses the same team for this session with the SSO code.
     const refused = await call(t.token, "/v1/read", { op: "team_vm.status", params: {} }, t.team)
