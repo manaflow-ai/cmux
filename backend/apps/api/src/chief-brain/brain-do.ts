@@ -57,6 +57,8 @@ export const HOST = "cloud-chief"
  * unsummarized messages whole (Memory.turnInput, not fresh).
  */
 export const SETTLE_MS = 5_000
+/** A millisecond setting (CHIEF_BRAIN_SETTLE_MS, CHIEF_BRAIN_PREFIX_WAIT_MS), else `d`. */
+export const msOr = (v: string | undefined, d: number): number => (v !== undefined && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : d)
 /** A turn that runs longer is stopped and recorded failed. */
 export const TURN_MS = 10 * 60_000
 const DEFAULT_DAILY_TURNS = 300
@@ -189,7 +191,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     super(ctx, env)
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA]) this.sql.exec(q)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
-    const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL))
+    const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL), msOr(env.CHIEF_BRAIN_PREFIX_WAIT_MS, PrefixCache.WAIT_MS))
     this.compactor = new Compactor({
       memory: this.memory,
       deps: () => {
