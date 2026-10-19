@@ -1842,6 +1842,14 @@
       "title" : "ManagedTeam",
       "type" : "string"
     },
+    "markdown.font.size" : {
+      "default" : 16,
+      "description" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size.",
+      "maximum" : 40,
+      "minimum" : 8,
+      "title" : "Default Font Size",
+      "type" : "number"
+    },
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
@@ -2263,6 +2271,12 @@
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
+      "type" : "boolean"
+    },
+    "sessions.allowFullAccess" : {
+      "default" : true,
+      "description" : "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default.",
+      "title" : "Allow Full-Access Modes",
       "type" : "boolean"
     },
     "sessions.keepAwake" : {
