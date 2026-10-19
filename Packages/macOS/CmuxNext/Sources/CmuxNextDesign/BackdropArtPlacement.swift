@@ -138,7 +138,7 @@ extension BackdropArtMetadata {
     /// The image at `scale` with its top-left corner at `origin` (top-left view coordinates).
     /// Whether the subject is kept is measured on the result, never assumed: its box must lie in
     /// the visible span across and in the window top to bottom.
-    private nonisolated func place(scale: Double, origin: CGPoint, viewSize: CGSize, imageSize: CGSize,
+    nonisolated func place(scale: Double, origin: CGPoint, viewSize: CGSize, imageSize: CGSize,
                                    check: (box: BackdropSubjectBox, span: ClosedRange<Double>, height: Double)) -> BackdropArtPlacement {
         let image = CGRect(x: origin.x, y: origin.y, width: Double(imageSize.width) * scale, height: Double(imageSize.height) * scale)
         let slack = 0.5

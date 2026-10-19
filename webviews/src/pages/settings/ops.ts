@@ -10,6 +10,7 @@
 // schemars macro; then they come from the generated client.
 
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { Collage } from "./components/collageLayout";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
 export type MuseumArtResult = {
@@ -330,6 +331,16 @@ export type SettingsOps = {
   "cmux.settings.backdrop.image.remove": [{ id: string }, { bytes: number }];
   /** Native: show one of the person's images, or the backgrounds folder, in Finder. */
   "cmux.settings.backdrop.image.reveal": [{ id?: string }, Record<string, never>];
+  /** Native: place the picture a window shows by hand (drag, zoom); refused with
+   * cmux.settings.backdrop.not_adjustable when no window shows a still picture. */
+  "cmux.settings.backdrop.image.adjust": [Record<string, never>, Record<string, never>];
+  /** Native: draw and save a collage (backgrounds plan phase 7), replacing an edited one; the
+   * page then sets `collage:<id>`. Refused with cmux.settings.backdrop.collage.* codes. */
+  "cmux.settings.backdrop.image.collage.save": [{ collage: Collage }, { id: string }];
+  /** Native: a saved collage, to edit. */
+  "cmux.settings.backdrop.image.collage.get": [{ id: string }, Collage];
+  /** Native: delete a collage (never the background in use). */
+  "cmux.settings.backdrop.image.collage.delete": [{ id: string }, Record<string, never>];
   /** Native: the bytes the person's own background images take. */
   "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number }];
   /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
