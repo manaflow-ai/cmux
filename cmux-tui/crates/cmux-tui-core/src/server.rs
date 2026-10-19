@@ -122,6 +122,10 @@ pub use loopback_forward::{
 };
 mod admission;
 #[cfg(unix)]
+mod agent_cli_intents;
+#[cfg(unix)]
+mod agent_cli_job;
+#[cfg(unix)]
 mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
