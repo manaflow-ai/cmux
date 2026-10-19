@@ -115,6 +115,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate scripts keep full clones full
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_shallow_dev_fetch.py
+
       - name: Validate the local and fast guard runner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
