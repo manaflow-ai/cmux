@@ -32,6 +32,75 @@ struct WorkstreamPersistenceTests {
         #expect(loaded.last?.workstreamId == "s4")
     }
 
+    @Test("append repairs a torn final JSONL row before writing")
+    func appendRepairsTornFinalRow() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-torn-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let torn = WorkstreamItem(
+            workstreamId: "torn",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        try encoder.encode(torn).write(to: tmp)
+
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "durable",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        let loaded = try await persistence.loadRecent(limit: 10)
+        #expect(loaded.map(\.workstreamId) == ["torn", "durable"])
+    }
+
+    @Test("append preserves history when the torn row exceeds the decode budget")
+    func appendSeparatesOversizedTornRow() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-oversized-torn-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let old = WorkstreamItem(
+            workstreamId: "old",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var data = try encoder.encode(old)
+        data.append(0x0A)
+        data.append(Data(repeating: 0x78, count: 9 * 1024 * 1024))
+        try data.write(to: tmp)
+
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "durable",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+        #expect((try await persistence.loadRecent(limit: 1)).map(\.workstreamId) == ["durable"])
+        let newest = try await persistence.loadPage(limit: 1)
+        var cursor = try #require(newest.startOffset)
+        var foundOld = false
+        for _ in 0..<4 {
+            let page = try await persistence.loadPage(endingBefore: cursor, limit: 1)
+            if page.items.contains(where: { $0.workstreamId == "old" }) {
+                foundOld = true
+                break
+            }
+            guard page.hasMoreBefore, let next = page.startOffset, next < cursor else { break }
+            cursor = next
+        }
+        #expect(foundOld)
+    }
+
     @Test("loadRecent with limit returns the most recent suffix")
     func loadRecentLimit() async throws {
         let tmp = FileManager.default.temporaryDirectory
@@ -82,6 +151,36 @@ struct WorkstreamPersistenceTests {
         let older = try await persistence.loadPage(endingBefore: cursor, limit: 2)
         #expect(older.items.map(\.workstreamId) == ["s1", "s2"])
         #expect(older.hasMoreBefore)
+    }
+
+    @Test("paging does not skip rows when a bounded read spans multiple chunks")
+    func loadPageAcrossChunkBoundary() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-chunk-page-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        for i in 0..<1_000 {
+            try await persistence.append(WorkstreamItem(
+                workstreamId: "s\(i)",
+                source: .claude,
+                kind: .sessionStart,
+                payload: .sessionStart
+            ))
+        }
+
+        var cursor: UInt64?
+        var seen: [String] = []
+        repeat {
+            let page = try await persistence.loadPage(endingBefore: cursor, limit: 300)
+            seen.insert(contentsOf: page.items.map(\.workstreamId), at: 0)
+            cursor = page.startOffset
+            if !page.hasMoreBefore { break }
+        } while seen.count < 1_000
+
+        #expect(seen.count == 1_000)
+        #expect(Set(seen).count == 1_000)
+        #expect(seen.first == "s0")
+        #expect(seen.last == "s999")
     }
 
     @Test("append redacts sensitive tool input before writing JSONL")
@@ -307,7 +406,9 @@ struct WorkstreamPersistenceTests {
             kind: .sessionStart,
             payload: .sessionStart
         )
-        let targetRowBytes = 8 * 1024 * 1024
+        // The row itself may use the full 8 MiB cap; the bounded reader must
+        // also admit its terminating newline.
+        let targetRowBytes = 8 * 1024 * 1024 + 1
         var payloadSize = targetRowBytes
         var secondData = Data()
         while true {

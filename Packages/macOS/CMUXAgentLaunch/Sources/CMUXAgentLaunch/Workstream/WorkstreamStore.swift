@@ -60,6 +60,7 @@ public final class WorkstreamStore {
     private let initialLoadLimit: Int
     private let historyPageSize: Int
     private let startupBudgetNanoseconds: UInt64?
+    private let startupHardBudgetNanoseconds: UInt64?
     private let clock: @Sendable () -> Date
     private let titleProvider: (WorkstreamEvent) -> String?
     /// App-owned migration hook for versioned workstream identities.
@@ -90,6 +91,9 @@ public final class WorkstreamStore {
     ///   - titleProvider: App boundary hook for localized display titles.
     ///   - startupBudgetNanoseconds: Optional wall-clock diagnostic threshold
     ///     for the bounded startup persistence pass.
+    ///   - startupHardBudgetNanoseconds: Optional wall-clock cutoff for startup
+    ///     persistence work. When reached, the store publishes no cursor for
+    ///     older history so restore cannot continue an over-budget scan.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
@@ -101,7 +105,8 @@ public final class WorkstreamStore {
             rawValue
         },
         titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil },
-        startupBudgetNanoseconds: UInt64? = WorkstreamDefaultStartupBudgetNanoseconds
+        startupBudgetNanoseconds: UInt64? = WorkstreamDefaultStartupBudgetNanoseconds,
+        startupHardBudgetNanoseconds: UInt64? = nil
     ) {
         self.transport = transport
         self.persistence = persistence
@@ -109,6 +114,7 @@ public final class WorkstreamStore {
         self.initialLoadLimit = initialLoadLimit
         self.historyPageSize = historyPageSize
         self.startupBudgetNanoseconds = startupBudgetNanoseconds
+        self.startupHardBudgetNanoseconds = startupHardBudgetNanoseconds
         self.clock = clock
         self.titleProvider = titleProvider
         self.workstreamIDNormalizer = workstreamIDNormalizer
@@ -138,7 +144,8 @@ public final class WorkstreamStore {
             do {
                 let snapshot = try await persistence.loadStartupSnapshot(
                     limit: min(initialLoadLimit, ringCapacity),
-                    budgetNanoseconds: startupBudgetNanoseconds
+                    budgetNanoseconds: startupBudgetNanoseconds,
+                    hardBudgetNanoseconds: startupHardBudgetNanoseconds
                 )
                 lastPersistenceDiagnostic = snapshot.diagnostics
                 if snapshot.diagnostics.exceededBudget {
@@ -160,6 +167,10 @@ public final class WorkstreamStore {
                 if let persistedRevision = try? await persistence.loadRevision() {
                     revision = max(revision, persistedRevision)
                 }
+                // A failed startup load is still a state transition for
+                // remote mirrors: force a fresh feed.list instead of leaving
+                // phones with a cached snapshot and no invalidation event.
+                bumpRevision()
                 workstreamPersistenceLogger.error(
                     "startup persistence failed error=\(String(describing: error), privacy: .private(mask: .hash)) revision=\(self.revision)"
                 )

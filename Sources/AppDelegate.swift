@@ -1780,6 +1780,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
+            FeedCoordinator.shared.reconcileRestoredPendingItems()
 #if DEBUG
             feedSidebarUITestCoordinator.startIfNeeded()
 #endif

@@ -95,10 +95,24 @@ final class FeedCoordinator: @unchecked Sendable {
         workstream: Int,
         notifications: Int
     ) -> Int {
-        guard notifications > 0 else { return max(0, workstream) }
-        let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
+        // The wire contract is a signed Int on older phones. A full 32-bit
+        // high lane becomes negative once shifted into bit 63. Preserve the
+        // legacy packed namespace while there is ample signed headroom, then
+        // switch to a linear continuation before the 2 GiB boundary. This
+        // keeps revisions ordered across the transition and leaves room for
+        // the append-only byte generation to keep advancing; saturation at
+        // Int.max would suppress every later `feed.changed` event.
+        let workstreamValue = UInt64(max(0, workstream))
+        let legacyCutover: UInt64 = 0x4000_0000
+        if workstreamValue >= legacyCutover {
+            let cutoverPacked = (legacyCutover << 32) | 0xFFFF_FFFF
+            let continuation = cutoverPacked + (workstreamValue - legacyCutover)
+            return Int(min(continuation, UInt64(Int.max)))
+        }
+        guard notifications > 0 else { return Int(workstreamValue) }
+        let high = workstreamValue
         let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
-        return Int(truncatingIfNeeded: (high << 32) | low)
+        return Int((high << 32) | low)
     }
 
     /// Must be called once at app launch to install the store.
@@ -134,6 +148,19 @@ final class FeedCoordinator: @unchecked Sendable {
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
         // kqueue-driven — no polling.
+        store.expireAbandonedItems()
+        for ppid in store.pending.compactMap(\.ppid) {
+            armPidWatcher(ppid: ppid)
+        }
+    }
+
+    /// Reconciles pending rows after asynchronous persistence startup. The
+    /// store is installed before its JSONL snapshot is loaded so socket
+    /// ingress can be accepted immediately; restored rows therefore need a
+    /// second expiry/watcher pass once ``WorkstreamStore.start()`` completes.
+    @MainActor
+    func reconcileRestoredPendingItems() {
+        guard store != nil else { return }
         store.expireAbandonedItems()
         for ppid in store.pending.compactMap(\.ppid) {
             armPidWatcher(ppid: ppid)

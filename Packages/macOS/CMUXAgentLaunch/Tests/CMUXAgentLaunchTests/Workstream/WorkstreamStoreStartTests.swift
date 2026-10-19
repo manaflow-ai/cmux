@@ -74,6 +74,31 @@ struct WorkstreamStoreStartTests {
         #expect(store.lastPersistenceDiagnostic?.missingFile == false)
     }
 
+    @Test("startup hard cutoff fails closed without advertising an older cursor")
+    func startupHardCutoffFailsClosed() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-start-hard-cutoff-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "persisted",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        let store = WorkstreamStore(
+            persistence: persistence,
+            ringCapacity: 10,
+            startupHardBudgetNanoseconds: 0
+        )
+        await store.start()
+
+        #expect(store.items.isEmpty)
+        #expect(store.hasMorePersistedItems == false)
+        #expect(store.lastPersistenceDiagnostic?.exceededBudget == true)
+    }
+
     @Test("Startup exposes persistence failures instead of treating them as empty history")
     func startupPublishesPersistenceError() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -90,6 +115,27 @@ struct WorkstreamStoreStartTests {
         #expect(store.items.isEmpty)
         #expect(store.lastPersistenceDiagnostic == nil)
         #expect(store.lastPersistenceError != nil)
+    }
+
+    @Test("startup persistence failure invalidates remote mirrors")
+    func startupPersistenceFailureNotifiesRevisionChange() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-start-error-hook-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+
+        let store = WorkstreamStore(
+            persistence: WorkstreamPersistence(fileURL: directory),
+            ringCapacity: 10
+        )
+        var revisions: [Int] = []
+        store.onRevisionChange = { revisions.append($0) }
+
+        await store.start()
+
+        #expect(store.lastPersistenceError != nil)
+        #expect(revisions.count == 1)
+        #expect(revisions.first == store.revision)
     }
 
     @Test("Paging advances past a malformed page to recover older history")

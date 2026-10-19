@@ -25,6 +25,40 @@ struct FeedCoordinatorTests {
         #expect(upgradedRevision > cachedRevision)
     }
 
+    @Test("Mobile Feed revision stays signed when the persisted log exceeds 2 GiB")
+    func mobileFeedRevisionContinuesPastSignedBoundary() {
+        let beforeBoundary = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 2_147_483_647,
+            notifications: 1
+        )
+        let atBoundary = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 2_147_483_648,
+            notifications: 1
+        )
+
+        #expect(beforeBoundary >= 0)
+        #expect(atBoundary == beforeBoundary + 1)
+
+        let later = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 2_147_483_649,
+            notifications: 1
+        )
+        #expect(later > atBoundary)
+    }
+
+    @Test("Mobile Feed revision crosses the compatibility cutover monotonically")
+    func mobileFeedRevisionCutoverIsMonotonic() {
+        let before = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 1_073_741_823,
+            notifications: 17
+        )
+        let after = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 1_073_741_824,
+            notifications: 0
+        )
+        #expect(after > before)
+    }
+
     @Test("Mobile Feed excludes sparse records before they become rows")
     func mobileFeedRenderabilityGate() {
         let emptyAssistant = WorkstreamItem(

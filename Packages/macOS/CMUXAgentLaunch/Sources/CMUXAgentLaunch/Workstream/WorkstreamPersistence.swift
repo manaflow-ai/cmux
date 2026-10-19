@@ -102,6 +102,7 @@ public actor WorkstreamPersistence {
         var line = data
         line.append(0x0A) // "\n"
         let fh = try handleForWriting()
+        try repairTornTrailingRow(in: fh)
         try fh.seekToEnd()
         try fh.write(contentsOf: line)
     }
@@ -193,7 +194,10 @@ public actor WorkstreamPersistence {
             )
         }
         let size = try fileSize()
-        let deadline = hardBudgetNanoseconds.map { started &+ $0 }
+        let deadline = hardBudgetNanoseconds.map { budget in
+            let (deadline, overflow) = started.addingReportingOverflow(budget)
+            return overflow ? UInt64.max : deadline
+        }
         let latest = try loadBoundedLatest(
             limit: limit,
             deadlineNanoseconds: deadline
@@ -258,7 +262,9 @@ public actor WorkstreamPersistence {
         let fileSize = try fh.seekToEnd()
         guard fileSize > 0 else { return Tail(lines: [], exceededBudget: false) }
         let chunkSize = 64 * 1024
-        let maximumTailBytes = 8 * 1024 * 1024
+        // Include the terminating newline so a valid row at the byte cap is
+        // not mistaken for a partial leading row.
+        let maximumTailBytes = Self.maximumPersistedRowBytes + 1
         var offset = fileSize
         var chunks: [Data] = []
         var totalBytes = 0
@@ -291,7 +297,9 @@ public actor WorkstreamPersistence {
             precedingByte = nil
         }
         let hasLeadingPartialLine = offset > 0
-            && (lines.isEmpty || precedingByte != 0x0A)
+            && !data.isEmpty
+            && data.first != 0x0A
+            && precedingByte != 0x0A
         if hasLeadingPartialLine, !lines.isEmpty {
             lines.removeFirst()
         }
@@ -333,7 +341,9 @@ public actor WorkstreamPersistence {
         }
 
         let chunkSize = 64 * 1024
-        let maximumTailBytes = 8 * 1024 * 1024
+        // Include the terminating newline so a valid row at the byte cap is
+        // not mistaken for a partial leading row.
+        let maximumTailBytes = Self.maximumPersistedRowBytes + 1
         var offset = pageEnd
         var chunks: [Data] = []
         chunks.reserveCapacity((maximumTailBytes + chunkSize - 1) / chunkSize)
@@ -381,7 +391,9 @@ public actor WorkstreamPersistence {
             precedingByte = nil
         }
         let hasLeadingPartialLine = offset > 0
-            && (lineRanges.isEmpty || precedingByte != 0x0A)
+            && !tail.isEmpty
+            && tail.first != 0x0A
+            && precedingByte != 0x0A
         if hasLeadingPartialLine, !lineRanges.isEmpty {
             lineRanges.removeFirst()
         }
@@ -407,7 +419,7 @@ public actor WorkstreamPersistence {
         // the first complete row is not a safe cursor: paging before it can
         // land in the same corrupt row and hide older valid history. The
         // window boundary lets the caller walk backwards in bounded chunks.
-        let startOffset = hasLeadingPartialLine ? offset : selectedStartOffset
+        let startOffset = selectedStartOffset ?? (offset > 0 ? offset : nil)
         return (
             Page(
                 items: out,
@@ -452,9 +464,27 @@ public actor WorkstreamPersistence {
         if !fm.fileExists(atPath: fileURL.path) {
             fm.createFile(atPath: fileURL.path, contents: nil)
         }
-        let fh = try FileHandle(forWritingTo: fileURL)
+        // Read access is required to detect and truncate a crash-torn final
+        // row before the next append.
+        let fh = try FileHandle(forUpdating: fileURL)
         handle = fh
         return fh
+    }
+
+    /// A crash can leave the final JSONL row without its newline. Appending
+    /// directly would concatenate the next object onto that invalid row and
+    /// make the new event invisible to bounded readers. Repair only the
+    /// trailing incomplete row. Preserve the bytes for forensic recovery and
+    /// insert a separator so the next valid JSON object remains readable.
+    private func repairTornTrailingRow(in fh: FileHandle) throws {
+        let end = try fh.seekToEnd()
+        guard end > 0 else { return }
+        try fh.seek(toOffset: end - 1)
+        guard let lastByte = try fh.read(upToCount: 1)?.first,
+              lastByte != 0x0A else { return }
+
+        try fh.seekToEnd()
+        try fh.write(contentsOf: Data([0x0A]))
     }
 
     private static func lineRanges(
