@@ -23,9 +23,8 @@ import Testing
 
         let daemon = try FakeDaemon()
         defer { daemon.close() }
-        let push = ChatSettingsPush.start(settings: settings, socketPath: daemon.path)
+        ChatSettingsPush.start(settings: settings, socketPath: daemon.path)
         let request = try await daemon.firstUpdate()
-        withExtendedLifetime(push) {}
 
         #expect(request["method"]?.stringValue == "_acpmux/chat_settings", "\(request)")
         #expect(request["params"]?["permissionMode"]?.stringValue == "ask", "\(request)")
@@ -44,9 +43,8 @@ import Testing
 
         let daemon = try FakeDaemon()
         defer { daemon.close() }
-        let push = ChatSettingsPush.start(settings: settings, socketPath: daemon.path)
+        ChatSettingsPush.start(settings: settings, socketPath: daemon.path)
         let request = try await daemon.firstUpdate()
-        withExtendedLifetime(push) {}
 
         #expect(request["params"]?["permissionMode"]?.stringValue == "standard", "\(request)")
         #expect(request["params"]?["permissionModeManaged"]?.boolValue == false, "\(request)")
@@ -55,7 +53,7 @@ import Testing
 
 /// A unix socket standing in for acpmux: it reads one connection's lines and answers the
 /// `_acpmux/chat_settings` request (id 2) as applied.
-private final class FakeDaemon: @unchecked Sendable {
+private nonisolated final class FakeDaemon: @unchecked Sendable {
     let path: String
     private let descriptor: Int32
 

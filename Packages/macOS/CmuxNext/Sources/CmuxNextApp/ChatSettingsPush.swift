@@ -21,14 +21,9 @@ final class ChatSettingsPush {
     init(socketPath: String) { socket = socketPath }
 
     /// App-lifetime observation, started at composition after the initial settings load.
-    static func start(settings: SettingsController, environment: AcpmuxEnvironment?) {
-        guard let environment else { return }
-        start(settings: settings, socketPath: environment.socketPath)
-    }
-
-    /// Starts pushing `settings.chatSettings` (with the MDM-aware permission mode) to `socketPath`.
-    @discardableResult
-    static func start(settings: SettingsController, socketPath: String) -> ChatSettingsPush {
+    /// The observation task keeps the push alive for the app's lifetime (tests pass their own socket).
+    static func start(settings: SettingsController, socketPath: String?) {
+        guard let socketPath else { return }
         let push = ChatSettingsPush(socketPath: socketPath)
         push.watchSocket()
         Task { @MainActor in
@@ -36,7 +31,6 @@ final class ChatSettingsPush {
                 push.update(value)
             }
         }
-        return push
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
