@@ -122,6 +122,8 @@ pub use loopback_forward::{
 };
 mod admission;
 #[cfg(unix)]
+mod agent_cli_job;
+#[cfg(unix)]
 mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
@@ -158,6 +160,7 @@ pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
+pub mod cloud_host_replica;
 mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
@@ -428,6 +431,10 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// The manual workspace unread mark: `marked_unread` on
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
+/// The manual tab unread mark: `marked_unread` on `tab.update` and the tab
+/// resource's `extra.marked_unread`. It needs no notification; clients clear
+/// it when the person views the tab.
+pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -1682,15 +1689,16 @@ enum Command {
     ConversationDraft(conversations::DraftParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
-    /// Cloud conversations proxy (`cloud-conversations-v1`,
-    /// server/cloud_conversations.rs).
+    /// Cloud conversations proxy and host replica (server/cloud_conversations.rs and so on).
     CloudSessionSet(cloud_conversations::SessionSetParams),
     CloudSessionClear,
     CloudSessionStatus,
+    CloudHostReplicaSet(cloud_host_replica::HostReplicaSetParams),
+    CloudHostReplicaClear(cloud_host_replica::HostReplicaClearParams),
+    CloudHostReplicaStatus,
     /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
     PageCredential(page_credential::PageCredentialParams),
-    /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the
-    /// owner's loopback page listener on request.
+    /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the owner's page listener.
     WsListen(page_listener::WsListenParams),
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
@@ -1706,13 +1714,12 @@ enum Command {
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
     CloudConversationLive(cloud_conversations::TargetParams),
-    /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
-    /// chief token), and the ack of handled wakes.
+    CloudConversationTyping(cloud_conversations::TypingParams),
+    /// The leased chief's MuxDO wake queue (`mux:<agent>`) and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),
     CloudMuxUnsubscribe(cloud_conversations::NoParams),
     CloudMuxAck(cloud_conversations::MuxAckParams),
-    /// Local conversation attachments (`local-attachments-v1`,
-    /// server/conversation_attachments.rs).
+    /// Local conversation attachments (`local-attachments-v1`, server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
     ConversationAttachmentLink(conversation_attachments::LinkParams),
@@ -2732,7 +2739,7 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     workspaces["registry_id"] = json!(registry_id);
     workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
+    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
     Ok(workspaces)
 }
 
