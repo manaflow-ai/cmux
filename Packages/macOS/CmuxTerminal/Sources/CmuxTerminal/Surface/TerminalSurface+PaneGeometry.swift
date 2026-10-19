@@ -87,11 +87,10 @@ extension TerminalSurface {
     /// because the portal-owned view had no committed geometry yet.
     @MainActor
     func startPendingRuntimeSurfaceCreationIfNeeded() {
-        guard let source = pendingRuntimeSurfaceCreationSource,
+        guard pendingRuntimeSurfaceCreationSource != nil,
               surface == nil,
               committedPaneGeometry != nil,
               let view = attachedView else { return }
-        pendingRuntimeSurfaceCreationSource = nil
         // Geometry commits run inside the portal's bulk synchronization pass.
         // Leave that pass before entering Ghostty: surface creation can touch
         // AppKit and synchronously request more geometry, which otherwise
@@ -105,6 +104,8 @@ extension TerminalSurface {
                   let view,
                   view.window != nil,
                   self.attachedView === view else { return }
+            guard let source = self.pendingRuntimeSurfaceCreationSource else { return }
+            self.pendingRuntimeSurfaceCreationSource = nil
 #if DEBUG
             logDebugEvent(
                 "surface.create.resume surface=\(self.id.uuidString.prefix(5)) reason=paneGeometryCommitted"

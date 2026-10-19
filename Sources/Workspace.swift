@@ -1806,9 +1806,9 @@ extension Workspace {
                 (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
             let usesExecutionAdmission = !restoresRemoteWorkspaceTerminalSnapshot &&
                 (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
-            let shouldCheckAgentOwnership = shouldAutoResumeAgent && !usesExecutionAdmission &&
+            let shouldCheckAgentOwnership = shouldAutoResumeAgent && (!usesExecutionAdmission || legacySubrouterBinding) &&
                 restoredRemotePTYSessionID == nil &&
-                (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
+                (legacySubrouterBinding || restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
             let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
             let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex?.isComplete(
                 forPanelId: snapshot.id, kind: restorableAgent?.kind.rawValue ?? resumeBinding?.kind
@@ -2080,7 +2080,7 @@ extension Workspace {
             let deferredAgentResumeStartupInput = deferredAgentResumeCandidateInput?.trimmingCharacters(
                 in: .whitespacesAndNewlines
             ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
-            let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil && legacySubrouterResumeInput == nil
+            let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
             let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,

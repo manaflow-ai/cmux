@@ -163,6 +163,32 @@ struct WorkstreamPersistenceTests {
         #expect(snapshot.items.map(\.workstreamId) == ["valid"])
     }
 
+    @Test("bounded startup drops a partial head row past the byte budget")
+    func startupDropsPartialHeadRowPastByteBudget() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-partial-head-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let item = WorkstreamItem(
+            workstreamId: "valid",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var data = Data(repeating: 0x78, count: 9 * 1024 * 1024)
+        data.append(0x0A)
+        data.append(try encoder.encode(item))
+        data.append(0x0A)
+        try data.write(to: tmp)
+
+        let snapshot = try await WorkstreamPersistence(fileURL: tmp)
+            .loadStartupSnapshot(limit: 10)
+        #expect(snapshot.items.map(\.workstreamId) == ["valid"])
+        #expect(snapshot.page.hasMoreBefore)
+        #expect(snapshot.revision == data.count)
+    }
+
     @Test("clear removes the backing file")
     func clearRemovesFile() async throws {
         let tmp = FileManager.default.temporaryDirectory

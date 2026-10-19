@@ -366,8 +366,8 @@ extension DockSplitStore {
             !suppressesResumeForBackgroundSession
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
-        let shouldCheckAgentOwnership = shouldAutoResumeAgent && !usesExecutionAdmission &&
-            (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
+        let shouldCheckAgentOwnership = shouldAutoResumeAgent && (!usesExecutionAdmission || legacySubrouterBinding) &&
+            (legacySubrouterBinding || restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex?.isComplete(
             forPanelId: snapshot.id, kind: restorableAgent?.kind.rawValue ?? resumeBinding?.kind
@@ -453,7 +453,8 @@ extension DockSplitStore {
             // The startup command itself can issue `cd` before the shell is
             // ready. Keep the command away from an unresponsive mounted volume;
             // the original path remains in the restored workspace metadata.
-            if candidate?.hasPrefix("/Volumes/") == true {
+            if let candidate,
+               Workspace.unmountedVolumeRoot(for: candidate) != nil {
                 return FileManager.default.homeDirectoryForCurrentUser.path
             }
             return candidate

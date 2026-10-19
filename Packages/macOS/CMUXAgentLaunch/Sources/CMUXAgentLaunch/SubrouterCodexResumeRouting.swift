@@ -1,8 +1,19 @@
 import Foundation
 
+/// The trust result for provider declarations captured from a Codex launch.
+///
+/// Restore code may route a session only for ``provider(_:)`` with the
+/// expected value. Missing declarations remain ordinary Codex launches, and
+/// conflicting declarations are deliberately rejected as ambiguous.
 public enum SubrouterCodexProviderEvidence: Equatable, Sendable {
+    /// No provider declaration was present in the captured invocation.
     case absent
+
+    /// Exactly one provider declaration was present.
     case provider(String)
+
+    /// More than one provider declaration, or a non-Codex invocation, was
+    /// observed and cannot safely be used for routing.
     case ambiguous
 }
 
