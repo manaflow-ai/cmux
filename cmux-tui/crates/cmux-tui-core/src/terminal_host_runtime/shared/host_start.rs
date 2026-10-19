@@ -10,7 +10,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
-use std::thread;
 
 use cmux_pty::MasterPty;
 use ghostty_vt::Terminal;
@@ -150,6 +149,7 @@ pub(crate) fn start_host_runtime(
         #[cfg(unix)]
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: child.adopted_session(),
+        lifetime: HostLifetime::default(),
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool::new(false),
     });
@@ -157,19 +157,23 @@ pub(crate) fn start_host_runtime(
     shared.clipboard.start_timer(&shared)?;
 
     let parser_host = shared.clone();
-    thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
+    super::host_crash::spawn("terminal-host-parser", move || {
         let guarded = parser_host.clone();
         let parse = move || {
             run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
         };
         run_guarded_host_parser(&guarded, parse, || {
+            // A shared host runs other terminals: only this one ended.
+            if shared_host_process() {
+                return;
+            }
             // crash-allow: the exit is published (or its bound passed); end the host.
             std::process::exit(host_parser::PARSER_FAILURE_EXIT_CODE)
         });
     })?;
 
     let reader_host = shared.clone();
-    thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
+    super::host_crash::spawn("terminal-host-pty", move || {
         reader_host.wait_for_launch_owner_stream_ready();
         let mut buffer = [0u8; 64 * 1024];
         let mut forced_at = None;
@@ -218,7 +222,7 @@ pub(crate) fn start_host_runtime(
         let _ = reader_host.parser_commands.send(ParserCommand::Drain);
     })?;
     let child_host = shared.clone();
-    thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
+    super::host_crash::spawn("terminal-host-child", move || {
         let observed_without_reaping = child.wait_exit_observed();
         if observed_without_reaping {
             child_host.mark_child_waitable();

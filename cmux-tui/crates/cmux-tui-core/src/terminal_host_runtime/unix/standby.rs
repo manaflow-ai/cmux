@@ -1,5 +1,7 @@
 //! A terminal-host process started ahead of its terminal (R81).
 
+use std::io::Read;
+
 use super::*;
 
 /// A terminal-host process started before its terminal exists (R81: a
@@ -9,13 +11,18 @@ use super::*;
 /// daemon exit closes its pipe, and the host exits.
 pub(crate) struct StandbyTerminalHost {
     pub(crate) process: SpawnedHostProcess,
-    pub(crate) stdin: std::process::ChildStdin,
-    pub(crate) stdout: std::process::ChildStdout,
+    pub(crate) stdin: Box<dyn Write + Send>,
+    pub(crate) stdout: Box<dyn Read + Send>,
     pub(crate) host_pid: u32,
 }
 
 impl StandbyTerminalHost {
     pub(crate) fn spawn() -> anyhow::Result<Self> {
+        // With shared hosts on, a terminal is a slot on a running host
+        // process, not a process of its own (shared_host.rs).
+        if shared_host::enabled() {
+            return shared_host::take_slot();
+        }
         // Exec the daemon's own running build (open inode on Linux): after an
         // in-place binary upgrade, resolving the executable path yields
         // "<path> (deleted)" and exec fails, which broke every new tab/split
@@ -46,7 +53,7 @@ impl StandbyTerminalHost {
                 .stderr(Stdio::null());
         })
         .context("spawn terminal-host process")?;
-        let mut process = SpawnedHostProcess { child: Some(child) };
+        let mut process = SpawnedHostProcess { child: Some(child), slot: None };
         let host_pid = process.child_mut().id();
         // A Cloud daemon's unit stop must not end its hosts (host_scope.rs).
         host_scope::place_host(host_pid);
@@ -54,7 +61,7 @@ impl StandbyTerminalHost {
             process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
         let stdout =
             process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
-        Ok(Self { process, stdin, stdout, host_pid })
+        Ok(Self { process, stdin: Box::new(stdin), stdout: Box::new(stdout), host_pid })
     }
 
     /// A stand-in for tests: `cat` also waits on its stdin and exits at EOF.
@@ -62,11 +69,11 @@ impl StandbyTerminalHost {
     pub(crate) fn spawn_stand_in() -> anyhow::Result<Self> {
         let mut command = Command::new("cat");
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
-        let mut process = SpawnedHostProcess { child: Some(command.spawn()?) };
+        let mut process = SpawnedHostProcess { child: Some(command.spawn()?), slot: None };
         let host_pid = process.child_mut().id();
         let stdin = process.child_mut().stdin.take().context("stand-in stdin")?;
         let stdout = process.child_mut().stdout.take().context("stand-in stdout")?;
-        Ok(Self { process, stdin, stdout, host_pid })
+        Ok(Self { process, stdin: Box::new(stdin), stdout: Box::new(stdout), host_pid })
     }
 
     /// The process id, for tests.
@@ -77,6 +84,6 @@ impl StandbyTerminalHost {
 
     /// False once the process has exited (killed, or crashed before use).
     pub(crate) fn is_alive(&mut self) -> bool {
-        matches!(self.process.child_mut().try_wait(), Ok(None))
+        self.process.is_alive()
     }
 }

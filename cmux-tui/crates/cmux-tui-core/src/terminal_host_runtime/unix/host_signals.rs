@@ -43,7 +43,7 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicUsize, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// The signals a host records and survives: every catchable signal whose
 /// default action ends or stops the process (cx-0tgl LB), plus, on Linux,
@@ -107,7 +107,6 @@ static SLOTS: [Slot; MAX_RECORDED_SIGNALS] = [const {
 }; MAX_RECORDED_SIGNALS];
 static NEXT_SLOT: AtomicUsize = AtomicUsize::new(0);
 static WAKE_WRITER: AtomicI32 = AtomicI32::new(-1);
-static BREADCRUMBS: OnceLock<Breadcrumbs> = OnceLock::new();
 static INSTALLED: OnceLock<()> = OnceLock::new();
 
 struct Breadcrumbs {
@@ -116,30 +115,48 @@ struct Breadcrumbs {
     incarnation: String,
 }
 
-/// Where the next slot to append starts; guarded so one writer runs at once.
-static WRITTEN: Mutex<usize> = Mutex::new(0);
-/// Ends the host's terminal (an owner `Terminate`), once the host runs one.
-static TERMINATE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+/// How a terminal of this process reacts to the signals the process gets.
+/// A host process runs one terminal, or many in a shared host
+/// (`shared_host.rs`); a signal to the process reaches every terminal it
+/// runs, and each records it in its own breadcrumb file.
+pub(crate) struct TerminalSignalHooks {
+    /// Ends the terminal (an owner `Terminate`).
+    pub(crate) terminate: Box<dyn Fn() + Send + Sync>,
+    /// True when no client stream is attached (the owner daemon is gone).
+    pub(crate) orphaned: Box<dyn Fn() -> bool + Send + Sync>,
+    /// Marks the terminal as ended because its owner is gone.
+    pub(crate) mark_owner_gone: Box<dyn Fn() + Send + Sync>,
+}
+
+struct Entry {
+    hooks: TerminalSignalHooks,
+    breadcrumbs: OnceLock<Breadcrumbs>,
+    /// Where the next slot to append starts; guarded so one writer runs at
+    /// once.
+    written: Mutex<usize>,
+    /// The terminal was asked to end for the service-manager stop.
+    stop_acted: AtomicBool,
+    /// The terminal was asked to end for a `SIGTERM` while orphaned.
+    orphan_term_acted: AtomicBool,
+    /// The slot of the `SIGTERM` that ended it (`usize::MAX`: none), so
+    /// only that breadcrumb says `ended`.
+    orphan_term_slot: AtomicUsize,
+    /// Dropped signals already summarized in its breadcrumb file.
+    dropped_reported: AtomicUsize,
+    /// A breadcrumb append failed (for example `EFBIG` past
+    /// `RLIMIT_FSIZE`): stop writing, so a failing write cannot raise
+    /// `SIGXFSZ` again in a loop.
+    failed: AtomicBool,
+}
+
+/// The terminals this process runs.
+static ENTRIES: Mutex<Vec<Arc<Entry>>> = Mutex::new(Vec::new());
 /// Set by the handler on a `SIGTERM` from PID 1, outside the slot table, so
 /// a service-manager stop is honored after the table is full.
 static SERVICE_STOP: AtomicBool = AtomicBool::new(false);
-/// The terminal was asked to end for the service-manager stop.
-static STOP_ACTED: AtomicBool = AtomicBool::new(false);
-/// Set by the handler on any `SIGTERM`; the writer thread ends the
-/// terminal when the host is orphaned ([`on_orphan_check`]).
+/// Set by the handler on any `SIGTERM`; the writer thread ends each
+/// terminal that is orphaned ([`TerminalSignalHooks::orphaned`]).
 static TERM_PENDING: AtomicBool = AtomicBool::new(false);
-/// The terminal was asked to end for a `SIGTERM` to an orphaned host.
-static ORPHAN_TERM_ACTED: AtomicBool = AtomicBool::new(false);
-/// The slot of the `SIGTERM` that ended an orphaned host (`usize::MAX`:
-/// none), so only that breadcrumb says `ended`.
-static ORPHAN_TERM_SLOT: AtomicUsize = AtomicUsize::new(usize::MAX);
-/// True when no client stream is attached (the owner daemon is gone).
-static ORPHANED: OnceLock<Box<dyn Fn() -> bool + Send + Sync>> = OnceLock::new();
-/// Dropped signals already summarized in the breadcrumb file.
-static DROPPED_REPORTED: AtomicUsize = AtomicUsize::new(0);
-/// A breadcrumb append failed (for example `EFBIG` past `RLIMIT_FSIZE`): stop
-/// writing, so a failing write cannot raise `SIGXFSZ` again in a loop.
-static BREADCRUMBS_FAILED: AtomicBool = AtomicBool::new(false);
 
 /// A service-manager stop (`SIGTERM` from PID 1) ends the host; every other
 /// recorded signal is survived.
@@ -147,38 +164,99 @@ pub(crate) fn honors(signal: libc::c_int, sender_pid: libc::pid_t) -> bool {
     signal == libc::SIGTERM && sender_pid == 1
 }
 
-/// Register how the host ends its terminal on a service-manager stop.
-pub(crate) fn on_service_manager_stop(terminate: Box<dyn Fn() + Send + Sync>) {
-    let _ = TERMINATE.set(terminate);
+/// One terminal's registration; dropping it removes the terminal.
+pub(crate) struct Registration(Arc<Entry>);
+
+impl Registration {
+    /// Name the breadcrumb file once the terminal's identity is known, and
+    /// write any signal recorded before that.
+    pub(crate) fn set_breadcrumb_path(
+        &self,
+        path: PathBuf,
+        terminal_id: String,
+        incarnation: String,
+    ) {
+        if !super::super::shared::host_state::shared_host_process() {
+            // A shared host attributes panics per thread instead
+            // (`host_crash::enter_terminal`).
+            super::super::shared::host_crash::install(
+                path.with_extension("crash"),
+                &terminal_id,
+                &incarnation,
+            );
+        }
+        let _ = self.0.breadcrumbs.set(Breadcrumbs { path, terminal_id, incarnation });
+        flush_entry(&self.0);
+    }
+}
+
+impl Drop for Registration {
+    fn drop(&mut self) {
+        let mut entries = ENTRIES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        entries.retain(|entry| !Arc::ptr_eq(entry, &self.0));
+        // A shared host stopped by its service manager ends once its last
+        // terminal ended (a one-terminal host returns from its loop).
+        if entries.is_empty()
+            && SERVICE_STOP.load(Ordering::Acquire)
+            && super::super::shared::host_state::shared_host_process()
+        {
+            // Its terminals all ended; their exit records are written.
+            // crash-allow: a service-manager stop of a shared host.
+            std::process::exit(0);
+        }
+    }
+}
+
+/// Register a terminal of this process: how it ends on a service-manager
+/// stop or, orphaned, on a `SIGTERM`.
+pub(crate) fn register(hooks: TerminalSignalHooks) -> Registration {
+    // A one-terminal host records every signal since its start (they were
+    // sent to its terminal); a shared host's later terminal only those
+    // after it joined.
+    let start = if super::super::shared::host_state::shared_host_process() {
+        NEXT_SLOT.load(Ordering::Acquire).min(MAX_RECORDED_SIGNALS)
+    } else {
+        0
+    };
+    let entry = Arc::new(Entry {
+        hooks,
+        breadcrumbs: OnceLock::new(),
+        written: Mutex::new(start),
+        stop_acted: AtomicBool::new(false),
+        orphan_term_acted: AtomicBool::new(false),
+        orphan_term_slot: AtomicUsize::new(usize::MAX),
+        dropped_reported: AtomicUsize::new(0),
+        failed: AtomicBool::new(false),
+    });
+    ENTRIES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(entry.clone());
     act_on_service_manager_stop();
+    Registration(entry)
 }
 
-/// Register how the host learns it is orphaned (no client stream). A
-/// `SIGTERM` then ends its terminal.
-pub(crate) fn on_orphan_check(orphaned: Box<dyn Fn() -> bool + Send + Sync>) {
-    let _ = ORPHANED.set(orphaned);
+fn entries() -> Vec<Arc<Entry>> {
+    ENTRIES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
-/// A `SIGTERM` to an orphaned host ends its terminal; one to a host its
+/// A `SIGTERM` to an orphaned terminal ends it; one to a terminal its
 /// daemon serves is only recorded. Runs on the writer thread.
 fn act_on_orphan_term() {
     if !TERM_PENDING.swap(false, Ordering::AcqRel) {
         return;
     }
-    if ORPHANED.get().is_some_and(|orphaned| orphaned())
-        && let Some(terminate) = TERMINATE.get()
-        && !ORPHAN_TERM_ACTED.swap(true, Ordering::AcqRel)
-    {
-        // The newest recorded SIGTERM is the one acted on.
-        let recorded = NEXT_SLOT.load(Ordering::Acquire).min(MAX_RECORDED_SIGNALS);
-        if let Some(index) = (0..recorded).rev().find(|index| {
-            SLOTS[*index].ready.load(Ordering::Acquire) == 1
-                && SLOTS[*index].signal.load(Ordering::Relaxed) == libc::SIGTERM
-        }) {
-            ORPHAN_TERM_SLOT.store(index, Ordering::Release);
+    // The newest recorded SIGTERM is the one acted on.
+    let recorded = NEXT_SLOT.load(Ordering::Acquire).min(MAX_RECORDED_SIGNALS);
+    let slot = (0..recorded).rev().find(|index| {
+        SLOTS[*index].ready.load(Ordering::Acquire) == 1
+            && SLOTS[*index].signal.load(Ordering::Relaxed) == libc::SIGTERM
+    });
+    for entry in entries() {
+        if (entry.hooks.orphaned)() && !entry.orphan_term_acted.swap(true, Ordering::AcqRel) {
+            if let Some(index) = slot {
+                entry.orphan_term_slot.store(index, Ordering::Release);
+            }
+            (entry.hooks.mark_owner_gone)();
+            (entry.hooks.terminate)();
         }
-        super::super::shared::host_state::mark_owner_gone();
-        terminate();
     }
 }
 
@@ -186,14 +264,17 @@ fn act_on_service_manager_stop() {
     if !SERVICE_STOP.load(Ordering::Acquire) {
         return;
     }
-    match TERMINATE.get() {
-        Some(terminate) if !STOP_ACTED.swap(true, Ordering::AcqRel) => terminate(),
-        Some(_) => {}
-        // A host with no terminal yet (standby, launching) just ends.
+    let entries = entries();
+    if entries.is_empty() {
+        // A host with no terminal (standby, launching, or a shared host
+        // whose terminals all ended) just ends.
         // crash-allow: a service-manager stop of a host with no terminal.
-        None if BREADCRUMBS.get().is_none() => std::process::exit(0),
-        // A terminal is starting: act once its terminate is registered.
-        None => {}
+        std::process::exit(0);
+    }
+    for entry in entries {
+        if !entry.stop_acted.swap(true, Ordering::AcqRel) {
+            (entry.hooks.terminate)();
+        }
     }
 }
 
@@ -337,24 +418,18 @@ pub(crate) fn install() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Name the breadcrumb file once the host knows its identity, and write any
-/// signal recorded before that.
-pub(crate) fn set_breadcrumb_path(path: PathBuf, terminal_id: String, incarnation: String) {
-    super::super::shared::host_crash::install(
-        path.with_extension("crash"),
-        &terminal_id,
-        &incarnation,
-    );
-    let _ = BREADCRUMBS.set(Breadcrumbs { path, terminal_id, incarnation });
-    flush();
+fn flush() {
+    for entry in entries() {
+        flush_entry(&entry);
+    }
 }
 
-fn flush() {
-    let Some(breadcrumbs) = BREADCRUMBS.get() else { return };
-    if BREADCRUMBS_FAILED.load(Ordering::Acquire) {
+fn flush_entry(entry: &Entry) {
+    let Some(breadcrumbs) = entry.breadcrumbs.get() else { return };
+    if entry.failed.load(Ordering::Acquire) {
         return;
     }
-    let mut written = WRITTEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut written = entry.written.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let recorded = NEXT_SLOT.load(Ordering::Acquire);
     let mut lines = String::new();
     while *written < recorded.min(MAX_RECORDED_SIGNALS) {
@@ -380,7 +455,7 @@ fn flush() {
             "action": if honors(
                 slot.signal.load(Ordering::Relaxed),
                 slot.sender_pid.load(Ordering::Relaxed),
-            ) || ORPHAN_TERM_SLOT.load(Ordering::Acquire) == *written
+            ) || entry.orphan_term_slot.load(Ordering::Acquire) == *written
             {
                 "ended"
             } else {
@@ -392,12 +467,12 @@ fn flush() {
         *written += 1;
     }
     let dropped = recorded.saturating_sub(MAX_RECORDED_SIGNALS);
-    let reported = DROPPED_REPORTED.load(Ordering::Acquire);
+    let reported = entry.dropped_reported.load(Ordering::Acquire);
     if *written == MAX_RECORDED_SIGNALS && dropped > 0 && dropped >= reported.saturating_mul(2) {
         // Counted, not stored. A summary line each time the count doubles,
         // so frequent signals (a profiling timer, SIGXCPU) cannot grow the
         // file without bound.
-        DROPPED_REPORTED.store(dropped, Ordering::Release);
+        entry.dropped_reported.store(dropped, Ordering::Release);
         let line = serde_json::json!({
             "terminal_id": breadcrumbs.terminal_id,
             "incarnation": breadcrumbs.incarnation,
@@ -417,7 +492,7 @@ fn flush() {
         .open(&breadcrumbs.path)
         && file.write_all(lines.as_bytes()).is_err()
     {
-        BREADCRUMBS_FAILED.store(true, Ordering::Release);
+        entry.failed.store(true, Ordering::Release);
     }
 }
 

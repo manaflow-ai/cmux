@@ -434,7 +434,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
 
     let mut command_stream = stream.try_clone()?;
     let command_host = host.clone();
-    thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
+    super::host_crash::spawn("terminal-host-client-input", move || {
         let mut detached = false;
         while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
             // Client-to-host messages currently define no flags and never

@@ -108,15 +108,26 @@ mod windows_stubs {
     pub(crate) mod host_signals {
         use std::path::PathBuf;
 
-        pub(crate) fn on_service_manager_stop(_terminate: Box<dyn Fn() + Send + Sync>) {}
+        pub(crate) struct TerminalSignalHooks {
+            pub(crate) terminate: Box<dyn Fn() + Send + Sync>,
+            pub(crate) orphaned: Box<dyn Fn() -> bool + Send + Sync>,
+            pub(crate) mark_owner_gone: Box<dyn Fn() + Send + Sync>,
+        }
 
-        pub(crate) fn on_orphan_check(_orphaned: Box<dyn Fn() -> bool + Send + Sync>) {}
+        pub(crate) struct Registration;
 
-        pub(crate) fn set_breadcrumb_path(
-            _path: PathBuf,
-            _terminal_id: String,
-            _incarnation: String,
-        ) {
+        impl Registration {
+            pub(crate) fn set_breadcrumb_path(
+                &self,
+                _path: PathBuf,
+                _terminal_id: String,
+                _incarnation: String,
+            ) {
+            }
+        }
+
+        pub(crate) fn register(_hooks: TerminalSignalHooks) -> Registration {
+            Registration
         }
     }
 

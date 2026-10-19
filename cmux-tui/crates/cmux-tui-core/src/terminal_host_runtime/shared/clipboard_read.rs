@@ -33,7 +33,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use ghostty_vt::Terminal;
@@ -257,6 +256,10 @@ pub(crate) struct ClipboardReadsShared {
     pub(crate) state: Mutex<ClipboardReadState>,
     pub(crate) changed: Condvar,
     pub(crate) clock: Arc<dyn ClipboardClock>,
+    /// The host the timeout worker serves, set by `start_timer`. The worker
+    /// itself starts with the first open read: most terminals never get
+    /// one, and a shared host runs many terminals (`unix/shared_host.rs`).
+    pub(crate) timer_host: Mutex<Option<Weak<HostShared>>>,
 }
 
 /// Host-side broker. Lock order: terminal, then this state, then the
@@ -274,6 +277,7 @@ impl ClipboardReads {
                 state: Mutex::new(ClipboardReadState::default()),
                 changed: Condvar::new(),
                 clock,
+                timer_host: Mutex::new(None),
             }),
             queued: Arc::new(Mutex::new(Vec::new())),
         }
@@ -320,6 +324,11 @@ impl ClipboardReads {
         let Some(owner) = state.owners.last() else { return false };
         // The sixty seconds start before the owner can see the read, so the
         // deadline never trails the request it bounds.
+        // The timer refuses this read after its deadline; without one the
+        // read is refused now.
+        if !self.shared.ensure_timer() {
+            return false;
+        }
         let deadline = self.shared.clock.now() + CLIPBOARD_READ_TIMEOUT;
         let frame =
             Frame::new(MessageKind::ClipboardReadRequest, encode_clipboard_read_request(request));
@@ -509,20 +518,34 @@ impl ControlResponses {
 }
 
 impl ClipboardReads {
-    /// Starts the timeout worker for `host` (whose broker this is). It
+    /// Arms the timeout worker for `host` (whose broker this is); it starts
+    /// with the first open read ([`ClipboardReadsShared::ensure_timer`]),
     /// blocks until the earliest deadline or a state change and exits when
     /// the terminal drains.
     pub(crate) fn start_timer(&self, host: &Arc<HostShared>) -> std::io::Result<()> {
-        let shared = self.shared.clone();
-        let host = Arc::downgrade(host);
-        thread::Builder::new()
-            .name("terminal-host-clipboard".into())
-            .spawn(move || shared.run_timer(&host))
-            .map(drop)
+        *lock(&self.shared.timer_host) = Some(Arc::downgrade(host));
+        Ok(())
     }
 }
 
 impl ClipboardReadsShared {
+    /// Starts the armed timeout worker once. False only when its thread did
+    /// not start; the caller then refuses the read instead of leaving it
+    /// open without a deadline.
+    fn ensure_timer(self: &Arc<Self>) -> bool {
+        let mut armed = lock(&self.timer_host);
+        // Taken: the worker already runs (or no host armed one).
+        let Some(host) = armed.take() else { return true };
+        let shared = self.clone();
+        let worker = host.clone();
+        let started =
+            super::host_crash::spawn("terminal-host-clipboard", move || shared.run_timer(&worker));
+        if started.is_err() {
+            *armed = Some(host);
+        }
+        started.is_ok()
+    }
+
     pub(crate) fn run_timer(&self, host: &Weak<HostShared>) {
         let mut state = lock(&self.state);
         loop {
