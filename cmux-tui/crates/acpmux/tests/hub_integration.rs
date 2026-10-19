@@ -41,6 +41,8 @@ mod secrets;
 mod seen;
 #[path = "hub_integration/session_offers.rs"]
 mod session_offers;
+#[path = "hub_integration/session_tools.rs"]
+mod session_tools;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_only.rs"]
