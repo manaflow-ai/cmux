@@ -95,7 +95,11 @@ static BUILD_STAMP: OnceLock<BuildStamp> = OnceLock::new();
 
 /// Records this process's source stamps. The first call wins. A mux that
 /// runs without them (tests, embedders) reports `null` for both, as an
-/// unstamped build does.
+/// unstamped build does. Every entry point that serves `identify` or `ping`
+/// must call it before it serves (the cmux-tui binary does it first in
+/// `main`); a future embedder that serves them (for example an FFI daemon)
+/// and does not call it reports `build_commit: null`, and the app's daemon
+/// handoff then does not occur.
 pub fn install_build_stamp(stamp: BuildStamp) {
     let _ = BUILD_STAMP.set(stamp);
 }

@@ -193,8 +193,6 @@ mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
-#[cfg(test)]
-use daemon_build::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
 use cmd_sizing::{optional_surface_size, paired_surface_size};

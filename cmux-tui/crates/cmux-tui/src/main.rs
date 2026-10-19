@@ -965,6 +965,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
 /// stamp recompiles this crate and not the libraries.
 fn build_stamp() -> cmux_tui_core::server::BuildStamp {
     cmux_tui_core::server::BuildStamp::new(
+        // `or` before the filter: a set but empty CMUX_TUI_BUILD_COMMIT hides
+        // CMUX_MUX_BUILD_COMMIT (no stamp), as before the stamp moved here.
         option_env!("CMUX_TUI_BUILD_COMMIT")
             .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
             .filter(|commit| !commit.is_empty()),
