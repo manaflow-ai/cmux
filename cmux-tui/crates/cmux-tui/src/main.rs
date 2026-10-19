@@ -43,6 +43,8 @@ mod private_mode;
 mod signal_sender;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
+#[cfg(unix)]
+mod distribution;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
@@ -67,8 +69,6 @@ mod provider_authority;
 #[cfg(unix)]
 mod provider_notice_identity;
 mod pty_input;
-#[cfg(unix)]
-mod distribution;
 #[cfg(unix)]
 mod remote_cli;
 #[cfg(not(unix))]
