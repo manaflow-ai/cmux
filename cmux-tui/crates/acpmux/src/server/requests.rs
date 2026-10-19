@@ -404,14 +404,12 @@ async fn dispatch_request(
                 _ => crate::prompt_provenance::Sender::Other,
             };
             let provenance = crate::prompt_provenance::of(&params, sender)?;
-            // The app's reply in place names a chat of this daemon as its sender.
+            // The app's reply in place answers a message a chat here got from this one.
             if sender == crate::prompt_provenance::Sender::App
                 && let Some(p) = &provenance
-                && let Some(e) = crate::prompt_provenance::app_reply_refused(p, &s.id, |from| {
-                    hub.resolve(from).is_ok_and(|found| found.id == from)
-                })
+                && !hub.app_reply_fits(p, &s.id)
             {
-                return Err(e);
+                return Err(crate::prompt_provenance::origin_refused());
             }
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));

@@ -100,6 +100,33 @@ enum Decision {
 }
 
 impl Hub {
+    /// Whether the app pane's reply in place (`prompt_provenance.rs`, `Sender::App`) answers a
+    /// real message: `from` is a chat here other than `to`, and its log holds a `user_message`
+    /// that `to` sent it as an agent message under the id the reply names (`replyTo`). The
+    /// pane cannot then put words in a chat's mouth beyond answering what it was sent.
+    pub(crate) fn app_reply_fits(&self, provenance: &Value, to: &str) -> bool {
+        let field = |k: &str| provenance.get(k).and_then(Value::as_str).unwrap_or_default();
+        let (from, reply_to) = (field("from"), field("replyTo"));
+        if field("to") != to || from == to || reply_to.is_empty() {
+            return false;
+        }
+        let Ok(session) = self.resolve(from) else { return false };
+        if session.id != from {
+            return false;
+        }
+        let mut answered = false;
+        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            let p = |k: &str| e.msg.pointer(&format!("/_meta/provenance/{k}")).and_then(Value::as_str);
+            answered = e.kind == "user_message"
+                && p("kind") == Some("agent_message")
+                && p("msgId") == Some(reply_to)
+                // `cmux agent message` names a chat `acp:<id>` (PaletteNavigationEntry.swift).
+                && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to);
+            !answered
+        });
+        answered
+    }
+
     /// `_acpmux/prompt_withdraw`; see the module docs.
     pub async fn prompt_withdraw(
         self: &Arc<Self>,

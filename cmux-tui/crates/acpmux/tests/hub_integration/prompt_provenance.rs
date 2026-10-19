@@ -2,8 +2,8 @@
 //! `session/prompt` names the agent that sent it (`cmux agent message`). The recorded
 //! `user_message` carries it as `_meta.provenance`, a queued prompt keeps it until it runs, a
 //! steer records it, and an edit of the waiting prompt drops it. Only the unix socket may
-//! send it, except the app pane's reply in place: `replyTo` set, from a chat here to the
-//! prompt's chat.
+//! send it, except the app pane's reply in place: from a chat here, to the chat that sent it
+//! the message `replyTo` names.
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -219,7 +219,7 @@ async fn a_provenance_from_any_origin_but_the_unix_socket_is_refused() {
 }
 
 /// The app pane's reply in place (IncomingMessageCard.tsx): chat `from` answers message `msg-0`
-/// of thread `thread-1` in chat `to`.
+/// of thread `thread-1`, which chat `to` sent it.
 fn app_reply(from: &str, to: &str) -> Value {
     json!({"kind": "agent_message", "from": from, "fromName": "Grid fix", "to": to,
            "msgId": "m-reply", "threadId": "thread-1", "replyTo": "msg-0"})
@@ -231,6 +231,10 @@ async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
     let mut local = Client::open(&hub);
     let sender = local.new_session(json!({"harness": "fake"})).await;
     let replier = local.new_session(json!({"harness": "fake"})).await;
+    // The message the reply answers: `sender`'s agent message `msg-0` to `replier`.
+    let message = json!({"kind": "agent_message", "from": sender, "fromName": "builder", "to": replier,
+                         "msgId": "msg-0", "threadId": "thread-1"});
+    local.call("session/prompt", prompt(&replier, "msg-0", "Rebase on main.", Some(&message))).await;
     let mut app = Client::open_as(&hub, Origin::LocalApp);
 
     // A reply from the chat the message came to, to the chat that sent it: recorded as is.
@@ -240,12 +244,15 @@ async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
     assert_eq!(ran["text"], "Rebased; tests pass.", "{ran}");
     assert_eq!(ran.pointer("/_meta/provenance"), Some(&reply), "{ran}");
 
-    // Not a reply, a sender that is no chat here, the prompt's own chat as its sender, or a
-    // `to` that is not the prompt's chat: refused.
+    // Not a reply, a reply to a message the chat never got, a sender that is no chat here, the
+    // prompt's own chat as its sender, or a `to` that is not the prompt's chat: refused.
     let mut no_reply_to = app_reply(&replier, &sender);
     no_reply_to.as_object_mut().unwrap().remove("replyTo");
+    let mut unknown_message = app_reply(&replier, &sender);
+    unknown_message["replyTo"] = json!("msg-never-sent");
     let refused = [
         no_reply_to,
+        unknown_message,
         app_reply("acp:nobody", &sender),
         app_reply(&sender, &sender),
         app_reply(&replier, &replier),

@@ -2623,7 +2623,8 @@ export class AcpmuxDirectClient {
   /// Resolves once acpmux took it; rejects with its refusal.
   async reply(message: Pick<IncomingMessage, "sessionId" | "msgId" | "threadId">, text: string): Promise<void> {
     const from = this.selectedSessionId;
-    const to = message.sessionId;
+    // `cmux agent message` names its sender `acp:<id>`; acpmux's chat id is the bare one.
+    const to = message.sessionId?.replace(/^acp:/, "");
     const body = text.trim();
     if (!from || !to || to === from || !message.msgId || !body) throw new Error(translate("message.replyFailed"));
     const msgId = `m-${crypto.randomUUID()}`;
