@@ -29,6 +29,7 @@ enum Fault {
     Device,
     Wg,
     Install,
+    Backend,
 }
 #[derive(Default)]
 struct State {
@@ -246,6 +247,40 @@ fn server_pairing_native_signs_with_its_own_keys_and_confirms_before_completing(
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
+}
+
+#[test]
+fn server_pairing_native_backend_failure_keeps_registration_pending_and_link_blocked() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(&path);
+    api.state.lock().unwrap().fault = Fault::Backend;
+    assert!(
+        run(&api, &mut vec![]).is_err(),
+        "Native registration alone is not backend confirmation"
+    );
+    assert_eq!(pairing::status(&path).unwrap()["state"], "network_pending");
+    assert!(EnrolledIdentity::load(&path).is_err());
+    let record = private_record(&path);
+    assert!(record["native"].get("response").is_none(), "discard the spent private invitation");
+    assert!(!record.to_string().contains(CODE));
+    assert_eq!(enroll_count(&api), 1);
+}
+
+#[test]
+fn server_pairing_native_legacy_registered_record_still_needs_backend_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(&path);
+    api.state.lock().unwrap().fault = Fault::Backend;
+    let _ = run(&api, &mut vec![]);
+    // Schema 2 could finish Native enrollment without ever notifying TeamDO.
+    let mut legacy = private_record(&path);
+    legacy["schema"] = json!(2);
+    legacy["native"].as_object_mut().unwrap().remove("confirmed_at");
+    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert_eq!(pairing::status(&path).unwrap()["state"], "network_pending");
+    assert!(EnrolledIdentity::load(&path).is_err());
 }
 
 #[test]
