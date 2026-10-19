@@ -26,6 +26,7 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     private(set) var requests: [Data] = []
     private(set) var enrollments = 0
     private(set) var deletions = 0
+    private(set) var deletedDevices: [String] = []
     private(set) var binds = 0
     private(set) var bindKeys: [String] = []
     private(set) var proofNonces: [String] = []
@@ -138,6 +139,7 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
         guard let bearer, try claims(bearer)["sub"] == "stack_1", let scope = scopes.first(where: { $0.tenant == tenant }) else { throw Failure.invalid }
         if method == "DELETE" {
             let id = String(path.split(separator: "/").last!)
+            deletedDevices.append(id)
             devices.removeAll(where: { $0["id"] == id }); deletions += 1
             return (204, Data())
         }

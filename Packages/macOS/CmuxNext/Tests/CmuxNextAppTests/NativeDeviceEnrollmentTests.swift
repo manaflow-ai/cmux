@@ -134,6 +134,36 @@ import Testing
         await #expect(throws: NativeDeviceEnrollmentError.revoked) { try await service.enroll() }
     }
 
+    @Test(arguments: ["missing", "corrupt", "replacement"])
+    func revocationRetainsItsConfirmedDeviceWhenTheCheckpointChanges(checkpoint: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scope = try makeScope(), (world, identity) = try await setup([scope], root: root)
+        let service = try client(scope, world: world, identity: identity, root: root)
+        let joined = try await service.enroll()
+        let file = try #require(records(root).first)
+        let original = try Data(contentsOf: file)
+        let remaining: Data?
+        switch checkpoint {
+        case "missing":
+            try FileManager.default.removeItem(at: file)
+            remaining = nil
+        case "corrupt":
+            remaining = Data("unreadable-checkpoint".utf8)
+            try remaining!.write(to: file)
+        default:
+            var record = try #require(JSONSerialization.jsonObject(with: original) as? [String: String])
+            record["device"] = "dev_" + String(repeating: "1", count: 26)
+            remaining = try JSONSerialization.data(withJSONObject: record)
+            try remaining!.write(to: file)
+        }
+        await service.stop()
+        try await service.revoke()
+        #expect(await world.deletedDevices == [joined.device])
+        #expect((try? Data(contentsOf: file)) == remaining)
+        await #expect(throws: NativeDeviceEnrollmentError.revoked) { try await service.enroll() }
+    }
+
     @Test func legacyDevicesWithoutInstallKeysDoNotBlockEnrollment() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
