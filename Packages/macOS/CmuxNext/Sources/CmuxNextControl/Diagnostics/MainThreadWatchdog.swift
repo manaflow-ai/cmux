@@ -330,9 +330,6 @@ public final class MainThreadWatchdog: Sendable {
         var reportedBeat: UInt64 = .max
         var assertedBeat: UInt64 = .max
         var lastReportNanos: UInt64?
-        /// Main-thread CPU time when this stall was first checked.
-        var cpuBeat: UInt64 = .max
-        var cpuAtFirstCheck: UInt64?
     }
 
     /// A stall past `assertNanos` fails the debug assertion only when the
@@ -358,10 +355,6 @@ public final class MainThreadWatchdog: Sendable {
         let started = beatNanos.load(ordering: .acquiring)
         guard now > started else { return }
         let elapsed = now - started
-        if state.cpuBeat != beat {
-            state.cpuBeat = beat
-            state.cpuAtFirstCheck = busy.mainThreadCPUNanos()
-        }
         if elapsed >= hangNanos, state.reportedBeat != beat {
             state.reportedBeat = beat
             let duration = Duration.nanoseconds(Int64(clamping: elapsed))
@@ -375,16 +368,18 @@ public final class MainThreadWatchdog: Sendable {
         }
         if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,
            !assertionsEnded.load(ordering: .acquiring),
-           Self.hangFailsAssertion(elapsedNanos: elapsed, mainThreadCPUNanos: mainThreadCPU(since: state.cpuAtFirstCheck),
+           Self.hangFailsAssertion(elapsedNanos: elapsed, mainThreadCPUNanos: mainThreadCPU(sinceBeat: beat),
                                    assertNanos: hangAssertNanos) {
             state.assertedBeat = beat
             assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
         }
     }
 
-    /// Main-thread CPU used since `start`; nil when either reading failed.
-    private func mainThreadCPU(since start: UInt64?) -> UInt64? {
-        guard let start, let now = busy.mainThreadCPUNanos() else { return nil }
+    /// Main-thread CPU used since heartbeat `beat` began the stall (its
+    /// `beatCPUNanos` stamp); nil when the reading failed or `beat` ended.
+    private func mainThreadCPU(sinceBeat beat: UInt64) -> UInt64? {
+        let start = beatCPUNanos.load(ordering: .acquiring)
+        guard beatSequence.load(ordering: .acquiring) == beat, let now = busy.mainThreadCPUNanos() else { return nil }
         return now > start ? now - start : 0
     }
 

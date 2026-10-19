@@ -1,4 +1,5 @@
 @testable import CmuxNextControl
+import Darwin
 import Testing
 
 struct MainThreadWatchdogPolicyTests {
@@ -40,8 +41,11 @@ struct MainThreadWatchdogPolicyTests {
         let busy = BusyWatchdog(log: HangLog(capacity: 1))
         busy.watchCurrentThread()
         let before = try #require(await Task.detached { busy.mainThreadCPUNanos() }.value)
-        let deadline = ContinuousClock.now + .milliseconds(80)
-        while ContinuousClock.now < deadline {}
+        // Spin on the main thread's own CPU clock (wall time is no bound on a
+        // loaded host); the cap turns a starved thread into a failure, not a hang.
+        let start = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+        let cap = ContinuousClock.now + .seconds(10)
+        while clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) &- start < 80_000_000, ContinuousClock.now < cap {}
         let after = try #require(await Task.detached { busy.mainThreadCPUNanos() }.value)
         #expect(after >= before + 50_000_000, "before \(before) ns, after \(after) ns")
     }
