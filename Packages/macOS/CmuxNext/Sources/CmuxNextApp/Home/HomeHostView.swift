@@ -29,6 +29,7 @@ final class HomeHostView: NSView {
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
+    private var shortcutsWatch: Task<Void, Never>?
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
@@ -81,8 +82,8 @@ final class HomeHostView: NSView {
         // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
         let registry = services.registry
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
-        // A Chief subagent's link: its workspace and chat tab, through link.open.
-        transcript.onAppLink = { [weak services] url in if let services { ChiefSubagentLinks.open(url, services: services) } }
+        // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
+        transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
         transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
@@ -150,9 +151,23 @@ final class HomeHostView: NSView {
                 self?.transcript.setFirstRunAgents(agents)
             }
         }
-        transcript.setFirstRunShortcuts(terminal: registry.shortcutDisplay(for: Self.openTerminalAction),
-                                        agent: registry.shortcutDisplay(for: Self.startAgentAction),
-                                        tabs: registry.shortcutDisplay(for: Self.selectTabByNumberAction))
+        // The first-run rows' shortcuts and the Switching card follow rebinds
+        // (Settings, cmux.json, keybindings.json) while the view lives.
+        let switchKeys = services.homeSwitchKeys
+        transcript.onHideSwitchKeys = { switchKeys.hide() }
+        transcript.onOpenKeyboardShortcutSettings = {
+            if let url = HomeSwitchKeysSource.keyboardShortcutsURL { NSWorkspace.shared.open(url) }
+        }
+        // task-owner: lives as long as this view; event-driven (Observation of the registry)
+        shortcutsWatch = Task { [weak self] in
+            for await keys in ObservationStream({
+                HomeFirstRunKeys(terminal: registry.shortcutDisplay(for: Self.openTerminalAction),
+                                 agent: registry.shortcutDisplay(for: Self.startAgentAction),
+                                 switching: switchKeys.keys(registry: registry))
+            }) {
+                self?.transcript.setFirstRunShortcuts(terminal: keys.terminal, agent: keys.agent, switching: keys.switching)
+            }
+        }
         // The first-run panel waits for the first page, so a conversation
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
@@ -197,8 +212,6 @@ final class HomeHostView: NSView {
 
     static let openTerminalAction: ActionID = "newSurface"
     static let startAgentAction: ActionID = "palette.newAgentChat"
-    /// Ctrl-1 to 9 (a numbered family, shown as `⌃1…9`).
-    static let selectTabByNumberAction: ActionID = "selectSurfaceByNumber"
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -210,6 +223,7 @@ final class HomeHostView: NSView {
             availability?.cancel()
             engineWatch?.cancel()
             agentsWatch?.cancel()
+            shortcutsWatch?.cancel()
             slideClient?.deactivate()
             if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
             if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }

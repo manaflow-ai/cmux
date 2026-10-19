@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun run verify:tanstack-router && bun run typecheck && vp build",
+    "postinstall": "bun scripts/pages/gen-strings.mjs --best-effort",
+    "build": "node scripts/pages/gen-strings.mjs && bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
     "check": "bun run check:browser-lanes && bun run check:layers && bun run check:type-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && vp check && bun run acpmux-protocol:check",
     "check:layers": "python3 ../scripts/cmux-next/check-layers.py",
@@ -18,6 +19,7 @@
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",
     "dev:settings": "vp dev --config vite.config.settings-page.mjs",
     "dev:pages": "vp dev --config vite.config.pages-dev.ts",
+    "strings": "node scripts/pages/gen-strings.mjs",
     "strings:settings": "node scripts/pages/gen-strings.mjs settings",
     "compare:agent-pane": "node scripts/agent-pane/compare.mjs",
     "fmt": "vp fmt",
@@ -37,7 +39,7 @@
     "verify:tanstack-router": "node scripts/verify-tanstack-router-security.mjs",
     "react-doctor": "react-doctor . --full --no-score --fail-on none",
     "react-doctor:ci": "react-doctor . --full --no-score --fail-on none",
-    "gallery:build": "vp build --config vite.config.gallery.ts",
+    "gallery:build": "node scripts/pages/gen-strings.mjs && vp build --config vite.config.gallery.ts",
     "gallery:dev": "vp dev --config vite.config.gallery-dev.ts"
   },
   "dependencies": {

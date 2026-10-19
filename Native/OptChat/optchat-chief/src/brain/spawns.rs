@@ -35,7 +35,7 @@ impl Brain {
             return Err("spawn needs at least one task".into());
         }
         let mut free = self
-            .max_live
+            .live_cap()
             .map_or(usize::MAX, |n| n.saturating_sub(self.live_subs()));
         let first = self.state.next_subagent.max(1);
         let ids: Vec<String> = (0..tasks.len() as u64)
@@ -85,7 +85,7 @@ impl Brain {
             spawn,
             ids,
             queued,
-            limit: self.max_live,
+            limit: self.live_cap(),
             engine: self.spawn_engine(),
         })
     }
@@ -106,8 +106,22 @@ impl Brain {
             if sub.status == SubStatus::Starting {
                 sub.status = SubStatus::Running;
             }
+            sub.active_ms = now_ms();
+            sub.stuck_noted = false;
+            // Tells wait until its task is sent (`sub_prompted`).
+            sub.awaiting_task = true;
             self.save();
         }
+    }
+
+    /// Its first prompt is sent: messages told while it was starting
+    /// follow it, in order.
+    pub(super) fn sub_prompted(&mut self, id: &str) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.awaiting_task = false;
+        }
+        self.save();
+        self.flush_inbox(id);
     }
 
     pub(super) fn sub_workspace(&mut self, id: &str, key: String, name: String) {
@@ -130,6 +144,7 @@ impl Brain {
             return;
         };
         sub.status = SubStatus::Done;
+        sub.awaiting_task = false;
         sub.report = Some(format!("(did not start: {error})"));
         sub.stopped = false;
         let spawn = self.state.sub(id).map(|(s, _)| s.clone());
@@ -168,12 +183,19 @@ impl Brain {
         let Some(status) = self.state.sub(&id).map(|(_, s)| s.status) else {
             return true;
         };
+        if let Some(sub) = self.state.sub_mut(&id) {
+            sub.active_ms = now_ms();
+            if session.pending_permissions == 0 {
+                sub.permission = None;
+            }
+        }
         if busy(session.status) {
             // Running again: a tell, or the user writing in its chat.
             if matches!(status, SubStatus::Done | SubStatus::Reported) {
                 if let Some(sub) = self.state.sub_mut(&id) {
                     sub.status = SubStatus::Running;
                     sub.run_ms = now_ms();
+                    sub.stuck_noted = false;
                 }
                 self.save();
                 self.mark_workspace(&id, false);
@@ -225,11 +247,47 @@ impl Brain {
         floor: Option<u64>,
         events: Option<&[AcpmuxEvent]>,
     ) {
-        let Some(spawn) = self.state.sub(id).map(|(s, _)| s.clone()) else {
+        let Some((spawn, held)) = self
+            .state
+            .sub(id)
+            .map(|(s, sub)| (s.clone(), sub.paused || sub.cancelled))
+        else {
             return;
+        };
+        // control interrupt|restart with a message: the cut run reports
+        // nothing; the message is its next prompt, sent now that it stopped.
+        let follow = self.state.sub_mut(id).and_then(|s| s.after_stop.take());
+        if let Some(message) = follow {
+            if let Some(sub) = self.state.sub_mut(id) {
+                if let Some(floor) = floor {
+                    sub.floor = floor;
+                }
+                sub.status = SubStatus::Done;
+            }
+            self.save();
+            match self.tell(id, &message) {
+                Ok(_) => {
+                    self.trace.emit("subagent.after_stop", json!({"id": id}));
+                    return;
+                }
+                Err(e) => (self.log)(&format!("subagent {id}: its follow-up failed: {e}")),
+            }
+        }
+        // A run that stopped on an error: its report becomes "stopped: ..."
+        // (quiet while an auto-resume is planned) and the continue is set up.
+        // Never for one the Chief paused or cancelled.
+        let planned = if held {
+            None
+        } else {
+            self.plan_auto_resume(id, &report, stopped)
+        };
+        let (report, stopped) = match planned {
+            Some((note, quiet)) => (note, quiet),
+            None => (report, stopped),
         };
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Done;
+            sub.awaiting_task = false;
             sub.report = Some(report.clone());
             sub.stopped = stopped;
             if let Some(floor) = floor {
@@ -263,6 +321,151 @@ impl Brain {
         self.mark_workspace(id, true);
         self.deliver(&spawn);
         self.start_queued();
+    }
+
+    /// Auto-resume (auto_resume.rs) of subagent `id`, whose run just ended
+    /// with `report`: None when there is nothing to do (a real report, a
+    /// user stop, or auto-resume off); else the note that replaces its
+    /// report (`stopped: ...`) and whether it is quiet (a continue is
+    /// planned, so the Chief need not act).
+    fn plan_auto_resume(
+        &mut self,
+        id: &str,
+        report: &str,
+        stopped: bool,
+    ) -> Option<(String, bool)> {
+        use crate::auto_resume::{Decision, StopKind, chief_note, classify, decide};
+        let policy = self.resume_policy?;
+        let kind = classify(report, stopped);
+        let attempts = self.state.sub(id).map_or(0, |(_, s)| s.resume_attempts);
+        if matches!(kind, StopKind::Done | StopKind::UserStopped) {
+            if attempts != 0
+                && let Some(sub) = self.state.sub_mut(id)
+            {
+                sub.resume_attempts = 0;
+            }
+            return None;
+        }
+        // A network stop always waits on the probe (off this thread); it
+        // returns at once when the endpoint answers.
+        let decision = decide(&kind, attempts, &policy, false);
+        let note = chief_note(&decision)?;
+        self.trace.emit(
+            "subagent.auto_resume",
+            json!({"id": id, "kind": format!("{kind:?}"), "attempts": attempts, "decision": format!("{decision:?}")}),
+        );
+        (self.log)(&format!("subagent {id}: {note}"));
+        match decision {
+            Decision::Report { .. } => {
+                if let Some(sub) = self.state.sub_mut(id) {
+                    sub.resume_attempts = 0;
+                }
+                Some((note, false))
+            }
+            Decision::Retry {
+                reason,
+                attempt,
+                delay,
+            } => {
+                if let Some(sub) = self.state.sub_mut(id) {
+                    sub.resume_attempts = attempt;
+                }
+                let (tx, id) = (self.tx.clone(), id.to_owned());
+                std::thread::spawn(move || {
+                    // A bounded backoff before the retry (auto_resume.rs).
+                    std::thread::sleep(delay);
+                    let _ = tx.send(super::Input::AutoResume {
+                        id,
+                        attempt,
+                        reason,
+                        after_network: false,
+                        online: true,
+                    });
+                });
+                Some((note, true))
+            }
+            Decision::WaitOnline { reason, attempt } => {
+                if let Some(sub) = self.state.sub_mut(id) {
+                    sub.resume_attempts = attempt;
+                }
+                let (tx, id, reach) = (self.tx.clone(), id.to_owned(), self.reach.clone());
+                let settle = policy.backoff(1).min(std::time::Duration::from_secs(15));
+                std::thread::spawn(move || {
+                    let online = crate::auto_resume::wait_online(
+                        &*reach,
+                        crate::auto_resume::NETWORK_POLL,
+                        crate::auto_resume::NETWORK_WAIT_MAX,
+                        std::thread::sleep,
+                    );
+                    if online {
+                        // Let the link settle before the request.
+                        std::thread::sleep(settle);
+                    }
+                    let _ = tx.send(super::Input::AutoResume {
+                        id,
+                        attempt,
+                        reason,
+                        after_network: true,
+                        online,
+                    });
+                });
+                Some((note, true))
+            }
+        }
+    }
+
+    /// An auto-resume of `id` is due: it is told to continue (its chat shows
+    /// the `[auto-resume N]` message), unless it runs again already, a newer
+    /// stop replaced this one, or the network never came back (then the
+    /// stop is reported).
+    pub(super) fn auto_resume_due(
+        &mut self,
+        id: &str,
+        attempt: u32,
+        reason: &str,
+        after_network: bool,
+        online: bool,
+    ) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        let current = sub.resume_attempts == attempt
+            && matches!(sub.status, SubStatus::Done | SubStatus::Reported);
+        if !current {
+            self.trace.emit(
+                "subagent.auto_resume.skip",
+                json!({"id": id, "attempt": attempt, "status": format!("{:?}", sub.status)}),
+            );
+            return;
+        }
+        if !online {
+            let spawn = self.state.sub(id).map(|(s, _)| s.clone());
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.resume_attempts = 0;
+                sub.status = SubStatus::Done;
+                sub.stopped = false;
+                sub.report = Some(format!(
+                    "stopped: {reason}. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
+                    crate::auto_resume::NETWORK_WAIT_MAX.as_secs() / 60
+                ));
+            }
+            self.save();
+            if let Some(spawn) = spawn {
+                self.deliver(&spawn);
+            }
+            return;
+        }
+        let message = crate::auto_resume::continue_prompt(reason, attempt, after_network);
+        match self.tell(id, &message) {
+            Ok(_) => {
+                (self.log)(&format!("subagent {id}: auto-resume {attempt} sent"));
+                self.trace.emit(
+                    "subagent.auto_resume.sent",
+                    json!({"id": id, "attempt": attempt, "after_network": after_network}),
+                );
+            }
+            Err(e) => (self.log)(&format!("subagent {id}: auto-resume {attempt} failed: {e}")),
+        }
     }
 
     /// The subagent's tool calls, model requests and the messages the user
@@ -400,6 +603,113 @@ impl Brain {
         );
     }
 
+    /// `tell(id, message, key)`: never fails for a known subagent. One that
+    /// has no session yet (queued or starting) or is paused keeps it in its
+    /// saved inbox, delivered in order the moment it can take it; a queued
+    /// one gets it with its task. A repeat of `key` is not sent again.
+    pub(super) fn tell_keyed(
+        &mut self,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+    ) -> Result<String, String> {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return Err(format!("no subagent {id}"));
+        };
+        if let Some(key) = key
+            && sub.tell_keys.iter().any(|k| k == key)
+        {
+            return Ok(format!(
+                "outcome: noop. {id} already has this message (key {key}); it was not sent again"
+            ));
+        }
+        let hold = sub.session_id.is_none()
+            || sub.awaiting_task
+            || sub.paused
+            || sub.status == SubStatus::Queued;
+        let cancelled = sub.cancelled;
+        if cancelled {
+            return Ok(format!(
+                "outcome: refused. {id} was cancelled; control(action: \"restart\", id: \"{id}\") brings it back"
+            ));
+        }
+        if let Some(key) = key
+            && let Some(sub) = self.state.sub_mut(id)
+        {
+            sub.tell_keys.push(key.to_owned());
+            let over = sub
+                .tell_keys
+                .len()
+                .saturating_sub(crate::state::TELL_KEYS_KEPT);
+            sub.tell_keys.drain(..over);
+        }
+        if hold {
+            let (status, paused, waiting) = {
+                let sub = self.state.sub_mut(id).expect("checked above");
+                sub.inbox.push(crate::state::InboxMessage {
+                    text: message.to_owned(),
+                    at_ms: now_ms(),
+                });
+                (sub.status, sub.paused, sub.inbox.len())
+            };
+            self.save();
+            self.trace.emit(
+                "tell.queued",
+                json!({"id": id, "waiting": waiting, "message": self.trace.text(message)}),
+            );
+            let why = if paused {
+                "it is paused; it gets it on control resume".to_owned()
+            } else if status == SubStatus::Queued {
+                "it is queued; the message goes in with its task when it starts".to_owned()
+            } else {
+                "it is starting; it gets it the moment its session exists".to_owned()
+            };
+            return Ok(format!(
+                "outcome: queued. Queued for delivery to {id} ({waiting} waiting): {why}. You get a note when it is delivered."
+            ));
+        }
+        self.tell(id, message)
+            .map(|answer| format!("outcome: done. {answer}"))
+    }
+
+    /// Delivers subagent `id`'s inbox now that it can take it (its session
+    /// exists, it is not paused), in order, as one message; a quiet note
+    /// tells the Chief.
+    pub(super) fn flush_inbox(&mut self, id: &str) {
+        let messages = match self.state.sub_mut(id) {
+            Some(sub)
+                if sub.session_id.is_some()
+                    && !sub.awaiting_task
+                    && !sub.paused
+                    && !sub.inbox.is_empty() =>
+            {
+                std::mem::take(&mut sub.inbox)
+            }
+            _ => return,
+        };
+        self.save();
+        let text = inbox_text(&messages);
+        match self.tell(id, &text) {
+            Ok(_) => {
+                self.trace
+                    .emit("tell.delivered", json!({"id": id, "count": messages.len()}));
+                self.queue(
+                    format!("[{id}] got {} queued message(s) from you.", messages.len()),
+                    Source::Note,
+                );
+            }
+            Err(e) => {
+                (self.log)(&format!("subagent {id}: delivering its inbox: {e}"));
+                if let Some(sub) = self.state.sub_mut(id) {
+                    let mut back = messages;
+                    back.append(&mut sub.inbox);
+                    sub.inbox = back;
+                }
+                self.save();
+            }
+        }
+    }
+
     /// `tell(id, message)`: a prompt to the subagent's session (acpmux runs
     /// it after the current turn).
     pub(super) fn tell(&mut self, id: &str, message: &str) -> Result<String, String> {
@@ -408,7 +718,7 @@ impl Brain {
                 spawn.clone(),
                 sub.session_id
                     .clone()
-                    .ok_or_else(|| format!("{id} is still starting; tell it again in a moment"))?,
+                    .ok_or_else(|| format!("{id} has no session yet"))?,
             ),
             None => return Err(format!("no subagent {id}")),
         };
@@ -479,6 +789,19 @@ impl Brain {
 
     /// After a reconnect: subagents that finished or vanished meanwhile.
     pub(super) fn reconcile_spawns(&mut self, sessions: &[SessionSummary]) {
+        // A host that stopped between a session and its task: nothing will
+        // send that task now, so its tells go as they come.
+        let held: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| s.awaiting_task)
+            .map(|s| s.id.clone())
+            .collect();
+        for id in held {
+            self.sub_prompted(&id);
+        }
         let open: Vec<(String, Option<String>)> = self
             .state
             .spawns
@@ -517,8 +840,17 @@ impl Brain {
         self.start_queued();
     }
 
+    /// The live cap: `control cap` (0: none) over the env's.
+    pub(super) fn live_cap(&self) -> Option<usize> {
+        match self.state.live_cap {
+            Some(0) => None,
+            Some(n) => Some(n),
+            None => self.max_live,
+        }
+    }
+
     /// Subagents starting or running now.
-    fn live_subs(&self) -> usize {
+    pub(super) fn live_subs(&self) -> usize {
         self.state
             .spawns
             .values()
@@ -529,23 +861,27 @@ impl Brain {
 
     /// Starts queued subagents, oldest first, while slots are free.
     pub(super) fn start_queued(&mut self) {
-        while self.max_live.is_none_or(|n| self.live_subs() < n) {
+        while self.live_cap().is_none_or(|n| self.live_subs() < n) {
             let next = self
                 .state
                 .spawns
                 .iter()
                 .flat_map(|(spawn, r)| r.subs.iter().map(move |s| (spawn, s)))
-                .filter(|(_, s)| s.status == SubStatus::Queued)
+                .filter(|(_, s)| s.status == SubStatus::Queued && !s.cancelled && !s.paused)
                 .min_by_key(|(_, s)| {
-                    s.id.trim_start_matches('a')
-                        .parse::<u64>()
-                        .unwrap_or(u64::MAX)
+                    (
+                        -s.priority,
+                        s.id.trim_start_matches('a')
+                            .parse::<u64>()
+                            .unwrap_or(u64::MAX),
+                    )
                 })
                 .map(|(spawn, s)| crate::subagents::QueuedStart {
                     id: s.id.clone(),
                     spawn: spawn.clone(),
                     launch: s.queued_launch.clone(),
                     engine: None,
+                    extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
                 });
             let Some(mut queued) = next else { return };
             queued.engine = self.spawn_engine();
@@ -558,10 +894,20 @@ impl Brain {
                 self.sub_failed(&id, "this Chief host cannot start queued subagents");
                 continue;
             }
+            let mut delivered = 0;
             if let Some(sub) = self.state.sub_mut(&id) {
                 sub.status = SubStatus::Starting;
                 sub.run_ms = now_ms();
                 sub.queued_launch = None;
+                // Its inbox went in with its task.
+                delivered = sub.inbox.len();
+                sub.inbox.clear();
+            }
+            if delivered > 0 {
+                self.queue(
+                    format!("[{id}] got {delivered} queued message(s) from you with its task."),
+                    Source::Note,
+                );
             }
             self.save();
             (self.log)(&format!("subagent {id}: a slot is free, starting it"));
@@ -702,10 +1048,17 @@ impl Brain {
             Ok(s) => s,
             Err(_) => return true,
         };
+        if let Some(sub) = self.state.sub_mut(&id) {
+            sub.permission = Some(crate::state::PendingPermission {
+                id: permission_id.to_owned(),
+                request: request.clone(),
+            });
+        }
+        self.save();
         if ask {
             self.child_permission(&summary, permission_id.to_owned(), request.clone());
         } else {
-            let text = super::children::permission_text(&id, request);
+            let text = super::control::permission_note(&id, request);
             self.queue(text, Source::Note);
         }
         true
@@ -738,6 +1091,19 @@ fn tell_prompt(
         }
     });
     Ok(())
+}
+
+/// Inbox messages as one prompt, oldest first.
+pub(super) fn inbox_text(messages: &[crate::state::InboxMessage]) -> String {
+    match messages {
+        [one] => one.text.clone(),
+        many => many
+            .iter()
+            .enumerate()
+            .map(|(k, m)| format!("Message {} from the Chief:\n{}", k + 1, m.text))
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+    }
 }
 
 /// The text of a prompt acpmux recorded (`user_message`).

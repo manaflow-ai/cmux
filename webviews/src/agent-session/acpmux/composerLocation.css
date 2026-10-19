@@ -295,19 +295,6 @@
 .acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); }
 .acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
-.acpmux-access-grant-count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  border-radius: 6px;
-  background: var(--acpmux-menu-hover);
-  color: var(--agent-text);
-  font-size: var(--text-caption);
-  line-height: 14px;
-  font-variant-numeric: tabular-nums;
-}
 .acpmux-access-grants {
   min-inline-size: 0;
   border: 0;
@@ -474,6 +461,11 @@
 .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):active {
   background: var(--acpmux-row-press);
 }
+/* Opening a picker moves focus into its popup before the browser paints the held frame, which
+   clears :active. Keep that first frame at the same tone as the open chip (popoverTrigger.ts). */
+.acpmux-composer-bar .acpmux-picker-button[data-press-active] {
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
+}
 .acpmux-composer-bar
   :is(.acpmux-model, .acpmux-effort, .acpmux-access)
   .acpmux-picker-button:focus-visible {
@@ -485,7 +477,7 @@
 }
 /* A pill pressed or open stays on that hover step with no edge: a click never flashes a brighter
    press tone or a ring (Leo 2026-10-18). */
-.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"]) {
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"], [data-press-active]) {
   background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
   box-shadow: none;
 }
@@ -557,14 +549,14 @@
 }
 .acpmux-composer-bar[data-footer-look="plain"]
   :is(.acpmux-model, .acpmux-effort, .acpmux-access)
-  .acpmux-picker-button:not(:hover, :focus-visible, :active, [aria-expanded="true"]) {
+  .acpmux-picker-button:not(:hover, :focus-visible, :active, [aria-expanded="true"], [data-press-active]) {
   background: none;
   box-shadow: none;
 }
 @media (hover: hover) and (pointer: fine) {
   .acpmux-composer-bar[data-footer-look="plain"]
     :is(.acpmux-model, .acpmux-effort, .acpmux-access)
-    .acpmux-picker-button:hover:not(:active, [aria-expanded="true"]) {
+    .acpmux-picker-button:hover:not(:active, [aria-expanded="true"], [data-press-active]) {
     background: var(--acpmux-row-hover);
   }
 }
@@ -769,8 +761,8 @@
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
-  background: var(--agent-accent, var(--agent-text));
-  color: var(--agent-on-accent, var(--acpmux-base));
+  background: var(--acpmux-send-fill);
+  color: var(--acpmux-send-ink);
 }
 /* Send and Stop are the bar's 28 px. Stop is a solid disc in the text color with a square in the
    base color, the theme inverted, so a running turn reads as live and never as an empty draft's

@@ -23,8 +23,10 @@
 
 mod approvals;
 mod children;
+mod control;
 mod drafts;
 mod engine_control;
+mod image_fit;
 pub mod images;
 mod inbox;
 mod mux_ack;
@@ -122,6 +124,10 @@ pub enum Input {
         /// `ask` under the spawn floor.
         policy: Option<String>,
     },
+    /// A subagent's first prompt (view and task) is sent: its inbox follows.
+    SubagentPrompted {
+        id: String,
+    },
     /// A subagent's cmux workspace exists.
     SubagentWorkspace {
         id: String,
@@ -138,6 +144,24 @@ pub enum Input {
         id: String,
         answer: Result<serde_json::Value, String>,
     },
+    /// An auto-resume of subagent `id` is due (auto_resume.rs): its backoff
+    /// passed, or (`after_network`) the network came back (`online`) or
+    /// the wait for it ended (`!online`).
+    AutoResume {
+        id: String,
+        attempt: u32,
+        reason: String,
+        after_network: bool,
+        online: bool,
+    },
+    /// An agent CLI in a cmux terminal stopped on an error
+    /// (terminal_watch.rs): `[term_…] stopped: …`. Quiet ones (an
+    /// auto-resume is planned or done) are notices; the others reach the
+    /// Chief as a note.
+    TerminalStopped {
+        text: String,
+        quiet: bool,
+    },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
     SubSession {
@@ -149,12 +173,20 @@ pub enum Input {
     TurnView {
         reply: Sender<Option<String>>,
     },
-    /// `tell(id, message)`.
+    /// `tell(id, message, key)`.
     Tell {
         id: String,
         message: String,
+        key: Option<String>,
         reply: Sender<Result<String, String>>,
     },
+    /// `control(action, ...)` (control.rs).
+    Control {
+        request: crate::tools::ControlCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// Once a minute while subagents work: stuck detection (control.rs).
+    SubTick,
     /// Changes a per-Chief setting (`chief_settings`); refused for
     /// `remote.autoApprove` on during a remote-origin turn.
     Setting {
@@ -476,6 +508,11 @@ pub struct Brain {
     /// A finished subagent's workspace closes instead of taking the done
     /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
     sub_close_on_finish: bool,
+    /// Auto-resume of subagents that stopped on an error (auto_resume.rs);
+    /// None: off (`OPTCHAT_AUTO_RESUME=off`).
+    resume_policy: Option<crate::auto_resume::ResumePolicy>,
+    /// Whether the model endpoint answers (a network stop waits for it).
+    reach: Arc<dyn crate::auto_resume::Reachability>,
     /// The previous turn's view, to measure how much of it stayed (cache).
     prev_view: Option<String>,
     /// When the current settle wait and turn began.
@@ -597,6 +634,13 @@ impl Brain {
             sub_starter: None,
             max_live: None,
             sub_close_on_finish: false,
+            resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
+            reach: Arc::new(crate::auto_resume::TcpProbe::from_env(
+                |k| std::env::var(k).ok(),
+                std::env::var_os("HOME")
+                    .map(std::path::PathBuf::from)
+                    .as_deref(),
+            )),
             prev_view: None,
             settle_clock: None,
             settle_status: None,
@@ -673,8 +717,25 @@ impl Brain {
         self.sub_close_on_finish = close;
     }
 
+    /// Auto-resume of subagents that stop on an error (None: off), and the
+    /// probe a network stop waits on.
+    pub fn set_auto_resume(
+        &mut self,
+        policy: Option<crate::auto_resume::ResumePolicy>,
+        reach: Option<Arc<dyn crate::auto_resume::Reachability>>,
+    ) {
+        self.resume_policy = policy;
+        if let Some(reach) = reach {
+            self.reach = reach;
+        }
+    }
+
     /// Where queued subagents are started when a slot frees.
     pub fn set_sub_starter(&mut self, starter: Option<Sender<crate::subagents::QueuedStart>>) {
+        // A host that runs subagents checks them for stuck runs.
+        if starter.is_some() && self.sub_starter.is_none() {
+            control::start_ticker(self.tx.clone());
+        }
         self.sub_starter = starter;
     }
 
@@ -786,9 +847,24 @@ impl Brain {
                 session_id,
                 policy,
             } => self.sub_started(&id, session_id, policy),
+            Input::SubagentPrompted { id } => self.sub_prompted(&id),
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::TerminalStopped { text, quiet } => {
+                if quiet {
+                    self.notice(format!("notice:optchat:terminal-resume:{}", now_ms()), text);
+                } else {
+                    self.queue(text, Source::Note);
+                }
+            }
+            Input::AutoResume {
+                id,
+                attempt,
+                reason,
+                after_network,
+                online,
+            } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
             Input::TurnView { reply } => {
                 let _ = reply.send(self.turn_view.clone());
             }
@@ -796,10 +872,20 @@ impl Brain {
                 let session = self.state.sub(&id).and_then(|(_, s)| s.session_id.clone());
                 let _ = reply.send(session);
             }
-            Input::Tell { id, message, reply } => {
-                let answer = self.tell(&id, &message);
+            Input::Tell {
+                id,
+                message,
+                key,
+                reply,
+            } => {
+                let answer = self.tell_keyed(&id, &message, key.as_deref());
                 let _ = reply.send(answer);
             }
+            Input::Control { request, reply } => {
+                let answer = self.control(&request);
+                let _ = reply.send(answer);
+            }
+            Input::SubTick => self.sub_tick(),
             Input::Setting { key, value, reply } => {
                 let _ = reply.send(self.set_setting(&key, &value));
             }
