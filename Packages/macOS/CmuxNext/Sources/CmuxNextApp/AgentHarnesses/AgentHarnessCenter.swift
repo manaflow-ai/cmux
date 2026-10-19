@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextAgentUpdates
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -12,6 +13,7 @@ import Observation
 @MainActor
 @Observable
 final class AgentHarnessCenter {
+    private(set) var updates: AgentCLIUpdateActions?
     /// What Settings draws (`cmux.settings.agents.state`).
     private(set) var pageState: JSONValue = ["status": "loading", "harnesses": .array([])]
 
@@ -34,6 +36,7 @@ final class AgentHarnessCenter {
 
     convenience init(services: AppServices) {
         self.init(environment: { [weak services] in services.flatMap(QuitAgents.environment) })
+        updates = AgentCLIUpdateActions(services: services)
     }
 
     /// The backup of the last removal this app made, for Undo and `agent.harness.restore`.
