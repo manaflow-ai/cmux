@@ -189,11 +189,11 @@ mod cmd_attach;
 mod cmd_browser;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
+mod cmd_frontend;
 mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
-mod cmd_frontend;
 mod cmd_sizing;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
