@@ -62,4 +62,9 @@ import Testing
         let measured = try #require(sidebar.list.rowViews[.workspace(Self.measured)] as? WorkspaceRowView)
         #expect(measured.progress?.value == 0.5)
     }
+
+    @Test func aConnectingPlaceholderKeepsItsIndeterminateBar() {
+        let ws = SidebarWorkspace(id: WorkspaceID("ws-ssh"), title: "", progress: SidebarProgress(value: nil), rowState: .placeholder)
+        #expect(WorkspaceRowContent.bar(ws) != nil)
+    }
 }
