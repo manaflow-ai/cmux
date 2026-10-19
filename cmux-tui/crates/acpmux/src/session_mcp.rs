@@ -224,6 +224,21 @@ fn remote(info: &Value) -> bool {
     !info["peer"].is_null() || id_of(info).contains('/')
 }
 
+/// Subscribes this connection to session `to` without showing it
+/// (`_acpmux/attach {limit: 0, visible: false}`). `session/new` and
+/// `session/prompt` attach their connection as one that shows the chat,
+/// which would mark it seen (`hub/seen.rs`) now and at every later turn end;
+/// once this connection is attached hidden, they count as no look. A peer
+/// counts its own clients, so a failure there is not fatal.
+async fn attach_hidden(daemon: &Client, to: &Value) -> Result<(), String> {
+    let params = json!({"sessionId": id_of(to), "limit": 0, "visible": false});
+    match daemon.request(method::MUX_ATTACH, params).await {
+        Ok(_) => Ok(()),
+        Err(_) if remote(to) => Ok(()),
+        Err(e) => Err(format!("{e:#}")),
+    }
+}
+
 async fn deliver(
     daemon: &Arc<Client>,
     from: &Value,
@@ -231,6 +246,7 @@ async fn deliver(
     text: &str,
     steer: bool,
 ) -> Result<Value, String> {
+    attach_hidden(daemon, to).await?;
     let msg_id = message_id();
     let target = id_of(to);
     let provenance = provenance(from, &target, &msg_id);
@@ -317,6 +333,9 @@ async fn start(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Valu
     if child.is_empty() {
         return Err("acpmux returned no session id".into());
     }
+    // Starting a session is not looking at it: its turns stay unread.
+    let target = json!({"sessionId": child, "peer": host});
+    attach_hidden(daemon, &target).await?;
     let set = json!({crate::hub::views::SPAWNED_BY_TAG: id_of(&me)});
     let _ = daemon.request(method::MUX_TAG, json!({"sessionId": child, "set": set})).await;
     let fresh = if caller_full {
