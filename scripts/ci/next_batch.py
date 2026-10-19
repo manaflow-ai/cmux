@@ -115,6 +115,7 @@ SWIFT_GENERATED = (
     "docs/mdm/com.manaflow.cmux.plist",
     "docs/mdm/com.manaflow.cmux.intune.plist",
     "docs/mdm/managed-preferences.md",
+    "schemas/settings-export/settings-schema.sources.sha256",
     "Packages/macOS/CmuxNext/ci-target-graph.json",
 )
 # cmux-tui/bindings/codegen/generate.py output.
