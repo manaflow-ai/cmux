@@ -206,13 +206,16 @@ public struct ErrorRedactor {
 
     private static func queryValueEnd(in source: NSString, from start: Int) -> Int {
         var end = start
-        while end < source.length, !isQueryValueBoundary(source.character(at: end)) { end += 1 }
+        while end < source.length, !isQueryValueBoundary(source.character(at: end)) {
+            if isHorizontalWhitespace(source.character(at: end)), hasAssignmentAfterWhitespace(in: source, from: end) {
+                return end
+            }
+            end += 1
+        }
         return end
     }
 
     private static func isQueryValueBoundary(_ character: unichar) -> Bool {
-        character == 9 || character == 10 || character == 11 || character == 12 || character == 13 || character == 32
-            || character == 34 || character == 35 || character == 38 || character == 39 || character == 44
-            || character == 59 || character == 63 || character == 125
+        character == 10 || character == 13 || character == 35 || character == 38 || character == 59 || character == 125
     }
 }
