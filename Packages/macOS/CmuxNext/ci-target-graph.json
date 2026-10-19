@@ -836,7 +836,9 @@
         "CmuxNextPalette"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "app/"
+      ]
     },
     "CmuxNextPhoneAccess": {
       "kind": "regular",
