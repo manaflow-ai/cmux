@@ -334,3 +334,33 @@ fn the_drop_table_refuses_a_nest_that_is_too_deep_or_inside_itself() {
     let table = accept::drag_begin(&doc, &rows, &["a".into()]);
     assert_eq!(table["c"].refusal.as_deref(), Some("self"), "a grandchild of the dragged group");
 }
+
+#[test]
+fn closing_the_last_workspace_of_a_nested_cloud_group_removes_only_emptied_groups() {
+    let (mut doc, a, b) = cloud_doc();
+    // cloud > project > wb; cloud > wa. wb closes: project is empty and
+    // goes; cloud still holds wa and stays.
+    run(&mut doc, &[Op::Close { refs: vec![WorkspaceRef::new(CLOUD_B, "wb")] }]).unwrap();
+    assert!(doc.item(&b).is_none() && doc.item("project").is_none());
+    assert!(doc.item("cloud").is_some() && doc.item(&a).is_some());
+    // wa closes too: now cloud is empty and goes.
+    run(&mut doc, &[Op::Close { refs: vec![WorkspaceRef::new(CLOUD_A, "wa")] }]).unwrap();
+    assert!(doc.item("cloud").is_none());
+    assert_eq!(doc.section_item_count("sec_cloud"), 0);
+    check(&doc).unwrap();
+}
+
+#[test]
+fn a_group_split_by_unpin_leaves_no_empty_nested_group() {
+    let (mut doc, a, b) = cloud_doc();
+    group(&mut doc, "empty", "sec_cloud", Some("project")).unwrap();
+    run(&mut doc, &[Op::Unpin { items: vec!["cloud".into()] }]).unwrap();
+    let groups: Vec<String> = doc
+        .items_unordered()
+        .filter(|item| item.body.is_group())
+        .map(|item| item.id.clone())
+        .collect();
+    assert!(groups.is_empty(), "no group is left: {groups:?}");
+    assert!(doc.item(&a).unwrap().parent.is_none() && doc.item(&b).unwrap().parent.is_none());
+    check(&doc).unwrap();
+}
