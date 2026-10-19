@@ -21,6 +21,7 @@ import {
   canonicalAddress,
   defaultSelection,
   isAddress,
+  inlineCompletion,
   recentChatCards,
   screenRows,
   shellEntry,
@@ -133,6 +134,8 @@ export function NewTabScreen(props: Props) {
   const [touched, setTouched] = useState(false);
   // The highlighted row; -1 is none (Enter is the prompt's).
   const [selected, setSelected] = useState<number | undefined>(undefined);
+  // Whether the highlight was moved by the keyboard (Down, Up, Tab): only then does Tab step it.
+  const [keyboardPick, setKeyboardPick] = useState(false);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
   const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
@@ -159,6 +162,7 @@ export function NewTabScreen(props: Props) {
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<HTMLTextAreaElement>(null);
   const wholeSelection = useRef(false);
+  const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
@@ -314,6 +318,13 @@ export function NewTabScreen(props: Props) {
     node.scrollTop = typingAtEnd ? node.scrollHeight : top;
   }, []);
   useLayoutEffect(fitField, [fitField, text, shell, template]);
+  useLayoutEffect(() => {
+    const caret = inlineCaret.current;
+    if (caret === undefined) return;
+    inlineCaret.current = undefined;
+    field.current?.focus();
+    field.current?.setSelectionRange(caret, caret);
+  }, [text]);
   useEffect(() => {
     const node = field.current;
     const view = node?.ownerDocument.defaultView;
@@ -378,6 +389,7 @@ export function NewTabScreen(props: Props) {
     }
     setText(next);
     setSelected(undefined);
+    setKeyboardPick(false);
   };
   const submit = () => {
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
@@ -501,9 +513,28 @@ export function NewTabScreen(props: Props) {
     }
     wholeSelection.current =
       input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    const completion =
+      plain && input.selectionStart === input.value.length && input.selectionEnd === input.value.length
+        ? inlineCompletion(text, rows)
+        : undefined;
+    if ((event.key === "ArrowRight" || event.key === "End") && completion) {
+      event.preventDefault();
+      inlineCaret.current = completion.length;
+      edit(completion);
+      return;
+    }
+    if (event.key === "Tab" && plain && keyboardPick && current >= 0 && current < rows.length) {
+      // Tab advances a highlight the keyboard already moved; Enter still performs the action.
+      // Otherwise Tab is the browser's, so it moves focus on to Send.
+      event.preventDefault();
+      setSelected(stepSelection(current, 1, rows.length));
+      return;
+    }
     const step = listStep(event);
     if (step && rows.length) {
       event.preventDefault();
+      setKeyboardPick(true);
       setSelected(stepSelection(current, step, rows.length));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
@@ -670,7 +701,11 @@ export function NewTabScreen(props: Props) {
                 aria-selected={index === current}
                 data-type={row.type}
                 className={index === current ? "nt-row is-selected" : "nt-row"}
-                onMouseMove={() => index !== current && setSelected(index)}
+                onMouseMove={() => {
+                  if (index === current) return;
+                  setKeyboardPick(false);
+                  setSelected(index);
+                }}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row);
