@@ -64,6 +64,16 @@ final class CloudCredentialProvider {
         }
     }
 
+    /// Retires daemon resources and joins credential work before its install key can change.
+    func endSession(send: Invalidate?) async {
+        let tasks = stop()
+        if let send {
+            do { _ = try await send(AppsProviderScopeChangedRequest()) }
+            catch { Self.logger.error("credential provider: session teardown refused: \(String(describing: error), privacy: .public)") }
+        }
+        for task in tasks { await task.value }
+    }
+
     /// Handles one local daemon event: a provider call of the family starts
     /// its answer, a cancel stops it. Other events are ignored.
     func handle(_ event: DaemonEvent, reply: @escaping Reply) {

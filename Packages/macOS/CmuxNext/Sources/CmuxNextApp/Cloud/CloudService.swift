@@ -37,7 +37,7 @@ final class CloudService {
     @ObservationIgnored private var linkEvents: UInt64?
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
-    @ObservationIgnored private var credentialProvider: CloudCredentialProvider?
+    @ObservationIgnored let credentialProvider: CloudCredentialProvider?
     @ObservationIgnored private var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
     /// The last list or connection failure, for diagnostics and refusals.
@@ -164,6 +164,7 @@ final class CloudService {
                     await self.refresh()
                 } else {
                     self.dropAllMachines()
+                    await self.endCredentialSession()
                     // The session ended (signed out here or elsewhere, or
                     // expired): no link keeps running for it.
                     await self.link.endLink(final: true)
@@ -364,6 +365,7 @@ final class CloudService {
         // signed-out branch above, after auth.signOut).
         link.beginEnding()
         dropAllMachines()
+        await endCredentialSession()
         await link.endLink(final: false)
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.

@@ -6,12 +6,14 @@ import Foundation
 final class CloudCredentialProviderWorld {
     enum Failure: Error { case unsupported }
     let started = AsyncStream<Int>.makeStream()
+    let invalidationStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     var holdPosts = false
     var refuseInvalidation = false
     private(set) var registrations = 0
     private(set) var invalidations = 0
     private(set) var postCount = 0
     private var pending: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var heldInvalidation: CheckedContinuation<Void, Never>?
 
     func register(_ request: AppsProviderRegisterRequest) -> JSONValue {
         registrations += 1
@@ -23,6 +25,20 @@ final class CloudCredentialProviderWorld {
         return .object(["servers": .number(0)])
     }
     func release(_ post: Int) { pending.removeValue(forKey: post)?.resume() }
+
+    func holdInvalidation(_ request: AppsProviderScopeChangedRequest) async throws -> JSONValue {
+        let result = try invalidate(request)
+        await withCheckedContinuation {
+            heldInvalidation = $0
+            invalidationStarted.continuation.yield(())
+        }
+        return result
+    }
+
+    func releaseInvalidation() {
+        heldInvalidation?.resume()
+        heldInvalidation = nil
+    }
 
     func provider() -> CloudCredentialProvider {
         CloudCredentialProvider(relay: CloudCredentialRelay(
