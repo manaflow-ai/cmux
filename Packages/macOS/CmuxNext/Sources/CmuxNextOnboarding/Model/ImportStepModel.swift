@@ -115,7 +115,7 @@ public final class ImportStepModel {
     }
 
     /// The folder a grant for `browser` must pick.
-    public func folderPath(_ browser: ImportBrowser) -> URL? { services.accessFolder(for: browser) }
+    func folderPath(_ browser: ImportBrowser) -> URL? { services.accessFolder(for: browser) }
 
     /// The browser the grant explainer is up for.
     public var explainingAccess: ImportBrowser? {
