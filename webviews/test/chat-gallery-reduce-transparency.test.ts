@@ -72,7 +72,7 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
       return values;
     });
     expect(set["backdrop-filter"]).toBe("none");
-    expect(set.background ?? set["background-color"]).toBe("var(--cmux-surface-solid, var(--acpmux-base))");
+    expect(set.background ?? set["background-color"]).toBe("var(--cmux-surface-solid, var(--acpmux-base, Canvas))");
     await page.close();
   });
 });
