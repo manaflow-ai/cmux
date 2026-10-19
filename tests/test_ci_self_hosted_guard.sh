@@ -1217,6 +1217,13 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # cmux-next's GUI suites and its autofix bots keep the std GUI minis (#18589,
+  # #19587, #21658) behind CI_PR_POOL_OWNED, the owned-pool switch; with it off,
+  # or on a fork pull request (its branch comes first), they take Blacksmith.
+  # pr_runner_pool.py has no GUI pool, so only these exact selectors, in only
+  # these workflows, may name glaeda-gui-std-xcode-26.6.
+  local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
+  local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1231,6 +1238,12 @@ check_no_self_hosted_fleet_runners() {
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
     fi
+    case "${line%%:*}" in
+      "$ROOT_DIR/.github/workflows/cmux-next.yml")
+        content="${content//"$gui_owned_selector"/}" ;;
+      "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml"|"$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
+        content="${content//"$gui_autofix_selector"/}" ;;
+    esac
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
