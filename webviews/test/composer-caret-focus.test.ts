@@ -358,7 +358,11 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         await page.close();
         expect(focused, "focus changes the glass card's rim").not.toBe(rest);
         // The top-lit rim (inset 0 1px 0) itself steps up, not only the ring.
-        const topLit = (shadow: string) => shadow.match(/(?:rgba?|color)\([^)]*\)[^,]*0px 1px 0px 0px inset/)?.[0];
+        // WebKit and Chromium serialize the inset layer in their own orders.
+        const topLit = (shadow: string) =>
+          shadow.match(
+            /(?:rgba?|color)\([^)]*\)\s*0px 1px 0px(?: 0px)?\s*inset|inset\s*0px 1px 0px(?: 0px)?\s*(?:rgba?|color)\([^)]*\)/,
+          )?.[0];
         expect(topLit(focused), "the top-lit rim brightens").not.toBe(topLit(rest));
         expect(background, "in the background the glass rim rests").toBe(rest);
       });
