@@ -46,6 +46,17 @@ const verifierAccessTokenProof = (
 
 export const accessTokenAllowsVm = <C>(proof: AccessTokenAllows<C>, vmId: VmId): boolean => proof.vmIds.includes(vmId);
 
+const isCanonicalCompact = (compact: string): boolean => {
+  const segments = compact.split(".");
+  if (segments.length !== 3) return false;
+  try {
+    return segments.every((segment) => /^[A-Za-z0-9_-]+$/u.test(segment) &&
+      btoa(atob(segment.replaceAll("-", "+").replaceAll("_", "/"))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "") === segment);
+  } catch {
+    return false;
+  }
+};
+
 export const verifyAccessToken = (
   wrapped: Redacted.Redacted<string>,
   now: Date,
@@ -56,6 +67,7 @@ export const verifyAccessToken = (
     const raw = Redacted.value(wrapped);
     if (!raw.startsWith(ACCESS_TOKEN_PREFIX)) return yield* Effect.fail(new AccessTokenRejected({ reason: "prefix" }));
     const compact = raw.slice(ACCESS_TOKEN_PREFIX.length);
+    if (!isCanonicalCompact(compact)) return yield* Effect.fail(new AccessTokenRejected({ reason: "encoding" }));
     const dot = compact.indexOf(".");
     const kid = dot <= 0 ? null : (() => {
       try {
