@@ -6,9 +6,9 @@ export const AGENT_REQUIRED_PARAMS = ["harness", "session"] as const;
 
 const agentParamPatterns: Record<(typeof AGENT_ALLOWED_PARAMS)[number], RegExp> = {
   harness: /^[a-z0-9-]{1,32}$/,
-  session: /^[A-Za-z0-9._-]{1,200}$/,
-  host: /^[A-Za-z0-9._-]{1,64}$/,
-  name: /^[A-Za-z0-9._-]{1,64}$/,
+  session: /^(?!\.+$)[A-Za-z0-9._-]{1,200}$/,
+  host: /^(?!\.+$)[A-Za-z0-9._-]{1,64}$/,
+  name: /^(?!\.+$)[A-Za-z0-9._-]{1,64}$/,
 };
 
 /** Present params whose values fall outside the agent link's strict charset. */

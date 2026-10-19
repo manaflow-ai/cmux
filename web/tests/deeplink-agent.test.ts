@@ -45,6 +45,8 @@ describe("agent deeplink fallback", () => {
     ["session", { harness: "claude", session: "../etc" }],
     ["session", { harness: "claude", session: "a b" }],
     ["session", { harness: "claude", session: "<script>" }],
+    ["session", { harness: "claude", session: ".." }],
+    ["host", { harness: "claude", session: "s", host: "." }],
     ["host", { harness: "claude", session: "s", host: "evil.com/x" }],
     ["host", { harness: "claude", session: "s", host: "h".repeat(65) }],
     ["host", { harness: "claude", session: "s", host: "" }],
