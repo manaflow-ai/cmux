@@ -70,15 +70,6 @@ export const CloseIcon = () => (
   </Glyph>
 );
 
-/** The compact row-actions menu trigger. */
-export const MoreIcon = () => (
-  <Glyph>
-    <circle cx="3.5" cy="8" r=".75" fill="currentColor" stroke="none" />
-    <circle cx="8" cy="8" r=".75" fill="currentColor" stroke="none" />
-    <circle cx="12.5" cy="8" r=".75" fill="currentColor" stroke="none" />
-  </Glyph>
-);
-
 /** Promote the mini window into a workspace tab: a box with an arrow into it. */
 export const PromoteIcon = () => (
   <Glyph size={14}>

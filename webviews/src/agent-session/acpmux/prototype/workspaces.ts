@@ -168,22 +168,6 @@ export function closeTab(stack: Stack, workspaceId: string, tabId: string): Clos
   };
 }
 
-/** Close every tab in a workspace and focus its desktop successor. */
-export function closeWorkspace(stack: Stack, workspaceId: string): CloseTabResult {
-  const workspaceIndex = stack.workspaces.findIndex((candidate) => candidate.id === workspaceId);
-  if (workspaceIndex < 0 || stack.workspaces.length === 1) return { stack, closed: false };
-
-  const workspaces = stack.workspaces.filter((candidate) => candidate.id !== workspaceId);
-  if (stack.activeId !== workspaceId) return { closed: true, stack: { ...stack, workspaces } };
-
-  const successor = workspaces[workspaceIndex] ?? workspaces[workspaceIndex - 1];
-  return {
-    closed: true,
-    stack: { activeId: successor?.id ?? "", workspaces },
-    ...(successor ? { focus: { workspaceId: successor.id, tabId: successor.activeTabId } } : {}),
-  };
-}
-
 /** A workspace's name in the stack: its agent session when it has one, else its first tab. */
 export function workspaceLead(workspace: Workspace): WorkspaceTab {
   return workspace.tabs.find((tab) => tab.kind === "agent") ?? workspace.tabs[0]!;

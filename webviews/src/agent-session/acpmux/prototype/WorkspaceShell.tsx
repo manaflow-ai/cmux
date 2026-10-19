@@ -16,14 +16,12 @@ import {
   BrowserIcon,
   CloseIcon,
   HistoryIcon,
-  MoreIcon,
   PlusIcon,
   PromoteIcon,
   SlidersIcon,
   StackIcon,
   TerminalIcon,
 } from "./icons";
-import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import {
   activeSpace,
   browserProfileById,
@@ -40,6 +38,7 @@ import {
   type Space,
   type Spaces,
 } from "./spaces";
+import { RowAge } from "./RowAge";
 import { RowAgents } from "./RowAgents";
 import { RowBranch } from "./RowBranch";
 import { RowDetailSettings } from "./RowDetailSettings";
@@ -60,7 +59,6 @@ import {
 import {
   newTerminalWorkspace,
   closeTab,
-  closeWorkspace,
   openSessionIds,
   selectTab,
   terminalFirst,
@@ -137,7 +135,8 @@ export function WorkspaceShell() {
   const focusAfterClose = useRef<{ workspaceId: string; tabId: string } | undefined>(undefined);
   const items = rowDetailItems(level, overrides, terminalStyle ? "terminal" : undefined);
   const details = useMemo(() => {
-    return new Map(stack.workspaces.map((workspace) => [workspace.id, workspaceDetail(workspace, historyById)]));
+    const now = Date.now();
+    return new Map(stack.workspaces.map((workspace) => [workspace.id, workspaceDetail(workspace, historyById, now)]));
   }, [stack]);
 
   const showSpaces = useCallback((next: Spaces) => {
@@ -158,17 +157,6 @@ export function WorkspaceShell() {
       if (mini && !miniTargetExists(nextSpaces, mini)) {
         setMini(undefined);
       }
-      showSpaces(nextSpaces);
-    },
-    [mini, spaces, stack, showSpaces],
-  );
-  const closeWorkspaceRow = useCallback(
-    (workspaceId: string) => {
-      const result = closeWorkspace(stack, workspaceId);
-      if (!result.closed) return;
-      if (result.focus) focusAfterClose.current = result.focus;
-      const nextSpaces = withStack(spaces, result.stack);
-      if (mini && !miniTargetExists(nextSpaces, mini)) setMini(undefined);
       showSpaces(nextSpaces);
     },
     [mini, spaces, stack, showSpaces],
@@ -249,8 +237,6 @@ export function WorkspaceShell() {
       detail={details.get(workspace.id)!}
       items={items}
       onSelect={(tabId) => show(selectTab(stack, workspace.id, tabId))}
-      onClose={() => closeWorkspaceRow(workspace.id)}
-      canClose={stack.workspaces.length > 1}
     />
   );
 
@@ -441,8 +427,6 @@ function WorkspaceRow({
   detail,
   items,
   onSelect,
-  onClose,
-  canClose,
 }: {
   workspace: Workspace;
   active: boolean;
@@ -450,8 +434,6 @@ function WorkspaceRow({
   detail: WorkspaceDetail;
   items: RowDetailItems;
   onSelect: (tabId: string) => void;
-  onClose: () => void;
-  canClose: boolean;
 }) {
   const lead = workspaceLead(workspace);
   const KindIcon = KIND_ICONS[lead.kind];
@@ -471,7 +453,7 @@ function WorkspaceRow({
       !active && workspace.tabs.length > 1 && <span className="proto-workspace-count">{workspace.tabs.length}</span>
     );
   return (
-    <li className="proto-workspace-row">
+    <li>
       <button
         type="button"
         className={`proto-workspace${active && workspace.activeTabId === lead.id ? " is-active" : active ? " is-current" : ""}${flash ? " is-flash" : ""}${lead.kind === "agent" ? " is-agent" : ""}${preview || meta ? " is-detailed" : ""}`}
@@ -483,7 +465,8 @@ function WorkspaceRow({
           <span className="proto-workspace-body">
             <span className="proto-workspace-line">
               <span className="proto-workspace-title">{lead.title}</span>
-              <span className="proto-workspace-status">{trailing}</span>
+              {preview && <RowAge age={preview.age} />}
+              {trailing}
             </span>
             {preview && <RowPreview text={preview.text} />}
             {meta && (
@@ -497,40 +480,10 @@ function WorkspaceRow({
         ) : (
           <>
             <span className="proto-workspace-title">{lead.title}</span>
-            <span className="proto-workspace-status">{trailing}</span>
+            {trailing}
           </>
         )}
       </button>
-      <span className="proto-workspace-actions" aria-label={`Actions for ${lead.title}`}>
-        <Menu>
-          <MenuButton
-            className="proto-workspace-action"
-            label={`More actions for ${lead.title}`}
-            title="More actions"
-            aria-haspopup="menu"
-          >
-            <MoreIcon />
-          </MenuButton>
-          <MenuPopup align="end" label={`Actions for ${lead.title}`}>
-            <MenuItem disabled={!canClose} onSelect={onClose}>
-              Close workspace
-            </MenuItem>
-          </MenuPopup>
-        </Menu>
-        <button
-          type="button"
-          className="proto-workspace-action proto-workspace-close"
-          aria-label={`Close ${lead.title}`}
-          title="Close workspace"
-          disabled={!canClose}
-          onClick={(event) => {
-            event.stopPropagation();
-            onClose();
-          }}
-        >
-          <CloseIcon />
-        </button>
-      </span>
       {active && workspace.tabs.length > 1 && (
         <ul className="proto-workspace-tabs">
           {/* The workspace row stands for its lead tab; the rest list under it. */}

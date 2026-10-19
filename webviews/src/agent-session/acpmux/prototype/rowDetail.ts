@@ -1,7 +1,7 @@
 // Opt-in sidebar row detail (#16688). A workspace row is its title and one mark by default; a user
 // who wants more turns it on with `sidebar.rowDetail` and the per-item `sidebar.rowDetailItems`.
 // Classic cmux forces the minimal row whatever those say.
-import { sessionMark, type AcpmuxSessionEntry, type SessionPullRequest } from "../sessionList";
+import { sessionMark, shortAge, type AcpmuxSessionEntry, type SessionPullRequest } from "../sessionList";
 import { workspaceLead, type Workspace } from "./workspaces";
 
 export type RowDetailLevel = "minimal" | "standard" | "everything";
@@ -50,8 +50,8 @@ export const STATUS_WORDS: Record<AgentStatus, string> = {
 export type WorkspaceAgent = { sessionId: string; harness?: string; title: string; status: AgentStatus };
 export type WorkspaceDetail = {
   agents: WorkspaceAgent[];
-  /** The lead session's latest reply. */
-  preview?: { text: string };
+  /** The lead session's latest reply and how long ago it changed. */
+  preview?: { text: string; age: string };
   branch?: string;
   pullRequest?: SessionPullRequest;
   status: AgentStatus;
@@ -63,6 +63,7 @@ const URGENCY: readonly AgentStatus[] = ["input", "running", "error", "idle"];
 export function workspaceDetail(
   workspace: Workspace,
   sessions: ReadonlyMap<string, AcpmuxSessionEntry>,
+  now: number,
 ): WorkspaceDetail {
   const agents = workspace.tabs.flatMap((tab): WorkspaceAgent[] => {
     const session = tab.sessionId ? sessions.get(tab.sessionId) : undefined;
@@ -75,7 +76,7 @@ export function workspaceDetail(
   const lead = leadId ? sessions.get(leadId) : undefined;
   return {
     agents,
-    preview: lead?.preview ? { text: lead.preview } : undefined,
+    preview: lead?.preview ? { text: lead.preview, age: shortAge(lead.updatedAt, now) } : undefined,
     branch: lead?.branch,
     // The lead's pull request, else the first one another agent here opened.
     pullRequest: lead?.pullRequest ?? agents.map((agent) => sessions.get(agent.sessionId)?.pullRequest).find(Boolean),
