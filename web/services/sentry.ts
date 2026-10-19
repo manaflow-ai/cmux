@@ -203,7 +203,10 @@ function scrubQueryAssignments(value: string): string {
 
 function queryValueEnd(value: string, start: number): number {
   let end = start;
-  while (end < value.length && !/[\s"'?&#;,}]/.test(value[end])) end += 1;
+  while (end < value.length && !/[\r\n&#;}]/.test(value[end])) {
+    if (/\s/.test(value[end]) && hasAssignmentAfterWhitespace(value, end)) return end;
+    end += 1;
+  }
   return end;
 }
 
