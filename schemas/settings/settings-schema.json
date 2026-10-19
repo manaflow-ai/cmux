@@ -373,6 +373,7 @@
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
+              "sidebar.groupLineJoinsHeader",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -1104,7 +1105,8 @@
             "rows" : [
               "phone.allowConnections",
               "phone.startSessions",
-              "phone.keepAwake"
+              "phone.keepAwake",
+              "phone.cloudReplica"
             ],
             "title" : {
               "key" : "settings.group.phone",
@@ -4166,6 +4168,57 @@
       "title" : {
         "key" : "settings.phone.keepAwake",
         "text" : "Keep Mac Awake for Your Phone"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.cloudReplica.help",
+        "text" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.cloudReplica",
+      "keywords" : [
+        "iphone",
+        "mobile",
+        "phone",
+        "cloud",
+        "offline",
+        "workspaces",
+        "sync",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "cloudReplica"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.cloudReplica",
+        "text" : "Show This Mac's Workspaces on Your Phone While It's Off"
       },
       "validation" : "portable"
     },
@@ -18616,6 +18669,58 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupLineJoinsHeader.help",
+        "text" : "The line beside a group's workspaces runs into the group's header as one shape. Off, the line starts just below the header, with a small gap."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupLineJoinsHeader",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "line",
+        "header",
+        "join",
+        "connect",
+        "gap",
+        "chrome"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupLineJoinsHeader"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupLineJoinsHeader",
+        "text" : "Join Group Lines to Headers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -29266,7 +29371,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "45487313c9cf1309b38f14e8c2c2b4627f2cd3a9b4903a496b7866052af47b57",
+  "schema_hash" : "d5eaeb3720f75b7a63ac3ceb3110cab145461b3b63f4766de4f7040475cb23c6",
   "sections" : [
     {
       "id" : "general",
