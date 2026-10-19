@@ -20,6 +20,7 @@ export type LinkLabel =
   | "noHeading"
   | "checking"
   | "opensBrowser"
+  | "opensInCmux"
   | "opensFile"
   | "opensMail"
   | "linkPlaceholder"
@@ -78,7 +79,7 @@ export type LinkState = "ok" | "broken" | "checking" | "external";
 export function linkState(doc: ProseNode, href: string, host: LinkHost): LinkState {
   const link = parseLink(href);
   if (link.kind === "anchor") return findHeading(doc, link.anchor) ? "ok" : "broken";
-  if (link.kind === "external" || link.kind === "mail") return "external";
+  if (link.kind === "external" || link.kind === "mail" || link.kind === "app") return "external";
   if (link.kind === "unsafe") return "broken";
   const resolved = host.resolved(link.path);
   if (!resolved) return "checking";
@@ -104,6 +105,7 @@ export function linkCard(
     };
   }
   if (link.kind === "external") return { target: href, detail: `${host.linkLabel("opensBrowser")} · ${hint}`, state };
+  if (link.kind === "app") return { target: href, detail: `${host.linkLabel("opensInCmux")} · ${hint}`, state };
   if (link.kind === "mail") return { target: href, detail: `${host.linkLabel("opensMail")} · ${hint}`, state };
   const resolved = host.resolved(link.path);
   const target = (resolved?.path ?? link.path) + (link.anchor ? `#${link.anchor}` : "");

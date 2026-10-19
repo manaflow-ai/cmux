@@ -89,6 +89,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
         control.watchdog.onHang = { hang in reporter.reportHang(duration: hang.duration, addresses: hang.addresses) }
+        // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
+        let lagSpikes = LagSpikeReporter(reporter: reporter)
+        lagSpikes.setContextProvider {
+            MainActor.assumeIsolated {
+                let windows = NSApp.windows
+                return ["windows": String(windows.count), "visible_windows": String(windows.filter(\.isVisible).count),
+                        "app_active": NSApp.isActive ? "yes" : "no"]
+            }
+        }
+        control.watchdog.onStall = { record in
+            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
+        }
         services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
