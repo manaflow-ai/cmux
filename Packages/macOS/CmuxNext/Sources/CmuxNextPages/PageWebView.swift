@@ -4,6 +4,7 @@ public import CmuxNextSettings
 import CmuxNextCompat
 import Observation
 import os
+import CmuxNextErrorJournal
 public import WebKit
 
 /// A view that is a cmux page. The key dispatcher reads it to know the focused surface is a page
@@ -236,6 +237,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // users keep WebKit's occlusion throttling.
         if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
         #endif
+        // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
+        ConsoleErrorCapture(page: descriptor.id).install(in: webView.configuration.userContentController)
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
             guard let self else { return }
             paintedUptime = ProcessInfo.processInfo.systemUptime

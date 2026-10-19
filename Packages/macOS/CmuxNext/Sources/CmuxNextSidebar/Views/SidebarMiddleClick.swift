@@ -7,6 +7,8 @@ struct SidebarPress {
     var point: NSPoint
     var deferredClick: WorkspaceID?
     var cancelled = false
+    /// An item row that switched on mouse-down (`LayoutItemRef.activatesOnPress`): its release does not run it again.
+    var activatedOnPress = false
 }
 
 /// MIDDLE-CLICK-CLOSES-WORKSPACE: a middle click on a sidebar workspace row
