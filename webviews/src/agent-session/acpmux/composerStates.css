@@ -68,12 +68,17 @@
 @media (prefers-reduced-transparency: reduce) {
   :root[data-cmux-see-through] .acpmux-shell {
     --acpmux-composer-surface: var(--acpmux-composer-solid);
-    --acpmux-composer-rim: inset 0 0 transparent;
   }
 }
 :root[data-reduce-transparency][data-cmux-see-through] .acpmux-shell {
   --acpmux-composer-surface: var(--acpmux-composer-solid);
-  --acpmux-composer-rim: inset 0 0 transparent;
+}
+/* The rim is a layer of its own only on glass: an opaque card keeps its one ring and one shadow. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-cmux-see-through]:not([data-reduce-transparency])
+    :is(.acpmux-composer-box, .acpmux-composer-box:has(:focus-visible), .nt-box) {
+    box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
+  }
 }
 
 :root[data-theme="dark"] .acpmux-shell {
