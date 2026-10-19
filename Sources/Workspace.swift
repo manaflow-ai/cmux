@@ -268,6 +268,7 @@ extension Workspace {
         taskCreateOperationID = snapshot.taskCreateOperationID
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        restoredTerminalScrollbackWasTruncatedByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
@@ -664,11 +665,13 @@ extension Workspace {
                 ? TerminalController.shared.readTerminalTextForSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
-                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+                    // One line past the cap so a full 4,000-line tail stays unmarked
+                    // and a longer history records that older lines were dropped.
+                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal + 1
                 )
                 : nil
             let hasRestoredScrollbackFallback = restoredTerminalScrollbackByPanelId[panelId] != nil
-            let resolvedScrollback = terminalSnapshotScrollback(
+            let persistedScrollback = terminalSnapshotScrollback(
                 panelId: panelId,
                 capturedScrollback: capturedScrollback,
                 includeScrollback: includeScrollback,
@@ -695,7 +698,8 @@ extension Workspace {
                 workingDirectory: directory,
                 fontSize: sessionFontSize,
                 fontSizeChangeTokens: sessionFontSizeChangeTokens,
-                scrollback: resolvedScrollback,
+                scrollback: persistedScrollback.text,
+                scrollbackWasTruncated: persistedScrollback.wasTruncated ? true : nil,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
                 hibernation: localTmuxStartCommand == nil ? effectiveHibernationState.map {
@@ -1272,8 +1276,10 @@ extension Workspace {
         capturedScrollback: String?,
         includeScrollback: Bool,
         allowFallbackScrollback: Bool = true
-    ) -> String? {
-        guard includeScrollback else { return nil }
+    ) -> SessionPersistedScrollback {
+        guard includeScrollback else {
+            return SessionPersistedScrollback(text: nil, wasTruncated: false)
+        }
 #if DEBUG
         let debugFallback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
             ? debugSessionSnapshotSyntheticScrollbackByPanelId[panelId]
@@ -1284,24 +1290,26 @@ extension Workspace {
         let fallback = allowFallbackScrollback
             ? (debugFallback ?? restoredTerminalScrollbackByPanelId[panelId])
             : nil
-        let resolved = sessionRestorePolicy.resolvedSnapshotTerminalScrollback(
+        let persisted = SessionPersistencePolicy.persistedSnapshotScrollback(
             capturedScrollback: capturedScrollback,
             fallbackScrollback: fallback,
+            fallbackWasTruncated: debugFallback == nil
+                && restoredTerminalScrollbackWasTruncatedByPanelId[panelId] == true,
             allowFallbackScrollback: allowFallbackScrollback
         )
 #if DEBUG
         if debugFallback != nil {
             debugSessionSnapshotScrollbackFallbackPanelIds.remove(panelId)
             debugSessionSnapshotSyntheticScrollbackByPanelId.removeValue(forKey: panelId)
-            return resolved
+            return persisted
         }
 #endif
-        if let resolved {
-            restoredTerminalScrollbackByPanelId[panelId] = resolved
-        } else {
-            restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
-        }
-        return resolved
+        rememberRestoredTerminalScrollback(
+            persisted.text,
+            panelId: panelId,
+            wasTruncated: persisted.wasTruncated
+        )
+        return persisted
     }
 #if DEBUG
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> (terminals: Int, characters: Int) {
@@ -2073,7 +2081,12 @@ extension Workspace {
 #endif
             let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
-            let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
+            let scrollbackWasTruncated = shouldReplayLocalScrollback
+                && snapshot.terminal?.scrollbackWasTruncated == true
+            let replayFileURL = SessionScrollbackReplayStore.replayFileURL(
+                for: restoredScrollback,
+                scrollbackWasTruncated: scrollbackWasTruncated
+            )
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(forFileURL: replayFileURL)
             // Reuse the persisted surface id so the restored terminal keeps
             // the same identity (the panel/surface id IS the ghostty surface
@@ -2201,11 +2214,11 @@ extension Workspace {
                 restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
             }
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(restoredScrollback)
-            if let fallbackScrollback {
-                restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
-            } else {
-                restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
-            }
+            rememberRestoredTerminalScrollback(
+                fallbackScrollback,
+                panelId: terminalPanel.id,
+                wasTruncated: fallbackScrollback != nil && scrollbackWasTruncated
+            )
             terminalStartupRestoreCoordinator.stage(
                 panel: terminalPanel,
                 snapshot: restorableAgent,
@@ -3508,6 +3521,26 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    /// Mirrors `restoredTerminalScrollbackByPanelId` when that tail dropped older output.
+    var restoredTerminalScrollbackWasTruncatedByPanelId: [UUID: Bool] = [:]
+
+    func rememberRestoredTerminalScrollback(
+        _ text: String?,
+        panelId: UUID,
+        wasTruncated: Bool
+    ) {
+        if let text {
+            restoredTerminalScrollbackByPanelId[panelId] = text
+            if wasTruncated {
+                restoredTerminalScrollbackWasTruncatedByPanelId[panelId] = true
+            } else {
+                restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
+            }
+        } else {
+            restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+            restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
+        }
+    }
     /// Wake checks for agents resumed from hibernation; see
     /// `Workspace+AgentWakeVerification.swift`.
     var agentWakeVerificationsByPanelId: [UUID: AgentWakeVerification] = [:]
@@ -11325,6 +11358,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         recomputeListeningPorts()
         clearRemoteConfigurationIfWorkspaceBecameLocal()
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        restoredTerminalScrollbackWasTruncatedByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)

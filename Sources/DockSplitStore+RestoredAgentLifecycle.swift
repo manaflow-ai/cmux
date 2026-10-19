@@ -11,6 +11,7 @@ extension DockSplitStore {
         removeDeferredAgentResumeRestore(panelId: panelId)
         restoredAgentLifecycle.clearStartupInput(panelId: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
         restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)

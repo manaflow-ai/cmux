@@ -671652,6 +671652,65 @@
           }
         }
       }
+    },
+    "session.scrollback.truncatedRestoreNotice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Older terminal output was omitted from this restore. Snapshots keep the latest 4,000 lines or 400,000 characters."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] حُذف إخراج الطرفية الأقدم من هذه الاستعادة. تحتفظ اللقطات بآخر 4,000 سطر أو 400,000 حرف."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Ältere Terminalausgabe wurde bei dieser Wiederherstellung weggelassen. Snapshots behalten die letzten 4.000 Zeilen oder 400.000 Zeichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Se omitió la salida de terminal más antigua en esta restauración. Las instantáneas conservan las últimas 4.000 líneas o 400.000 caracteres."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] La sortie de terminal plus ancienne a été omise de cette restauration. Les instantanés conservent les 4 000 dernières lignes ou 400 000 caractères."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] この復元では古いターミナル出力を省きました。スナップショットは最新の 4,000 行または 400,000 文字を保持します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 이번 복원에서는 이전 터미널 출력을 생략했습니다. 스냅샷은 최근 4,000줄 또는 400,000자만 유지합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 这次恢复省略了较旧的终端输出。快照只保留最新的 4,000 行或 400,000 个字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 這次還原略過了較舊的終端機輸出。快照只保留最新的 4,000 行或 400,000 個字元。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

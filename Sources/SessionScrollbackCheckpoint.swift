@@ -211,6 +211,8 @@ struct SessionScrollbackCheckpointRecord: Codable, Equatable, Sendable {
     /// Seconds since 1970, the clock `AppSessionSnapshot.createdAt` uses.
     var capturedAt: TimeInterval
     var scrollback: String
+    /// True when `scrollback` is a tail. Nil on checkpoints written before the marker existed.
+    var scrollbackWasTruncated: Bool? = nil
 }
 
 struct SessionScrollbackCheckpointCapture: Sendable {
@@ -279,7 +281,8 @@ struct SessionScrollbackCheckpointStore: Sendable {
                 failedSurfaceIds.insert(capture.surfaceId)
                 continue
             }
-            guard let scrollback = SessionPersistencePolicy.truncatedScrollback(captured),
+            let persisted = SessionPersistencePolicy.persistedScrollback(captured)
+            guard let scrollback = persisted.text,
                   scrollback.contains(where: { !$0.isWhitespace }) else {
                 // An empty terminal restores empty, like the quit path.
                 removals.insert(capture.panelId)
@@ -289,7 +292,8 @@ struct SessionScrollbackCheckpointStore: Sendable {
                 version: SessionScrollbackCheckpointRecord.currentVersion,
                 panelId: capture.panelId,
                 capturedAt: capture.capturedAt,
-                scrollback: scrollback
+                scrollback: scrollback,
+                scrollbackWasTruncated: persisted.wasTruncated ? true : nil
             )
             do {
                 try encoder.encode(record).write(to: fileURL(panelId: capture.panelId), options: .atomic)
@@ -424,13 +428,18 @@ enum SessionScrollbackCheckpointMerge {
             for index in panels.indices {
                 guard panels[index].terminal != nil,
                       let record = records[panels[index].id] else { continue }
+                let snapshotScrollback = panels[index].terminal?.scrollback
                 let scrollback = resolvedScrollback(
-                    snapshotScrollback: panels[index].terminal?.scrollback,
+                    snapshotScrollback: snapshotScrollback,
                     snapshotCreatedAt: createdAt,
                     snapshotScrollbackCapturedAt: scrollbackCapturedAt,
                     checkpoint: record
                 )
                 panels[index].terminal?.scrollback = scrollback
+                if scrollback == record.scrollback, scrollback != snapshotScrollback {
+                    panels[index].terminal?.scrollbackWasTruncated =
+                        record.scrollbackWasTruncated == true ? true : nil
+                }
             }
         }
         var merged = snapshot
