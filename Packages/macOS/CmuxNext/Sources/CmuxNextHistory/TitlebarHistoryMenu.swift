@@ -17,7 +17,8 @@ final class TitlebarHistoryMenuTarget: NSObject {
 /// history.md 4.2c): each entry by title (and workspace); choosing one runs
 /// `history.goTo {index}`. Sections after the first get a header, and Show
 /// All History closes the list when there is one.
-public enum TitlebarHistoryMenu {
+public struct TitlebarHistoryMenu {
+    public init() {}
     /// `showAll` nil: no footer (the `scope` layout, the R69 list as it was).
     public static func make(_ sections: [LocationTrailMenuSection], choose: @escaping (Int) -> Void,
                             showAll: (() -> Void)?) -> NSMenu {
@@ -51,7 +52,8 @@ public enum TitlebarHistoryMenu {
 
 /// Debug Settings `history.menuLayout` (DEV and NIGHTLY; Release always uses
 /// `scopeThenWindow`). The App adds `all` to its tunable catalog.
-public nonisolated enum TitlebarHistoryTunables {
+public nonisolated struct TitlebarHistoryTunables {
+    public nonisolated init() {}
     public static let menuLayout = Tunable<LocationTrailMenuLayout>.choice(
         "history.menuLayout", .sidebar, "Back / Forward right-click list",
         help: "What right-clicking (or long-pressing) the titlebar Back or Forward button lists. Applies the next time the list opens.",
