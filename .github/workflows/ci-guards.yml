@@ -1129,6 +1129,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
 
+      - name: Validate a second cmux-next tour of a tag waits for the tour holding it
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_tag_lock.py
+
       - name: Validate the cmux-next tour drops stale prebuilt modules when a binary pin changes
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_media_module_cache_stamp.py
