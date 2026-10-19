@@ -27,6 +27,18 @@ struct WindowCloseNeighborTests {
         #expect(pick == "a")
     }
 
+    /// The rows are a walk of every workspace; a membership change that keeps the selection (most
+    /// of them: any workspace opening, closing or moving elsewhere) must not pay for it.
+    @Test func aSelectionThatStaysNeverReadsTheRows() {
+        var reads = 0
+        func orders() -> [[String]] { reads += 1; return [rows] }
+        #expect(WindowRegistry.repairedSelection(current: "a", previous: joined, members: ["a", "b"], orders: orders()) == "a")
+        #expect(WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], preferred: ["a"], orders: orders()) == "a")
+        #expect(reads == 0)
+        #expect(WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], orders: orders()) == "b")
+        #expect(reads == 1)
+    }
+
     /// Pinned layout tiles leave the list (SidebarTopProjection): "p" is a member no row lists.
     @Test func closingTheBottomRowNeverJumpsToAPinnedTile() {
         let pick = WindowRegistry.repairedSelection(current: "c", previous: ["p", "a", "b", "c"], members: ["p", "a", "b"], orders: [rows, rows])
