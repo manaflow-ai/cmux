@@ -497,6 +497,11 @@ pub struct Served {
     /// This Chief's record and grant (chief_profile.rs); None: every tool,
     /// no `profile` (no registry, as before Chiefs had records).
     pub chief: Option<Arc<crate::chief_profile::ChiefTools>>,
+    /// How a caller is bound to its acpmux session (`turn_caller.rs`): only
+    /// a caller under one of this Chief's turn sessions gets `chiefs`, and a
+    /// caller under one of its subagents is a subagent whatever it says.
+    /// None: no caller is a turn.
+    pub turn: Option<crate::turn_caller::TurnBinding>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -519,6 +524,7 @@ pub fn serve_with(
             control,
             inspector: None,
             chief: None,
+            turn: None,
         },
     )
 }
@@ -542,6 +548,15 @@ pub fn serve_all(path: &Path, served: Served) -> std::io::Result<()> {
 
 fn connection(conn: UnixStream, served: &Served) {
     let memory = &*served.memory;
+    // The caller's session role, read once, when a call first needs it.
+    let peer = crate::acpmux_peer::peer_pid(&conn).ok();
+    let role_cell = std::cell::OnceCell::new();
+    let role = || {
+        *role_cell.get_or_init(|| match (&served.turn, peer) {
+            (Some(binding), Some(pid)) => binding.role_of(pid),
+            _ => crate::turn_caller::Role::Other,
+        })
+    };
     let control = served.control.as_ref();
     let Ok(mut out) = conn.try_clone() else {
         return;
@@ -652,9 +667,12 @@ fn connection(conn: UnixStream, served: &Served) {
                     }
                     continue;
                 }
-                // A subagent's tools (its MCP server or launcher) say so:
-                // section 9 gives subagents zoom and date, not spawn.
-                let subagent = req.get("from").and_then(Value::as_str) == Some("subagent");
+                // Section 9 gives subagents zoom and date, not spawn. A
+                // caller under a subagent session is one whatever it says;
+                // its tools (MCP server or launcher) also say so, which can
+                // only add the refusal.
+                let subagent = req.get("from").and_then(Value::as_str) == Some("subagent")
+                    || role() == crate::turn_caller::Role::Subagent;
                 let grant = served.chief.as_ref().map(|c| c.grant());
                 let grant = grant.as_ref();
                 let answer = match Call::parse(tool, &req) {
@@ -668,10 +686,14 @@ fn connection(conn: UnixStream, served: &Served) {
                         Err("subagents have no spawn, tell, control, profile or chiefs".to_owned())
                     }
                     // `chiefs` only for this host's own turn: the turn key the
-                    // host gave its turn sessions alone (rule C: a subagent,
-                    // or any process without it, gets nothing).
+                    // host gave its turn sessions alone, from a caller that
+                    // runs under one of them (rule C: a subagent, any other
+                    // session or process, with the key or not, gets nothing).
                     Ok(Call::Chiefs { args, turn_key }) => match &served.chief {
-                        Some(chief) if chief.is_turn(turn_key.as_deref()) => {
+                        Some(chief)
+                            if chief.is_turn(turn_key.as_deref())
+                                && role() == crate::turn_caller::Role::Turn =>
+                        {
                             chief.chiefs_call(&args)
                         }
                         Some(_) => Err(NOT_THE_TURN.to_owned()),
