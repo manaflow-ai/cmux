@@ -32,6 +32,7 @@ export const targetFixture = async () => {
     instance.env = { ...instance.env, CLOUD_VM_API_ORIGIN: NATIVE, CLOUD_VM_API_SERVICE_KEY: SERVICE_KEY, CLOUD_VM_API_IMAGE: undefined, CLOUD_VM_API_IMAGE_REVISION: undefined }
   })
   const requests: Request[] = []
+  let requestTenant = team.stackTeam
   let response = () => Response.json({ items: [mesh()] })
   let onRead: (() => Promise<void>) | undefined
   const fallback = globalThis.fetch
@@ -42,7 +43,7 @@ export const targetFixture = async () => {
     expect(request.method).toBe("GET")
     expect(request.redirect).toBe("manual")
     expect(request.headers.get("authorization")).toBe(`Bearer ${SERVICE_KEY}`)
-    expect(request.headers.get("x-cmux-team-id")).toBe(team.stackTeam)
+    expect(request.headers.get("x-cmux-team-id")).toBe(requestTenant)
     expect(request.headers.has("cookie")).toBe(false)
     expect(request.signal.aborted).toBe(false)
     const callback = onRead; onRead = undefined
@@ -51,9 +52,18 @@ export const targetFixture = async () => {
   })
   const read = (params: unknown = {}, credential = token, selectedTeam = team.team) => call("/v1/read", credential, { op: "host.network.target", params }, { "x-cmux-team": selectedTeam })
   const principal = { kind: "install" as const, identity: install, user: team.creator.user, team: team.team, install, grant, install_kind: "mac", grant_classes: ["read", "mutate-own"] }
+  const personalToken = async () => {
+    const ch = await call("/v1/auth/challenge", undefined, { user: team.creator.user, install })
+    expect(ch.status).toBe(200)
+    const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.json.message_prefix}${ch.json.nonce}`))
+    const issued = await call("/v1/auth/token", undefined, { user: team.creator.user, install, nonce: ch.json.nonce, signature: b64u(sig) })
+    expect(issued.status).toBe(200)
+    return { token: issued.json.access_token as string, team: issued.json.team as string }
+  }
   return { team, owner, token, install, grant, principal, read, requests,
     expected: { team: team.team, tenant: team.stackTeam, project: testEnv.STACK_PROJECT_ID, origin: NATIVE, mesh: MESH, ipv4_cidr: "10.128.0.0/20" },
     respond: (value: unknown, status = 200) => { response = () => Response.json(value, { status }) },
     rawResponse: (make: () => Response) => { response = make },
-    onRead: (callback: () => Promise<void>) => { onRead = callback } }
+    onRead: (callback: () => Promise<void>) => { onRead = callback }, personalToken,
+    nativeTenant: (tenant: string) => { requestTenant = tenant } }
 }
