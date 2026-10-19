@@ -57,6 +57,53 @@
             "power",
             "agents"
           ]
+        },
+        {
+          "key": "sessions.allowFullAccess",
+          "name": "allowFullAccess",
+          "note": "Off: AgentPaneTransport refuses session/set_mode and the mode config option into a mode that skips approvals (AgentPaneModeConfirmation.isFullAccess, the picker's warning-color rule). On by default: today's behavior, and Lawrence 2026-10-07 (no sheet for full access).",
+          "title": {
+            "key": "settings.sessions.allowFullAccess",
+            "text": "Allow Full-Access Modes"
+          },
+          "help": {
+            "key": "settings.sessions.allowFullAccess.help",
+            "text": "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "bypass",
+            "permissions",
+            "yolo",
+            "full access",
+            "dangerous",
+            "approve",
+            "safety"
+          ]
+        },
+        {
+          "key": "sessions.promptSuggestions",
+          "name": "promptSuggestions",
+          "note": "Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). The Debug Settings toggle agent.suggestedTasks still turns it on. Off by default, as the tunable was.",
+          "title": {
+            "key": "settings.sessions.promptSuggestions",
+            "text": "Suggest Follow-Up Tasks"
+          },
+          "help": {
+            "key": "settings.sessions.promptSuggestions.help",
+            "text": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "suggestions",
+            "prompt",
+            "follow-up",
+            "tasks",
+            "child chats",
+            "subagents"
+          ]
         }
       ]
     },
