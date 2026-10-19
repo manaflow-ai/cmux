@@ -165,8 +165,10 @@ device refetches state after it reconnects.
    peer connects are queued (up to 256) and delivered when it does.
    `fpSig` = base64 raw ECDSA over `"<sid>|<role>|<fingerprint>"`, where
    `fingerprint` is the value of the SDP's `a=fingerprint:` line (all of them,
-   joined with `,`, in order). The receiver verifies it with `peerKey` from its
-   own ticket and aborts on mismatch.
+   joined with `,`, in order) and `role` is the sender's. The receiver
+   verifies it with `peerKey` from its own ticket (and the peer's role) and
+   aborts on mismatch. Candidates are `{type:'candidate', candidate, sdpMid,
+   sdpMLineIndex}`.
 6. When both are connected the Session DO marks the session `live` (audit
    `started`). When either sends `bye`, closes, or the server revokes, it
    marks `ended` (audit `ended` with duration and reason `bye`/`closed`, push
@@ -186,7 +188,12 @@ User-owned relay list (team-owned later). Secrets never reach the server in
 readable form: the configuring device seals the relay secret (shared secret,
 or username + password) for every registered device with HPKE
 (P-256, HKDF-SHA256, AES-GCM) to that device's `agreementKey`. Each device
-opens its own blob and keeps it in the Keychain. Shared-secret mode mints
+opens its own blob and keeps it in the Keychain. A blob is base64 of HPKE
+base mode (`P256_SHA256_AES_GCM_256`): the 65-byte encapsulated key, then the
+ciphertext; the HPKE info is `cmux-device-hub relay v1 <relay id>`; the
+plaintext is `{"mode":"shared_secret","secret":…}` or
+`{"mode":"static","username":…,"password":…}`. Relays are used lowest
+`priority` first. Shared-secret mode mints
 `username = "<expiry>:<device-name>"`, `credential = base64(HMAC-SHA1(secret,
 username))`, expiry 6 h, renewed before it ends. Both sides use the relays.
 Free plan: direct, the user's own relays, and the host's tailnet/WireGuard
