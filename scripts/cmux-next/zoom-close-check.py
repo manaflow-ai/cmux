@@ -18,6 +18,7 @@ zoom and unzoom scenarios (the zooming pane is the trace's `zoom` pane):
   z         trace: while the zoom moves, no pane host or visible divider that
             overlaps the zooming rect is above it in the subview order.
 close scenarios (a pane in before.json is not in after.json):
+  hole      trace samples after the closed pane left in which no other pane has moved yet.
   ghost     frames after the first changed one that still show the closed
             pane's color.
   springs   trace: every remaining pane edge that moves covers the same share
@@ -184,7 +185,7 @@ def check_static(directory, frames, colors, scale, moving_color=None, exclude=()
             "static_failing_frames": len(failing)}
 
 
-def travel(series):
+def travel_curve(series):
     """Travel metrics of one (t ms, value) series from its first moving sample."""
     values = [v for _, v in series]
     if len(values) < 3 or abs(values[-1] - values[0]) < 4:
@@ -212,7 +213,7 @@ def check_zoom(name, directory, frames, colors, scale, zooming_in):
     result = {"zoom_pane": pane, "frames": len(frames), "trace_samples": len(samples)}
     failures = []
     widths = [(s["t"], row[3]) for s in samples for row in s.get("panes") or [] if row[0] == pane]
-    result["travel"] = travel(widths)
+    result["travel"] = travel_curve(widths)
     static = check_static(directory, frames, colors, scale, moving_color=colors.get(pane), exclude=(pane,))
     result.update(static)
     if not colors.get(pane):
@@ -381,8 +382,21 @@ def check_close(name, directory, frames, colors, scale):
         for index in range(length):
             values = [s[index][1] for s in shares.values()]
             spread = max(spread, max(values) - min(values))
+    # Hole: samples after the closed pane left in which no remaining pane has moved yet.
+    first = {row[0]: row[1:5] for row in (samples[0]["panes"] if samples else [])}
+    holes = 0
+    for sample in samples:
+        rows = {row[0]: row[1:5] for row in sample["panes"]}
+        if any(pane in rows for pane in gone):
+            continue
+        if any(pane in first and any(abs(a - b) > 0.5 for a, b in zip(rect, first[pane])) for pane, rect in rows.items()):
+            break
+        holes += 1
+    result["hole_samples"] = holes
+    if holes and not opts.reduce:
+        failures.append(f"{holes} frame(s) show the closed pane's space empty before its neighbours move")
     result["moving_edges"] = len(shares)
-    result["travel"] = max((travel(edges[key]) or {} for key in shares), key=lambda m: abs(m.get("travel_pt") or 0), default=None)
+    result["travel"] = max((travel_curve(edges[key]) or {} for key in shares), key=lambda m: abs(m.get("travel_pt") or 0), default=None)
     result["spring_spread"] = round(spread, 3)
     result["motion_runs"] = runs
     if spread > 0.08:

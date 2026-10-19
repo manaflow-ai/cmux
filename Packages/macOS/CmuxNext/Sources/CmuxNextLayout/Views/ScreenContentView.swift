@@ -24,13 +24,19 @@ final class ScreenContentView: NSView {
     internal(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
     /// Panes growing in from a split's edge (`PaneArrival.presentation`), and the dock columns that change added.
     var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
-    /// A zoom or unzoom: the pane that owns the motion, and the panes a zoom leaves fading out under it.
+    /// A zoom or unzoom: the pane that owns the motion, and the panes a zoom covers, unchanged under it.
     internal(set) var zoomMotion = PaneZoomMotion()
-    var covered: Set<PaneID> { Set(zoomMotion.leaving.keys) }
+    var covered: Set<PaneID> { zoomMotion.covered }
     /// Split motion moves layers only (DESIGN P4): while a split or a close springs, each pane that
     /// changes size keeps one host frame (`SplitMotion.heldFrame`), so its terminal or page lays
     /// out once, and is clipped to the frame the spring presents.
     var heldFrames: [PaneID: CGRect] = [:]
+    /// A close: the strip camera moves on the panes' spring until they rest, so a column whose
+    /// strip move the camera cancels (the one right of a closed column, as the focus goes left)
+    /// stays still instead of sliding in and out on two springs.
+    var scrollRidesFrames = false
+    /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
+    var leadsFrame = false
     var motionState: ScreenPaneMotionState
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
     /// spring starts from it (`SplitMotion.seed`).
@@ -140,7 +146,7 @@ final class ScreenContentView: NSView {
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
         let revealing = animate && structural && unzooming
-        // A zoom: the other panes fade out under the zoomed one (`PaneZoomMotion`), rather than leaving a hole.
+        // A zoom: the zoomed pane covers the other panes, which stay as they are under it (`PaneZoomMotion`).
         let covering = animate && structural && zooming
         if structural { zoomMotion.begin(covering ? baseGeometry.panes.keys.first : revealing ? paneFrames.keys.first { baseGeometry.panes[$0] != nil } : nil, zooming: covering, frames: paneFrames, to: baseGeometry, variant: motionState.current) }
         // A split still springing when the next structural update lands (the daemon's echo of the
@@ -181,8 +187,7 @@ final class ScreenContentView: NSView {
                 }
                 let revealAlpha = motionState.revealAlpha(arriving: arrivals[pane] != nil, animate: animateFrames)
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target, alpha: revealAlpha)
-                // With no pane springing back over it (the zoomed one closed), a pane is there at once.
-                if let back = zoomMotion.returning(pane, revealing: revealing && zoomMotion.pane != nil) { frame.alpha = back }
+                zoomMotion.returning(pane)
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
             }
@@ -191,8 +196,8 @@ final class ScreenContentView: NSView {
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
             heldFrames[pane] = nil
-            if covering, context.hosts[pane]?.superview === self, let frame {
-                zoomMotion.leave(pane, frame)
+            if covering, context.hosts[pane]?.superview === self, frame != nil {
+                zoomMotion.leave(pane)
                 continue
             }
             // A pane that moved to another screen belongs to that screen now.
@@ -254,6 +259,10 @@ final class ScreenContentView: NSView {
             }
         }
 
+        if structural { scrollRidesFrames = departing && animateFrames && !covering }
+        // A close's neighbours start covering the closed pane's space in the frame it leaves:
+        // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
+        leadsFrame = departing && animateFrames && !covering
         reconcileDock()
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
@@ -263,7 +272,7 @@ final class ScreenContentView: NSView {
         return moving
     }
 
-    /// Lets go of the panes a zoom left as each one's fade ends (every one with `all`).
+    /// Lets go of the panes a zoom covered once it landed (every one with `all`).
     func releaseCovered(all: Bool = false) {
         for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
             context.release(pane)

@@ -5,7 +5,7 @@ extension ScreenContentView {
     var hasMotion: Bool {
         if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
         if rowsMoving { return true }
-        return zoomMotion.isMoving || paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
+        return paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
             || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
     }
     /// Advances springs by `dt` with the frame's motion `policy`. Returns
@@ -20,15 +20,14 @@ extension ScreenContentView {
             if paneFrames[key]?.advance(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
                                         alphaParameters: appear) == true { moving = true }
         }
-        if zoomMotion.advance(dt) { moving = true }
-        releaseCovered()
         for key in Array(dividerFrames.keys) {
             if dividerFrames[key]?.advance(dt, parameters: frameSpring) == true { moving = true }
         }
         if stepRows(dt, policy: policy) { moving = true }
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
+        if scrollRidesFrames, !paneFrames.values.contains(where: { $0.rect != $0.targetRect }) { scrollRidesFrames = false }
         if !isUserScrolling {
-            if scroll.advance(dt, parameters: policy.spring(.scroll), epsilon: 0.25) {
+            if scroll.advance(dt, parameters: scrollRidesFrames ? frameSpring : policy.spring(.scroll), epsilon: 0.25) {
                 moving = true
                 scrollbarFlash = true
             } else if reportScrollOnSettle {
@@ -37,8 +36,23 @@ extension ScreenContentView {
             }
         }
         applyPresentation()
+        // A zoom that landed in this frame lets go of the panes it covered.
+        releaseCovered()
         return moving
     }
+    /// A close's first frame of the pane, divider and (riding them) camera springs, in the change
+    /// that starts them, once `syncScroll` placed the camera: the frame that drops the closed pane
+    /// already shows its neighbours covering some of its space.
+    func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.policy) {
+        guard leadsFrame else { return }
+        leadsFrame = false
+        let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
+        for key in Array(paneFrames.keys) { _ = paneFrames[key]?.advance(dt, parameters: frameSpring, alphaParameters: appear) }
+        for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advance(dt, parameters: frameSpring) }
+        if scrollRidesFrames, !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
+        applyPresentation()
+    }
+
     /// New dock columns' panes still growing in from their screen edge (their frames).
     var growingDocks: [AnimatedFrame] { PaneArrival.growing(arriving, frames: paneFrames, in: geometry, docks: newDockColumns) }
     func applyPresentation() {
@@ -51,7 +65,7 @@ extension ScreenContentView {
             let shift = CGVector(dx: scrolls ? strip : 0, dy: -rowOffset(of: pane))
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
             if heldFrames[pane] != nil, frame.rect == frame.targetRect { heldFrames[pane] = nil }
-            let held = heldFrames[pane]
+            let held = heldFrames[pane].map { SplitMotion.placed(held: $0, shown: frame.rect) }
             // The zooming pane keeps its full size under its spring rect (`PaneZoomMotion`); an arriving
             // pane slides in at its final size; a held one keeps its frame. Each shows only the presented
             // rect (a split's: the padded content, rounded as at rest).
@@ -72,15 +86,11 @@ extension ScreenContentView {
         }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).
         if zoomMotion.pane != zooming { ensureStacking() }
-        // Once every frame is placed: a pane is clipped by the panes in front of it.
-        // The panes a zoom leaves fade under it (`zoomMotion.opacities`).
-        let leaving = zoomMotion.opacities.compactMap { pane, alpha in
-            context.hosts[pane].flatMap { $0.superview === self ? ($0, alpha) : nil }
-        }
-        for (host, alpha) in leaving { host.alphaValue = alpha }
+        // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
+        // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`).
         let above = panesAbove()
         for (host, scrolls, revealing) in clips { clipToStrip(host, scrolls: scrolls, clip: clip, revealing: revealing, above: above) }
-        for (host, _) in leaving { clipToStrip(host, scrolls: false, clip: nil, above: above) }
+        for host in coveredHosts { clipToStrip(host, scrolls: false, clip: nil, above: above) }
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             let scrolls = self.scrolls(kind)
@@ -96,11 +106,16 @@ extension ScreenContentView {
     }
     /// Divider hover from the pointer and the current frames (`ScreenDividers`).
     func refreshDividerHover() { ScreenDividers(screen: self).refreshHover() }
-    /// Hosts this screen displays now.
+    /// Hosts this screen displays now: its panes', then those a zoom covers (their rings and
+    /// dims stay as they were, under the zooming pane, until it lands).
     var displayedHosts: [PaneHostView] {
         paneFrames.keys.compactMap { pane in
             context.hosts[pane].flatMap { $0.superview === self ? $0 : nil }
-        }
+        } + coveredHosts
+    }
+
+    var coveredHosts: [PaneHostView] {
+        covered.compactMap { pane in context.hosts[pane].flatMap { $0.superview === self ? $0 : nil } }
     }
     var dividerMouseAreas: [LayoutMouseArea] { ScreenDividers(screen: self).mouseAreas }
     var dividerLineRects: [CGRect] { ScreenDividers(screen: self).lineRects }
