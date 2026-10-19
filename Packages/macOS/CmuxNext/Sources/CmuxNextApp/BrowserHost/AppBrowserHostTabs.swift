@@ -211,6 +211,15 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         return pane
     }
 
+    /// A hibernated tab a WebKit session calls is restored in the background
+    /// and awaited (``AppBrowserPage/awakePage(_:page:cache:within:)``).
+    func wakeIfHibernated(_ targetID: String) async {
+        guard let services, isDrivable(targetID), let page = services.cache.existingBrowser(targetID)?.tab,
+              page.engineKind == .webkit else { return }
+        services.cache.hibernation?.noteAgentUse(targetID)
+        _ = await AppBrowserPage.awakePage(targetID, page: page, cache: services.cache, within: AppBrowserPage.actionWait)
+    }
+
     /// A WebKit tab no pane shows moves its chrome into an off-screen render
     /// window before a driver call (``AgentRenderWindows``); a pane that
     /// shows it later takes it back.
