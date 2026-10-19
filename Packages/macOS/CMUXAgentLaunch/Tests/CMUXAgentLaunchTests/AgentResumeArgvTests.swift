@@ -653,6 +653,8 @@ struct AgentResumeArgvTests {
         #expect(!router.usesSubrouterProvider(in: "codex resume SID -- 'echo model_provider=subrouter'"))
         #expect(!router.usesSubrouterProvider(in: "codex -c model_provider=subrouterish"))
         #expect(!router.usesSubrouterProvider(in: "codex -c 'model_provider=subrouter"))
+        #expect(router.providerEvidence(in: "codex -c 'model_provider=subrouter") == .ambiguous)
+        #expect(router.providerEvidence(in: "   ") == .absent)
         #expect(router.usesSubrouterProvider(in: "codex -c model_provider=subrouter -- 'prompt ; rm -rf /'"))
         #expect(!router.usesSubrouterProvider(in: [
             "codex", "-c", "model_provider=subrouter", "-c", "model_provider=openai",

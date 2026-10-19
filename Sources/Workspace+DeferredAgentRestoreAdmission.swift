@@ -129,8 +129,8 @@ extension Workspace {
                 // but only after the complete ownership index has admitted this
                 // pane (the resolver is reached only after that check).
                 startupInput = legacySubrouterInput
-                claim = capturedBinding?.kind.flatMap { kind in
-                    capturedBinding?.checkpointId.map { (kind, $0) }
+                claim = (capturedBinding?.kind ?? restore.restorableAgent?.kind.rawValue).flatMap { kind in
+                    (capturedBinding?.checkpointId ?? restore.restorableAgent?.sessionId).map { (kind, $0) }
                 }
             } else if let restorableAgent = restore.restorableAgent {
                 startupInput = if restore.restoresRemoteWorkspaceTerminalSnapshot {
@@ -188,7 +188,12 @@ extension Workspace {
                 )
                 continue
             }
-            let ownedClaim = restore.restoresRemoteWorkspaceTerminalSnapshot
+            // Legacy Subrouter commands are typed directly into the shell and
+            // therefore cannot reach the cmux restore RPC admission boundary.
+            // Claim them here as well as remote compatibility launches; a
+            // restorable-agent `cmux restore` command claims at its own boundary.
+            let ownedClaim = legacySubrouterInput != nil ||
+                restore.restoresRemoteWorkspaceTerminalSnapshot
                 ? claim
                 : nil
             if let ownedClaim,

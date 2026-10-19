@@ -167,9 +167,15 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
 
     /// Returns provider evidence from a canonical legacy shell command.
     public func providerEvidence(in shellCommand: String?) -> SubrouterCodexProviderEvidence {
-        guard let shellCommand,
-              let tokens = shellCommandTokens(shellCommand),
-              !tokens.isEmpty else { return .absent }
+        guard let shellCommand else { return .absent }
+        guard !shellCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .absent
+        }
+        guard let tokens = shellCommandTokens(shellCommand), !tokens.isEmpty else {
+            // A non-empty legacy command that cannot be tokenized is damaged
+            // evidence, not proof that no provider was recorded.
+            return .ambiguous
+        }
         let executable = URL(fileURLWithPath: tokens[0]).lastPathComponent.lowercased()
         let isCodexCommand = executable == "codex" ||
             (executable == "sr" && tokens.dropFirst().first == "codex") ||
