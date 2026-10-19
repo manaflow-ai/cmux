@@ -40,3 +40,15 @@ test("a plan arriving after the summary ends with the turn", () => {
   const rows = [row("u", "user"), row("a", "assistant", { text: "done" }), summary("s"), plan("p")];
   expect(planRow(rows, "p")?.turnEnded).toBe(true);
 });
+
+test("an earlier turn without a summary ends a plan sent after its answer", () => {
+  const rows = [
+    row("u1", "user"),
+    row("t1", "thought", { text: "Reading the branch" }),
+    row("a1", "assistant", { text: "done" }),
+    plan("p"),
+    row("u2", "user"),
+    row("a2", "assistant", { text: "ok" }),
+  ];
+  expect(planRow(rows, "p")?.turnEnded).toBe(true);
+});
