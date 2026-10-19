@@ -1,15 +1,17 @@
-import AppKit
+public import AppKit
 
 /// Shows a folder picker and answers the chosen folder, nil on cancel
 /// (`cmux.diff.chooseFolder`). The seam R89's shared palette picker
 /// (`CmuxPicker.open`, branch feat-cmux-next-r89-picker) replaces; until it
 /// lands, ``OpenPanelFolderChooser`` is the system panel.
-protocol DiffFolderChoosing: AnyObject {
+public protocol DiffFolderChoosing: AnyObject {
     func chooseFolder(start: URL?, anchor: NSWindow?) async -> URL?
 }
 
-final class OpenPanelFolderChooser: DiffFolderChoosing {
-    func chooseFolder(start: URL?, anchor: NSWindow?) async -> URL? {
+public final class OpenPanelFolderChooser: DiffFolderChoosing {
+    public init() {}
+
+    public func chooseFolder(start: URL?, anchor: NSWindow?) async -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false

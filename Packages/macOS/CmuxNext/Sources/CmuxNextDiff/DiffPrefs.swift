@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextSettings
+public import CmuxNextSettings
 import Foundation
 
 /// The diff page's display preferences as settings (coordinator decision
@@ -7,8 +7,8 @@ import Foundation
 /// `cmux.diff.prefs.get` / `cmux.diff.prefs.set`, never web storage (the page
 /// host pool clears web storage on reset). The keys and values are the ones
 /// the page keeps (webviews/src/viewer-prefs.ts `sanitizeViewerPrefs`).
-nonisolated enum DiffPrefKey {
-    static let section = "diff"
+public nonisolated enum DiffPrefKey {
+    public static let section = "diff"
     static let booleans: Set<String> = ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged"]
     static let choices: [String: Set<String>] = [
         "layout": ["split", "unified"],
@@ -28,7 +28,7 @@ nonisolated enum DiffPrefKey {
     static func path(_ key: String) -> [String] { [section, key] }
 
     /// Whether `value` is a valid value of `key` (null removes the setting).
-    static func accepts(_ key: String, _ value: JSONValue) -> Bool {
+    public static func accepts(_ key: String, _ value: JSONValue) -> Bool {
         if value == .null { return all.contains(key) }
         if booleans.contains(key) { return value.boolValue != nil }
         if let allowed = choices[key] { return value.stringValue.map(allowed.contains) ?? false }
@@ -48,7 +48,7 @@ nonisolated enum DiffPrefKey {
 }
 
 /// Where the diff prefs live.
-protocol DiffPrefsStoring: AnyObject {
+public protocol DiffPrefsStoring: AnyObject {
     /// The current prefs, `{key: value}`.
     func prefs() -> [String: JSONValue]
     /// Writes one pref; `.null` removes it (its default applies).
@@ -59,15 +59,15 @@ protocol DiffPrefsStoring: AnyObject {
 
 /// The display prefs in the settings store (cmux.json `diff.*`, schema rows), written through the
 /// schema setter only. Writes are visible to `prefs()` at once, before the file watcher reloads.
-final class SettingsDiffPrefs: DiffPrefsStoring {
+public final class SettingsDiffPrefs: DiffPrefsStoring {
     private let settings: () -> SettingsController?
     private var pending: [String: JSONValue] = [:]
 
-    init(settings: @escaping () -> SettingsController?) {
+    public init(settings: @escaping () -> SettingsController?) {
         self.settings = settings
     }
 
-    func prefs() -> [String: JSONValue] {
+    public func prefs() -> [String: JSONValue] {
         var stored = DiffPrefKey.sanitized(settings()?.fileRoot[DiffPrefKey.section])
         for (key, value) in pending {
             if stored[key] ?? .null == value { pending[key] = nil }
@@ -78,7 +78,7 @@ final class SettingsDiffPrefs: DiffPrefsStoring {
 
     /// Follows `diff.*` in the settings, so an open diff tab takes a change made in Settings
     /// (Diff Colors) in place.
-    func listen(_ onPrefs: @escaping @MainActor ([String: JSONValue]) -> Void) -> () -> Void {
+    public func listen(_ onPrefs: @escaping @MainActor ([String: JSONValue]) -> Void) -> () -> Void {
         let settings = settings
         // task-owner: lives until the page's subscription stops; event-driven (Observation)
         let task = Task { [weak self] in
@@ -90,7 +90,7 @@ final class SettingsDiffPrefs: DiffPrefsStoring {
         return { task.cancel() }
     }
 
-    func setPref(_ key: String, to value: JSONValue) async throws {
+    public func setPref(_ key: String, to value: JSONValue) async throws {
         let path = DiffPrefKey.path(key)
         guard DiffPrefKey.displayKeys.contains(key), SettingsSchema.descriptor(for: path) != nil else { throw NotASetting(key: key) }
         guard let settings = settings() else { throw Unavailable() }
@@ -100,8 +100,10 @@ final class SettingsDiffPrefs: DiffPrefsStoring {
         pending[key] = value
     }
 
-    nonisolated struct Unavailable: Error, CustomStringConvertible {
-        var description: String { "settings are not available" }
+    public nonisolated struct Unavailable: Error, CustomStringConvertible {
+        public init() {}
+
+        public var description: String { "settings are not available" }
     }
 
     /// A key with no schema row (`collapsedFiles` lives in ``DiffCollapsedFiles``).

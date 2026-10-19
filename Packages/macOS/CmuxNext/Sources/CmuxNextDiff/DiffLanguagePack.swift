@@ -1,5 +1,5 @@
-import CmuxNextSettings
-import Foundation
+public import CmuxNextSettings
+public import Foundation
 
 /// The user's diff viewer language pack, read the way the page dev host reads
 /// it (webviews/dev-server/diffLanguages.ts): every `*.json` file directly in
@@ -7,11 +7,11 @@ import Foundation
 /// hidden entries skipped, symlinks followed only to regular files, each file
 /// at most 4 MiB and the pack at most 32 MiB. The host sends each file as text;
 /// the page validates (src/diff-languages/pack.ts).
-nonisolated enum DiffLanguagePack {
+public nonisolated enum DiffLanguagePack {
     static let fileLimit = 4 * 1024 * 1024
     static let packLimit = 32 * 1024 * 1024
 
-    static func directory(configFile: URL) -> URL {
+    public static func directory(configFile: URL) -> URL {
         configFile.deletingLastPathComponent().appending(path: "diff/languages", directoryHint: .isDirectory)
     }
 
@@ -62,7 +62,7 @@ nonisolated enum DiffLanguagePack {
 /// watched while any tab listens, pushed to every listener on a change (the
 /// page's `cmux.diff.languages` stream). Main actor; every file system read
 /// (the pack and the list of paths to watch) runs off it.
-final class DiffLanguageFeed {
+public final class DiffLanguageFeed {
     private struct Snapshot: Sendable {
         let pack: JSONValue
         let watched: [URL]
@@ -75,7 +75,7 @@ final class DiffLanguageFeed {
     private var reload: Task<Void, Never>?
     private var pending = false
 
-    init(directory: URL) {
+    public init(directory: URL) {
         self.directory = directory
     }
 
@@ -88,7 +88,7 @@ final class DiffLanguageFeed {
     }
 
     /// Calls `onChange` with every later pack until the returned cancel runs.
-    func listen(_ onChange: @escaping @MainActor (JSONValue) -> Void) -> () -> Void {
+    public func listen(_ onChange: @escaping @MainActor (JSONValue) -> Void) -> () -> Void {
         let id = UUID()
         let starting = listeners.isEmpty
         listeners[id] = onChange
