@@ -174,7 +174,8 @@ class GroupBisectAndLand(unittest.TestCase):
         item.validate = validate
         item.current_base = lambda: ("d" * 40 if base_moved else item.base_sha)
         item.base_moved_onto = lambda old, new, files: base_moved
-        item.fresh_members = lambda prs: {target.number: target for target in prs}
+        fresh = getattr(self, "fresh", None)
+        item.fresh_members = lambda prs: fresh or {target.number: target for target in prs}
         item.member_files = lambda target, base: list(target.files)
         item.merge_green = lambda: Path("/opt/gh-merge-green")
         item.writer.env = {}
@@ -242,6 +243,13 @@ class GroupBisectAndLand(unittest.TestCase):
         self.assertEqual([command[1] for command in merges], ["o/r#1"])
         self.assertTrue(outcome[0][1].startswith("not landed: not green"))
         self.assertEqual(outcome[1][1], "not landed: #1 did not land")
+
+    def test_a_check_that_turned_red_during_validation_lands_nothing(self):
+        item_prs = [pr(1), pr(2)]
+        self.fresh = {1: pr(1), 2: pr(2, checks=[("ci-status", "completed", "failure")])}
+        outcome, comments, merges = self.run_group(item_prs, red_member=None)
+        self.assertEqual(merges, [])
+        self.assertTrue(all("#2 red check ci-status" in text for _, text in outcome))
 
     def test_a_dry_run_merges_nothing(self):
         outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None, dry_run=True)
@@ -389,6 +397,14 @@ class GroupCycle(unittest.TestCase):
             item.run_groups(prs, None, skipped)
         self.assertEqual(ran, [])
         self.assertIn("#1 red check cmux-next swift test", skipped[2])
+        # A trusted `queue: known base red` doesn't let a member in: gh-merge-green may still refuse it mid-group.
+        trusted = pr(2, labels=["batch:a", nb.OVERRIDE_BASE_RED], checks=[("ci-status", "completed", "failure")],
+                     label_actors={nb.OVERRIDE_BASE_RED: "lawrencecchen"})
+        skipped = {}
+        with mock.patch.object(nb, "now", return_value=NOW):
+            item.run_groups([pr(1, labels=["batch:a"]), trusted], None, skipped)
+        self.assertEqual(ran, [])
+        self.assertIn("#2 red check ci-status", skipped[1])
 
     def test_lanes_use_each_members_full_diff(self):
         item = controller()
