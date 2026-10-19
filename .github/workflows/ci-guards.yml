@@ -601,6 +601,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate stale agent PR verdicts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_stale_agent_prs.py
+
       - name: Validate the scheduled main full-suite run
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_main_full_suite.py
