@@ -23,6 +23,26 @@ export interface DaytonaWebhookConfig {
 
 const response = (status: number, body: Record<string, unknown>): Response => Response.json(body, { status });
 
+const readBody = async (request: Request, maxBytes: number): Promise<string | null> => {
+  if (request.body === null) return "";
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let body = "";
+  while (true) {
+    const next = await reader.read();
+    if (next.done) return `${body}${decoder.decode()}`;
+    const chunk = next.value;
+    if (chunk === undefined) return `${body}${decoder.decode()}`;
+    total += chunk.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    body += decoder.decode(chunk, { stream: true });
+  }
+};
+
 const bodyObject = (value: unknown): Record<string, unknown> | null => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   return Object.fromEntries(Object.entries(value));
@@ -63,8 +83,8 @@ export const makeDaytonaWebhookHandler = (config: DaytonaWebhookConfig) => {
       if (request.method !== "POST") return response(405, { _tag: "MethodNotAllowed", message: "Use POST" });
       const declared = Number(request.headers.get("content-length") ?? "0");
       if (declared > MAX_BODY_BYTES) return response(413, { _tag: "PayloadTooLarge", message: "Webhook body too large" });
-      const body = yield* Effect.tryPromise(() => request.text());
-      if (body.length > MAX_BODY_BYTES) return response(413, { _tag: "PayloadTooLarge", message: "Webhook body too large" });
+      const body = yield* Effect.tryPromise(() => readBody(request, MAX_BODY_BYTES));
+      if (body === null) return response(413, { _tag: "PayloadTooLarge", message: "Webhook body too large" });
       const nowMs = config.nowMs?.() ?? Date.now();
       const signature = yield* Effect.tryPromise(() => verifyWebhookSignature(config.secret, request.headers, body, nowMs));
       if (!signature.ok) return response(401, { _tag: "Unauthorized", message: "Invalid webhook signature" });
