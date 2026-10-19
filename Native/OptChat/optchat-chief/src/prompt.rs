@@ -135,8 +135,29 @@ macro_rules! home_rule {
     };
 }
 
+/// The link rule every Chief and subagent prompt carries: anything with a
+/// URL or path is a Markdown link with a short name as its text, never raw.
+macro_rules! link_rule {
+    () => {
+        "- Links: never write a raw URL, id, sha or path, and never a bare number
+  for something that has a page. Write a Markdown link whose text is a short
+  name: `[Chief · tab audio toggles](cmux://workspace/ws_…)`, `[#123](https://github.com/OWNER/REPO/pull/123)`,
+  `[abc1234](https://github.com/OWNER/REPO/commit/FULLSHA)`, `[run 39221907733](https://github.com/OWNER/REPO/actions/runs/39221907733)`,
+  `[REPORT.md](file:///Users/me/work/REPORT.md)`. This holds everywhere,
+  headings, bold text, lists and tables included. cmux objects use
+  `cmux://workspace/ws_…`, `cmux://pane/pane_…`, `cmux://tab/tab_…`,
+  `cmux://session/…`; files and folders use `file://` and the absolute path.
+  When you lack the URL, look it up (`gh`, `cmux --json …`) before you write
+  the number. A subagent id (`a12`) is the exception: write it bare, the app
+  links it."
+    };
+}
+
 /// The Home workspace rule as text.
 pub const HOME_RULE: &str = home_rule!();
+
+/// The link rule as text.
+pub const LINK_RULE: &str = link_rule!();
 
 /// The third part of the system prompt, where section 7.2 puts the user's own
 /// instructions file: how this Chief works inside cmux. It names no user and
@@ -167,9 +188,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
-- Links: when you name a page, PR, build, dashboard, job, bead or file, give
-  its real clickable URL (a file: its absolute path), never a bare id or a
-  vague name. A subagent id is the exception: the app links it.
+",
+    link_rule!(),
+    "
 - Files: never list, glob or search the whole home folder, or Desktop,
   Documents, Downloads, Pictures, Music, Movies or iCloud Drive, unless the
   user names a path there; macOS asks the user for access to each. Search
@@ -273,13 +294,12 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
-- Links: when you name a page, PR, build, dashboard, job, bead or file, give
-  its real clickable URL (a file: its absolute path), never a bare id or a
-  vague name.
+{links}
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell.
 {home}",
-        home = HOME_RULE
+        home = HOME_RULE,
+        links = LINK_RULE
     )
 }
 
@@ -308,6 +328,7 @@ fn subagent_instructions(tools: &Tools) -> String {
             "Chief's memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is\n  `{chief} date ID`, run from your shell."
         ),
     };
+    let links = LINK_RULE;
     format!(
         "# Instructions
 
@@ -317,9 +338,7 @@ message from the user is the user's word; still end each turn with your
 report.
 
 - {memory}
-- Links: when you name a page, PR, build, dashboard, job, bead or file, give
-  its real clickable URL (a file: its absolute path), never a bare id or a
-  vague name.
+{links}
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.

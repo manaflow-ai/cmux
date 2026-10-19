@@ -2,7 +2,7 @@
 // which showed the page's source in the side panel, and Run was a small text button in the card's
 // title line. A waiting card now has no preview button and one large Run target where the page
 // will show; Open preview comes once the page runs.
-import { afterAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";

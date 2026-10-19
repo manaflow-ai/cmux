@@ -1007,11 +1007,11 @@ test("kit configuration reaches the frame before the first streamed chunk, and f
   for (const kit of [true, false]) {
     document.documentElement.setAttribute("data-lab-render-kit", kit ? "on" : "off");
     const card = await draw();
-    act(() =>
+    act(() => {
       dom.window.dispatchEvent(
         new dom.window.MessageEvent("message", { source: card.target, data: { type: "cmux-render-stream-ready" } }),
-      ),
-    );
+      );
+    });
     const config = card.replies.findIndex((m) => m.type === "cmux-render-kit");
     const chunk = card.replies.findIndex((m) => m.type === "cmux-render-stream");
     expect(config).toBeGreaterThanOrEqual(0);
@@ -1024,14 +1024,14 @@ test("kit configuration reaches the frame before the first streamed chunk, and f
 test("render repair uses only the first normalized bounded error and names the render", async () => {
   const card = await draw();
   const report = (source: unknown, error: unknown) =>
-    act(() =>
+    act(() => {
       dom.window.dispatchEvent(
         new dom.window.MessageEvent("message", {
           source: source as Window,
           data: { type: "cmux-render-error", error },
         }),
-      ),
-    );
+      );
+    });
   report(dom.window, "Forged");
   report(card.target, "   ");
   expect(host.querySelector('[role="status"]')).toBeNull();
@@ -1059,14 +1059,14 @@ test("kit toggles and frame remounts reset the first-error limit and note", asyn
       ),
     );
   const report = (error: string) =>
-    act(() =>
+    act(() => {
       dom.window.dispatchEvent(
         new dom.window.MessageEvent("message", {
           source: host.querySelector("iframe")!.contentWindow,
           data: { type: "cmux-render-error", error },
         }),
-      ),
-    );
+      );
+    });
   render("first");
   report("First failure");
   expect(host.textContent).toContain("First failure");

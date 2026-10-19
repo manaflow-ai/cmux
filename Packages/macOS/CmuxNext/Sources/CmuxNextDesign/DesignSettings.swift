@@ -161,7 +161,7 @@ public final class DesignSettings {
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
     /// `appearance.focusIndicator`: what marks the focused pane.
-    public var focusIndicator: FocusIndicator = .both
+    public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
     /// when `focusIndicator` marks tabs.
     public var inactiveTabStyle: InactiveTabStyle = .fade

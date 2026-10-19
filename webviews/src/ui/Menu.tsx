@@ -137,6 +137,7 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, triggerRef, chi
     keyed.current = false;
     const active = trigger.current?.ownerDocument.activeElement ?? null;
     opener.current = active?.closest(".ui-popup") ? null : active;
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- reads the focused element once, when the menu opens.
   }, [isOpen]);
   return (
     <MenuContext value={context}>
