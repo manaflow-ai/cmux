@@ -1600,6 +1600,24 @@ CASES
       fi
       continue
     fi
+    # cmux-next-batch.yml never cancels on purpose (a cancelled debounce reads
+    # red on every pull request); its macOS jobs (regen, build) start only from
+    # workflow_dispatch, so no pull request run holds a macOS runner. Exempt
+    # only while every macOS job there keeps that dispatch-only gate.
+    if [ "$(basename "$file")" = "cmux-next-batch.yml" ] && awk '
+      /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job=$1; next }
+      /^    if:/ { gate[job]=$0; next }
+      /^    runs-on:.*(macos|MACOS_RUNNER)/ { mac[job]=1 }
+      END {
+        for (j in mac) {
+          if (gate[j] !~ /^    if: \$\{\{ github\.event_name == .workflow_dispatch. && /) exit 1
+          n++
+        }
+        exit n == 0
+      }
+    ' "$file"; then
+      continue
+    fi
     if ! pr_concurrency_cancels_superseded_runs "$file"; then
       echo "FAIL: $(basename "$file") runs macOS jobs on pull requests but a new push does not cancel the previous run; key the concurrency group on the pull request and set cancel-in-progress for its pull request events"
       failed=1

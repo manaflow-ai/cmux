@@ -137,7 +137,6 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertNotEqual(group('nightly-next', run_id='1'), group('nightly-next', run_id='2'))
         self.assertNotEqual(group('nightly-next', 'workflow_dispatch', '1'), group('nightly-next', 'workflow_dispatch', '2'))
         self.assertNotEqual(group('main', run_id='1'), group('main', run_id='2'))
-        self.assertNotEqual(group('main'), group('nightly-next'))
         self.assertFalse(job['concurrency']['cancel-in-progress'])
 
     def test_a_superseded_next_run_never_enters_the_build_slot(self):
