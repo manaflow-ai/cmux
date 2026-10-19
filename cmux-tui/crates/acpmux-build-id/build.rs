@@ -24,7 +24,10 @@ fn acpmux_dir() -> &'static Path {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| {
         let manifest = std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is unset");
-        Path::new(&manifest).parent().expect("acpmux-build-id has no parent directory").join("acpmux")
+        Path::new(&manifest)
+            .parent()
+            .expect("acpmux-build-id has no parent directory")
+            .join("acpmux")
     })
 }
 
