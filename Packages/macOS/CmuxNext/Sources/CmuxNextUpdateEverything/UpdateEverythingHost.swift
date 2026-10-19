@@ -20,23 +20,27 @@ public struct UpdateEverythingHost: Sendable {
     /// (`cmux link machine update --to-bundled`); true when it changed the build.
     public var updateCloud: @MainActor @Sendable (String) async throws -> Bool
     public var updater: UpdaterService
+    /// This app's build (`CFBundleVersion`): a relaunch note finishes only on another build.
+    public var appVersion: String?
     /// The window the confirmation and toasts show in.
     public var window: @MainActor @Sendable () -> NSWindow?
-    /// Where the run notes what the relaunched app must finish.
-    public var journal: URL
+    /// Where the run notes what the relaunched app must finish; nil (no bundle ID) skips the
+    /// launch check and keeps the run's note in a temporary file of its own.
+    public var journal: URL?
 
     public init(local: @escaping @MainActor @Sendable () -> DaemonService,
                 remotes: @escaping @MainActor @Sendable () -> [UpdateEverythingDaemon.Target],
                 daemon: @escaping @MainActor @Sendable (String) -> DaemonService?,
                 installSSH: @escaping @MainActor @Sendable (String) async throws -> Void,
                 updateCloud: @escaping @MainActor @Sendable (String) async throws -> Bool, updater: UpdaterService,
-                window: @escaping @MainActor @Sendable () -> NSWindow?, journal: URL) {
+                appVersion: String?, window: @escaping @MainActor @Sendable () -> NSWindow?, journal: URL?) {
         self.local = local
         self.remotes = remotes
         self.daemon = daemon
         self.installSSH = installSSH
         self.updateCloud = updateCloud
         self.updater = updater
+        self.appVersion = appVersion
         self.window = window
         self.journal = journal
     }
@@ -51,10 +55,18 @@ public struct UpdateEverything {
     public static let actionID: ActionID = "updates.updateEverything"
 
     /// Binds the action and starts the launch's one check for a run to finish.
-    public static func bind(into registry: ActionRegistry, host: UpdateEverythingHost) {
+    /// - Returns: Whether the launch check started: not without a journal (no bundle ID).
+    @discardableResult
+    public static func bind(into registry: ActionRegistry, host: UpdateEverythingHost) -> Bool {
         let steps = UpdateEverythingHostSteps(host)
-        let runner = UpdateEverythingRunner(journal: UpdateEverythingJournal(url: host.journal))
+        let note = host.journal ?? FileManager.default.temporaryDirectory.appending(path: "update-everything-\(UUID().uuidString).json")
+        let runner = UpdateEverythingRunner(journal: UpdateEverythingJournal(url: note), appVersion: host.appVersion)
         registry.bind(actionID, invoke: { [weak registry] _ in
+            // The confirmation needs a window; without one the action says so instead of nothing.
+            guard host.window() != nil else {
+                registry?.refuse(UpdateEverythingRunner.noWindow)
+                return
+            }
             guard runner.claim() else {
                 registry?.refuse(UpdateEverythingRunner.alreadyRunning)
                 return
@@ -65,11 +77,13 @@ public struct UpdateEverything {
                 await UpdateEverythingDaemon.ask(plan: { await steps.plan() }, runner: runner, steps: steps, window: host.window)
             }
         })
+        guard host.journal != nil else { return false }
         // task-owner: the launch's one check for a run the app relaunched in; ends with that run
         Task { @MainActor in
             guard let outcomes = await runner.finishAfterRelaunch(plan: { await steps.plan(waitingFor: $0) }, steps: steps) else { return }
             UpdateEverythingDaemon.report(outcomes, in: host.window())
         }
+        return true
     }
 }
 

@@ -26,6 +26,10 @@ nonisolated enum UpdateEverythingStrings {
     static var done: String { text("updateEverything.done", "Everything is updated.") }
     /// The refusal while a run goes.
     static var alreadyRunning: String { text("updateEverything.alreadyRunning", "Update Everything is already running.") }
+    /// The refusal when no window is open to ask in.
+    static var noWindow: String { text("updateEverything.noWindow", "Open a cmux window to update everything.") }
+    /// A failure whose cause gave no words.
+    static var updateFailed: String { text("updateEverything.updateFailed", "the update did not finish") }
 
     /// The toast line of one machine that failed.
     static func failed(_ machine: String, _ reason: String) -> String {
@@ -58,6 +62,8 @@ extension UpdateEverythingRunner {
     public nonisolated static var done: String { UpdateEverythingStrings.done }
     /// The refusal while a run goes.
     public nonisolated static var alreadyRunning: String { UpdateEverythingStrings.alreadyRunning }
+    /// The refusal when no window is open to ask in.
+    public nonisolated static var noWindow: String { UpdateEverythingStrings.noWindow }
 }
 
 nonisolated extension UpdateEverythingMachine {
@@ -67,6 +73,14 @@ nonisolated extension UpdateEverythingMachine {
     public static var disconnected: String { UpdateEverythingStrings.disconnected }
     /// A machine's cmux daemon in the confirmation.
     public static var daemonName: String { UpdateEverythingStrings.daemonName }
+    /// A failure whose cause gave no words.
+    public static var updateFailed: String { UpdateEverythingStrings.updateFailed }
+
+    /// `reason`, or ``updateFailed`` when it is missing or empty: a failure always says something.
+    public static func failureText(_ reason: String?) -> String {
+        guard let reason, !reason.isEmpty else { return updateFailed }
+        return reason
+    }
 }
 
 nonisolated extension UpdateEverythingOutcome {

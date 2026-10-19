@@ -13,15 +13,19 @@ public actor UpdateEverythingJournal {
         public var startedAt: Date
         /// The connected SSH and Cloud machines of the run: the relaunched app waits for them.
         public var machineIDs: [String]
+        /// The app build that wrote the note: only a launch of another build finishes it.
+        public var appVersion: String?
 
         /// - Parameters:
         ///   - continueThreads: The person's choice in the confirmation.
         ///   - startedAt: When the run wrote the note.
         ///   - machineIDs: The run's SSH and Cloud machines.
-        public init(continueThreads: Bool, startedAt: Date, machineIDs: [String]) {
+        ///   - appVersion: The app build before its update.
+        public init(continueThreads: Bool, startedAt: Date, machineIDs: [String], appVersion: String?) {
             self.continueThreads = continueThreads
             self.startedAt = startedAt
             self.machineIDs = machineIDs
+            self.appVersion = appVersion
         }
     }
 
@@ -43,17 +47,22 @@ public actor UpdateEverythingJournal {
     /// - Parameters:
     ///   - continueThreads: The person's choice in the confirmation.
     ///   - machineIDs: The run's SSH and Cloud machines.
+    ///   - appVersion: The app build before its update.
     /// - Throws: The file write's error.
-    public func save(continueThreads: Bool, machineIDs: [String]) throws {
+    public func save(continueThreads: Bool, machineIDs: [String], appVersion: String?) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(Entry(continueThreads: continueThreads, startedAt: now(), machineIDs: machineIDs)).write(to: url, options: .atomic)
+        let entry = Entry(continueThreads: continueThreads, startedAt: now(), machineIDs: machineIDs, appVersion: appVersion)
+        try JSONEncoder().encode(entry).write(to: url, options: .atomic)
     }
 
     /// Reads and removes the note: a run is finished at most once, even when finishing it crashes.
-    /// - Returns: The note, or nil when there is none or it is stale.
-    public func take() -> Entry? {
+    /// - Parameter runningVersion: This launch's app build.
+    /// - Returns: The note, or nil when there is none, it is stale, or this launch runs the build
+    ///   that wrote it (or either build is unknown): the app update did not happen.
+    public func take(runningVersion: String?) -> Entry? {
         defer { try? FileManager.default.removeItem(at: url) }
-        guard let data = try? Data(contentsOf: url), let entry = try? JSONDecoder().decode(Entry.self, from: data) else { return nil }
+        guard let data = try? Data(contentsOf: url), let entry = try? JSONDecoder().decode(Entry.self, from: data),
+              let before = entry.appVersion, let runningVersion, before != runningVersion else { return nil }
         return now().timeIntervalSince(entry.startedAt) <= Self.maximumAge ? entry : nil
     }
 

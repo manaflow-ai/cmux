@@ -51,15 +51,24 @@ public struct UpdateEverythingDaemon {
     private static func machine(_ target: Target, bundled: String?) async -> UpdateEverythingMachine {
         let (id, name, kind, daemon) = target
         var machine = UpdateEverythingMachine(id: id, name: name, kind: kind)
-        let running = daemon.identity?.buildCommit.flatMap { $0.isEmpty ? nil : $0 }
-        if let bundled, kind != .local, running.map({ !bundled.hasPrefix($0) && !$0.hasPrefix(bundled) }) ?? true {
-            machine.daemon = UpdateEverythingChange(name: UpdateEverythingMachine.daemonName, from: running.map { String($0.prefix(7)) },
-                                                    to: String(bundled.prefix(7)))
-        }
+        machine.daemon = daemonChange(kind: kind, running: daemon.identity?.buildCommit, bundled: bundled)
         let agents = await agentPlan(daemon)
         machine.harnesses = agents.map(changes) ?? []
         machine.runningThreads = agents?.runningThreads ?? 0
         return machine
+    }
+
+    /// A remote machine's daemon update: when its daemon names a build commit other than the
+    /// bundled cmux-tui's (one a prefix of the other is the same build). A daemon that names no
+    /// build, or an unknown bundled build, is not called outdated: unknown is not older.
+    /// - Parameters:
+    ///   - kind: Where the machine runs; This Mac's daemon is never updated here.
+    ///   - running: The daemon's `build_commit`.
+    ///   - bundled: The bundled cmux-tui's commit.
+    public static func daemonChange(kind: UpdateEverythingMachine.Kind, running: String?, bundled: String?) -> UpdateEverythingChange? {
+        guard kind != .local, let bundled, !bundled.isEmpty, let running, !running.isEmpty,
+              !bundled.hasPrefix(running), !running.hasPrefix(bundled) else { return nil }
+        return UpdateEverythingChange(name: UpdateEverythingMachine.daemonName, from: String(running.prefix(7)), to: String(bundled.prefix(7)))
     }
 
     /// The daemon's outdated agent CLIs as it lists them now.
@@ -86,7 +95,7 @@ public struct UpdateEverythingDaemon {
         let request = AgentUpdateApplyRequest(ids: machine.harnesses.compactMap(\.id), continueThreads: continueThreads)
         let answer = try await connection.request(request, timeout: AgentUpdateApplyRequest.timeout)
         if let failed = answer.results.first(where: { !$0.ok }) {
-            throw ActionFailure(message: UpdateEverythingOutcome.failureLine(failed.id, failed.error ?? ""))
+            throw ActionFailure(message: UpdateEverythingOutcome.failureLine(failed.id, UpdateEverythingMachine.failureText(failed.error)))
         }
         return answer.threadsError
     }
@@ -130,11 +139,13 @@ public struct UpdateEverythingDaemon {
         report(await runner.run(plan, continueThreads: continueThreads, steps: steps), in: window())
     }
 
-    /// `<Application Support>/<bundle id>/update-everything.json`.
-    public static func journalURL(bundleID: String?) -> URL {
+    /// `<Application Support>/<bundle id>/update-everything.json`, or nil without a bundle ID (a
+    /// test or tool host): it must never read or remove the real app's note.
+    public static func journalURL(bundleID: String?) -> URL? {
+        guard let bundleID, !bundleID.isEmpty else { return nil }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
-        return support.appending(path: bundleID.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next").appending(path: "update-everything.json")
+        return support.appending(path: bundleID).appending(path: "update-everything.json")
     }
 
     /// Asks once in `window`: a line per machine, the threads that restart, and "Continue threads

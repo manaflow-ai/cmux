@@ -17,9 +17,10 @@ extension UpdateEverythingHost {
             if let refusal = services.cloud.unavailableReason { throw ActionFailure(message: refusal) }
             guard let binary = services.cloud.move.cli else { throw ActionFailure(message: UpdateEverythingMachine.disconnected) }
             let answer = try await CloudMoveCLI(binary: binary).machineUpdate(socket: socket, toBundled: true)
-            if !answer.ok { throw ActionFailure(message: answer.error ?? answer.errorCode ?? "") }
+            if !answer.ok { throw ActionFailure(message: UpdateEverythingMachine.failureText(answer.error)) }
             return answer.updated
-        }, updater: services.updater, window: { services.windows.active?.window ?? NSApp.mainWindow },
+        }, updater: services.updater, appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+                    window: { services.windows.active?.window ?? NSApp.mainWindow },
                     journal: UpdateEverythingDaemon.journalURL(bundleID: services.environment.launch.bundleID))
     }
 }
