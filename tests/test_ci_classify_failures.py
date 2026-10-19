@@ -1150,5 +1150,84 @@ class WorkflowTests(unittest.TestCase):
                 self.assertIn(name, jobs, "a GATE_JOBS name no longer matches a CI job")
                 self.assertTrue(jobs[name].get("needs"), f"{name} reads no `needs`, so it is not a gate")
 
+
+def _census_log() -> str:
+    """The trimmed job-117692683085 bun log that tests/test_ci_web_test_failure_census.py pins."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("census_tests", ROOT / "tests/test_ci_web_test_failure_census.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module.LOG
+
+
+# The same bun output inside its `Run web test shard` step, which failed (job 117692683085's log).
+WEB_SHARD_LOG = (
+    f"2026-10-18T13:50:34.2863620Z ##[group]Run ./scripts/run-tests.sh --shard \"2/4\"\n"
+    f"2026-10-18T13:50:34.2863872Z {ESC}[36;1m./scripts/run-tests.sh --shard \"2/4\"{ESC}[0m\n"
+    "2026-10-18T13:50:34.2864000Z ##[endgroup]\n"
+    + _census_log()
+    + "2026-10-18T13:51:15.9010205Z ##[error]Process completed with exit code 1.\n"
+)
+WEB_SHARD = "web / Web tests (2/4)"
+DEADLINE_TEST = "VM route answer deadlines > the window is measured from the request's start, with a floor"
+DEADLINE_KEY = f"test:vm-route-deadlines.test.ts:{DEADLINE_TEST}"
+
+
+class WebTestTests(unittest.TestCase):
+    """bun's `(fail)` lines from the web shards get an owner and enter the cross-PR record."""
+
+    def test_a_failed_web_shard_yields_its_tests_with_their_files(self) -> None:
+        (result,) = red_report(WEB_SHARD_LOG, WEB_SHARD)["jobs"]
+        self.assertEqual((result["verdict"], result["signature"]), (cf.CODE, "bun-test-failure"))
+        self.assertEqual([(f["kind"], f["file"], f["test"], f["message"]) for f in result["failures"]], [
+            ("test", "web/tests/vm-route-deadlines.test.ts", DEADLINE_TEST, "timed out after 5000ms"),
+            ("test", "web/tests/vm-workflows.test.ts", "VM workflows > pause records a wake", "failed"),
+        ])
+        self.assertEqual(cf.failure_key(result["failures"][0]), DEADLINE_KEY)
+
+    def test_bun_output_outside_a_failed_step_does_not_count(self) -> None:
+        self.assertEqual(cf.extract_failures(_census_log(), web_root="web/"), [])
+
+    def test_only_a_web_shard_puts_its_paths_under_web(self) -> None:
+        self.assertEqual(cf.web_root(WEB_SHARD), "web/")
+        self.assertEqual(cf.web_root("web / Web typecheck"), "")
+        self.assertEqual(cf.extract_failures(WEB_SHARD_LOG)[0]["file"], "tests/vm-route-deadlines.test.ts")
+
+    def test_a_web_test_whose_file_the_pr_changes_is_yours(self) -> None:
+        body = OwnershipTests().comment(red_report(WEB_SHARD_LOG, WEB_SHARD), ["web/tests/vm-workflows.test.ts"])
+        verdict = OwnershipTests.verdict(body)
+        self.assertTrue(verdict.startswith("**Yours to fix:** `vm-workflows.test.ts` (a file this PR changes). "
+                                           "Also failing here, not on main: `vm-route-deadlines.test.ts`."), verdict)
+        self.assertIn(f"- **new in this PR** `vm-route-deadlines.test.ts` `{DEADLINE_TEST}`: "
+                      "`timed out after 5000ms`", body)
+
+    def test_a_same_named_file_elsewhere_is_not_yours(self) -> None:
+        item = cf.failure("test", "web/tests/vm-workflows.test.ts", test="t")
+        self.assertEqual(cf.owner(item, ["webviews/tests/vm-workflows.test.ts"], [])[0], cf.NEW)
+
+    def test_a_pr_that_changes_the_web_test_runner_owns_every_web_test(self) -> None:
+        item = cf.failure("test", "web/tests/vm-workflows.test.ts", test="t")
+        self.assertEqual(cf.owner(item, ["web/bun.lock"], []),
+                         (cf.YOURS, "this PR changes the web test runner (web/bun.lock)"))
+        swift = cf.failure("test", "cmuxTests/FooTests.swift", 1, "t")
+        self.assertEqual(cf.owner(swift, ["web/bun.lock"], [])[0], cf.NEW)
+
+    def test_a_web_test_another_pr_hit_first_is_likely_flaky_and_is_recorded(self) -> None:
+        from unittest import mock
+
+        with mock.patch.object(cf, "now_utc", return_value=NOW):
+            gh = FakeGitHub(seen=KnownElsewhereTests.seen({DEADLINE_KEY: {"21651": days_ago(1)}}))
+            writer = cf.Writer(gh, dry_run=True)
+            cf.act(gh, writer, KnownElsewhereTests.SAME_REPO_RUN, red_report(WEB_SHARD_LOG, WEB_SHARD))  # type: ignore[arg-type]
+        (comment,) = [e for e in writer.log if "/issues/7/comments" in e.splitlines()[0]]
+        self.assertIn("Seen on other PRs too (likely flaky): `vm-route-deadlines.test.ts`", comment)
+        self.assertIn("**Probably yours:** `vm-workflows.test.ts`", comment)
+        (write,) = [e for e in writer.log if f"/issues/{cf.SEEN_ISSUE}" in e.splitlines()[0]]
+        recorded = cf.parse_seen(write.split("\n", 1)[1])
+        self.assertEqual(set(recorded[DEADLINE_KEY]), {"21651", "7"})
+        self.assertEqual(set(recorded["test:vm-workflows.test.ts:VM workflows > pause records a wake"]), {"7"})
+
+
 if __name__ == "__main__":
     unittest.main()
