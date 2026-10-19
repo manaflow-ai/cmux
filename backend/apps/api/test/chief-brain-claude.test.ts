@@ -4,7 +4,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
 import { forgetClaudeAuth } from "../src/chief-brain/claude-auth.ts"
-import { TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
+import { MODEL_UNAVAILABLE_NOTICE, TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
 
 /**
  * A Cloud Chief on Claude through the metered route (chief-brain/claude-auth.ts, models.ts): the
@@ -14,7 +14,7 @@ import { TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
  * the refresh are faked at their HTTP boundary; no token bytes may reach a reply, a run or a log.
  * One file on purpose: it replaces globalThis.fetch.
  */
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace; CHIEF_BRAIN_DO: DurableObjectNamespace }
+const testEnv = env as unknown as { CHIEF_BRAIN_MODEL?: string; CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA?: string; STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace; CHIEF_BRAIN_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 const REFRESH = "test-refresh-token-not-real"
 const fakeJwt = (exp: number, iat?: number) => ["e30", btoa(JSON.stringify({ exp, ...(iat === undefined ? {} : { iat }) })).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_"), "sig"].join(".")
@@ -191,6 +191,63 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     expect(r.status, r.text).toBe(409)
     expect(r.json.error.code).toBe("chief_claude_unavailable")
     expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { compactor_model: "claude-opus-5-5" })).status).toBe(400)
+  })
+
+  it("refuses turning on a Chief whose model is Claude for an owner off the allow-list (production's default model), allows a listed owner", async () => {
+    const saved = [testEnv.CHIEF_BRAIN_MODEL, testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA] as const
+    // Production's default turn model is Claude: a new Chief's brain starts on it without naming it.
+    testEnv.CHIEF_BRAIN_MODEL = "claude-opus-5-5"
+    try {
+      const enable = async (sub: string) => {
+        const token = await sessionToken(sub)
+        const user = (await op(token, "user.ensure", {})).value.id as string
+        const chief = (await op(token, "chief.create", {}, `chief-${sub}`)).value as { id: string }
+        const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
+        let r = { status: 0, json: {} as any, text: "" }
+        for (let i = 0; i < 20 && (r.status === 0 || r.status === 403); i++) {
+          await fireAlarm(userDO)
+          r = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true })
+        }
+        return { r, token, chief, user }
+      }
+      const off = await enable("brain-claude-enable-off")
+      expect(off.r.status, off.r.text).toBe(409)
+      expect(off.r.json.error.code).toBe("chief_claude_unavailable")
+      const status = await http("GET", `/v1/chiefs/${off.chief.id}/brain`, off.token)
+      expect(status.json.value.config).toMatchObject({ enabled: false, model: "claude-opus-5-5" })
+      // A listed owner turns the same Chief shape on with the same patch.
+      const sessionUser = (await op(await sessionToken("brain-claude-enable-on"), "user.ensure", {})).value.id as string
+      testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = `${saved[1] ?? ""},${sessionUser}`
+      const on = await enable("brain-claude-enable-on")
+      expect(on.r.status, on.r.text).toBe(200)
+      expect(on.r.json.value).toMatchObject({ enabled: true, model: "claude-opus-5-5" })
+    } finally {
+      saved[0] === undefined ? delete testEnv.CHIEF_BRAIN_MODEL : (testEnv.CHIEF_BRAIN_MODEL = saved[0])
+      saved[1] === undefined ? delete testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA : (testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = saved[1])
+    }
+  })
+
+  it("a turn on Claude for an owner taken off the allow-list sends nothing to the route and tells the person the model is not available for their team", async () => {
+    const saved = testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA
+    const route = fakeRoute("ok")
+    const sub = "brain-claude-delisted"
+    const user = (await op(await sessionToken(sub), "user.ensure", {})).value.id as string
+    testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = `${saved ?? ""},${user}`
+    try {
+      // On the list (and with credits) when the brain was turned on; off it at the turn.
+      const { token, chief } = await ownerWithClaudeChief(sub)
+      testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = saved
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "d1", parts: [{ type: "text", text: "still there?" }] }, "d1")).ok).toBe(true)
+      const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+      expect(reply.parts[0].text).toBe(MODEL_UNAVAILABLE_NOTICE)
+      expect(route.seen).toHaveLength(0)
+      const runId = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs[0].id as string
+      const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${runId}?conversation=${chief.main_conversation}`, token)
+      expect(run.json.value.run).toMatchObject({ status: "failed" })
+      expect(run.json.value.steps.find((s: { id: string }) => s.id === "note:model")?.text).toContain("claude-opus-5-5: owner_not_allowed")
+    } finally {
+      saved === undefined ? delete testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA : (testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = saved)
+    }
   })
 
   it("refuses the turn (no unmetered fallback for a paid Chief) when the sign-in refresh fails, tells the person once, logging no token bytes", async () => {
