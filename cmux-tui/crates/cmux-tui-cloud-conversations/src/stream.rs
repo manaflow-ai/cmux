@@ -5,8 +5,12 @@
 //! reconnect resumes with `after_seq`, a duplicate is dropped, a gap is
 //! buffered and answered with `snapshot.request`, and the buffered events
 //! replay after the snapshot, so events reach clients in seq order exactly once.
+//! A snapshot that does not decode is asked for again after a backoff; after
+//! the last attempt the connection drops and the next one resumes.
 
-use cmux_cloud_wire::{Applied, ClientOut, OwnerFrame, PositionOnly, StreamMirror};
+use cmux_cloud_wire::{
+    Applied, ClientOut, PositionOnly, SnapshotBackoff, SnapshotRetry, StreamMirror,
+};
 use serde_json::{Value, json};
 
 use super::contract::{
@@ -206,6 +210,9 @@ pub(crate) enum StreamAction {
     Emit(CloudEvent),
     /// The stream is subscribed.
     Live,
+    /// Every attempt to get a readable snapshot failed: drop the connection
+    /// and reconnect after the backoff.
+    Drop,
     /// The owner refused the stream; stop without reconnecting.
     Forbidden,
 }
@@ -225,15 +232,49 @@ pub(crate) struct StreamState {
     user: Option<String>,
     /// This connection's `welcome` came and the subscribe went out.
     subscribed: bool,
+    /// A snapshot or an event reached clients since the last
+    /// [`StreamState::take_progress`].
+    progressed: bool,
 }
 
 impl StreamState {
-    pub(crate) fn new(target: Target) -> Self {
+    pub(crate) fn new(target: Target, backoff: SnapshotBackoff) -> Self {
         // The daemon sends ops over HTTP, never on this socket, so the
         // mirror issues no keys; the prefix only names it.
-        let mirror =
-            StreamMirror::with_reducer(PositionOnly, "daemon-proxy", Value::Null).without_rows();
-        Self { target, mirror, user: None, subscribed: false }
+        let mirror = StreamMirror::with_reducer(PositionOnly, "daemon-proxy", Value::Null)
+            .without_rows()
+            .with_snapshot_backoff(backoff);
+        Self { target, mirror, user: None, subscribed: false, progressed: false }
+    }
+
+    /// True once after a snapshot or an event reached clients: the stream
+    /// works (a welcome alone does not count).
+    pub(crate) fn take_progress(&mut self) -> bool {
+        std::mem::take(&mut self.progressed)
+    }
+
+    /// No snapshot failed since the last one that decoded.
+    pub(crate) fn is_healthy(&self) -> bool {
+        self.mirror.snapshot_failures() == 0
+    }
+
+    /// When the next snapshot request is due (Unix ms), after a snapshot
+    /// that did not decode.
+    pub(crate) fn snapshot_retry_at(&self) -> Option<i64> {
+        self.mirror.snapshot_retry_at()
+    }
+
+    /// The snapshot request whose time came.
+    pub(crate) fn snapshot_retry_due(&mut self, now: i64) -> Vec<StreamAction> {
+        let out = self.mirror.snapshot_retry_due(now);
+        self.send(out)
+    }
+
+    fn snapshot_unusable(&mut self, now: i64) -> Option<StreamAction> {
+        match self.mirror.snapshot_unusable(now) {
+            SnapshotRetry::At(_) => None,
+            SnapshotRetry::Exhausted => Some(StreamAction::Drop),
+        }
     }
 
     /// A new connection starts; the next `welcome` subscribes again.
@@ -295,8 +336,8 @@ impl StreamState {
         actions
     }
 
-    /// Handles one text frame from the owner.
-    pub(crate) fn on_text(&mut self, text: &str) -> Vec<StreamAction> {
+    /// Handles one text frame from the owner; `now` is Unix ms.
+    pub(crate) fn on_text(&mut self, text: &str, now: i64) -> Vec<StreamAction> {
         let Ok(frame) = serde_json::from_str::<Value>(text) else { return Vec::new() };
         // The live frames name their kind with `type` (the brain contract),
         // every other owner frame with `t`.
@@ -327,7 +368,7 @@ impl StreamState {
                 }
                 self.subscribe()
             }
-            Some("snapshot" | "event") => self.on_stream_frame(frame),
+            Some("snapshot" | "event") => self.on_stream_frame(frame, now),
             // A Chief run change for this conversation's members (no seq: it
             // is never replayed, a page reads the run again after a gap).
             Some("conversation-run-changed") => match &self.target {
@@ -387,32 +428,39 @@ impl StreamState {
 
     /// An event or a snapshot of this stream goes through the mirror; what
     /// it applies, in order, becomes daemon events.
-    fn on_stream_frame(&mut self, frame: Value) -> Vec<StreamAction> {
+    fn on_stream_frame(&mut self, frame: Value, now: i64) -> Vec<StreamAction> {
         // Before the welcome, nothing is subscribed on this connection.
         if !self.subscribed || !self.mine(&frame) {
             return Vec::new();
         }
-        let is_event = frame.get("t").and_then(Value::as_str) == Some("event");
-        let Ok(frame) = OwnerFrame::from_value(frame) else {
-            // An event that does not decode: the snapshot replaces whatever
-            // it carried. A snapshot that does not decode is not asked for
-            // again (the owner would send the same one); the next gap does.
-            if !is_event {
-                return Vec::new();
-            }
-            let out = self.mirror.resync();
-            return self.send(out);
-        };
-        let received = self.mirror.receive_applied(frame);
+        // An event that does not decode asks for a snapshot (which replaces
+        // whatever it carried); a snapshot that does not decode is asked for
+        // again after the backoff, and events wait for it.
+        let received = self.mirror.receive_value(frame, now);
         let mut actions = self.send(received.send);
+        if received.snapshot_retry == Some(SnapshotRetry::Exhausted) {
+            actions.push(StreamAction::Drop);
+        }
         for applied in received.applied {
             match self.translate(applied) {
-                Translated::Emit(event) => actions.push(StreamAction::Emit(event)),
-                Translated::Nothing => {}
-                // The events after it are covered by the snapshot asked for.
+                Translated::Emit(event) => {
+                    self.progressed = true;
+                    actions.push(StreamAction::Emit(event));
+                }
+                Translated::Nothing => self.progressed = true,
+                // The events after it are covered by the snapshot asked for;
+                // a resume before it comes must not skip them.
                 Translated::Resync => {
+                    self.mirror.forget_position();
                     let out = self.mirror.resync();
                     actions.extend(self.send(out));
+                    break;
+                }
+                // A snapshot clients cannot use: its position is forgotten
+                // and the events after it wait for the one asked for after
+                // the backoff, which covers them.
+                Translated::SnapshotUnusable => {
+                    actions.extend(self.snapshot_unusable(now));
                     break;
                 }
             }
@@ -425,7 +473,7 @@ impl StreamState {
             Applied::Snapshot(snapshot) => {
                 let seq = snapshot.seq;
                 let Ok(frame) = serde_json::to_value(&*snapshot) else {
-                    return Translated::Nothing;
+                    return Translated::SnapshotUnusable;
                 };
                 match &self.target {
                     Target::Inbox => {
@@ -437,7 +485,7 @@ impl StreamState {
                         account: None,
                     }),
                     // A snapshot without a conversation head has nothing to
-                    // show; the next one will.
+                    // show: it is asked for again.
                     Target::Conversation(conversation) => match snapshot_parts(&frame) {
                         Ok((summary, messages, rev, seq)) => {
                             Translated::Emit(CloudEvent::ConversationResynced {
@@ -449,7 +497,7 @@ impl StreamState {
                                 account: None,
                             })
                         }
-                        Err(_) => Translated::Nothing,
+                        Err(_) => Translated::SnapshotUnusable,
                     },
                 }
             }
@@ -497,4 +545,6 @@ enum Translated {
     Nothing,
     /// The frame applied but has no daemon event: resync from a snapshot.
     Resync,
+    /// The snapshot applied but has no daemon event: ask again after the backoff.
+    SnapshotUnusable,
 }
