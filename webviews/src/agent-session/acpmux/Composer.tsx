@@ -109,6 +109,9 @@ export const COMPOSER_LABELS = {
   copy: "composer.menu.copy",
   paste: "composer.menu.paste",
   pasteAsPlainText: "composer.menu.pasteAsPlainText",
+  undo: "composer.menu.undo",
+  redo: "composer.menu.redo",
+  selectAll: "composer.menu.selectAll",
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
@@ -924,18 +927,35 @@ export function Composer({
     else if (open) setDismissed(text);
     else if (mentionAt) setMentionDismissed(text);
   };
-  // The prompt's context menu: the edit items, then Attach Files… and Insert Mention. Cut and Copy
-  // need a selection in the field, read when the menu opens.
+  // The prompt's context menu, as a text field's (POLISH.md): Undo and Redo, the edit items and
+  // Select All, then Attach Files… and Insert Mention. Cut and Copy need a selection in the field,
+  // and Undo and Redo an edit in its history, read when the menu opens.
   const [fieldSelected, setFieldSelected] = useState(false);
+  const [fieldHistory, setFieldHistory] = useState({ undo: false, redo: false });
   const noteSelection = () => {
     const shellInput = shellField.current;
     if (shell && shellInput) {
       setFieldSelected(shellInput.selectionStart !== shellInput.selectionEnd);
+      // A plain text area keeps its own history, which the page cannot read: both stay offered.
+      setFieldHistory({ undo: true, redo: true });
       return;
     }
     const selection = window.getSelection();
     const element = field.current?.element();
     setFieldSelected(Boolean(selection && !selection.isCollapsed && element?.contains(selection.anchorNode)));
+    setFieldHistory(field.current?.history() ?? { undo: false, redo: false });
+  };
+  /// Undo, Redo or Select All, in the prompt or the shell field.
+  const runField = (command: "undo" | "redo" | "selectAll") => {
+    const shellInput = shellField.current;
+    if (shell && shellInput) {
+      shellInput.focus();
+      if (command === "selectAll") shellInput.select();
+      else document.execCommand(command);
+      return;
+    }
+    field.current?.focus();
+    field.current?.[command]();
   };
   const runEdit = (command: ComposerEditCommand) => {
     if (shell) shellField.current?.focus();
@@ -943,7 +963,15 @@ export function Composer({
     onEdit?.(command);
   };
   const fieldMenu: ContextMenuItem[] = [
-    { id: "cut", label: t(COMPOSER_LABELS.cut), disabled: !onEdit || !fieldSelected, onSelect: () => runEdit("cut") },
+    { id: "undo", label: t(COMPOSER_LABELS.undo), disabled: !fieldHistory.undo, onSelect: () => runField("undo") },
+    { id: "redo", label: t(COMPOSER_LABELS.redo), disabled: !fieldHistory.redo, onSelect: () => runField("redo") },
+    {
+      id: "cut",
+      label: t(COMPOSER_LABELS.cut),
+      separatorBefore: true,
+      disabled: !onEdit || !fieldSelected,
+      onSelect: () => runEdit("cut"),
+    },
     {
       id: "copy",
       label: t(COMPOSER_LABELS.copy),
@@ -957,6 +985,7 @@ export function Composer({
       disabled: !onEdit,
       onSelect: () => runEdit("pasteAsPlainText"),
     },
+    { id: "selectAll", label: t(COMPOSER_LABELS.selectAll), onSelect: () => runField("selectAll") },
     {
       id: "attach",
       label: t(COMPOSER_LABELS.attachFiles),
