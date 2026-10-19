@@ -184,6 +184,7 @@ let package = Package(
                 "CmuxNextChromiumWarmup",
                 "CmuxNextPhoneAccess",
                 "CmuxNextPopups",
+                "CmuxNextWorkspaceRepair",
                 "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
@@ -587,6 +588,19 @@ let package = Package(
         .testTarget(
             name: "CmuxNextPopupsTests",
             dependencies: ["CmuxNextBrowser", "CmuxNextPopups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The one owner of what happens to a workspace with no pane: a last-tab
+        // close closes it, a lost terminal is refilled. The App supplies the
+        // daemon's create and close (`EmptyWorkspaceRepair(daemon:)`).
+        .target(
+            name: "CmuxNextWorkspaceRepair",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextWorkspaceRepairTests",
+            dependencies: ["CmuxNextDaemon", "CmuxNextWorkspaceRepair"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the

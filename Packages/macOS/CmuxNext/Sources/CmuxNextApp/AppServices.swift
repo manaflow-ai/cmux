@@ -18,6 +18,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
+import CmuxNextWorkspaceRepair
 import os
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
@@ -76,8 +77,7 @@ final class AppServices {
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
     let input = InputVerificationService()
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
-    /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind.
-    /// The daemon owns the closed history itself (`DaemonClosedHistory`).
+    /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
