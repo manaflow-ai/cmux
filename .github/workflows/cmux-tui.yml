@@ -791,6 +791,31 @@ jobs:
           EXACT_COMMIT: ${{ inputs.commit }}
         run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
 
+      - name: Use the pinned workspace Rust toolchain
+        run: |
+          toolchain="$(python3 -c 'import tomllib; print(tomllib.load(open("cmux-tui/rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
+          echo "RUSTUP_TOOLCHAIN=$toolchain" >> "$GITHUB_ENV"
+
+      # Path dependencies can add registry dependencies to Chief's separate
+      # workspace. Keep registry versions pinned and publish Cargo's repair;
+      # drift still fails this job before the expensive daemon build.
+      - name: Resolve Chief workspace lockfile
+        id: chief_lock
+        working-directory: Native/OptChat/optchat-chief
+        run: cargo update --workspace
+
+      - name: Publish generated Chief lockfile
+        if: always() && steps.chief_lock.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: optchat-chief-lock-${{ inputs.commit }}
+          path: Native/OptChat/optchat-chief/Cargo.lock
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Require committed Chief lockfile
+        run: git diff --exit-code -- Native/OptChat/optchat-chief/Cargo.lock
+
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty-next
 

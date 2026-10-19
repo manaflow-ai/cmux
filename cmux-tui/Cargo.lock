@@ -1356,8 +1356,10 @@ dependencies = [
 name = "cmux-server"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-server-core",
  "flate2",
+ "futures-util",
  "getrandom 0.3.4",
  "libc",
  "reqwest",
@@ -1368,6 +1370,11 @@ dependencies = [
  "sha2 0.10.9",
  "tar",
  "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1381,6 +1388,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "time",
 ]
 
 [[package]]
