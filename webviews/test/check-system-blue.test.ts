@@ -18,6 +18,7 @@ afterAll(() => roots.forEach((root) => rmSync(root, { recursive: true, force: tr
 // finding on feat-cmux-next remains visible as a warning until its owner fixes it.
 const scope = prScope({
   rules: [
+    "webviews/test/check-system-blue.test.ts",
     "webviews/test/support/prScope.ts",
     "scripts/cmux-next/check-system-blue.py",
     // The baseline is tab-separated rather than a quoted list, so changing it owns every finding.

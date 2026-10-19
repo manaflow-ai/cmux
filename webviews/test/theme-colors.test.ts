@@ -21,7 +21,7 @@ const NATIVE = path.resolve(import.meta.dir, "../../Packages/macOS/CmuxNext/Sour
 // request, but make a finding fail only when its source file (or the pending list/check itself)
 // belongs to the change. Base pushes and local runs still check every finding.
 const scope = prScope({
-  rules: ["webviews/test/support/prScope.ts"],
+  rules: ["webviews/test/theme-colors.test.ts", "webviews/test/support/prScope.ts"],
   lists: ["webviews/test/theme-colors.pending.json"],
 });
 
