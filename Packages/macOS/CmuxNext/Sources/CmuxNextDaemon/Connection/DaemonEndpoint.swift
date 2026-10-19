@@ -451,7 +451,8 @@ public struct DaemonCapabilities: Sendable {
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).
-    /// `sharedSizing` is not either: the GUI only reads it from `identify`.
+    /// `sharedSizing` is not either: a terminal attachment that names its device adds it
+    /// (`TerminalAttachment.attach(device:)`); other connections only read it from `identify`.
     public var advertised: [String] {
         // `placementShift` only with the sidebar document (`handshakeCapabilities`).
         (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration && $0 != placementShift && $0 != sharedSizing }
