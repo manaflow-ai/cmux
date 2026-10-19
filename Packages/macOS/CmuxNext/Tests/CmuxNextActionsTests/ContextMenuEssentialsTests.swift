@@ -59,13 +59,26 @@ struct ContextMenuEssentialsTests {
     @Test func theTabAndPaneMenusEndWithMoreAndClose() {
         let registry = registry()
         let tab = rows(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t")))
-        #expect(tab.suffix(3) == ["More", "—", "closeTab"])
-        #expect(tab.filter { $0 != "—" }.count <= 10)
+        #expect(tab.suffix(5) == ["More", "—", "closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
         #expect(["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].allSatisfy(tab.contains))
         #expect(tab.contains("renameTab") && tab.contains("palette.toggleTabPin"))
         let pane = rows(registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: "p")))
         #expect(pane.suffix(3) == ["More", "—", "closePane"])
         #expect(pane.filter { $0 != "—" }.count <= 7)
         #expect(pane.contains("splitRight") && pane.contains("splitDown"))
+    }
+
+    /// The tab menu is Chrome's, in its order (`TabMenuModel::Build`; Leo 2026-10-19): New Tab to
+    /// the Right, the group rows, Move Tab to New Window; Reload, Duplicate, Pin, Mute; then Close
+    /// Tab, Close Other Tabs and Close Tabs to the Right at the top level, not in More.
+    @Test func theTabMenuFollowsChromesOrder() {
+        let tab = rows(registry().makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t")))
+        let chrome = ["newTab.toRight", "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab", "tab.moveToNewWindow", "—",
+                      "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute"]
+        #expect(Array(tab.prefix(chrome.count)) == chrome)
+        #expect(tab.suffix(3) == ["closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
+        // Close Tabs to the Left (not in Chrome) stays reachable in More.
+        #expect(allActions(registry().makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))).contains("closeTabsToLeft"))
+        #expect(!tab.contains("closeTabsToLeft"))
     }
 }
