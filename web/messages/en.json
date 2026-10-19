@@ -4993,6 +4993,16 @@
       "title": "Open Rules in cmux",
       "intro": "This page opens rules in the current cmux workspace.",
       "fallback": "cmux shows the rules first and asks before pasting them into the current workspace. If cmux does not open, install cmux and click Open in cmux again."
+    },
+    "agent": {
+      "metaTitle": "Open agent session in cmux",
+      "metaDescription": "Open a cmux agent session deeplink from the web, with install fallback when cmux is not available.",
+      "title": "Open agent session",
+      "intro": "This link opens the agent's session in cmux if this Mac can already reach it. The link itself grants no access.",
+      "fallback": "If cmux does not open, install cmux and click Open in cmux again. cmux opens the session only if this Mac can already reach it.",
+      "nameLabel": "Name: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {

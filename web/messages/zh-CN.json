@@ -3467,6 +3467,16 @@
       "title": "在 cmux 中打开规则",
       "intro": "此页面打开当前 cmux 工作区中的规则。",
       "fallback": "cmux 首先显示规则并在将它们粘贴到当前工作区之前进行询问。如果 cmux 未打开，请安装 cmux 并再次单击“在 cmux 中打开”。"
+    },
+    "agent": {
+      "metaTitle": "在 cmux 中打开代理会话",
+      "metaDescription": "从网页打开 cmux 代理会话深层链接，cmux 不可用时提供安装引导。",
+      "title": "打开代理会话",
+      "intro": "如果这台 Mac 已能访问该会话，此链接会在 cmux 中打开代理的会话。链接本身不授予任何访问权限。",
+      "fallback": "如果 cmux 没有打开，请安装 cmux，然后再次点击“在 cmux 中打开”。只有当这台 Mac 已能访问该会话时，cmux 才会打开它。",
+      "nameLabel": "名称：{value}",
+      "hostLabel": "主机：{value}",
+      "harnessLabel": "工具：{value}"
     }
   },
   "download": {
