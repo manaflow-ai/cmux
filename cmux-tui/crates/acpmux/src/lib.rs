@@ -47,6 +47,7 @@ pub mod launch_policy;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
+pub mod mailbox;
 pub mod native;
 pub mod offer_mcp;
 #[cfg(windows)]
@@ -66,8 +67,10 @@ pub mod routes;
 pub mod rpc;
 pub mod schema;
 pub mod secret_mcp;
+pub mod secret_scan;
 pub mod server;
 pub mod session_env;
+pub mod session_identity;
 pub mod session_name;
 mod session_scope;
 pub mod sha256;

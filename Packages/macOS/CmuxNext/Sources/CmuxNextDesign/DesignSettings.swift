@@ -9,6 +9,11 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case sidebarRowHeight
     case tabStripHeight
     case tabMaxWidth
+    /// Chrome's tab minimums (design-tokens.json `motion.tabStrip`): crowding shrinks every tab
+    /// evenly to the active minimum, then the inactive tabs to theirs; pinned tabs are always one width.
+    case tabMinActiveWidth
+    case tabMinInactiveWidth
+    case tabPinnedWidth
     case paletteRowHeight
     case columnGap
     case panelCornerRadius
@@ -61,8 +66,8 @@ public final class DesignSettings {
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
     /// `ui.paneAnimations`: pane layout changes spring when true (see
-    /// `Motion.animatesPaneLayout`); off by default.
-    public var paneAnimations = false
+    /// `Motion.animatesPaneLayout`); on by default.
+    public var paneAnimations = true
     /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
     /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
     public var classicHome = false
@@ -75,6 +80,11 @@ public final class DesignSettings {
     public private(set) var paneChrome = PaneChromeOverrides()
     /// `layout.centerFocusedColumn`.
     public var centerFocusedColumn: CenterFocusedColumn = .never
+    /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
+    public var tabOverflow: TabOverflow = .shrink
+    /// Turns scrolling tabs on and saves it (the App's `tabs.overflow.scroll`), for the crowded strip's
+    /// one-time hint. While nil (tests, galleries) no strip shows the hint.
+    @ObservationIgnored public var useScrollingTabs: (@MainActor () -> Void)?
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
@@ -202,6 +212,9 @@ public final class DesignSettings {
         case .sidebarRowHeight: 20...48
         case .tabStripHeight: 22...44
         case .tabMaxWidth: 120...320
+        case .tabMinActiveWidth: 32...200
+        case .tabMinInactiveWidth: 16...120
+        case .tabPinnedWidth: 24...120
         case .paletteRowHeight: 26...48
         case .columnGap: 0...24
         case .panelCornerRadius: 0...20

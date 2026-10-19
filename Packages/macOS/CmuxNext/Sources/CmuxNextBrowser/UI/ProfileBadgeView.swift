@@ -20,7 +20,7 @@ public struct BrowserProfileBadge: Hashable, Sendable {
 /// tab's browser profile. Hidden while only one profile exists.
 final class ProfileBadgeView: NSView {
     static let size: CGFloat = 16
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private let symbol = NSImageView()
     /// What the badge shows now (tests): an SF Symbol name, or text.
     private(set) var shownSymbol: String?
@@ -92,7 +92,7 @@ final class ProfileBadgeView: NSView {
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 4), in: self)
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {

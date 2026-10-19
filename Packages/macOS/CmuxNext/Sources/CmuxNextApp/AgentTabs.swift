@@ -36,11 +36,11 @@ final class AgentTabStore {
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
-    /// the pane's daemon). Returns it and the daemon event sequence read after the reply (nil
+    /// the pane's daemon), in a new split of the pane with `split`. Returns it and the daemon event sequence read after the reply (nil
     /// when the connection ended: the next snapshot holds the tab).
     var create: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ record: AgentSessionRef, _ key: String,
-                            _ transaction: ClientTransactionID) async throws
-        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _, _ in throw DaemonError.notConnected }
+                            _ transaction: ClientTransactionID, _ split: ConversationTabSplit?) async throws
+        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _, _, _ in throw DaemonError.notConnected }
     /// Moves a pane's selection from provisional tab `provisional` to the created tab's surface,
     /// where the pane still selects it (AppServices: every pane controller).
     var moveSelection: @MainActor (_ provisional: String, _ surface: SurfaceID) -> Void = { _, _ in }
@@ -59,6 +59,9 @@ final class AgentTabStore {
     /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
     /// where its new chats start (cx-9aps). Nil while the tab is not found.
     var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
+    /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
+    /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
+    var daemonListing: @MainActor (TabModel) -> DaemonService? = { _ in nil }
     /// Tabs closed while the store was still creating them: closed when it answers.
     var pendingCloses: [String: @MainActor (String) -> Void] = [:]
     /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): ≤255 bytes, no control characters.
@@ -132,10 +135,7 @@ final class AgentTabStore {
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
-        didSet {
-            let ids = Set(newTabPages.keys)
-            if pageTabs.ids != ids { pageTabs.ids = ids }
-        }
+        didSet { pageTabs.set(Set(newTabPages.keys)) }
     }
     /// The ids in ``newTabPages``, observed: the strip titles those tabs "New Tab".
     let pageTabs = NewTabPageIDs()
@@ -375,7 +375,10 @@ final class AgentTabStore {
         }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
-        model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
+        model.onRememberNewTab = { [weak self, weak model] pick in
+            if let model { AgentPaneNewTabFrame.shared.modelChanged(pick, by: model) }
+            self?.pageHandler(provisional)?.remember(pick)
+        }
         model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
@@ -401,7 +404,12 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
-        model.onChatsPage = { [weak self] query in await self?.pageChats.page?(query) }
+        model.onChatsPage = { [weak self] query in
+            let answer = await self?.pageChats.page?(query)
+            // A New Tab page on screen gives the frame of the list it draws now.
+            if let self, let view = views[resolve(provisional)], view.model.newTab != nil, let host = view.superview { AgentPaneNewTabFrame.shared.capture(view, in: host) }
+            return answer
+        }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
             newTabPages[resolve(provisional)]?.handler.action(id)
@@ -425,6 +433,7 @@ final class AgentTabStore {
 
     /// A pane view on this store's page and host, with the shared pushes.
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
+        AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")

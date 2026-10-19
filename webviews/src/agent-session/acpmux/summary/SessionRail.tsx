@@ -1,10 +1,10 @@
 // The session side rail (cx-ncc.101, Debug Settings `agent.sessionRail`; Claude Code desktop's right rail): a column
 // beside the chat with where the session runs and its folders (Environment), how much of the
-// context window it used (Context) and the files it created or changed (Outputs), each opening its
-// diff. A header button shows and hides it. It reads only acpmux's common snapshot (the summary and
-// the rows), never one harness's fields. With the flag off the pane has neither the button nor the
-// rail. Connectors wait for acpmux to report each session's MCP servers (cx-ncc.105); Remote Control
-// is Claude-only and stays out (Leo, 2026-10-14).
+// context window it used (Context), the MCP servers its harness reported (Connectors, cx-ncc.105)
+// and the files it created or changed (Outputs), each opening its diff. A header button shows and
+// hides it. It reads only acpmux's common snapshot (the summary and the rows), never one harness's
+// fields. With the flag off the pane has neither the button nor the rail. Remote Control is
+// Claude-only and stays out (Leo, 2026-10-14).
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
 import { Counts } from "../changes/Counts";

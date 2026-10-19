@@ -19,12 +19,12 @@ final class CloudMachineProgressView: NSView {
 
     let creation: CloudMachineCreation
     private let actions: Actions
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let elapsedLabel = NSTextField(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let elapsedLabel = ChromeLabel(labelWithString: "")
     private let stepsStack = NSStackView()
-    private var stepRows: [(icon: NSImageView, label: NSTextField)] = []
+    private var stepRows: [(icon: NSImageView, label: ChromeLabel)] = []
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let typingLabel = NSTextField(wrappingLabelWithString: "")
+    private let typingLabel = ChromeLabel(wrappingLabelWithString: "")
     private let retryButton = ThemedDefaultButton()
     private let copyButton = ThemedBezelButton()
     private let dismissButton = ThemedBezelButton()
@@ -50,7 +50,7 @@ final class CloudMachineProgressView: NSView {
         for step in CloudMachineStage.steps {
             let icon = NSImageView()
             icon.symbolConfiguration = .init(pointSize: 13, weight: .regular)
-            let label = NSTextField(labelWithString: CloudStrings.stage(step))
+            let label = ChromeLabel(labelWithString: CloudStrings.stage(step))
             label.font = Typography.body
             let row = NSStackView(views: [icon, label])
             row.orientation = .horizontal
@@ -140,10 +140,23 @@ final class CloudMachineProgressView: NSView {
         }
     }
 
+    /// In a window and not hidden (a parked workspace stays in its window): only then it ticks.
+    private var isShown: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        ticker.cancel()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        if isShown, !creation.stage.isFinished, !ticker.isScheduled { tick() }
+    }
+
     /// The elapsed line, once a second while the creation runs.
     private func tick() {
         renderElapsed()
-        guard window != nil, !creation.stage.isFinished else { return }
+        guard isShown, !creation.stage.isFinished else { return }
         ticker.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.tick() }
     }
 
@@ -177,7 +190,7 @@ final class CloudMachineProgressView: NSView {
         buttons.isHidden = stage.failure == nil
         typingLabel.isHidden = stage.failure != nil
         renderElapsed()
-        if stage.isFinished { ticker.cancel() } else if window != nil, !ticker.isScheduled { tick() }
+        if stage.isFinished { ticker.cancel() } else if isShown, !ticker.isScheduled { tick() }
         setAccessibilityLabel([titleLabel.stringValue, CloudStrings.stage(stage), detailLabel.stringValue].joined(separator: ". "))
     }
 

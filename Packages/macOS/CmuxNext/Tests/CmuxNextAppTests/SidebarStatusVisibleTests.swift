@@ -26,7 +26,7 @@ import Testing
             let id = ResourceID(rawValue: "ws-\(name)")
             mirror.workspaceStatus[id] = WorkspaceStatus(workspaceID: id, entries: list)
         }
-        store.session.apply(.snapshot(mirror), to: store.workspaces)
+        store.session.apply(.snapshot(mirror), in: store)
         let lines = Dictionary(uniqueKeysWithValues: store.workspaces.map { ($0.id, $0.name) })
         return SidebarMapping.shared.sections(store.sidebarSections,
                                               machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),

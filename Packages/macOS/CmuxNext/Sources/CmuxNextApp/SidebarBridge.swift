@@ -193,7 +193,7 @@ final class SidebarBridge {
         let windows = services.windows
         let isLaunchWindow = windows.controllers.isEmpty && windows.registry.isLaunching
         let saved = services.sidebarSnapshots.launchDocument.snapshot(for: state.id, fallback: isLaunchWindow)
-        seed = SidebarSeed(sections: saved?.sidebarSections ?? [])
+        seed = SidebarSeed(sections: saved?.sidebarSections ?? [], grace: seed.grace.rerunning(sameTurn))
         // Collapsed sections: this window's view state, saved only in its sidebar snapshot.
         model.collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
         if let saved, !saved.profiles.isEmpty {
@@ -217,7 +217,8 @@ final class SidebarBridge {
         var sections = seed.merge(live, launching: launching, failed: failed)
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
-        model.ungroupedFirst = !usesMixedOrder
+        model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
+        model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)))
         selectionHold.flush()
@@ -264,9 +265,9 @@ final class SidebarBridge {
                                      selection: window.selection, newTabPages: newTabPages, muted: muted, top: top, pageFace: pageFace,
                                      tabTitle: tabTitle, rows: rows)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
-        if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
+        if machines.local.store.isProvisional { sections = SidebarRowSection.stale(sections) }
         // Debug Settings: sample rows with 1 to 7 pending items, to compare the row badges.
-        if SidebarTunables.rowBadgePreview.value { sections += SidebarSection.rowBadgePreview() }
+        if SidebarTunables.rowBadgePreview.value { sections += SidebarRowSection.rowBadgePreview() }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
     }
@@ -289,7 +290,7 @@ final class SidebarBridge {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let filtered = SidebarRowSection.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection(), newTabPages: newTabPages,
                                                          muted: muted, pageFace: pageFace, tabTitle: tabTitle, rows: rows),
-                                                members: Set(visible))
+                                                members: Set(ClosingWorkspaces.shared.survivors(visible)))
         return top.apply(to: filtered, machines: machines)
     }
 

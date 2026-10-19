@@ -44,9 +44,9 @@ would do it, spring curves", "proper physics". Design:
 - Per kind, under `ui.animationSpeed`: `ui.paneAnimations` (pane layout,
   rule 9) and `ui.animations.newWorkspace` off by default (Lawrence
   2026-10-14: no big animations by default), `ui.animations.newTab` on
-  (Lawrence 2026-10-14 after the instant build: keep the tab-open motion; a
-  new tab grows in at its slot on the `tabOpen` spring, response 0.1 s,
-  critically damped, visible end ~118 ms, the tabs right of it on the same spring).
+  (Lawrence 2026-10-14 after the instant build: keep the tab-open motion; then
+  "match google chrome perfectly": the tab strip moves on Chrome's tweens, see
+  "Tab strip (Chrome)" below).
   Off applies that change in one step; true opts into its spring. cmux-motion
   `MotionKind` / `AnimationSwitches` carry exactly these three keys
   (`MotionKind::config_path`). Palette: Toggle New Tab / New Workspace
@@ -64,9 +64,35 @@ would do it, spring curves", "proper physics". Design:
 - New tab (only with `ui.animations.newTab` on; off, every entry point shows
   the tab in its final slot at once, and a closed tab's room closes at once
   too; the store's tab takes its provisional stand-in's cell in place, so a
-  new tab is one element): Cmd-T, +, New Terminal Tab and the socket all grow the tab in its
-  slot with the strip's spring; what a New Tab page turns into takes the
+  new tab is one element): Cmd-T, +, New Terminal Tab and the socket all open the tab the
+  Chrome way (below); what a New Tab page turns into takes the
   page's cell in place (`TabStripView.expectReplacement(of:)`).
+- Tab strip (Chrome, the default; Lawrence 2026-10-14 "match google chrome
+  perfectly", "keep 200"; spec .cmux-scratch/chrome-tab-motion/SPEC.md, Chromium
+  6d3c98f4fe5): tab x and width are TWEENS, not springs (design-tokens.json
+  `motion.tweens`: `tabOpen`, `tabClose`, `tabMove`, 200 ms, 1-(1-t)^2 =
+  cubic-bezier(1/3, 2/3, 2/3, 1)); a new target restarts the 200 ms from the
+  value on screen with no velocity, a target equal after pixel rounding never
+  restarts. Open: from the previous tab's right edge at width 0, no fade; the
+  tabs and + move on the same tween. Close: to width 0 with the left edge
+  pinned to the previous tab's right edge, no fade. (Chrome starts and ends at
+  width 18 at prev.right - 18, but 18 is its tab overlap, so nothing shows; our
+  tabs do not overlap, so `motion.tabStrip` openStartWidth/closeEndWidth are 0.) A mouse close keeps the widths
+  (closing mode) until the pointer leaves the strip extended 40 pt below and 60 pt
+  past its trailing edge, then 300 ms (mouse and middle-click closes only; Cmd-W,
+  the CLI and agents never freeze widths). A dragged tab follows the pointer, reorders
+  after 16 x width / 200 pt of pointer travel since the last reorder, and settles
+  on `tabMove` when released. Widths: max 200 compact / 240 comfortable (today's
+  maxima, appearance tabMaxWidth), every tab
+  shrinks evenly to the selected minimum, then the inactive ones to theirs, pinned 64
+  (`motion.tabStrip`). The minimums are Chrome's 56 selected / 32 inactive
+  (Lawrence 2026-10-16 "chrome 32"; 76/96 for a readable title was tried in cx-kp9b4 and reverted); `tabs.overflow` scroll keeps every tab at
+  `TabTunables.scrollTabMinWidth` (7/10 of the max: 140 compact) and scrolls sooner. All four widths
+  are settings (Tabs group, `appearance.metrics.tabMaxWidth`, `tabMinActiveWidth`,
+  `tabMinInactiveWidth`, `tabPinnedWidth`; Lawrence 2026-10-15 "keep chrome's minimums but needs to
+  be customizable"): unset is the density default, the strip keeps the active minimum between the
+  icon-and-close floor (and the inactive minimum) and the max. Reduce Motion, speed off and a live resize: 0 ms. Geometry and
+  tweens come from cmux-motion through the app FFI (`MotionTween`, `MotionTabStrip`).
 - New workspace: the row opens at its index and the rows below slide; the
   whole-sidebar snap for Cmd-N is gone, and rows open only on animated
   applies.
@@ -177,8 +203,16 @@ nxmot (MacBook Pro, 120 Hz).
 | Loop | Period | Used by |
 | --- | --- | --- |
 | `spinner` | 0.9 s | busy tab spinner, sidebar agent spinner |
-| `pulse` | 1.8 s | sidebar agent-waiting pulse |
-| `flash` | 0.6 s | pane attention flash (two blinks; one 0.3 s fade under Reduce Motion) |
+| `pulse` | 1.8 s (at least 0.5 s) | sidebar agent-waiting pulse |
+| `flash` | 1.0 s (at least 1.0 s) | pane attention flash (two blinks half a period apart; the attention ring's blinks take half a period each; one 0.5 s fade under Reduce Motion) |
+
+The 2 Hz cap (cx-sya4n): nothing flashes faster than twice a second, in any
+mode. Every on-off-on cycle of an opacity loop lasts at least 0.5 s
+(`MotionLoop.shortestFlashCycle`), so the `pulse` period is at least 0.5 s and
+the `flash` period at least 1.0 s, Debug Settings overrides included
+(`MotionLoop.minimumPeriod`). `normal` speed slows the flash and the
+attention blinks; the pulse keeps its period at every speed.
+`BlinkRateCapTests` checks every flash at the fastest settings.
 
 | Marquee (`MotionMarquee`) | Value | Used by |
 | --- | --- | --- |
@@ -265,7 +299,7 @@ rest).
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |
 | Focus ring and inactive dim | CATransaction 0.16 s | `focus` | 160 ms | 100 ms | - |
 | Divider hover | CATransaction 0.12 s | `hover` | 120 ms | 80 ms | - |
-| Pane attention flash | keyframes 0.9 s (0.35 s fade reduced) | `flash` 0.6 s (0.3 s reduced; none when off) | 900 ms | 600 ms | - |
+| Pane attention flash | keyframes 0.9 s (0.35 s fade reduced) | `flash` 1.0 s (0.5 s reduced; none when off) | 900 ms | 1000 ms | - |
 | Programmatic window close | window fade 0.18 s ease-in | instant (the windows work on this branch made it close in the same turn as the transition) | 180 ms | 0 | - |
 | Notifications and bubbles | no dedicated animation; tab badge color changes with the tab fill fade | `hover` | 140 ms | 80 ms | - |
 

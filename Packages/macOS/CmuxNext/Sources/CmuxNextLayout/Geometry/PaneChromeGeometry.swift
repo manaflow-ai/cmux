@@ -37,6 +37,14 @@ extension LayoutStyle {
     /// except under `layout.paneSeparation` none (the cursor is the cue).
     public nonisolated var showsDividerFeedback: Bool { paneSeparation.drawsDividerFeedback }
 
+    /// Row stacks use the same gap as columns, but their resize handles are
+    /// also the only visual cue between otherwise edge-to-edge rows. Keep a
+    /// quiet separator at rest whenever lines are enabled; `none` remains a
+    /// deliberate opt-out while the hit area and resize cursor still work.
+    public nonisolated var showsRowSeparator: Bool {
+        drawsLines && paneSeparation != .none
+    }
+
     /// Whether panes differ from plain edge-to-edge rectangles.
     public nonisolated var hasPaneChrome: Bool {
         panePadding > 0 || paneCornerRadius > 0 || showsPaneBorder

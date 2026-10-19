@@ -401,6 +401,8 @@ input[type="submit"] {
   --text-detail--line-height: calc(16px * var(--cmux-interface-scale, 1));
   --text-body: calc(13px * var(--cmux-interface-scale, 1)); /* chrome text: labels, rows, menus, controls, settings */
   --text-body--line-height: calc(18px * var(--cmux-interface-scale, 1));
+  --text-field: calc(14px * var(--cmux-interface-scale, 1)); /* the browser address bar's text */
+  --text-field--line-height: calc(18px * var(--cmux-interface-scale, 1));
   --text-title: calc(15px * var(--cmux-interface-scale, 1)); /* card and panel titles, search fields */
   --text-title--line-height: calc(20px * var(--cmux-interface-scale, 1));
   --text-heading: calc(20px * var(--cmux-interface-scale, 1)); /* page headings */

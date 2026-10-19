@@ -117,6 +117,7 @@ impl Hub {
                     workspace_id: meta.workspace_id.clone(),
                     // Never the start mode (it may be full access): read-only is set below.
                     keep_harness_mode: true,
+                    route: None,
                 };
                 let side = match self.new_session(req.clone()).await {
                     // A default model the harness refuses: its own default instead.

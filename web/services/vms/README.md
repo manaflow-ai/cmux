@@ -29,11 +29,53 @@ db/
 - `/api/vm/:id`, authenticated `DELETE` destroy.
 - `/api/vm/:id/exec`, authenticated `POST` command execution.
 - `/api/vm/:id/attach-endpoint`, authenticated `POST` PTY/RPC attach lease minting.
+- `/api/vm/:id/huge-blue-inspection`, authenticated read-only `GET` (see
+  [Huge Blue inspection](#huge-blue-inspection)).
 - `/api/vm/tunnel`, authenticated `POST` WireGuard tunnel enrollment for the calling
   computer, `GET` tunnel/list state, `DELETE` unenrollment. Not Pro-gated: a lapsed
   subscription must still be able to reach machines it already owns.
 
 There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gateway has been removed.
+
+## Huge Blue inspection
+
+`GET /api/vm/:id/huge-blue-inspection[?deviceFingerprint=<fp>]` reports whether one of
+the caller's machines can be observed by the Huge Blue app server (#21332). It never
+creates a Run, mints an attach token, writes a lease, or returns a route, credential,
+invitation or command. The machine is resolved through the caller's own registry
+(owner or billing team), so an unknown or foreign id is `404` in every mode.
+
+`CMUX_HUGE_BLUE_INSPECTION` selects the mode: `enabled` probes, `disabled` is an explicit
+policy refusal, and anything else (including unset) means the adapter is not configured.
+Only a running machine is probed, so inspection never wakes a paused one; the probe is
+the read-only half of the cmux-tui attach bundle (daemon build, enrolled devices,
+trusted-carrier listener).
+
+A `200` body is:
+
+```json
+{
+  "host": "<machine id>",
+  "session": "cloud",
+  "state": "disabled | unavailable | unenrolled | admitted",
+  "reasonCode": "inspection_disabled | adapter_not_configured | target_not_running | probe_failed | daemon_probe_unreadable | device_not_enrolled | trusted_carrier | device_enrolled",
+  "retryable": false,
+  "checkedAt": "2026-10-17T00:00:00.000Z",
+  "capabilities": { "readOnlyInspection": true, "daemonProtocol": 12, "trustedCarrier": true, "enrolled": false }
+}
+```
+
+| state | reasonCode | retryable |
+| --- | --- | --- |
+| `disabled` | `inspection_disabled` | no |
+| `unavailable` | `adapter_not_configured` | no |
+| `unavailable` | `target_not_running`, `probe_failed`, `daemon_probe_unreadable` | yes |
+| `unenrolled` | `device_not_enrolled` | no |
+| `admitted` | `trusted_carrier`, `device_enrolled` | no |
+
+The mapper (`hugeBlueInspection.ts`) fails closed: a probe without a readable positive
+daemon protocol is `unavailable` and reports no carrier or enrollment evidence, and an
+enrolled device only counts when the caller named its fingerprint.
 
 ## Authentication model
 

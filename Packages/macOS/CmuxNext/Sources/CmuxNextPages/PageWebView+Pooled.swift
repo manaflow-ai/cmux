@@ -1,3 +1,4 @@
+import CmuxNextErrorJournal
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
@@ -92,6 +93,9 @@ extension PageWebView {
                                                forMainFrameOnly: true, in: .page))
         Self.installPageScripts(controller, documentAttributes: documentAttributes)
         controller.addUserScript(WKUserScript(source: PagePaintProbe.script, injectionTime: .atDocumentEnd,
+                                               forMainFrameOnly: true, in: .page))
+        // The handler stays installed; only the script was removed with the others.
+        controller.addUserScript(WKUserScript(source: ConsoleErrorCapture.script, injectionTime: .atDocumentStart,
                                                forMainFrameOnly: true, in: .page))
     }
 }

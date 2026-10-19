@@ -186,11 +186,13 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   and it starts no turn. A subagent that runs again later (a `tell`, the user
   writing in its chat) reports again when it finishes.
 
-- At most 16 subagents work at once (`subagents::MAX_LIVE`; one spawn takes
-  at most 8 tasks). A spawn over the cap answers `a<N>: queued`; a queued
-  subagent starts, with the view of that moment and its task, when another
-  finishes. The queue lives in the host's memory: a host that restarts
-  reports a still-queued subagent as not started.
+- Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
+  caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
+  over the cap answers `a<N>: queued`; a queued subagent starts, with the view
+  of that moment and its task, when another finishes. Its record keeps its
+  task, directory, effort and floor, so a host that restarts still starts it
+  (a record from before launches were saved takes its task from the spawn
+  call in the log, and the floor of that moment).
 - A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
   after the view, before its new messages (never logged).
 - `chief.stop` stops the running turn and every subagent at work
@@ -710,6 +712,21 @@ send byte-identical system prompts. A 4-breakpoint refusal (`A maximum of 4
 blocks with cache_control`) reruns the turn once without the marker, and
 the next 10 turns skip it (`MARK_RETRY_AFTER`); then it is tried again. An acpmux without `systemPrompt` keeps the old layout
 (no marker, CLAUDE.md, host.log says so).
+
+**Frozen view and delta (spec 5a, cx-d7a4d).** A turn sends the view frozen at
+the last re-render (`optchat_core::turn_input`; the host keeps only the
+`frozen` record in its state), then every log entry after the view's front as
+`<id>+1|<kind>: <text>` lines, one block per run of user or of other kinds
+(the turn's new messages always start one; the view keeps an unbuilt line as
+the placeholder until the next re-render), then the turn's images, then the per-turn tail (subagents at work, the Home
+workspace, resume notes). Our three marks sit on the `<chat>` header, the
+view's end and the delta's end, so a turn reads the whole previous input. An
+edit or retraction of a logged message is logged as a note (`edit of <id>:
+<text>`, `retracted <id>`; a queued one takes the edit or leaves the queue). A re-render happens past 8,000 delta bytes when the
+compactor folded over the front, past 32,000 bytes, or with no frozen view
+(optchat-core `turn_input`, shared with the Cloud brain). Claude Code's own system message after our blocks (deferred
+tools and the rest, below) stays uncached each request: 3,400 tokens with the
+cmux MCP server's 165 deferred tools (measured 2026-10-16).
 
 **Cache marks and TTL.** Measured on the requests Claude Code 2.1.287
 sends (a capture proxy on a scratch route, 2026-10-08): Claude Code sends its

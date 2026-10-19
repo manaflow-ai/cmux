@@ -132,6 +132,9 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
   const ENTRIES: Record<string, string[]> = {
     "agent-pane.composer": [
       "new-chat",
+      "footer-essentials",
+      "footer-full-access",
+      "footer-essentials-new-chat",
       "agent-home",
       "agent-home-path",
       "agent-home-folders",

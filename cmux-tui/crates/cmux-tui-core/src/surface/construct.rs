@@ -179,6 +179,7 @@ impl Surface {
     ) -> anyhow::Result<Arc<Surface>> {
         let (opts, terminal_public_id, kitty_reservation) =
             Self::spawn_prelude(id, opts, &mux, resource_identity.as_ref(), KittyQuota::AtLaunch)?;
+        crate::debug_spans::mark("surface.prelude");
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
@@ -209,6 +210,7 @@ impl Surface {
                     initial_kitty_limits,
                 ),
             };
+            crate::debug_spans::mark("surface.host_launched");
             match launched {
                 Ok(attachment) => {
                     let defer_launch_activation = terminal_public_id.is_some();

@@ -28,6 +28,7 @@ extension SettingsSchema {
         .union(WorkspaceRowSetting.keys)
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
+        .union(MarkdownViewerSettingsSchema.keys) // the markdown viewer's text size (looks only)
         .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
         .union(WorkspaceListSettingsSchema.agentSettableKeys) // new workspace position, computer headers (list shape)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
@@ -54,6 +55,7 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
@@ -125,6 +127,7 @@ extension SettingsSchema {
         "focusRing.width",
         "focusRing.showWhenSinglePane",
         "appearance.statusIndicator.style",
+        "appearance.statusIndicator.animation",
         "appearance.statusIndicator.size",
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
@@ -139,7 +142,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
-        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
+        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.nowPlaying.enabled", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -208,7 +211,10 @@ extension SettingsSchema {
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
+        "browser.openLinksInCmuxBrowser": .privacy,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
+        // The app that opens your files from a menu: an agent must not pick what runs them.
+        "files.textEditor": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
         "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
@@ -231,8 +237,18 @@ extension SettingsSchema {
         "updates.meteredNetwork": .network,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
+        // What a new chat may do without asking: an agent must not widen its own approvals.
+        "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
+        // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
+        "notifications.dockBounce": .userOnly,
+        // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
+        "sessions.keepAwake": .userOnly,
+        // What reaches this Mac from outside and what leaves it: only the person opens phone access.
+        "phone.allowConnections": .network,
+        "phone.startSessions": .network,
+        "phone.keepAwake": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

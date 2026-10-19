@@ -5,18 +5,99 @@ import CmuxNextPages
 /// The look of what stands on the composer card's top edge (the location strip of a new chat, the
 /// queued prompts of a started one), for comparing designs: `agentPane.debug.topStripStyle`.
 public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, TunableChoice {
-    /// Today's: a tab of the card's fill on its top edge, sharing its rim.
+    /// Today's: in a chat, a tab of the card's fill on its top edge, sharing its rim; on the New
+    /// Tab, the folder and computer as plain text over the card (Cursor's home, Lucas #21133).
     case `default`
     /// A tab a few px above the card in its own closed hairline (#20789).
     case bump
     /// Plain muted text a few px above the card, no fill or rim, on the card's content edge.
     case plain
+    /// A filled tray tucked under the card's top edge, its text on the card's content edge.
+    case tray
 
     public var tunableTitle: String {
         switch self {
-        case .default: "Default (tab on the card)"
+        case .default: "Default (chat: tab on the card; New Tab: text above it)"
         case .bump: "Bump (tab a few px above, own hairline)"
         case .plain: "Plain (floating text, no chrome)"
+        case .tray: "Tray (filled, tucked under the card)"
+        }
+    }
+}
+
+/// What a folded long thought's one line reads (webviews conversation/ThoughtRow.tsx):
+/// `agentPane.debug.thoughtHeader`. `duration` sets nothing on the page.
+public nonisolated enum AgentPaneThoughtHeader: String, Sendable, CaseIterable, TunableChoice {
+    /// "Thought for 12s", as Codex's reasoning trace reads once it ends (#20963).
+    case duration
+    /// "Thought", then the thought's first line (#20948).
+    case preview
+
+    public var tunableTitle: String {
+        switch self {
+        case .duration: "Thought for 12s (default)"
+        case .preview: "Thought, then its first line"
+        }
+    }
+}
+
+/// How tall a done thought must be to fold (webviews conversation/ThoughtRow.tsx):
+/// `agentPane.debug.thoughtFoldThreshold`. `viewport` sets nothing on the page.
+public nonisolated enum AgentPaneThoughtFoldThreshold: String, Sendable, CaseIterable, TunableChoice {
+    /// Taller than the transcript's view, never under 400px (#20948).
+    case viewport
+    /// Taller than seven 20px lines, the 140px Codex gives a reasoning trace (#20963).
+    case codex
+
+    public var tunableTitle: String {
+        switch self {
+        case .viewport: "Taller than the transcript (default)"
+        case .codex: "Taller than seven lines (Codex)"
+        }
+    }
+}
+
+/// Where the quiet answer-footer actions sit under a completed turn.
+public nonisolated enum AgentPaneTurnActionsPlacement: String, Sendable, CaseIterable, TunableChoice {
+    case right
+    case left
+
+    public var tunableTitle: String {
+        switch self {
+        case .right: "Right (default)"
+        case .left: "Left"
+        }
+    }
+}
+
+/// Visual treatment of the opt-in reasoning slider. The default keeps the current tokenized
+/// accent thumb; `minimal` is a quieter outlined treatment for comparing composer density.
+public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIterable, TunableChoice {
+    case accent
+    case minimal
+
+    public var tunableTitle: String {
+        switch self {
+        case .accent: "Accent (current)"
+        case .minimal: "Minimal (quiet fill, outlined thumb)"
+        }
+    }
+}
+
+/// Visual treatments for the session sidebar's latest-reply hover preview.
+public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIterable, TunableChoice {
+    /// The elevated card used by the current sidebar.
+    case card
+    /// A quieter, flatter preview card.
+    case quiet
+    /// A preview card distinguished by an outline instead of elevation.
+    case outline
+
+    public var tunableTitle: String {
+        switch self {
+        case .card: "Card (current)"
+        case .quiet: "Quiet (flatter)"
+        case .outline: "Outline (rim, no shadow)"
         }
     }
 }
@@ -78,29 +159,66 @@ public nonisolated struct AgentPaneTunables {
         default: false, code: "AgentPaneTunables.sideSessions")
 
     /// Long thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought taller than
-    /// the transcript's view folds to one line that opens to its text. Off keeps every thought in
-    /// full (Leo 2026-10-13, #20330) until Leo picks the default. New agent tabs read it.
+    /// ``thoughtFoldThreshold`` folds to one line that opens to its text. On by default (Leo
+    /// 2026-10-18, #20963); off keeps every thought in full, as #20330 drew it. New agent tabs read it.
     public static let foldLongThoughts = Tunable<Bool>.toggle(
         "agentPane.debug.foldLongThoughts", PageTunables.section, "Fold long thoughts in the agent pane",
-        help: "A finished thought taller than the transcript folds to one line that opens to its text. New agent tabs.",
-        default: false, code: "AgentPaneTunables.foldLongThoughts")
+        help: "A finished long thought folds to one line that opens to its text. New agent tabs.",
+        default: true, code: "AgentPaneTunables.foldLongThoughts")
+
+    /// How tall a thought must be to fold (``foldLongThoughts``) while ``liveThoughtViewport`` is
+    /// off. With the live viewport on, a thought it clipped always folds once done (140px), so
+    /// nothing grows after it streams. New agent tabs read it.
+    public static let thoughtFoldThreshold = Tunable<AgentPaneThoughtFoldThreshold>.choice(
+        "agentPane.debug.thoughtFoldThreshold", PageTunables.section, "Long thought fold threshold",
+        help: "With Live thought viewport off: fold a finished thought taller than the transcript (never under 400px), or taller than Codex's seven lines (140px). With it on, thoughts fold past 140px. New agent tabs.",
+        default: .viewport, code: "AgentPaneTunables.thoughtFoldThreshold")
+
+    /// What a folded long thought's line reads: how long the agent thought, or its first line.
+    /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
+    public static let thoughtHeader = Tunable<AgentPaneThoughtHeader>.choice(
+        "agentPane.debug.thoughtHeader", PageTunables.section, "Folded thought header",
+        help: "A folded long thought reads how long the agent thought, or Thought and its first line. New agent tabs.",
+        default: .duration, code: "AgentPaneTunables.thoughtHeader")
+
+    /// A long thought streams in a fixed seven-line viewport with its newest line in view, as
+    /// Codex's reasoning trace does, then folds once done (``foldLongThoughts``). Off, it shows in
+    /// full while it streams. Only applies while ``foldLongThoughts`` is on. New agent tabs read it.
+    public static let liveThoughtViewport = Tunable<Bool>.toggle(
+        "agentPane.debug.liveThoughtViewport", PageTunables.section, "Live thought viewport",
+        help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold long thoughts. New agent tabs.",
+        default: true, code: "AgentPaneTunables.liveThoughtViewport")
 
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
         "agentPane.debug.topStripStyle", PageTunables.section, "Composer top strip style",
-        help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, or plain text. New agent tabs.",
+        help: "What stands on the composer's top edge (location strip, queued prompts): today's tab, a separate bump, plain text, or a tray tucked under the card. New agent tabs.",
         default: .default, code: "AgentPaneTunables.topStripStyle")
+
+    /// The answer footer's copy/retry/fork actions (the webview's `turnActionsPlacement`).
+    public static let turnActionsPlacement = Tunable<AgentPaneTurnActionsPlacement>.choice(
+        "agentPane.debug.turnActionsPlacement", PageTunables.section, "Turn footer actions",
+        help: "Place the answer footer's copy, retry and fork actions on the left or right.",
+        default: .right, code: "AgentPaneTunables.turnActionsPlacement")
+
+    /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
+    /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open
+    /// menu. It rides the `composer` page event (`plainFooter`, composerSettings.ts); no cmux.json key.
+    public static let composerPlainFooter = Tunable<Bool>.toggle(
+        "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
+        help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
+        default: false, code: "AgentPaneTunables.composerPlainFooter")
 
     /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
     /// newest call, and a run any later row follows settles into its summary line. Off keeps every
-    /// call's row until Leo picks the default. The page gets it with the theme (`AgentPaneTheme`,
-    /// `codexToolRuns`), again on each change.
+    /// call's row. The page gets it with the theme (`AgentPaneTheme`, `codexToolRuns`), again on
+    /// each change. The Debug toggle remains available for comparing the ungrouped presentation.
     public static let codexToolRuns = Tunable<Bool>.toggle(
         "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
         help: "While a turn runs, each run of tool calls is one line: the newest call, then a summary once text follows.",
-        default: false, code: "AgentPaneTunables.codexToolRuns")
+        default: true, code: "AgentPaneTunables.codexToolRuns")
 
     /// Repaints every window when ``codexToolRuns`` changes, so open agent pages get it with the
     /// theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
@@ -109,8 +227,8 @@ public nonisolated struct AgentPaneTunables {
         guard codexToolRunsFollow == nil else { return }
         // task-owner: lives as long as the app; event-driven (Observation)
         codexToolRunsFollow = Task {
-            var last = codexToolRuns.value
-            for await on in ObservationStream({ codexToolRuns.value }) where on != last {
+            var last = (codexToolRuns.value, turnActionsPlacement.value)
+            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value) }) where on != last {
                 last = on
                 ThemeStore.shared.repaintAll()
             }
@@ -121,12 +239,20 @@ public nonisolated struct AgentPaneTunables {
 
     /// The page's `<html>` `data-*` attributes from these tunables.
     static var documentAttributes: [String: String] {
-        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value)
+        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
+                   thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
+                   thoughtFoldThreshold: thoughtFoldThreshold.value)
     }
 
-    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle) -> [String: String] {
+    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
+                           thoughtHeader: AgentPaneThoughtHeader = .duration,
+                           liveThoughtViewport: Bool = true,
+                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
+        if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
+        if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
+        if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         return attributes
     }
@@ -150,5 +276,20 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    /// The slider treatment to compare while `reasoningSlider` is on. The default is today's
+    /// tokenized accent thumb; this remains a Debug Settings choice and never changes the
+    /// slider's availability.
+    public static let reasoningSliderStyle = Tunable<AgentPaneReasoningSliderStyle>.choice(
+        "agent.reasoningSliderStyle", PageTunables.section, "Reasoning slider style",
+        help: "Visual treatment for the opt-in reasoning slider: today's accent treatment or a quieter outlined thumb.",
+        default: .accent, code: "AgentPaneTunables.reasoningSliderStyle")
+
+    /// The session sidebar's latest-reply hover preview treatment. User layout customization may
+    /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
+    public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
+        "agentPane.debug.sidebarPreviewVariant", PageTunables.section, "Sidebar preview variant",
+        help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
+        default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor, composerPlainFooter.descriptor] }
 }

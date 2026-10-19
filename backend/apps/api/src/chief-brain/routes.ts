@@ -2,6 +2,7 @@ import type { Env } from "../env.ts"
 import { callerOf, type Fail } from "../home-attachments.ts"
 import { chiefOwnedBy } from "./brain-io.ts"
 import { brainName, type ConfigPatch } from "./brain-do.ts"
+import { childObject } from "./brain-spawn.ts"
 
 /**
  * HTTP routes of the Chief brain (outside the op catalog, like the keyed acpmux start):
@@ -9,9 +10,10 @@ import { brainName, type ConfigPatch } from "./brain-do.ts"
  *   GET  /v1/chiefs/<agent>/brain           the owner: settings and state
  *   PUT  /v1/chiefs/<agent>/brain           the owner: {enabled?, model?, effort?, compactor_model?, role?, personality?, instructions?, chiefs?}
  *        model: fake | claude-opus-5-5 | claude-sonnet-5-5 | claude-haiku-5-5 | openrouter:<vendor>/<model> | @cf/<vendor>/<model>
- *        effort: off | minimal | low | medium | high | xhigh | max (default low); model-routes.ts says who may use which
+ *        effort: off | minimal | low | medium | high | xhigh | max (default low); model-gateway/routes.ts says who may use which
  *   GET  /v1/chiefs/<agent>/runs?conversation=<id>&before=<ms>&limit=<n>   a member: the chief's runs there, newest first
  *   GET  /v1/chiefs/<agent>/runs/<run>?conversation=<id>&after_seq=<n>   a member: {run, steps, has_more}
+ *        (a subagent's run `sub_<n>` is read from its own object, brain-spawn.ts)
  *
  * Run and Step are the trajectory wire's JSON (brain-runs.ts); members also get each change live as
  * a `conversation-run-changed` frame on the conversation socket.
@@ -19,7 +21,7 @@ import { brainName, type ConfigPatch } from "./brain-do.ts"
  * "The owner" is the chief's owner_user (MuxDO head) with a session, or an install whose grant
  * covers mutate-own; a chief's own token never changes its brain.
  */
-export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|runs(?:\/(run_[0-9]{1,15}))?)$/
+export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|runs(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
 
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
@@ -66,6 +68,11 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   const convBrain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation)))
   if (!run) return ok(await convBrain.runs(conversation, num("before"), Math.min(Math.max(Math.floor(num("limit") ?? 20), 1), 100)))
   // Step tool inputs are JSON values (unknown), which the RPC stub type cannot express: read the shape here.
-  const found = (await (convBrain.run(run, Math.max(0, Math.floor(num("after_seq") ?? 0)), 500) as unknown as Promise<{ run: { conversation: string } } | null>))
+  const sub = /^sub_([0-9]{1,15})$/.exec(run)
+  if (sub && !(await (convBrain as unknown as { spawned(n: number): Promise<boolean> }).spawned(Number(sub[1])))) return fail(hidden)
+  const archived = sub ? await (convBrain as unknown as { spawnRun(n: number, after: number): Promise<{ run: { conversation: string } } | null> }).spawnRun(Number(sub[1]), Math.max(0, Math.floor(num("after_seq") ?? 0))) : null
+  if (archived) return archived.run.conversation === conversation ? ok(archived) : fail(hidden)
+  const holder = sub ? env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(childObject(agent, conversation, Number(sub[1])))) : convBrain
+  const found = (await (holder.run(run, Math.max(0, Math.floor(num("after_seq") ?? 0)), 500) as unknown as Promise<{ run: { conversation: string } } | null>))
   return found && found.run.conversation === conversation ? ok(found) : fail(hidden)
 }

@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import Foundation
 import CmuxNextCompat
+import UniformTypeIdentifiers
 
 /// The Chief's settings, a right sidebar inside the Home page that the
 /// header's "Chief >" name pill toggles (Lawrence, 2026-10-05: per-Chief
@@ -17,7 +18,9 @@ import CmuxNextCompat
 @MainActor
 public final class HomeChiefSidebar: NSView {
     public static let width: CGFloat = 280
-    private let muxHome: URL
+    /// The shown Chief's mux home (its avatar, traces, the brain line); `use` moves it.
+    private var muxHome: URL
+    private let brain = ThemedLabel(wrappingLabelWithString: "")
     private let harness = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let model = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let effort = ThemedPopUpButton(frame: .zero, pullsDown: false)
@@ -38,8 +41,8 @@ public final class HomeChiefSidebar: NSView {
     private var source: any HomeChiefEngineSource
     /// Renames the Chief conversation (the daemon's set-title op).
     public var onRename: (String) -> Void = { _ in }
-    /// The header avatar's text changed (nil: the initials).
-    public var onAvatar: (String?) -> Void = { _ in }
+    /// The Chief's avatar changed on disk (its text or picture): read it again.
+    public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
     public var onShowMemory: () -> Void = {}
 
@@ -81,6 +84,13 @@ public final class HomeChiefSidebar: NSView {
             stack.addArrangedSubview(box)
             box.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
         }
+        // A picture of your own, or the bundled one again (backgrounds plan phase 4).
+        let pictures = NSStackView(views: [
+            ThemedBezelButton(title: HomeEngineStrings.choosePicture, target: self, action: #selector(choosePicture)),
+            ThemedBezelButton(title: HomeEngineStrings.useDefaultPicture, target: self, action: #selector(useDefaultPicture)),
+        ])
+        pictures.spacing = 8
+        stack.addArrangedSubview(pictures)
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort)] {
             button.target = self
             button.action = #selector(picked(_:))
@@ -102,7 +112,7 @@ public final class HomeChiefSidebar: NSView {
         replies.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         replies.ink = .secondary
         stack.addArrangedSubview(replies)
-        let brain = ThemedLabel(wrappingLabelWithString: String(format: HomeEngineStrings.brainFormat, muxHome.path))
+        brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
         brain.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         brain.ink = .secondary
         stack.addArrangedSubview(brain)
@@ -135,7 +145,7 @@ public final class HomeChiefSidebar: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     /// The theme's sidebar step (a panel apart from the Home content), or the user's sidebar
     /// background (`appearance.surfaces`), like the window's left sidebar; re-resolved on a theme change.
@@ -163,6 +173,11 @@ public final class HomeChiefSidebar: NSView {
     @discardableResult
     public func use(_ source: any HomeChiefEngineSource) -> Task<Void, Never> {
         self.source = source
+        // A named Chief's panel keeps its own files (cx-327wl), never the default's.
+        if let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files, files.muxHome != muxHome {
+            muxHome = files.muxHome
+            brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
+        }
         for view in localViews { view.isHidden = !source.isLocal }
         place.isHidden = source.isLocal
         place.stringValue = source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? ""
@@ -189,9 +204,44 @@ public final class HomeChiefSidebar: NSView {
         guard text != shownAvatar else { return }
         shownAvatar = text
         let files = HomeChiefFiles(muxHome: muxHome)
-        // task-owner: one file write off the main actor; ends with it
-        Task.detached { files.writeAvatar(text) }
-        onAvatar(text.isEmpty ? nil : text)
+        // task-owner: one file write off the main actor, then the header reads it
+        Task { [weak self] in
+            await Task.detached { files.writeAvatar(text) }.value
+            self?.onAvatar()
+        }
+    }
+
+    @objc private func choosePicture() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = HomeChiefFiles.pictureTypes
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        let use = { [weak self] (response: NSApplication.ModalResponse) in
+            guard response == .OK, let url = panel.url else { return }
+            self?.usePicture { try $0.writePicture(from: url) }
+        }
+        if let window { panel.beginSheetModal(for: window, completionHandler: use) } else { use(panel.runModal()) }
+    }
+
+    @objc private func useDefaultPicture() {
+        usePicture { $0.clearPicture() }
+    }
+
+    /// Writes the picture off the main actor, then clears the text field (a picture shows no
+    /// text) and has the header read it; a picture that could not be used says so.
+    private func usePicture(_ write: @escaping @Sendable (HomeChiefFiles) throws -> Void) {
+        let files = HomeChiefFiles(muxHome: muxHome)
+        // task-owner: one file write off the main actor, then the header reads it
+        Task { [weak self] in
+            let written = await Task.detached { (try? write(files)) != nil }.value
+            guard let self else { return }
+            failure.stringValue = written ? "" : HomeEngineStrings.pictureUnreadable
+            failure.isHidden = written
+            guard written else { return }
+            avatarField.stringValue = ""
+            shownAvatar = ""
+            onAvatar()
+        }
     }
 
     @objc private func showMemory() {
@@ -207,12 +257,14 @@ public final class HomeChiefSidebar: NSView {
     @discardableResult
     public func refresh() -> Task<Void, Never> {
         let source = source
+        let home = muxHome
         // task-owner: one read off the main actor; ends when it is shown
         return Task { [weak self] in
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.read()) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
-            guard let self, self.source.isLocal == source.isLocal, self.source.place == source.place else { return }
+            // A read of the Chief shown before (another conversation) is not shown.
+            guard let self, self.source.isLocal == source.isLocal, self.source.place == source.place, muxHome == home else { return }
             switch result {
             case .success(let snapshot): show(snapshot)
             case .failure(let error): say(error, readable: false)
@@ -222,16 +274,19 @@ public final class HomeChiefSidebar: NSView {
 
     /// Sets (nil: clears) one engine field on the brain, then shows the result.
     @discardableResult
-    func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
+    public func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
         let source = source
+        let home = muxHome
         // task-owner: one write off the main actor; ends when its result is shown
         return Task { [weak self] in
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
                 do { return .success(try await source.set(key, value)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
+            // A pick for the Chief shown before (another conversation) is not shown.
+            guard let self, muxHome == home else { return }
             switch result {
-            case .success(let snapshot): self?.show(snapshot)
-            case .failure(let error): self?.say(error, readable: true)
+            case .success(let snapshot): show(snapshot)
+            case .failure(let error): say(error, readable: true)
             }
         }
     }

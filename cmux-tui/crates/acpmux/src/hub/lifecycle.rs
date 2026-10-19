@@ -27,12 +27,13 @@ impl Hub {
             env: session_env,
             workspace_id,
             keep_harness_mode,
+            route,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name, folder_root } = {
+        let Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest } = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
         };
@@ -86,8 +87,7 @@ impl Hub {
                 Adoption::Existing(existing) => return Ok(existing),
                 Adoption::Found { cwd, fork, file, store } => (cwd, fork, file, store),
             };
-        // A fork resumes nothing as itself: its process forks the adopted id
-        // into a new conversation, so the adopted id is not this session's.
+        // A fork resumes nothing as itself: it forks the adopted id into a new conversation.
         let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
         // A gone recorded folder may be remapped: git runs to compare repositories.
         let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
@@ -128,7 +128,8 @@ impl Hub {
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
         let pooled = match &adopt {
-            None if meta.session_env.is_empty() => {
+            // A pooled harness was started without this chat's route: never claimed.
+            None if meta.session_env.is_empty() && route.is_none() => {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
             _ => None,
@@ -138,6 +139,19 @@ impl Hub {
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
         let id = pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         meta.id = id.clone();
+        // A named route is checked before anything is created: it exists and
+        // serves this chat's harness family.
+        if let Some(route_id) = &route {
+            let (dir, _) = crate::routes::places(&*self.config.read().await);
+            let found = crate::routes::find(dir.as_deref(), route_id).map_err(|e| {
+                RpcError::invalid_params(format!("route {route_id}: {}", e.message()))
+            })?;
+            if !found.serves(&family) {
+                return Err(RpcError::invalid_params(format!(
+                    "route {route_id} does not serve the {family} harness"
+                )));
+            }
+        }
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
         let session = {
@@ -182,6 +196,17 @@ impl Hub {
             self.sessions.lock().unwrap().remove(&id);
             return Err(RpcError::internal(e.to_string()));
         }
+        // The chat's route is bound once the session exists and before its
+        // harness starts, so its first spawn already runs on it (route_switch.rs).
+        if let Some(route_id) = &route {
+            let (_, state) = crate::routes::places(&*self.config.read().await);
+            if let Err(e) =
+                crate::routes::set_binding(&state, &format!("chat:{id}"), Some(route_id))
+            {
+                self.sessions.lock().unwrap().remove(&id);
+                return Err(RpcError::invalid_params(e.message().to_owned()));
+            }
+        }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
@@ -191,6 +216,7 @@ impl Hub {
             };
             self.append(&session, "mux", "adopted", adopted);
         }
+        self.note_preset_resolved(&session, preset_digest);
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
             Err(e) => Err(e),
@@ -306,7 +332,7 @@ impl Hub {
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        profile: &HarnessProfile,
+        profile: &super::spawn::Spawn,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
@@ -342,8 +368,7 @@ impl Hub {
 
         self.record_spawn_inputs(session, profile).await;
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
-        *session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Default::default();
+        self.fresh_agent(session, profile.preset_digest.clone());
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {

@@ -36,6 +36,18 @@ pub fn terminal_host_executable() -> io::Result<PathBuf> {
     imp::terminal_host_executable()
 }
 
+/// Make the executable for terminal hosts ready on a background thread, once
+/// per process: on macOS hash, copy and verify it, then run the copy once
+/// (`--version`), so its first exec has paid its code-signature check. A
+/// daemon calls it when it starts serving; without it the first terminal of
+/// the daemon paid both (the SHA-256 of the daemon's executable and of its
+/// copy, the clone, and the first exec of a new copy: 0.75-0.97 s on macOS,
+/// later terminals 55-110 ms; cx-b4sjc). A terminal that starts meanwhile
+/// waits only for what is left of the install. Elsewhere it does nothing.
+pub fn prepare_in_background() {
+    imp::prepare_in_background();
+}
+
 /// Hold the shared in-use lock of the copy this process runs from, if it
 /// runs from one. A terminal host calls it once at start.
 pub fn hold_in_use_lock() {
@@ -77,6 +89,8 @@ mod imp {
     }
 
     pub(super) fn hold_in_use_lock() {}
+
+    pub(super) fn prepare_in_background() {}
 
     pub(super) fn copy_failed(_path: &std::path::Path) {}
 }
