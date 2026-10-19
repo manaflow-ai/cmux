@@ -25,6 +25,7 @@ import {
   shellEntry,
   shortHost,
   stepSelection,
+  type CreateKind,
   type ScreenRow,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
@@ -203,9 +204,17 @@ export function NewTabScreen(props: Props) {
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
+  // The create actions the buttons under the field offer, at the end of the rows too.
+  const creates = useMemo(
+    (): CreateKind[] => [
+      ...(props.onCreate ? (["terminal", "browser"] as const) : []),
+      ...(harness ? (["chat"] as const) : []),
+    ],
+    [props.onCreate, harness],
+  );
   const suggested = useMemo(
-    () => (touched && !shell ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, omnibar, home, ask],
+    () => (touched && !shell ? screenRows(text, { omnibar, home, create: creates, ...(ask ? { ask } : {}) }) : []),
+    [touched, shell, text, omnibar, home, ask, creates],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
@@ -350,6 +359,8 @@ export function NewTabScreen(props: Props) {
         return props.onJump("workspace", row.id);
       case "ask":
         return askChat(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
+      case "create":
+        return row.kind === "chat" ? startChat() : create(row.kind);
     }
   };
   const edit = (next: string) => {
@@ -665,7 +676,7 @@ export function NewTabScreen(props: Props) {
                 {rowFavicon(row) ? (
                   <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
                 ) : (
-                  <RowGlyph kind={row.type} />
+                  <RowGlyph kind={rowGlyph(row)} />
                 )}
                 <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                 {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
@@ -794,9 +805,17 @@ function rowKey(row: ScreenRow): string {
       return `open:${row.url}`;
     case "workspace":
       return `workspace:${row.id}`;
+    case "create":
+      return `create:${row.kind}`;
     default:
       return row.type;
   }
+}
+
+/// A create row draws its button's icon; the others their type's.
+function rowGlyph(row: ScreenRow) {
+  if (row.type !== "create") return row.type;
+  return row.kind === "chat" ? "agent" : row.kind;
 }
 
 /// A tab's or visited page's favicon (cx-d0d.8): it takes the glyph's place when the host sent one.
@@ -817,6 +836,8 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
     case "tab":
     case "workspace":
       return row.title;
+    case "create":
+      return nt(`create.${row.kind}`);
   }
 }
 
@@ -849,5 +870,7 @@ function rowAction(t: Translate, nt: NewTabTranslate, row: ScreenRow): string {
       return t("newTabPage.row.tab");
     case "history":
       return t("newTabPage.row.history");
+    case "create":
+      return t("newTabPage.row.open");
   }
 }
