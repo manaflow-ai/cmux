@@ -59,7 +59,7 @@ public nonisolated extension ThemeTokens {
     /// The least window tint over `art`, at or above `requested`, that keeps
     /// ``backdropTexts(_:)`` legible on the surface color.
     func legibleTintOpacity(over art: BackdropArtRange = .any, requested: Double,
-                            legibility: ArtLegibility = .current) -> Double {
+                            legibility: ArtLegibility) -> Double {
         art.scrimOpacity(texts: backdropTexts(legibility), scrim: surfaceBackground.withAlpha(1), requested: requested)
     }
 }

@@ -29,4 +29,24 @@ import Testing
         #expect(tokens.backdropTexts(.all).count == 3)
         #expect(tokens.backdropTexts(.primary).count == 1)
     }
+
+    /// The window's own backdrop takes the floor the scope's choice names: "all" is denser glass.
+    @Test func theBackdropFloorFollowsTheChoice() {
+        let tokens = ThemeTokens.derive(from: .ghosttyDefault)
+        let primary = WindowBackdrop(tokens, selection: Self.work, legibility: .primary)
+        let all = WindowBackdrop(tokens, selection: Self.work, legibility: .all)
+        #expect(primary.legibleTintOpacity < all.legibleTintOpacity)
+        #expect(all.tintOpacity >= all.legibleTintOpacity)
+    }
+
+    /// The choice is set on a scope and inherited by its descendants, like art.
+    @Test func descendantsInheritTheScopeChoice() {
+        let room = ThemeScope(level: .room)
+        let workspace = ThemeScope(level: .workspace, parent: room)
+        #expect(workspace.artLegibility == .primary)
+        room.setArtLegibility(.all)
+        #expect(workspace.artLegibility == .all)
+        room.setArtLegibility(.primary)
+        #expect(workspace.artLegibility == .primary)
+    }
 }

@@ -27,7 +27,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     public var art: BackdropArt? = nil
     /// Optional bundled or system image beneath the material.
     public var selection: BackdropSelection? = nil
-    /// The least tint over art at which the text ``ArtLegibility/current`` names stays legible
+    /// The least tint over art at which the text the scope's ``ArtLegibility`` names stays legible
     /// (``ThemeTokens/legibleTintOpacity(over:requested:legibility:)``); 0 without art. Neither the opacity setting
     /// nor the tuner thins the glass below it.
     public var legibleTintOpacity: Double = 0
@@ -101,9 +101,11 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// - Parameter art: Bundled art below the window's material and tint.
     /// - Parameter tintOpacity: A workspace's own tint over art (`ThemeScope.backdropTintOpacity`),
     ///   replacing the work's and the window's; the legibility floor still applies.
+    /// - Parameter legibility: The text the floor keeps readable over art (`ThemeScope.artLegibility`).
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
                 selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity,
-                texture: BackdropTexture = .default, tintOpacity workspaceTint: Double? = nil) {
+                texture: BackdropTexture = .default, tintOpacity workspaceTint: Double? = nil,
+                legibility: ArtLegibility = .primary) {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
         // A work's own tint replaces the theme's (dark works show more of themselves); the
         // legibility floor below still keeps text readable over it.
@@ -123,7 +125,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
         if windowGlass { artOpacity = Self.windowGlassArtOpacity }
         if resolvedSelection != nil, !isOpaque {
             let range = windowGlass ? .any : resolvedSelection?.artRange ?? .any
-            legibleTintOpacity = tokens.legibleTintOpacity(over: range, requested: 0)
+            legibleTintOpacity = tokens.legibleTintOpacity(over: range, requested: 0, legibility: legibility)
             tintOpacity = max(tintOpacity, legibleTintOpacity)
         }
         self.art = art
