@@ -204,6 +204,11 @@ import Testing
         ((try? String(contentsOfFile: gh + ".calls", encoding: .utf8)) ?? "").split(separator: "\n").count
     }
 
+    private static func calls(_ gh: String, matching: String) -> Int {
+        ((try? String(contentsOfFile: gh + ".calls", encoding: .utf8)) ?? "").split(separator: "\n")
+            .filter { $0.contains(matching) }.count
+    }
+
     private static func waitUntil(_ done: () -> Bool) async throws {
         for _ in 0..<250 where !done() { try await Task.sleep(for: .milliseconds(20)) }
     }
@@ -309,6 +314,24 @@ import Testing
         let stopped = Self.calls(gh)
         try await Task.sleep(for: .milliseconds(300))
         #expect(Self.calls(gh) == stopped)
+    }
+
+    /// The recheck reads again only the pull requests still in flight: a folder whose branch has
+    /// none is asked when the tree passes again, never every `freshness` beside an open one.
+    @Test func theRecheckReadsOnlyOpenPullRequests() async throws {
+        let folder = "/src/no-pull-request", url = "https://github.com/o/r/pull/5"
+        let gh = try Self.fakeGitHub(answer: """
+            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":5,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
+             "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
+            """, status: 0)
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .milliseconds(100))
+        store.refresh([folder, url])
+        try await Self.waitUntil { store.answers[url] != nil }
+        store.refresh([folder, url])
+        try await Self.waitUntil { Self.calls(gh, matching: "graphql") >= 5 }
+        store.stop()
+        #expect(Self.calls(gh, matching: "graphql") >= 5)
+        #expect(Self.calls(gh) - Self.calls(gh, matching: "graphql") <= 2)
     }
 
     @Test func theCardIsADebugSettingOnByDefault() {
