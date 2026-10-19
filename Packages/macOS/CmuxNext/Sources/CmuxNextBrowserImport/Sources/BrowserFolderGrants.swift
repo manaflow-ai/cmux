@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// Where folder grants are kept: one bookmark per browser id.
 public protocol BrowserFolderGrantStore: AnyObject, Sendable {
@@ -7,12 +8,15 @@ public protocol BrowserFolderGrantStore: AnyObject, Sendable {
 }
 
 /// Grants in the app's defaults (`browserImport.folderGrant.<browser>`).
-public final class UserDefaultsBrowserFolderGrantStore: BrowserFolderGrantStore, @unchecked Sendable {
-    private let defaults: UserDefaults
+public final class UserDefaultsBrowserFolderGrantStore: BrowserFolderGrantStore {
+    /// nil: the standard defaults. A suite name, not a `UserDefaults`, which is not `Sendable`.
+    private let suiteName: String?
 
-    public init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    public init(suiteName: String? = nil) {
+        self.suiteName = suiteName
     }
+
+    private var defaults: UserDefaults { suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard }
 
     public func bookmark(for browser: String) -> Data? { defaults.data(forKey: Self.key(browser)) }
     public func setBookmark(_ data: Data?, for browser: String) { defaults.set(data, forKey: Self.key(browser)) }
@@ -20,14 +24,13 @@ public final class UserDefaultsBrowserFolderGrantStore: BrowserFolderGrantStore,
 }
 
 /// Grants held in memory (tests, and a launch that must not persist them).
-public final class MemoryBrowserFolderGrantStore: BrowserFolderGrantStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var bookmarks: [String: Data] = [:]
+public final class MemoryBrowserFolderGrantStore: BrowserFolderGrantStore {
+    private let bookmarks = OSAllocatedUnfairLock(initialState: [String: Data]())
 
     public init() {}
 
-    public func bookmark(for browser: String) -> Data? { lock.withLock { bookmarks[browser] } }
-    public func setBookmark(_ data: Data?, for browser: String) { lock.withLock { bookmarks[browser] = data } }
+    public func bookmark(for browser: String) -> Data? { bookmarks.withLock { $0[browser] } }
+    public func setBookmark(_ data: Data?, for browser: String) { bookmarks.withLock { $0[browser] = data } }
 }
 
 /// Import from Browser reads a browser's profiles only after the person

@@ -21,57 +21,15 @@ final class AppOnboardingServices: OnboardingServices {
         self.owner = owner
     }
 
-    /// The folder grants (Debug Settings `browserImport.folderGrant`, on by
-    /// default); nil reads every browser's folder on Find Browsers.
-    private var grants: BrowserFolderGrants? {
-        guard BrowserImportTunables.folderGrant.value else { return nil }
-        let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-        return BrowserFolderGrants(environment: environment, store: UserDefaultsBrowserFolderGrantStore())
-    }
+    /// Folder grants (Debug Settings `browserImport.folderGrant`).
+    private let folderAccess = BrowserFolderAccess()
 
-    func detectBrowsers() async -> [BrowserSource] {
-        let grants = grants
-        return await Task.detached {
-            if let grants { return grants.detect() }
-            let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
-            return BrowserSourceDetector(environment: environment).detect()
-        }.value
-    }
+    func detectBrowsers() async -> [BrowserSource] { await folderAccess.detect() }
+    func browsersAwaitingAccess() async -> [ImportBrowser] { await folderAccess.awaiting() }
+    func accessFolder(for browser: ImportBrowser) -> URL? { folderAccess.folder(browser) }
+    func requestFolderAccess(for browser: ImportBrowser) async -> Bool { await folderAccess.request(browser) }
 
-    func browsersAwaitingAccess() async -> [ImportBrowser] {
-        guard let grants else { return [] }
-        return await Task.detached { grants.awaiting() }.value
-    }
-
-    func accessFolder(for browser: ImportBrowser) -> URL? { grants?.folder(browser) }
-
-    /// The open panel at `browser`'s data folder, prompt Allow Access; only
-    /// that folder is accepted and kept (`BrowserFolderGrants`).
-    func requestFolderAccess(for browser: ImportBrowser) async -> Bool {
-        guard let grants else { return false }
-        let folder = grants.folder(browser)
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-        panel.directoryURL = folder
-        panel.prompt = BrowserFolderAccessStrings.prompt
-        panel.message = BrowserFolderAccessStrings.message(browser.displayName)
-        panel.identifier = NSUserInterfaceItemIdentifier("cmux.browserImport.folderAccess")
-        let response: NSApplication.ModalResponse
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-            response = await panel.beginSheetModal(for: window)
-        } else {
-            response = await panel.begin()
-        }
-        guard response == .OK, let picked = panel.url else { return false }
-        return (try? grants.grant(picked, for: browser)) != nil
-    }
-
-    func importPasswordsFromCSV(into profile: String?) {
-        try? PasswordCSVFiles(services: services).chooseImport(profile: profile ?? BrowserProfileRecord.defaultID)
-    }
+    func importPasswordsFromCSV(into profile: String?) { try? PasswordCSVFiles(services: services).chooseImport(profile: profile ?? BrowserProfileRecord.defaultID) }
 
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         let cache = services.cache
@@ -96,10 +54,8 @@ final class AppOnboardingServices: OnboardingServices {
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies, passwords: passwords)
         let summary: ImportSummary
-        // The granted folders stay in scope for the run (one per browser in the plan).
-        let scoped = grants.map { grants in Array(Set(plan.items.map(\.profile.browser))).compactMap(grants.grantedFolder) } ?? []
-        let started = scoped.filter { $0.startAccessingSecurityScopedResource() }
-        defer { started.forEach { $0.stopAccessingSecurityScopedResource() } }
+        let endAccess = folderAccess.access(plan)
+        defer { endAccess() }
         do {
             summary = try await importer.run(plan, into: destination) { step in
                 Task { @MainActor in progress(step) }
@@ -115,9 +71,7 @@ final class AppOnboardingServices: OnboardingServices {
         return summary
     }
 
-    func canImportPasswords() async -> Bool {
-        await services.cache.cef.canImportPasswords()
-    }
+    func canImportPasswords() async -> Bool { await services.cache.cef.canImportPasswords() }
 
     /// Touch ID, or the Mac's password where there is none. Only a Mac with
     /// no login password at all goes on without it; any other failure stops
@@ -132,13 +86,8 @@ final class AppOnboardingServices: OnboardingServices {
         return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
     }
 
-    func openExternal(_ url: URL) {
-        NSWorkspace.shared.openInBackground(url)
-    }
-
-    func importFromFiles(into profile: String?) {
-        BrowserFileImport(services: services).run(profile: profile ?? BrowserProfileRecord.defaultID)
-    }
+    func openExternal(_ url: URL) { NSWorkspace.shared.openInBackground(url) }
+    func importFromFiles(into profile: String?) { BrowserFileImport(services: services).run(profile: profile ?? BrowserProfileRecord.defaultID) }
 
     /// Computer Use Setup's grants (`ComputerUseSetup`, the same state the
     /// palette action and Settings show). The step shows whenever Computer
@@ -150,18 +99,12 @@ final class AppOnboardingServices: OnboardingServices {
         services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
     }
 
-    private var resolvedComputerUseSource: (any ComputerUsePermissionSource)?
-    private var computerUseSource: any ComputerUsePermissionSource {
-        if let resolvedComputerUseSource { return resolvedComputerUseSource }
+    private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
-            let mock = MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
-            resolvedComputerUseSource = mock
-            return mock
+            return MockComputerUsePermissionSource(helperAppURL: URL(fileURLWithPath: "/Applications/cmux Computer Use.app"))
         }
         #endif
-        let source = AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
-        resolvedComputerUseSource = source
-        return source
-    }
+        return AppComputerUsePermissionSource(setup: services.onboarding.computerUseSetup)
+    }()
 }

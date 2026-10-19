@@ -33,6 +33,13 @@ extension OnboardingStrings {
                               defaultValue: "cmux didn’t get access. Choose %@ in the file picker.", bundle: .module), path)
     }
 
+    /// The open panel's button.
+    static var accessPanelPrompt: String { String(localized: "onboarding.access.panelPrompt", defaultValue: "Allow Access", bundle: .module) }
+    static func accessPanelMessage(_ browser: String) -> String {
+        String(format: String(localized: "onboarding.access.panelMessage",
+                              defaultValue: "Select “Allow Access” to let cmux read your %@ data.", bundle: .module), browser)
+    }
+
     // Keychain explainer (right before saved passwords are decrypted)
     static var beginImporting: String {
         String(localized: "onboarding.button.beginImporting", defaultValue: "Begin Importing", bundle: .module)

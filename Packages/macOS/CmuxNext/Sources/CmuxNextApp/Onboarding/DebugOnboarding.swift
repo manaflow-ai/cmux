@@ -49,7 +49,6 @@ enum DebugOnboarding {
         case "skip_passwords": model.importer.skipPasswords()
         case "consent_back": model.importer.backFromConsent()
         case "import_from_files": model.importer.importFromFiles()
-        // The folder grant explainer; its Continue (`next`) opens the open panel, which only a person answers.
         case "ask_access": if let id = params["browser"]?.stringValue { model.importer.askAccess(ImportBrowser(rawValue: id)) }
         case "cancel_access": model.importer.cancelAccess()
         case "allow": if let pane = params["pane"]?.stringValue.flatMap(ComputerUsePermissionPane.init(rawValue:)) { model.computerUse.allow(pane) }
