@@ -96,7 +96,8 @@ extension HomeService {
     func readCloudChiefs() async -> HomeCloudChiefs? {
         guard services.cloud.auth.isSignedIn, case let feed = services.feed else { return HomeCloudChiefs() }
         do {
-            let brains = await hostedBrainsAvailable()
+            // An unknown probe keeps the last read: a Hosted Chief never drops out of the tab on one failed request.
+            guard let brains = await hostedBrainsAvailable() else { return nil }
             return try await HomeChiefSource.readCloud(call: { path, body in try await feed.call(path, body) }, hostedBrains: brains)
         } catch {
             logger.error("cloud chiefs: \(String(describing: error), privacy: .public)")
@@ -126,9 +127,10 @@ extension HomeService {
         // Chief has no history to hide (G6, one history).
         if let read = await readCloudChiefs() { setCloudChiefs(read) }
         guard !Task.isCancelled else { return }
-        let cloud = cloudChiefs
+        // The local Chief keeps the tab until its history is in the Hosted Chief (``hostedPending``).
+        startHostedMigration(cloudChiefs.hosted)
+        let cloud = tabChiefs
         let shown = cloudChief
-        startHostedMigration(cloud.hosted)
         // Local conversations live in the Chief home's owner, not this build's
         // daemon. A cloud Chief does not wait for it: its tab shows now, and
         // the owner's first connection runs this again (HomeService.start),
@@ -174,7 +176,7 @@ extension HomeService {
         // would put the tab in the focused pane, so it waits for that pin.
         // The Chief moved to a server: one Chief tab, where the local one was.
         // After closing a dangling tab its pane may be gone: name the workspace.
-        let others = [cloud.hosted?.mainConversation, cloud.placed?.mainConversation].compactMap { $0 }
+        let others = [cloudChiefs.hosted?.mainConversation, cloudChiefs.placed?.mainConversation].compactMap { $0 }
         let move = HomeChiefSource.move(from: [localChief].compactMap { $0 } + others, chief: chief, in: local.store.workspaces)
         let pane = move.pane ?? (dangling.isEmpty ? workspace.screens.first?.panes.first?.handle : nil)
         guard open || pane != nil || workspace.kind != nil else {

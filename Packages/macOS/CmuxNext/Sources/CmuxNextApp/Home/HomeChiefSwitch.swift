@@ -26,7 +26,7 @@ final class HomeChiefSwitch: NSSegmentedControl {
         isHidden = true
         // task-owner: lives as long as this control; event-driven (Observation)
         watch = Task { [weak self] in
-            for await (chiefs, shown) in ObservationStream({ (service.cloudChiefs, service.cloudChief?.mainConversation) }) {
+            for await (chiefs, shown) in ObservationStream({ (service.tabChiefs, service.cloudChief?.mainConversation) }) {
                 guard let self else { return }
                 isHidden = !(chiefs.canSwitch && chiefs.chief(for: conversation) != nil)
                 selectedSegment = shown != nil && shown == chiefs.placed?.mainConversation ? 1 : 0

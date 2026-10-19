@@ -65,7 +65,8 @@ extension HomeService {
     /// or its organizing status while a turn waits; else the merge notice.
     func conversationNotice(for id: ConversationID) -> String? {
         let isLocalChief = HomeChiefName.select(from: conversations)?.id == id.rawValue
-        if let hostedNotice, cloudChiefs.hosted?.mainConversation == id.rawValue { return hostedNotice }
+        // The copy notice shows where the user is: on the Hosted Chief, or on the local Chief that keeps the tab meanwhile.
+        if let hostedNotice, isLocalChief || cloudChiefs.hosted?.mainConversation == id.rawValue { return hostedNotice }
         return (isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? settleNotice) : nil) ?? migrationNotice
     }
 

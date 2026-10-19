@@ -16,31 +16,42 @@ extension HostedChiefCopy {
         let ids = [ConversationParticipant.localUserID: user, localChief: chief]
         let encoder = JSONEncoder()
         var out: [[String: Any]] = []
-        var kept: [String: (seq: Int, parts: Int, root: Bool)] = [:]
+        // Kept messages by their LOCAL id: the new id, and each kept part's old index -> new index.
+        var kept: [String: (id: String, parts: [Int: Int], root: Bool)] = [:]
+        var used = Set<String>()
         var keys = Set<String>()
-        var previous = Date.distantPast
+        // A time that does not parse takes the previous parseable one, else now (never a fixed past date).
+        var previous: Date?
         let latest = now.addingTimeInterval(240)
         for message in local.sorted(by: { $0.seq < $1.seq }) where ids[message.author] != nil {
             guard let data = try? encoder.encode(message),
-                  var raw = (try? JSONSerialization.jsonObject(with: data)).map({ mapIDs($0, ids) }) as? [String: Any] else { continue }
+                  let raw = (try? JSONSerialization.jsonObject(with: data)).map({ mapIDs($0, ids) }) as? [String: Any] else { continue }
             // The owner's id form (msg_ and 1 to 40 letters or digits); another local id keeps its letters and digits.
             let plain = String(String.UnicodeScalarView(message.id.unicodeScalars.filter { $0.isASCII && CharacterSet.alphanumerics.contains($0) }))
             let messageID = message.id.range(of: #"^msg_[A-Za-z0-9]{1,40}$"#, options: .regularExpression) != nil ? message.id : "msg_" + String(plain.prefix(40))
-            guard messageID.count > 4, kept[messageID] == nil else { continue }
+            guard messageID.count > 4, !used.contains(messageID), kept[message.id] == nil else { continue }
             let author = raw["author"] as? String ?? ""
             // Times: the owner's RFC 3339 form with milliseconds, never before the previous message or in the future.
-            let created = min(max(parse(message.createdAt) ?? previous, previous), latest)
+            let parsed = parse(message.createdAt) ?? previous ?? now
+            let created = min(max(parsed, previous ?? parsed), latest)
             previous = created
             let retracted = message.retractedAt.map { stamp(min(max(parse($0) ?? created, created), latest)) }
-            var parts = (raw["parts"] as? [[String: Any]] ?? []).filter { part in
-                switch part["type"] as? String {
-                case "text": return !((part["text"] as? String) ?? "").isEmpty
-                case "work": return true
-                default: return false
+            var parts: [[String: Any]] = []
+            var partMap: [Int: Int] = [:]
+            if retracted == nil {
+                for (index, part) in (raw["parts"] as? [[String: Any]] ?? []).enumerated() where parts.count < 16 {
+                    let keep = switch part["type"] as? String {
+                    case "text": !((part["text"] as? String) ?? "").isEmpty
+                    case "work": true
+                    default: false
+                    }
+                    if keep {
+                        partMap[index] = parts.count
+                        parts.append(part)
+                    }
                 }
+                if parts.isEmpty { parts = [["type": "text", "text": "[attachment]"]] }
             }
-            if retracted != nil { parts = [] } else if parts.isEmpty { parts = [["type": "text", "text": "[attachment]"]] }
-            parts = Array(parts.prefix(16))
             let seq = out.count + 1
             var key = message.clientMsgID
             if key.isEmpty || key.count > 128 || key.unicodeScalars.contains(where: { $0.value < 0x21 || $0.value > 0x7e }) || keys.contains("\(author):\(key)") {
@@ -50,25 +61,23 @@ extension HostedChiefCopy {
             var next: [String: Any] = ["id": messageID, "seq": seq, "client_msg_id": key, "author": author, "parts": parts, "created_at": stamp(created)]
             if let retracted { next["retracted_at"] = retracted }
             if let edited = message.editedAt, retracted == nil { next["edited_at"] = stamp(min(max(parse(edited) ?? created, created), latest)) }
-            if let reply = raw["reply_to"] as? [String: Any], let target = reply["message_id"] as? String, let index = reply["part_index"] as? Int,
-               let found = kept[target], index < found.parts {
-                next["reply_to"] = ["message_id": target, "part_index": index]
+            // A reply or thread whose message or part was dropped loses the reference.
+            if let reply = message.replyTo, let found = kept[reply.messageID], let index = found.parts[reply.partIndex] {
+                next["reply_to"] = ["message_id": found.id, "part_index": index]
             }
-            if let root = message.threadRoot, kept[root]?.root == true { next["thread_root"] = root }
-            let reactions = (raw["reactions"] as? [[String: Any]] ?? []).filter { reaction in
-                guard let by = reaction["author"] as? String, ids.values.contains(by), let index = reaction["part_index"] as? Int,
-                      index < parts.count, let at = reaction["at"] as? String else { return false }
-                return parse(at) != nil
-            }.map { reaction -> [String: Any] in
+            if let root = message.threadRoot, let found = kept[root], found.root { next["thread_root"] = found.id }
+            let reactions = retracted != nil ? [] : (raw["reactions"] as? [[String: Any]] ?? []).compactMap { reaction -> [String: Any]? in
+                guard let by = reaction["author"] as? String, ids.values.contains(by), let old = reaction["part_index"] as? Int,
+                      let index = partMap[old], let at = (reaction["at"] as? String).flatMap(parse) else { return nil }
                 var reaction = reaction
-                let at = parse(reaction["at"] as? String ?? "") ?? created
+                reaction["part_index"] = index
                 reaction["at"] = stamp(min(max(at, created), latest))
                 return reaction
             }
-            if retracted == nil, !reactions.isEmpty { next["reactions"] = reactions }
-            raw = next
-            kept[messageID] = (seq, parts.count, next["thread_root"] == nil)
-            out.append(raw)
+            if !reactions.isEmpty { next["reactions"] = reactions }
+            kept[message.id] = (messageID, partMap, next["thread_root"] == nil)
+            used.insert(messageID)
+            out.append(next)
         }
         return out
     }

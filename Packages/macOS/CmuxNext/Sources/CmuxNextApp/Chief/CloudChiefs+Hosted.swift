@@ -73,7 +73,7 @@ extension CloudChiefs {
                         chiefs = try await list(call: call)
                     }
                 }
-                if let placedChief = placed(in: chiefs), placedChief.displayName == HomeStrings.chiefName || placedChief.displayName.isEmpty {
+                if let placedChief = placed(in: chiefs), [HomeStrings.chiefName, "Chief", ""].contains(placedChief.displayName) {
                     let body: [String: Any] = ["op": "chief.update", "origin": "user", "idempotency_key": "chief-placed-rename-\(placedChief.id)-\(placedChief.rev)",
                                                "params": ["chief": placedChief.id, "expected_rev": placedChief.rev, "display_name": placedName]]
                     _ = try CloudPairingSource.okValue(try await call("v1/ops", body))

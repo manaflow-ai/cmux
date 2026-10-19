@@ -67,9 +67,17 @@ final class HomeService {
     /// The cloud Chief the Chief tab shows (``HomeChiefChoice``, kept on this Mac).
     var chiefChoice = HomeChiefChoice.load()
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief).
-    var cloudChief: CloudChief? { cloudChiefs.shown(choice: chiefChoice) }
-    /// The one-time copy of the local Chief into the Hosted Chief (``HostedChiefMigration``).
+    var cloudChief: CloudChief? { tabChiefs.shown(choice: chiefChoice) }
+    /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
+    /// this Mac's history is still being copied into it (the local Chief stays).
+    var tabChiefs: HomeCloudChiefs { hostedPending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
+    /// This Mac's Chief history is not in the Hosted Chief yet (``HostedChiefLedger``).
+    var hostedPending = false
+    /// The one-time copy of the local Chief into the Hosted Chief (``HostedChiefCopy``),
+    /// for the account `hostedMigrationUser`; `hostedMigrationRun` names the current run.
     @ObservationIgnored var hostedMigration: Task<Void, Never>?
+    @ObservationIgnored var hostedMigrationUser: String?
+    @ObservationIgnored var hostedMigrationRun: UUID?
     /// This service runs Cloud Chief brains (nil: not asked yet this launch).
     @ObservationIgnored var hostedBrains: Bool?
     /// Shown on the Hosted Chief's conversation while its copy failed.

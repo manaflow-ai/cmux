@@ -58,26 +58,29 @@ enum CloudChiefs {
         parseList(try CloudPairingSource.okValue(try await call("v1/read", ["op": "chief.list", "params": [String: Any]()])))
     }
 
-    /// Places the user's default chief on `place` (a server paired a moment
-    /// ago): `chief.update {brain_place}` on the default chief, or
-    /// `chief.create` when the user has none. Keys derive from `key` (the
+    /// Places the user's Chief on `place` (a server paired a moment ago):
+    /// `chief.update {brain_place}` on the chief already placed on a server,
+    /// else `chief.create` of a placed "Chief (Mac mini)" next to the user's
+    /// chiefs (a chief with no place is the Hosted Chief and stays hosted), or
+    /// the default Chief when the user has none. Keys derive from `key` (the
     /// approve intent's), so a retry replays instead of writing twice. One
     /// revision conflict (another device edited the chief) re-reads once.
     static func place(_ place: CloudChief.BrainPlace, key: String, call: Call) async throws -> CloudChief {
         for attempt in 0..<2 {
             let chiefs = try await list(call: call)
-            // A chief already placed on a server moves; else the default. The hosted
-            // default (``ensureHosted``) is placed only when no chief is placed yet.
-            let target = placed(in: chiefs) ?? chiefs.first(where: \.isDefault) ?? chiefs.first
+            let target = placed(in: chiefs)
             if let target, target.brainPlace == place { return target }
             let placeParams: [String: Any] = ["host": place.host, "install": place.install]
             let body: [String: Any]
             if let target {
                 body = ["op": "chief.update", "origin": "user", "idempotency_key": "\(key)-chief-place-\(target.rev)",
                         "params": ["chief": target.id, "expected_rev": target.rev, "brain_place": placeParams]]
-            } else {
+            } else if chiefs.isEmpty {
                 body = ["op": "chief.create", "origin": "user", "idempotency_key": "\(key)-chief-create",
                         "params": ["display_name": HomeStrings.chiefName, "is_default": true, "brain_place": placeParams]]
+            } else {
+                body = ["op": "chief.create", "origin": "user", "idempotency_key": "\(key)-chief-create-placed",
+                        "params": ["display_name": placedName, "is_default": false, "brain_place": placeParams]]
             }
             do {
                 guard let chief = CloudChief.parse(try CloudPairingSource.okValue(try await call("v1/ops", body))) else {

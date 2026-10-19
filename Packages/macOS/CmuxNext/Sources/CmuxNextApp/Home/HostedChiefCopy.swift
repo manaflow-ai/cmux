@@ -9,7 +9,7 @@ import Foundation
 /// the memory copy resumes from the brain's count, the history import from
 /// the conversation's `last_seq`, and each step skips when its target is not empty.
 @MainActor
-struct HostedChiefCopy {
+final class HostedChiefCopy {
     /// One request to the API Worker as the signed-in user.
     struct HTTP {
         let base: URL
@@ -25,7 +25,8 @@ struct HostedChiefCopy {
             request.timeoutInterval = 60
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.setValue("Bearer \(try await token())", forHTTPHeaderField: "authorization")
-            if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body) }
+            // The memory batches are measured in this form (no escaped slashes).
+            if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.withoutEscapingSlashes]) }
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             return (status, (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:])
@@ -39,6 +40,18 @@ struct HostedChiefCopy {
     let ops: @MainActor (_ body: [String: Any]) async throws -> [String: Any]
     let chief: String
     let conversation: String
+    /// This run turned the brain off for the memory copy (it turns it on again at the end or on a failure).
+    private(set) var brainTurnedOff = false
+    /// One id per run: every import key holds it, so a later run never replays an earlier run's
+    /// keys with other content (idempotency.conflict); a run resumes from the conversation's `last_seq`.
+    private let run = UUID().uuidString.lowercased()
+
+    init(http: HTTP, ops: @escaping @MainActor (_ body: [String: Any]) async throws -> [String: Any], chief: String, conversation: String) {
+        self.http = http
+        self.ops = ops
+        self.chief = chief
+        self.conversation = conversation
+    }
 
     // MARK: Brain
 
@@ -65,9 +78,11 @@ struct HostedChiefCopy {
     }
 
     func setBrain(enabled: Bool) async throws {
-        let body: [String: Any] = enabled ? ["enabled": true, "model": "claude-opus-5-5", "effort": "low"] : ["enabled": false]
+        // Only `enabled`: the user's model and effort stay as they are.
+        let body: [String: Any] = ["enabled": enabled]
         let reply = try await http.send("PUT", "v1/chiefs/\(chief)/brain", body: body)
         guard reply.status == 200 else { throw FeedServiceError.owner(code: HTTP.errorCode(reply.json) ?? "http_\(reply.status)", message: "brain update") }
+        if !enabled { brainTurnedOff = true } else { brainTurnedOff = false }
     }
 
     // MARK: Memory
@@ -89,89 +104,142 @@ struct HostedChiefCopy {
 
     enum MemoryOutcome: Equatable, Sendable { case copied(Int), skipped(String) }
 
-    /// PUTs the export into the brain's empty memory in batches of at most
-    /// `maxBytes`: the main lines after the brain's count first, then the tree
-    /// lines, the last batch `done`. A memory the brain already has is not touched.
-    func copyMemory(main: [String], tree: [String], maxBytes: Int = 900_000) async throws -> MemoryOutcome {
+    /// PUTs the export into the brain's empty memory in batches whose JSON body
+    /// stays under `maxBytes`: the main lines (by `i`) after the brain's count
+    /// first, then the tree lines (by `l`, `i`), the last batch `done` (also
+    /// for an empty export). A memory the brain already has is not touched; a
+    /// memory another copy started (`importing`) is continued only when
+    /// `mayContinue` (this Mac started it). `started` runs before the first write.
+    func copyMemory(main: [String], tree: [String], mayContinue: Bool, started: () -> Void, maxBytes: Int = 900_000) async throws -> MemoryOutcome {
         let path = "v1/chiefs/\(chief)/memory"
         let query = [URLQueryItem(name: "conversation", value: conversation)]
-        let status = try await http.send("GET", path, query: query)
-        guard status.status == 200, let value = status.json["value"] as? [String: Any], let state = value["state"] as? String else {
-            if status.status == 409, let code = HTTP.errorCode(status.json), code == "brain_impl" { return .skipped(code) }
-            throw FeedServiceError.owner(code: HTTP.errorCode(status.json) ?? "http_\(status.status)", message: "memory status")
+        let main = Self.sorted(main, by: ["i"])
+        let tree = Self.sorted(tree, by: ["l", "i"])
+        var brainOnRetries = 0
+        var orderRetries = 0
+        // At most 5 attempts: the first, 2 after brain_on, 2 after out_of_order.
+        attempt: for _ in 0..<5 {
+            let status = try await http.send("GET", path, query: query)
+            guard status.status == 200, let value = status.json["value"] as? [String: Any], let state = value["state"] as? String else {
+                let code = HTTP.errorCode(status.json) ?? "http_\(status.status)"
+                if code == "brain_impl" { return .skipped(code) }
+                throw FeedServiceError.owner(code: code, message: "memory status")
+            }
+            if state == "done" || state == "live" { return .skipped(state) }
+            if state == "importing", !mayContinue { return .skipped("importing_elsewhere") }
+            var count = (value["count"] as? NSNumber)?.intValue ?? 0
+            started()
+            // Tree lines go after every main line (each covers stored messages); a resumed copy sends them again (upserts).
+            var queue: [(main: Bool, line: String, size: Int)] = main.dropFirst(min(count, main.count)).map { (main: true, line: $0, size: Self.encodedSize($0)) }
+                + tree.map { (main: false, line: $0, size: Self.encodedSize($0)) }
+            let room = maxBytes - 256
+            var sent = false
+            while !sent || !queue.isEmpty {
+                sent = true
+                var batchMain: [String] = []
+                var batchTree: [String] = []
+                var bytes = 0
+                while let next = queue.first, (batchMain.isEmpty && batchTree.isEmpty) || bytes + next.size <= room {
+                    queue.removeFirst()
+                    bytes += next.size
+                    if next.main { batchMain.append(next.line) } else { batchTree.append(next.line) }
+                }
+                let body: [String: Any] = ["after": count, "main": batchMain, "tree": batchTree, "done": queue.isEmpty]
+                let reply = try await http.send("PUT", path, query: query, body: body)
+                if reply.status == 200 {
+                    count = ((reply.json["value"] as? [String: Any])?["count"] as? NSNumber)?.intValue ?? count + batchMain.count
+                    continue
+                }
+                let code = HTTP.errorCode(reply.json) ?? "http_\(reply.status)"
+                switch code {
+                case "memory_not_empty", "memory_import_done", "brain_impl": return .skipped(code)
+                case "brain_on" where brainOnRetries < 2:
+                    // A brain that is on would answer while the memory is half copied: off, copy, on (the caller).
+                    brainOnRetries += 1
+                    try await setBrain(enabled: false)
+                    continue attempt
+                case "out_of_order" where orderRetries < 2:
+                    // Another copy got further: start again from the brain's count.
+                    orderRetries += 1
+                    continue attempt
+                default: throw FeedServiceError.owner(code: code, message: "memory copy")
+                }
+            }
+            return .copied(count)
         }
-        if state == "done" || state == "live" { return .skipped(state) }
-        var count = (value["count"] as? NSNumber)?.intValue ?? 0
-        // Tree lines go after every main line (each covers stored messages); a resumed copy sends them again (upserts).
-        var queue: [(main: Bool, line: String)] = main.dropFirst(min(count, main.count)).map { (main: true, line: $0) } + tree.map { (main: false, line: $0) }
-        // At least one request: the last one says done, also for an empty export.
-        var sent = false
-        while !sent || !queue.isEmpty {
-            sent = true
-            var batchMain: [String] = []
-            var batchTree: [String] = []
-            var bytes = 0
-            while let next = queue.first, (batchMain.isEmpty && batchTree.isEmpty) || bytes + next.line.utf8.count + 4 <= maxBytes {
-                queue.removeFirst()
-                bytes += next.line.utf8.count + 4
-                if next.main { batchMain.append(next.line) } else { batchTree.append(next.line) }
-            }
-            let body: [String: Any] = ["after": count, "main": batchMain, "tree": batchTree, "done": queue.isEmpty]
-            let reply = try await http.send("PUT", path, query: query, body: body)
-            if reply.status == 200 {
-                count = ((reply.json["value"] as? [String: Any])?["count"] as? NSNumber)?.intValue ?? count + batchMain.count
-                continue
-            }
-            let code = HTTP.errorCode(reply.json) ?? "http_\(reply.status)"
-            switch code {
-            case "memory_not_empty", "memory_import_done", "brain_impl": return .skipped(code)
-            case "brain_on":
-                // A brain that is on would answer while the memory is half copied: off, copy, on (the caller).
-                try await setBrain(enabled: false)
-                return try await copyMemory(main: main, tree: tree, maxBytes: maxBytes)
-            case "out_of_order":
-                // Another copy got further: start again from the brain's count.
-                return try await copyMemory(main: main, tree: tree, maxBytes: maxBytes)
-            default: throw FeedServiceError.owner(code: code, message: "memory copy")
-            }
+        throw FeedServiceError.owner(code: "memory_retries", message: "memory copy")
+    }
+
+    /// One line's size in the request body: its JSON string form plus a comma.
+    nonisolated static func encodedSize(_ line: String) -> Int {
+        ((try? JSONSerialization.data(withJSONObject: [line], options: [.withoutEscapingSlashes]).count) ?? line.utf8.count * 6) - 1
+    }
+
+    /// Lines ordered by the integer fields `keys` of their JSON objects (a line
+    /// without them keeps its place after the others), stable.
+    nonisolated static func sorted(_ lines: [String], by keys: [String]) -> [String] {
+        let keyed = lines.enumerated().map { offset, line -> (key: [Int], offset: Int, line: String) in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let key = keys.map { (object?[$0] as? NSNumber)?.intValue ?? Int.max }
+            return (key, offset, line)
         }
-        return .copied(count)
+        return keyed.sorted { $0.key == $1.key ? $0.offset < $1.offset : $0.key.lexicographicallyPrecedes($1.key) }.map(\.line)
     }
 
     // MARK: History
 
-    enum HistoryOutcome: Equatable, Sendable { case copied(UInt64), skipped(String) }
+    enum HistoryOutcome: Equatable, Sendable { case copied(UInt64), partial(UInt64, String), skipped(String) }
 
-    /// Imports `messages` (the local Chief conversation, ascending) into the
-    /// Hosted Chief's empty main conversation (`conversation.import` with
-    /// `fill`), then commits it. A repeated first call replays the
-    /// conversation's `last_seq`, so the import resumes after it.
+    /// Imports `messages` (the local Chief conversation, ascending, seq 1...n)
+    /// into the Hosted Chief's empty main conversation (`conversation.import`
+    /// with `fill`), then commits it. The first call of a run replays the
+    /// conversation's `last_seq` when an earlier run began it, so the import
+    /// resumes after it. A refusal in the middle commits what is in (partial,
+    /// logged): the conversation never stays `importing`.
     func copyHistory(_ messages: [[String: Any]], host: String, localID: String) async throws -> HistoryOutcome {
         guard !messages.isEmpty else { return .skipped("empty") }
-        let batches = Self.batches(messages)
         let source: [String: Any] = ["kind": "mac", "host": host, "local_id": localID]
+        var starts = 0
+        func begin() async throws -> [String: Any] {
+            starts += 1
+            return try await op("conversation.import", key: "hosted-chief-import-\(run)-start-\(starts)",
+                                params: ["id": conversation, "fill": true, "source": source, "messages": Self.batches(messages)[0]])
+        }
         var reply: [String: Any]
         do {
-            reply = try await op("conversation.import", key: "hosted-chief-import-\(conversation)-0",
-                                 params: ["id": conversation, "fill": true, "source": source, "messages": batches[0]])
-        } catch FeedServiceError.owner(code: "conversation_exists", message: _) {
-            return .skipped("conversation_exists")
+            reply = try await begin()
+        } catch let FeedServiceError.owner(code, _) {
+            // The main conversation has its own messages, or the owner refuses the copy: nothing to resume.
+            return .skipped(code)
         }
         if reply["state"] as? String == "active" { return .skipped("already_imported") }
         var last = (reply["last_seq"] as? NSNumber)?.uint64Value ?? 0
         let total = UInt64(messages.count)
         while last < total {
-            let rest = Array(messages[Int(last)...])
-            let batch = Self.batches(rest)[0]
-            reply = try await op("conversation.import", key: "hosted-chief-import-\(conversation)-\(last)",
-                                 params: ["id": conversation, "after_seq": last, "messages": batch])
+            let batch = Self.batches(Array(messages[Int(last)...]))[0]
+            do {
+                reply = try await op("conversation.import", key: "hosted-chief-import-\(run)-\(last)",
+                                     params: ["id": conversation, "after_seq": last, "messages": batch])
+            } catch let FeedServiceError.owner(code, _) {
+                if code == "import_out_of_order", starts < 3 {
+                    // Another run moved it: read where it stands (the first call replays its last_seq).
+                    reply = try await begin()
+                    if reply["state"] as? String == "active" { return .skipped("already_imported") }
+                    last = (reply["last_seq"] as? NSNumber)?.uint64Value ?? last
+                    continue
+                }
+                return try await commit(last, refused: code)
+            }
             let moved = (reply["last_seq"] as? NSNumber)?.uint64Value ?? last + UInt64(batch.count)
-            // An owner that did not move on would loop here: stop with an error instead.
-            guard moved > last else { throw FeedServiceError.owner(code: "import_stalled", message: "history import did not advance") }
+            guard moved > last else { return try await commit(last, refused: "import_stalled") }
             last = moved
         }
-        _ = try await op("conversation.import.commit", key: "hosted-chief-import-commit-\(conversation)", params: ["id": conversation, "last_seq": last])
-        return .copied(last)
+        return try await commit(last, refused: nil)
+    }
+
+    private func commit(_ last: UInt64, refused: String?) async throws -> HistoryOutcome {
+        _ = try await op("conversation.import.commit", key: "hosted-chief-import-commit-\(run)-\(last)", params: ["id": conversation, "last_seq": last])
+        return refused.map { .partial(last, $0) } ?? .copied(last)
     }
 
     private func op(_ name: String, key: String, params: [String: Any]) async throws -> [String: Any] {
