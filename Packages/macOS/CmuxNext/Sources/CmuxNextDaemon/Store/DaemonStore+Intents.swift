@@ -123,6 +123,7 @@ extension DaemonStore {
         let settled = intentSettlements
         intentSettlements.removeAll()
         for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
+        requestCancelledCloses()
         return result
     }
 
@@ -130,6 +131,7 @@ extension DaemonStore {
     /// `layout-changed` that places it can land after the reply's settle sequence, and undoing
     /// the split before them showed the pane unsplit for one turn.
     private func awaitsRecords(_ intent: PendingIntent) -> Bool {
+        if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: self) }
         guard case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
         return !ProvisionalSplit.daemonPlaces(provisional, in: self)
     }
@@ -138,7 +140,7 @@ extension DaemonStore {
     private func releaseSettledProvisionalPanes() {
         guard !provisionalPanes.isEmpty else { return }
         let pending = Set(intentLog.entries.compactMap { entry -> String? in
-            if case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
+            if !entry.closeWhenCreated, case .splitPane(_, _, _, let provisional) = entry.kind { return provisional.paneID }
             return nil
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }

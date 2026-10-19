@@ -136,6 +136,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onTabCreated: ((String, TabModel) -> Void)?
     /// Same, for a page tab's create intent (`page-tabs-v1`); agent tabs own `onTabCreated`.
     @ObservationIgnored public var onPageTabCreated: ((String, TabModel) -> Void)?
+    /// A creation the person closed first made daemon surface `SurfaceID`: close it (DaemonService).
+    @ObservationIgnored public var onCloseCancelledCreation: ((ClientTransactionID, SurfaceID) -> Void)?
     /// The layout as the last allowed writer left it (debug builds).
     @ObservationIgnored var mirrorFingerprint: Int?
     @ObservationIgnored var mirrorFingerprintTakenAt: ContinuousClock.Instant?

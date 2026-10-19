@@ -33,7 +33,11 @@ public struct PaneSplitCommand: Sendable {
     /// S3): the store shows `provisional` beside the pane at once (its intent log), and the split
     /// goes out under the provisional pane's client-minted ids, so the daemon's pane replaces it
     /// under the same public id. A refusal removes it exactly.
+    /// A close of the provisional pane first cancels the split (``DaemonService/cancelCreation(pane:)``):
+    /// the reply's surface goes to that close at once, and this throws ``PaneSplitCancelled``, so
+    /// nothing focuses or sizes the split the person closed.
     public func sendIntended(on daemon: DaemonService, provisional: ProvisionalPane) async throws -> SurfaceCreated {
+        let transaction = ClientTransactionID.generate()
         var options = options
         options.paneID = provisional.paneID
         options.tabID = provisional.tabID
@@ -41,10 +45,12 @@ public struct PaneSplitCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
         let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
-        let created = await daemon.intend("split", intent, transaction: .generate()) { connection in
+        let created = await daemon.intend("split", intent, transaction: transaction) { connection in
             try await connection.split(pane, direction: direction, options: sent)
         }
         guard let created else { throw PaneSplitFailure() }
+        daemon.store.noteCreationReply(transaction, surface: created.surface)
+        guard !daemon.store.creationCancelled(transaction) else { throw PaneSplitCancelled() }
         return created
     }
 
@@ -59,6 +65,11 @@ public struct PaneSplitCommand: Sendable {
         Self.optimisticSplitEnabled && swapTowards == nil
             && daemon.supports(DaemonCapabilities.shared.splitClientKeys)
     }
+}
+
+/// An optimistic split whose pane the person closed before the daemon made it (CancelledCreation).
+public struct PaneSplitCancelled: Error, CustomStringConvertible {
+    public var description: String { "the pane closed before the daemon made it" }
 }
 
 /// An optimistic split the daemon refused (the intent log logged the cause and removed the pane).
