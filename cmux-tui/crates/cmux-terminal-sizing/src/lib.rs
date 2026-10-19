@@ -172,9 +172,12 @@ impl TerminalSizingParticipant {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalSizingMode {
-    Latest,
-    /// "Fit everyone": the default, so every attached device sees the whole grid.
+    /// "Last active": the default. The grid follows the counting view that last
+    /// typed, pasted, clicked or took over (plans/cmux-next/sync-ux/DESIGN.md
+    /// part 2). A phone or tablet that only attaches never takes it.
     #[default]
+    Latest,
+    /// "Fit everyone": every attached device sees the whole grid.
     Smallest,
     Largest,
     Priority,
@@ -354,12 +357,17 @@ impl TerminalSizingEngine {
 
     // Mutations. Each returns true when the published state changed.
 
-    /// Adds a view, or replaces one with the same id. Attach counts as activity.
+    /// Adds a view, or replaces one with the same id. A desktop's attach
+    /// counts as activity; a phone's or tablet's does not (activity 0), so a
+    /// glance from a phone never takes the grid from a desktop in use. A
+    /// handheld that is the only counting view still sets the grid.
     pub fn attach(&mut self, participant: TerminalSizingParticipant) -> bool {
         self.activity_clock += 1;
         let mut participant = participant;
         participant.viewport = participant.viewport.map(TerminalGridSize::clamped);
-        let entry = Entry { participant, activity: self.activity_clock };
+        let activity =
+            if participant.device_kind.is_handheld() { 0 } else { self.activity_clock };
+        let entry = Entry { participant, activity };
         match self.index(&entry.participant.id) {
             Some(index) => self.entries[index] = entry,
             None => self.entries.push(entry),
@@ -464,9 +472,10 @@ impl TerminalSizingEngine {
         if let Some(explicit) = participant.counts_override {
             return explicit;
         }
-        // Fit-everyone modes promise to count every attached view; the handheld
-        // deferral only stops a phone from taking the grid by activity.
-        if matches!(self.policy.mode, TerminalSizingMode::Smallest | TerminalSizingMode::Largest) {
+        // Only `priority` defers a phone to its user's desktop. Fit-everyone
+        // modes count every view, and `latest` lets a phone take the grid by
+        // input (its attach alone never does).
+        if self.policy.mode != TerminalSizingMode::Priority {
             return true;
         }
         let (true, Some(user)) = (participant.device_kind.is_handheld(), &participant.user_id)
@@ -493,8 +502,9 @@ impl TerminalSizingEngine {
         if counting.is_empty() {
             return (self.held, Vec::new(), TerminalSizingReason::Held);
         }
-        // Ties cannot occur: every attach and activity takes a fresh clock
-        // value. `max_by_key` keeps the last maximum, matching Swift's `max`.
+        // Ties happen only between handhelds whose attach was not activity
+        // (activity 0); the later attached one wins. `max_by_key` keeps the
+        // last maximum in attach order; the Swift twin breaks ties the same way.
         fn newest<'a>(list: impl Iterator<Item = &'a &'a Entry>) -> &'a Entry {
             // crash-allow: callers pass a non-empty list
             list.max_by_key(|entry| entry.activity).expect("non-empty")

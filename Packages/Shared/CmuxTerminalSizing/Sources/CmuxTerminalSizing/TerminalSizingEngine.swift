@@ -19,7 +19,7 @@ public struct TerminalSizingEngine: Sendable {
     /// - Parameters:
     ///   - initialSize: the grid before anyone reports, usually the PTY's current size.
     ///   - policy: the effective policy (workspace default or terminal override).
-    public init(initialSize: TerminalGridSize, policy: TerminalSizingPolicy = .fitEveryone) {
+    public init(initialSize: TerminalGridSize, policy: TerminalSizingPolicy = .latest) {
         self.policy = policy
         self.held = initialSize.clamped
         self.state = TerminalSizingState(
@@ -30,14 +30,17 @@ public struct TerminalSizingEngine: Sendable {
 
     // MARK: Mutations. Each returns true when the published state changed.
 
-    /// Adds a view, or replaces one with the same id. Attach counts as activity.
+    /// Adds a view, or replaces one with the same id. A desktop's attach counts
+    /// as activity; a phone's or tablet's does not (activity 0), so a glance
+    /// from a phone never takes the grid from a desktop in use. A handheld that
+    /// is the only counting view still sets the grid.
     @discardableResult
     public mutating func attach(_ participant: TerminalSizingParticipant) -> Bool {
         activityClock += 1
         var participant = participant
         // A decoded participant bypasses the clamping initializer.
         participant.viewport = participant.viewport?.clamped
-        let entry = Entry(participant: participant, activity: activityClock)
+        let entry = Entry(participant: participant, activity: participant.deviceKind.isHandheld ? 0 : activityClock)
         if !updateEntry(participant.id, { $0 = entry }) {
             entries.append(entry)
         }
@@ -122,9 +125,10 @@ public struct TerminalSizingEngine: Sendable {
         let p = entry.participant
         guard p.viewport != nil else { return false }
         if let explicit = p.countsOverride { return explicit }
-        // Fit-everyone modes promise to count every attached view; the handheld
-        // deferral only stops a phone from taking the grid by activity.
-        if policy.mode == .smallest || policy.mode == .largest { return true }
+        // Only `priority` defers a phone to its user's desktop. Fit-everyone
+        // modes count every view, and `latest` lets a phone take the grid by
+        // input (its attach alone never does).
+        if policy.mode != .priority { return true }
         guard p.deviceKind.isHandheld, let user = p.userID else { return true }
         // Defer only to a desktop of the same user that itself counts: a
         // viewer-only or viewport-less Mac leaves the phone in charge.
@@ -149,8 +153,11 @@ public struct TerminalSizingEngine: Sendable {
         let sized = counting.compactMap { entry in
             entry.participant.viewport.map { Sized(entry: entry, viewport: $0) }
         }
+        // Ties happen only between handhelds whose attach was not activity
+        // (activity 0): the later attached one wins, as in the Rust twin
+        // (`max_by_key` keeps the last maximum).
         func newest(_ list: [Sized]) -> Sized? {
-            list.max { $0.entry.activity < $1.entry.activity }
+            list.enumerated().max { ($0.element.entry.activity, $0.offset) < ($1.element.entry.activity, $1.offset) }?.element
         }
         guard let latest = newest(sized) else { return (held, [], .held) }
         switch policy.mode {
