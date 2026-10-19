@@ -11,7 +11,10 @@ fn agent_focus_cli_focuses_the_tab_of_the_agents_terminal() {
         let created = json_cli(&server, &["tab", "create", "terminal"]);
         assert_success(&created);
         let value = &json_output(&created)["value"];
-        (value["tab_id"].as_str().unwrap().to_owned(), value["terminal_id"].as_str().unwrap().to_owned())
+        (
+            value["tab_id"].as_str().unwrap().to_owned(),
+            value["terminal_id"].as_str().unwrap().to_owned(),
+        )
     };
     let (agent_tab, agent_terminal) = create();
     let (other_tab, _) = create();
