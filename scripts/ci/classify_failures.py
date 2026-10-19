@@ -89,6 +89,7 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
+import pr_status  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import web_test_failure_census  # noqa: E402
 from test_touches_diff import RUNNER_FILES  # noqa: E402
@@ -1004,11 +1005,12 @@ def mark_pending(writer: Writer, repo: str, pr: int, existing: list[dict], head:
     current = next((c for c in existing if MARKER in str(c.get("body") or "")), None)
     if current is None:
         return False
-    body = str(current.get("body") or "")
+    body = pr_status.own_text(str(current.get("body") or ""), "attribution")
     old_head, _ = comment_head(body)
     if same_head(old_head, head):
         return False
-    upsert_comment(writer, repo, pr, MARKER, render_pending(head, run_url, old_head, body), existing)
+    upsert_comment(writer, repo, pr, MARKER, render_pending(head, run_url, old_head, body), existing,
+                   section="attribution")
     return True
 
 
@@ -1083,7 +1085,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         # is there (every workflow shares GITHUB_TOKEN's API budget; it ran out on 2026-10-06).
         pr = pr_number(gh, run)
         if pr:
-            existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+            existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") in pr_status.BOTS]
             if not any(MARKER in str(c.get("body") or "") for c in existing):
                 if report.get("conclusion") == "success":
                     write_summary(render_comment(report, ""))
@@ -1096,7 +1098,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: no open pull request at this head"}
     # Only this workflow's own comment: anyone can post one carrying the marker.
     if existing is None:
-        existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+        existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") in pr_status.BOTS]
     current = next((c for c in existing if MARKER in str(c.get("body") or "")), None)
     head = str((pull.get("head") or {}).get("sha") or "")
     if head != report.get("head_sha"):
@@ -1152,7 +1154,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     # failure that is being re-run asks nothing of the author, so it posts no new comment either.
     quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") or rerun
     if current is not None or not quiet:
-        upsert_comment(writer, gh.repo, pr, MARKER, body, existing)
+        upsert_comment(writer, gh.repo, pr, MARKER, body, existing, section="attribution")
     return {"pr": pr, "rerun": rerun, "line": line}
 
 
@@ -1164,7 +1166,7 @@ def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: not the open pull request's head"}
     # The comments first: without this bot's comment there is nothing to mark, and the pull
     # request is not read.
-    existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+    existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") in pr_status.BOTS]
     if not any(MARKER in str(c.get("body") or "") for c in existing):
         return {"pr": pr, "rerun": False, "line": "nothing to mark"}
     pull = gh.pull(pr)

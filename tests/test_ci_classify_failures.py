@@ -12,6 +12,7 @@ main's script and never checks out the pull request).
 
 from __future__ import annotations
 
+import os
 import sys
 import textwrap
 import unittest
@@ -413,6 +414,9 @@ class RerunDecisionTests(unittest.TestCase):
         self.assertFalse(cf.rerun_decision(self.report([]), self.LATEST)[0])
 
 
+os.environ["PR_STATUS_SETTLE_SECONDS"] = "0"  # no wait between a status write and its re-check
+
+
 class FakeGitHub:
     repo = "manaflow-ai/cmux"
 
@@ -470,6 +474,16 @@ class FakeGitHub:
 
     def request(self, method: str, path: str, body: object = None) -> dict:
         self.calls.append((method, path))
+        # The PR's comments as GitHub would keep them, so a re-read after a write sees it.
+        if method == "POST" and path.endswith("/issues/7/comments"):
+            self._comments = [*self._comments, bot_comment(body["body"], 1000 + len(self.calls))]  # type: ignore[index]
+        elif method == "PATCH" and "/issues/comments/" in path:
+            cid = int(path.rsplit("/", 1)[1])
+            self._comments = [dict(c, body=body["body"]) if c["id"] == cid else c  # type: ignore[index]
+                              for c in self._comments]
+        elif method == "DELETE" and "/issues/comments/" in path:
+            cid = int(path.rsplit("/", 1)[1])
+            self._comments = [c for c in self._comments if c["id"] != cid]
         return {}
 
 
@@ -477,6 +491,11 @@ def main_run(conclusion: str, created: str = "2026-10-06T00:19:43Z") -> dict:
     return {"id": 37393414697, "event": "workflow_dispatch", "head_branch": "main",
             "path": ".github/workflows/ci.yml", "status": "completed", "conclusion": conclusion,
             "created_at": created, "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/37393414697"}
+
+
+def attribution(entry: str) -> str:
+    """The attribution line of the status comment a dry-run write would post."""
+    return cf.pr_status.own_text(entry.split("\n", 1)[1], "attribution")
 
 
 def bot_comment(body: str, comment_id: int = 99, login: str = cf.BOT) -> dict:
@@ -770,7 +789,7 @@ class StaleAndSkippedTests(unittest.TestCase):
         self.assertIn("**Pending:** CI is running on `b5691441b0` ([run](https://run/2)); the result below was "
                       "for `2957faacff`", entry)
         self.assertNotIn("**Passes:**", entry)
-        self.assertEqual(cf.verdict_of(entry).split(":")[0], "**Pending")
+        self.assertEqual(cf.verdict_of(attribution(entry)).split(":")[0], "**Pending")
         self.assertIn("Last result: Passes: CI passes on `2957faacff`.", entry)
         # Once pending on this head, a second start (a re-run) leaves it alone.
         gh = FakeGitHub(head=self.NEW, comments=[bot_comment(entry.split("\n", 1)[1])])
@@ -938,7 +957,7 @@ class MainStateTests(unittest.TestCase):
         writer = cf.Writer(gh, dry_run=True)
         cf.act(gh, writer, ActTests.RUN, red_report(PR_17258_CRASH_LOG))  # type: ignore[arg-type]
         (entry,) = [e for e in writer.log if "/issues/7/comments" in e.splitlines()[0]]
-        return entry.splitlines()[3]
+        return attribution(entry).splitlines()[2]
 
     def test_no_open_issue_and_a_green_latest_run_is_green(self) -> None:
         gh = FakeGitHub(files=PR_17258_FILES)
@@ -996,7 +1015,7 @@ class KnownElsewhereTests(unittest.TestCase):
         writer = cf.Writer(gh, dry_run=True)
         cf.act(gh, writer, run or self.SAME_REPO_RUN, red_report(PR_17258_CRASH_LOG))  # type: ignore[arg-type]
         (comment,) = [e for e in writer.log if "/issues/7/comments" in e.splitlines()[0]]
-        return comment.split("\n", 1)[1], [e for e in writer.log if f"/issues/{cf.SEEN_ISSUE}" in e.splitlines()[0]]
+        return attribution(comment), [e for e in writer.log if f"/issues/{cf.SEEN_ISSUE}" in e.splitlines()[0]]
 
     def test_17258_a_crash_other_prs_hit_is_likely_flaky_not_yours(self) -> None:
         record = {TEST_KEY: {"15409": days_ago(3)}, CRASH_KEY: {"16048": days_ago(1)}}
