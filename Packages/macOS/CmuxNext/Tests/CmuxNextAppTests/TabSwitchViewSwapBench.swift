@@ -48,19 +48,25 @@ import WebKit
         return host
     }
 
-    /// Times `rounds` switches to `view` (from `other`): show, then the frame's layout and display.
+    /// The rest of the main-thread turn after a switch: layout, display, the commit, and one run-loop pass
+    /// whose exit observers run WebKit's activity-state dispatch (where a web view that comes back into a
+    /// window waits synchronously for its web process).
+    private func finishTurn(_ pane: PaneContentView, _ window: NSWindow) {
+        pane.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        CATransaction.flush()
+        _ = CFRunLoopRunInMode(.defaultMode, 0, true)
+    }
+
+    /// Times `rounds` switches to `view` (from `other`): show, then the rest of that turn.
     private func time(_ label: String, view: NSView, other: NSView, pane: PaneContentView, window: NSWindow) -> [Double] {
         var samples: [Double] = []
         for round in 0..<(Self.rounds + 2) {
             pane.show(other)
-            pane.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            CATransaction.flush()
+            finishTurn(pane, window)
             let start = CACurrentMediaTime()
             pane.show(view)
-            pane.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            CATransaction.flush()
+            finishTurn(pane, window)
             let elapsed = (CACurrentMediaTime() - start) * 1_000
             if round >= 2 { samples.append(elapsed) } // two warm-up rounds
             #expect(view.window === window && !view.isHidden, "\(label): the switch shows the tab")
@@ -82,6 +88,7 @@ import WebKit
         window.contentView = pane
         window.orderFrontRegardless()
         let plain = NSView()
+        print("TAB-SWITCH-SWAP window visible=\(window.occlusionState.contains(.visible)) screen=\(window.screen != nil)")
 
         let parked = InternalPageView(key: "local-page:markdown:bench", page: InternalPageID(rawValue: "markdown"), content: await loadedWebView())
         let unparked = wrap(await loadedWebView(), in: Unparked(frame: pane.contentHost.bounds))
