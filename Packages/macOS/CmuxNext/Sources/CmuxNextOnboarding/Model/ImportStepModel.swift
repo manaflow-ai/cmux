@@ -7,9 +7,9 @@ public import Observation
 /// profile folder cmux has no grant for is listed by name; Allow Access
 /// explains the grant (`explainingAccess`), then Continue opens the open
 /// panel at that folder, and only a granted folder is read. With passwords
-/// checked, Import first asks for consent (`confirmingPasswords`): it names
-/// each browser profile and the Keychain item macOS will ask about, and
-/// nothing is read until the user confirms. Import then runs it in place, row
+/// checked, Import first shows the Keychain explainer (`confirmingPasswords`):
+/// one line naming the Keychain item macOS will ask about, and nothing is
+/// read until Begin Importing. Import then runs it in place, row
 /// by row, then says what came over; Continue never waits for it, and an
 /// import still running keeps going (off the main thread, cancellable)
 /// after the window moves on. Each source profile becomes its own cmux

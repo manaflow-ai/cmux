@@ -56,6 +56,10 @@ public final class OnboardingModel {
         case .importData where importer.explainingAccess != nil:
             importer.continueAccess()
             return
+        // Begin Importing; while Touch ID is up it waits, never ends the window.
+        case .importData where importer.isConfirmingPasswords:
+            if importer.canStart { importer.start() }
+            return
         case .importData where importer.canStart:
             importer.start()
             return
