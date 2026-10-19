@@ -73,6 +73,14 @@ public struct SendKeyRequest: DaemonRequest {
 public struct AttachSurfaceRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var lease: String?
+        /// This view's sizing participant and the terminal's size state, for a connection that
+        /// lists `shared-sizing-v1`.
+        public var participant: String?
+        public var sizeState: TerminalSizeState?
+        enum CodingKeys: String, CodingKey {
+            case lease, participant
+            case sizeState = "size_state"
+        }
     }
     public static let command = "attach-surface"
     public var surface: SurfaceID?

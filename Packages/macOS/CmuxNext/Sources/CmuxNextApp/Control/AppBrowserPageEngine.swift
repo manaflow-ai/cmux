@@ -8,4 +8,8 @@ nonisolated struct AppBrowserPageEngine: BrowserPageEngine {
     func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
         try await AppBrowserPage.run(operation, tabID: tabID, services: services)
     }
+
+    func announce(_ input: BrowserPageAgentInput, tabID: String) async {
+        await MainActor.run { services.browserHost?.pageInputCursor.publish(input, tabID: tabID) }
+    }
 }
