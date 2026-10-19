@@ -1,10 +1,10 @@
 use super::*;
-use std::sync::{Mutex, mpsc};
+use std::sync::Mutex;
 use std::time::Duration;
 
 struct LatePull {
-    started: mpsc::Sender<()>,
-    release: Mutex<mpsc::Receiver<()>>,
+    started: Sender<()>,
+    release: Mutex<Receiver<()>>,
 }
 
 impl Transfer for LatePull {
@@ -29,8 +29,8 @@ fn cloud_scope_a_late_cancelled_pull_cleans_its_landing_after_its_worker_returns
     std::fs::create_dir(&root).unwrap();
     let landing = root.join(".landing");
     let target = root.join("target");
-    let (started, ready) = mpsc::channel();
-    let (release, held) = mpsc::channel();
+    let (started, ready) = channel();
+    let (release, held) = channel();
     let worker = Arc::new(LatePull { started, release: Mutex::new(held) });
     let cancel = Cancel::default();
     let mut transfers = Transfers::new();
