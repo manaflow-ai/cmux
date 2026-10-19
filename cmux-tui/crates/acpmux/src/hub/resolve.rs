@@ -206,6 +206,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         // Read off the async runtime by `session/new` (`adoption::start_folder`).
         totals: None,
         harness_cost_usd: None,
+        pull_requests: vec![],
         git_branch: None,
         git_head: None,
         subsession: None,
