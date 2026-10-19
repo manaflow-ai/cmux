@@ -158,6 +158,8 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_pr_autofix_push_gate.py
+      - .github/workflows/cmux-next-pr-autofix.yml
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -346,6 +348,8 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_pr_autofix_push_gate.py
+      - .github/workflows/cmux-next-pr-autofix.yml
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -1238,6 +1242,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_checks_workflow.py
+          python3 tests/test_cmux_next_pr_autofix_push_gate.py
           python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
