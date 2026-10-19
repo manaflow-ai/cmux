@@ -5140,5 +5140,13 @@
         ]
       }
     }
+  },
+  "mobile.agent.viewMode.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Terminal is the standard technical term for this interface in this locale; the translated entry remains required.",
+      "fr": "Terminal is the standard technical term for this interface in this locale; the translated entry remains required.",
+      "es": "Terminal is the standard technical term for this interface in this locale; the translated entry remains required."
+    }
   }
 }

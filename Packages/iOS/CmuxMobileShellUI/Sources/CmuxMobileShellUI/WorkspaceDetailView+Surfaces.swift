@@ -12,6 +12,7 @@ extension WorkspaceDetailView {
     var detailSurfaceContent: some View {
         #if os(iOS)
         let surface = activeSurface
+        let terminalIsVisible = surface == .terminal && !isAgentGUIVisible
         // Captured at body time (the same evaluation as `shouldAutoFocus` in
         // `detailContent()`), so a chrome-driven terminal switch — which
         // suppresses the target's autofocus until the remount's `onAppear`
@@ -24,10 +25,22 @@ extension WorkspaceDetailView {
         )
         ZStack {
             detailContent()
-                .opacity(surface == .terminal ? 1 : 0)
-                .allowsHitTesting(surface == .terminal)
-                .accessibilityHidden(surface != .terminal)
-            if surface == .browser, let browser = activeBrowser {
+                .opacity(terminalIsVisible ? 1 : 0)
+                .allowsHitTesting(terminalIsVisible)
+                .accessibilityHidden(!terminalIsVisible)
+            if isAgentGUIVisible, let terminal = selectedTerminal {
+                AgentChatSurfaceView(
+                    surface: MobileSurfacePreview(
+                        id: .init(rawValue: terminal.id.rawValue),
+                        kind: .agentSession,
+                        title: terminal.name
+                    ),
+                    source: store.makeChatEventSource(),
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    preferredTerminalID: terminal.id.rawValue
+                )
+                .id("terminal-chat|\(workspace.rpcWorkspaceID.rawValue)|\(terminal.id.rawValue)|\(effectiveConnectionStatus)")
+            } else if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if surface == .browser {
@@ -81,15 +94,26 @@ extension WorkspaceDetailView {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if workspaceChangesHint != nil {
-                WorkspaceChangesHintBanner(
-                    openChanges: openWorkspaceChanges,
-                    dismiss: dismissWorkspaceChangesHint
-                )
+            VStack(spacing: 0) {
+                if canShowAgentViewMode {
+                    AgentViewModePicker(
+                        isGUI: isAgentGUIVisible,
+                        selectGUI: { isGUI in
+                            dismissTerminalKeyboardForChrome()
+                            agentGUITerminalID = isGUI ? selectedTerminalID : nil
+                        }
+                    )
+                }
+                if workspaceChangesHint != nil {
+                    WorkspaceChangesHintBanner(
+                        openChanges: openWorkspaceChanges,
+                        dismiss: dismissWorkspaceChangesHint
+                    )
+                }
             }
         }
         .onChange(of: surface) { _, newSurface in
-            if newSurface == .terminal {
+            if newSurface == .terminal && !isAgentGUIVisible {
                 // The surface stayed mounted under the chrome, so no attach
                 // autofocus fires on return; refocus explicitly. Never while
                 // input is blocked: a disconnected terminal's keystrokes

@@ -132,9 +132,12 @@ final class AgentChatViewModel {
         Task { [weak self, source] in
             do {
                 var loaded = try await source.sessions(workspaceID: requestedWorkspaceID)
-                if loaded.isEmpty, let preferredTerminalID {
-                    loaded = try await source.sessions(workspaceID: nil).filter {
-                        $0.terminalID == preferredTerminalID
+                if let preferredTerminalID {
+                    loaded = loaded.filter { $0.terminalID == preferredTerminalID }
+                    if loaded.isEmpty {
+                        loaded = try await source.sessions(workspaceID: nil).filter {
+                            $0.terminalID == preferredTerminalID
+                        }
                     }
                 }
                 guard let self, !Task.isCancelled else { return }
@@ -312,6 +315,7 @@ final class AgentChatViewModel {
         switch frame.event {
         case .descriptorChanged(let descriptor):
             guard requestedWorkspaceID == nil || descriptor.workspaceID == requestedWorkspaceID else { return }
+            guard preferredTerminalID == nil || descriptor.terminalID == preferredTerminalID else { return }
             if let index = sessions.firstIndex(where: { $0.id == descriptor.id }) {
                 guard descriptor.version >= sessions[index].version else { return }
                 sessions[index] = descriptor
@@ -321,6 +325,9 @@ final class AgentChatViewModel {
             } else {
                 sessions.append(descriptor)
                 sessions.sort(by: Self.sessionSort)
+            }
+            if selectedSessionID == nil {
+                select(ChatSessionDescriptor.openable(sessions).first)
             }
         case .stateChanged(let state):
             guard let index = sessions.firstIndex(where: { $0.id == frame.sessionID }) else { return }
