@@ -118,6 +118,47 @@ struct AgentPaneProjectIconTests {
                 "touched \(fixture.touches.all)")
     }
 
+    /// The Mac's disk matches names more loosely than `lowercased()`: `Documentſ` (long s) and the
+    /// data volume's own spelling of the home folder both reach Documents.
+    @Test func anotherSpellingOfAProtectedFolderIsNeverStatedOrRead() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(Self.png, "Documents/site/favicon.png")
+        let reader = fixture.reader
+        #expect(reader.icon(in: fixture.home + "/Documentſ/site") == nil)
+        #expect(reader.icon(in: "/System/Volumes/Data" + fixture.home + "/Documents/site") == nil)
+        #expect(fixture.touches.all.isEmpty, "touched \(fixture.touches.all)")
+    }
+
+    @Test func aFaviconLinkedInsideTheProjectIsShown() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(Self.svg, "code/mono/brand/favicon.svg")
+        try FileManager.default.createDirectory(atPath: fixture.home + "/code/mono/web/public", withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: fixture.home + "/code/mono/web/public/favicon.svg",
+                                                   withDestinationPath: "../../brand/favicon.svg")
+        #expect(fixture.reader.icon(in: fixture.home + "/code/mono/web") == "data:image/svg+xml;base64," + Self.svg.base64EncodedString())
+    }
+
+    /// A Git LFS pointer named favicon.png is text: the next candidate still counts.
+    @Test func aCandidateThatIsNotAnImageLeavesTheNextOne() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(Data("version https://git-lfs.github.com/spec/v1\n".utf8), "code/site/public/favicon.png")
+        try fixture.write(Data([0x00, 0x00, 0x01, 0x00, 0x01, 0x00]), "code/site/favicon.ico")
+        #expect(fixture.reader.icon(in: fixture.home + "/code/site")?.hasPrefix("data:image/x-icon;base64,") == true)
+        let icons = AgentPaneProjectIcons(reader: fixture.reader)
+        #expect(await icons.icon(for: fixture.home + "/code/site")?.hasPrefix("data:image/x-icon;base64,") == true)
+        #expect(await icons.icon(for: fixture.home + "/code/site")?.hasPrefix("data:image/x-icon;base64,") == true)
+    }
+
+    @Test func anSVGWhoseFirstKilobyteEndsMidCharacterIsStillAnSVG() {
+        var data = Data("<svg xmlns=\"http://www.w3.org/2000/svg\"><title>".utf8)
+        data.append(Data(repeating: UInt8(ascii: "a"), count: 1023 - data.count))
+        data.append(Data("é</title></svg>".utf8))
+        #expect(AgentPaneProjectIcon.imageType(data) == "image/svg+xml")
+    }
+
     @Test func theCacheRereadsOnlyAfterTheFileChanges() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

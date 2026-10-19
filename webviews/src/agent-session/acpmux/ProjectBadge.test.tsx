@@ -95,3 +95,39 @@ test("a remote project never asks this Mac for an icon", async () => {
   expect(badge.querySelector("img")).toBeNull();
   expect(badge.textContent).toBe("AP");
 });
+
+test("a badge that moves to another project drops the old icon before the host answers", async () => {
+  let answer: (value: unknown) => void = () => undefined;
+  setProjectIconHost(async (_method, params) =>
+    params.cwd === "/Users/me/code/site" ? { src: ICON } : new Promise((resolve) => (answer = resolve)),
+  );
+  const badge = await render({ cwd: "/Users/me/code/site", label: "site" });
+  expect(badge.querySelector("img")).not.toBeNull();
+  await act(async () => {
+    root!.render(<ProjectBadge project={{ cwd: "/Users/me/code/other", label: "other" }} />);
+  });
+  const moved = document.querySelector<HTMLElement>(".acpmux-project-badge")!;
+  expect(moved.querySelector("img")).toBeNull();
+  expect(moved.textContent).toBe("OT");
+  await act(async () => answer({}));
+});
+
+test("a failed ask is asked again by the next badge", async () => {
+  let calls = 0;
+  setProjectIconHost(async () => {
+    calls += 1;
+    if (calls === 1) throw new Error("page not connected yet");
+    return { src: ICON };
+  });
+  const first = await render({ cwd: "/Users/me/code/retry", label: "retry" });
+  expect(first.querySelector("img")).toBeNull();
+  act(() => root?.unmount());
+  root = createRoot(document.getElementById("root")!);
+  await act(async () => {
+    root!.render(<ProjectBadge project={{ cwd: "/Users/me/code/retry", label: "retry" }} />);
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(document.querySelector(".acpmux-project-badge img")?.getAttribute("src")).toBe(ICON);
+});
