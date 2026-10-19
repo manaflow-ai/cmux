@@ -1,264 +1,134 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "popup.untitled": {
+    "popup.untitledPage": {
+      "comment": "Popup window title while the page has no title and no address yet.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Popup"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نافذة منبثقة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skočni prozor"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pop op-vindue"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pop-up"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ventana emergente"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fenêtre contextuelle"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Popup"
+            "value": "Untitled"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポップアップ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាំងលេចឡើង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "팝업"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Popup-vindu"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Okno podręczne"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pop-up"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Всплывающее окно"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ป๊อปอัป"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Açılır pencere"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Спливне вікно"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cửa sổ bật lên"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "弹出窗口"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "彈出式視窗"
-          }
-        }
-      }
-    },
-    "popup.closeHelp": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Popup (Esc)"
+            "value": "無題"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إغلاق النافذة المنبثقة (Esc)"
+            "value": "بدون عنوان"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatvori skočni prozor (Esc)"
+            "value": "Bez naslova"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Luk pop op-vindue (Esc)"
+            "value": "Uden titel"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pop-up schließen (Esc)"
+            "value": "Ohne Titel"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cerrar ventana emergente (Esc)"
+            "value": "Sin título"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fermer la fenêtre contextuelle (Esc)"
+            "value": "Sans titre"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiudi popup (Esc)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ポップアップを閉じる (Esc)"
+            "value": "Senza titolo"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទផ្ទាំងលេចឡើង (Esc)"
+            "value": "គ្មានចំណងជើង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "팝업 닫기 (Esc)"
+            "value": "제목 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lukk popup-vindu (Esc)"
+            "value": "Uten tittel"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zamknij okno podręczne (Esc)"
+            "value": "Bez tytułu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fechar pop-up (Esc)"
+            "value": "Sem título"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрыть всплывающее окно (Esc)"
+            "value": "Без названия"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปิดป๊อปอัป (Esc)"
+            "value": "ไม่มีชื่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Açılır pencereyi kapat (Esc)"
+            "value": "Adsız"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрити спливне вікно (Esc)"
+            "value": "Без назви"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đóng cửa sổ bật lên (Esc)"
+            "value": "Không có tiêu đề"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "关闭弹出窗口 (Esc)"
+            "value": "无标题"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "關閉彈出式視窗 (Esc)"
+            "value": "未命名"
           }
         }
       }

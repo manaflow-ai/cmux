@@ -117,7 +117,10 @@ export const turnPlan = (sql: SqlStorage, seed: string, pieces: ReadonlyArray<st
 export class PrefixCache {
   private readonly entries = new Map<string, { at: number; ready: Promise<void> | null }>()
 
-  constructor(private readonly ttl: number) {}
+  constructor(
+    private readonly ttl: number,
+    private readonly waitMs = PrefixCache.WAIT_MS
+  ) {}
 
   /** At most this long for another call's first event; then this call goes without reading that prefix. */
   static readonly WAIT_MS = 20_000
@@ -125,7 +128,7 @@ export class PrefixCache {
   async acquire(names: ReadonlyArray<string>, write: number): Promise<{ plan: Plan; begun: () => void; end: () => void }> {
     const waited = new Set<string>()
     // One deadline for all waits of this call, however many writers it waits behind.
-    const deadline = Date.now() + PrefixCache.WAIT_MS
+    const deadline = Date.now() + this.waitMs
     for (;;) {
       const now = Date.now()
       for (const [h, e] of this.entries) if (e.ready === null && now - e.at >= this.ttl) this.entries.delete(h)
