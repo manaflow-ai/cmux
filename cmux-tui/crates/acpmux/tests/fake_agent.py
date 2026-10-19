@@ -796,6 +796,10 @@ def main():
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
+            # FAKE_NEW_MODE=<id>: a new chat starts in that mode, as a harness whose own settings
+            # choose it (not its argv).
+            if os.environ.get("FAKE_NEW_MODE") and "modes" in result:
+                result["modes"]["currentModeId"] = os.environ["FAKE_NEW_MODE"]
             send({"jsonrpc": "2.0", "id": rid, "result": result})
             # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
             # before any prompt.
