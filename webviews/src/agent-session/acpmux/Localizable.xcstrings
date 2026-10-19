@@ -61183,8 +61183,140 @@
         }
       }
     },
+    "composer.placeholderInterrupt": {
+      "comment": "Agent pane: the prompt's placeholder while a turn runs, for an agent that cannot take a prompt mid-turn; Return queues the prompt behind the turn, Command-Return stops the turn and sends it now. Keep the ↵ and ⌘↵ key symbols.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ للإضافة إلى الطابور، ⌘↵ للمقاطعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ za red čekanja, ⌘↵ za prekid"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ for at sætte i kø, ⌘↵ for at afbryde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ zum Einreihen, ⌘↵ zum Unterbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↵ to queue, ⌘↵ to interrupt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ para poner en cola, ⌘↵ para interrumpir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ pour mettre en file, ⌘↵ pour interrompre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ per mettere in coda, ⌘↵ per interrompere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ でキューに追加、⌘↵ で中断"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ ដើម្បីដាក់ក្នុងជួរ, ⌘↵ ដើម្បីរំខាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ 대기열에 추가, ⌘↵ 중단"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ for å legge i kø, ⌘↵ for å avbryte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ dodaje do kolejki, ⌘↵ przerywa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ para enfileirar, ⌘↵ para interromper"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ — в очередь, ⌘↵ — прервать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ เพื่อเข้าคิว, ⌘↵ เพื่อขัดจังหวะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ sıraya ekler, ⌘↵ yarıda keser"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ — у чергу, ⌘↵ — перервати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ để xếp hàng, ⌘↵ để ngắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ 加入队列，⌘↵ 中断"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ 加入佇列，⌘↵ 中斷"
+          }
+        }
+      }
+    },
     "composer.placeholderQueued": {
-      "comment": "Agent pane: the prompt's placeholder while a turn runs; what is sent waits for the turn to end",
+      "comment": "Agent pane: the prompt's placeholder while a turn runs in the Quick Composer, or with only attachments staged (elsewhere it names the ↵ and ⌘↵ keys); what is sent waits for the turn to end",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -61311,6 +61443,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "排入下一則指令"
+          }
+        }
+      }
+    },
+    "composer.placeholderSteer": {
+      "comment": "Agent pane: the prompt's placeholder while a turn runs, for an agent that takes a prompt mid-turn; Return queues the prompt behind the turn, Command-Return sends it into the turn now. Keep the ↵ and ⌘↵ key symbols.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ للإضافة إلى الطابور، ⌘↵ للتوجيه الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ za red čekanja, ⌘↵ za usmjeravanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ for at sætte i kø, ⌘↵ for at styre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ zum Einreihen, ⌘↵ zum Lenken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↵ to queue, ⌘↵ to steer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ para poner en cola, ⌘↵ para dirigir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ pour mettre en file, ⌘↵ pour orienter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ per mettere in coda, ⌘↵ per guidare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ でキューに追加、⌘↵ でステア"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ ដើម្បីដាក់ក្នុងជួរ, ⌘↵ ដើម្បីដឹកនាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ 대기열에 추가, ⌘↵ 조정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ for å legge i kø, ⌘↵ for å styre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ dodaje do kolejki, ⌘↵ kieruje teraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ para enfileirar, ⌘↵ para direcionar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ — в очередь, ⌘↵ — направить сейчас"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ เพื่อเข้าคิว, ⌘↵ เพื่อชี้นำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ sıraya ekler, ⌘↵ şimdi yönlendirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ — у чергу, ⌘↵ — скерувати зараз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ để xếp hàng, ⌘↵ để điều hướng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ 加入队列，⌘↵ 立即引导"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↵ 加入佇列，⌘↵ 立即引導"
           }
         }
       }
