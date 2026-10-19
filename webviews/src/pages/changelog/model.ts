@@ -11,6 +11,7 @@ import type {
   WhatsNewCategory,
   WhatsNewEntry,
 } from "./types";
+import type { UpdateHighlightItem } from "./updateHighlights";
 import { readableChange, revertedSubject, shortTitle, tidyTitle, titleTail } from "./readableChange";
 
 export const CATEGORY_ORDER: readonly WhatsNewCategory[] = ["new", "improved", "fixed", "security"];
@@ -154,6 +155,26 @@ function readableItem(item: ReleaseItem, changes: ChangeItem[], machine: boolean
     summary = capitalized(titleTail(full, short));
   }
   return { ...item, title, summary: distinctSummary(title, summary) };
+}
+
+/** The update card's and popup's items (`UpdateHighlights`, at most three) as the page reads them:
+    notes published before the readable rules (#21873) carry digest titles cut with "…",
+    work-stream lines and titles repeated as their description. A summary or appcast line is
+    machine-made; a What's New entry or highlight with its own id is a person's. */
+export function readableUpdateItems(items: UpdateHighlightItem[]): UpdateHighlightItem[] {
+  const seen = new Set<string>();
+  return items.flatMap((item) => {
+    const machine = /^(?:summary|appcast)-\d+$/.test(item.id);
+    const readable = readableItem(
+      { id: item.id, category: item.category, title: item.title, summary: item.summary ?? "" },
+      [],
+      machine,
+    );
+    const key = readable?.title.toLowerCase();
+    if (!readable || !key || seen.has(key)) return [];
+    seen.add(key);
+    return [{ ...item, title: readable.title, summary: readable.summary || null }];
+  });
 }
 
 function stemOf(text: string): string {

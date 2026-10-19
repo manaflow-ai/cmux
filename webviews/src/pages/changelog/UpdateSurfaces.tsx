@@ -7,9 +7,10 @@
 //  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): only what the card lacks
 //    (Leo 2026-10-13; the card has Update Ready, the short version and the date): the full build,
 //    the top three changes numbered, each a title and one line, and "See all changes", once.
-// Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
+// Data: UpdateHighlights (updateHighlights.ts), read as the page reads notes (readableUpdateItems);
+// the host mounts these and wires the actions.
 import { useId } from "react";
-import { distinctSummary } from "./model";
+import { readableUpdateItems } from "./model";
 import type { Strings } from "../shared/i18n";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 
@@ -29,8 +30,9 @@ export function UpdatedCard({
   strings: Strings;
   actions: UpdateSurfaceActions;
 }) {
-  const [lead] = data.items;
-  const more = data.items.length - 1 + data.moreCount;
+  const items = readableUpdateItems(data.items);
+  const [lead] = items;
+  const more = items.length - 1 + data.moreCount;
   const titleId = useId();
   return (
     <section className="wn-card" aria-labelledby={titleId}>
@@ -71,23 +73,22 @@ export function UpdateReadyHighlights({
   actions: UpdateSurfaceActions;
 }) {
   const titleId = useId();
+  const items = readableUpdateItems(data.items);
   return (
     <section className="wn-pop" aria-labelledby={titleId}>
       <div className="wn-pop-title" id={titleId}>
         {data.version}
       </div>
-      {data.items.length > 0 && (
+      {items.length > 0 && (
         <ol className="wn-pop-list">
-          {data.items.map((item, index) => (
+          {items.map((item, index) => (
             <li key={item.id}>
               <span className="wn-pop-n" aria-hidden="true">
                 {index + 1}
               </span>
               <div>
                 <span className="wn-pop-item">{item.title}</span>
-                {item.summary && distinctSummary(item.title, item.summary) && (
-                  <span className="wn-pop-line">{item.summary}</span>
-                )}
+                {item.summary && <span className="wn-pop-line">{item.summary}</span>}
               </div>
             </li>
           ))}

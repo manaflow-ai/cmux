@@ -61,15 +61,16 @@ const INTERNAL_WORDS = new RegExp(
     String.raw`frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|` +
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
-    String.raw`consumers?|metrics|review fixes)\b`,
+    String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?)\b`,
   "i",
 );
 /** Product names whose casing is not code. */
 const BRANDS =
   /\b(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b/g;
-/** Code-looking text: backticks, dotted names, snake_case, versioned ids, camelCase, {placeholders}. */
+/** Code-looking text: backticks, dotted names, snake_case, versioned ids, bead ids, camelCase,
+    {placeholders}. */
 const CODE_LIKE =
-  /`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}/;
+  /`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}/;
 const CONVENTIONAL = /^(?<type>[A-Za-z-]+)(?:\((?<scope>[^)]*)\))?!?:\s*(?<rest>.+)$/;
 /** "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …". */
 const LABEL = /^(?<area>[A-Za-z][\w-]*(?: [A-Za-z][\w-]*){0,2})(?:\((?<scope>[^)]*)\))?!?:\s+(?<rest>\S.*)$/;
@@ -79,8 +80,9 @@ const INTERNAL_AREA_SHAPE =
 const PRODUCT_WORDS = new Set(["cmux", "next", "cmux-next", "cmuxnext"]);
 const AREA_PREFIX =
   /^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*/i;
-/** "(#123)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", and a bead reference cut off at the end. */
-const REFS = /\s*\((?:[^()]*\bcx-[\w.]+[^()]*|#\d+|red)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$/gi;
+/** "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", "(review)", and a bead
+    reference cut off at the end. */
+const REFS = /\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$/gi;
 /** The product's own label at the start of a human title: "cmux NEXT: …". */
 const PRODUCT_LABEL = /^(?:cmux[- ]?next|cmuxnext)\s*:\s*/i;
 
