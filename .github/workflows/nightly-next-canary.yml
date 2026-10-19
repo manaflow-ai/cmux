@@ -194,9 +194,13 @@ jobs:
           echo "verdict=fail" >> "$GITHUB_OUTPUT"
           echo "::error title=nightly-next canary::the feed's DMG for build $BUILD failed its Gatekeeper, ticket or build-number check"
 
+      # Also when a check failed after the attach (the app output is then unset).
       - name: Detach the DMG
-        if: always() && steps.app.outputs.app != ''
-        run: hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
+        if: always() && steps.app.outcome != 'skipped'
+        run: |
+          if [ -d "$RUNNER_TEMP/canary-mount" ]; then
+            hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
+          fi
 
       - name: Record the verdict
         if: always() && github.event_name == 'schedule' && (steps.run.outputs.verdict != '' || steps.broken.outputs.verdict != '')
