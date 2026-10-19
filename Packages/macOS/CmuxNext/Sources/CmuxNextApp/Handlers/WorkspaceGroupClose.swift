@@ -46,6 +46,9 @@ enum WorkspaceGroupClose {
     /// (`reopen`). Also the bulk closes' toast (`WorkspaceBulkClose`, no group).
     static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
                           in window: NSWindow, _ services: AppServices) {
+        // Too soon after the last one: Reopen Closed and History still bring the workspaces back.
+        if let undoToasts = services.closedTabs?.undoToasts, !CmuxToastCenter.shared.toasts(in: window).contains(where: { $0.id == id }),
+           !undoToasts.allowsNewToast(id) { return }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: .undo()), in: window)
         handle.onAction = { [weak services] in
             guard let services else { return }
