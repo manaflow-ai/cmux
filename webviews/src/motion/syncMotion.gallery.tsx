@@ -144,12 +144,7 @@ export default componentEntry<StageProps>({
   area: "Sync UX",
   height: 640,
   widths: { narrow: 720, normal: 900, wide: 1200 },
-  covers: [
-    "motion/syncMotion.ts",
-    "motion/useSyncListMotion.ts#useSyncListMotion",
-    "motion/SyncTitle.tsx#SyncTitle",
-    "motion/syncStreams.ts",
-  ],
+  covers: ["motion/SyncTitle.tsx#SyncTitle"],
   load: async () => SyncMotionStage,
   styles: () => import("./syncMotion.gallery.css"),
   variants: {
