@@ -25,6 +25,11 @@ struct HomeSidebarNeutralSelectionTests {
         #expect(!Self.same(p.selectionActive, blue), "the key-window selection is the system blue")
         #expect(Self.same(p.selectionActive, grey), "the key-window selection is not the neutral grey")
         #expect(Self.same(p.selectedText, label), "the selected text is not the label colour")
+        // Home focused or not (the window not key): the same grey, never blue.
+        controller.setWindowActive(false)
+        #expect(Self.same(controller.palette.selectionInactive, grey))
+        #expect(!Self.same(controller.palette.selectionInactive, blue))
+        #expect(Self.same(controller.palette.selectionActive, controller.palette.selectionInactive))
     }
 
     @Test func composeAndFilterAreTheSameRoundButton() throws {

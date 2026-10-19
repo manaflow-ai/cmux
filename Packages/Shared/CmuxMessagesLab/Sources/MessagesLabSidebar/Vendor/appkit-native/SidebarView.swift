@@ -22,6 +22,22 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     /// v1.1: the selection and menu-ring accent in a key window (nil: the system's selection
     /// color and accent). The selected row's text stays white on it.
     var selectionColor: NSColor? { didSet { colorsChanged() } }
+    // cmux: Home's neutral selection (no system blue, as the user asked): the selected row or tile
+    // takes the unemphasized grey in every window state, its text keeps the label colour, and an
+    // unselected pinned name is secondary grey (Messages' pinned grid). The selection's text still
+    // draws `emphasized`, so a selected tile's name is the brighter label colour.
+    var neutralSelection = false {
+        didSet {
+            guard neutralSelection != oldValue else { return }
+            if let active = requestedWindowActive { setWindowActive(active) } else { setWindowActive(true) }
+            if isViewLoaded { appearanceChanged() }
+        }
+    }
+    private var requestedWindowActive: Bool? // cmux: the window state the host last set
+    // cmux: the host draws the filter button as a round glass button (Messages' toolbar buttons):
+    // a square of this side centred on the search field, with the plain filter glyph (no drawn
+    // circle). Nil keeps MessagesLab's 26 pt accessory button.
+    var roundFilterSide: CGFloat? { didSet { if roundFilterSide != oldValue { updateFilterButton(); view.needsLayout = true } } }
     /// The resolved colors (tests).
     var currentPalette: SidebarPalette { palette }
     /// The highlighted row: a conversation id, or an extra result's internal id (`extraID`).
@@ -548,8 +564,10 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     private func updateFilterButton() {
         let m = NSMenu()
         let on = filter != .all
-        let symbol = NSImage(systemSymbolName: on ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
-                             accessibilityDescription: SidebarStrings.filter)
+        // cmux: the round button draws its own circle, so its glyph is the plain one (Messages').
+        let name = roundFilterSide != nil ? "line.3.horizontal.decrease"
+            : on ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle"
+        let symbol = NSImage(systemSymbolName: name, accessibilityDescription: SidebarStrings.filter)
         let head = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         head.image = symbol
         m.addItem(head)   // a pull-down's first item is its title
@@ -767,9 +785,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
     func layout(in bounds: CGRect) {
         let M = SidebarMetrics.self
         let top = M.titlebar
-        let fb: CGFloat = filterButton.isHidden || bounds.width < SidebarMetrics.compactBelow ? 0 : 28
+        let side = roundFilterSide ?? 26 // cmux: the host's round button side
+        let gap: CGFloat = roundFilterSide == nil ? 2 : 8 // cmux
+        let fb: CGFloat = filterButton.isHidden || bounds.width < SidebarMetrics.compactBelow ? 0 : side + gap
         searchField.frame = CGRect(x: M.searchInsetX, y: top, width: max(0, bounds.width - 2 * M.searchInsetX - fb), height: M.searchHeight)
-        filterButton.frame = CGRect(x: bounds.width - M.searchInsetX - fb + 2, y: top + (M.searchHeight - 26) / 2, width: max(0, fb - 2), height: 26)
+        filterButton.frame = CGRect(x: bounds.width - M.searchInsetX - fb + gap, y: top + ((M.searchHeight - side) / 2).rounded(), width: max(0, fb - gap), height: side)
         let listTop = top + M.searchHeight + M.searchBottomGap
         let sf = CGRect(x: 0, y: listTop, width: bounds.width, height: max(0, bounds.height - listTop))
         if scrollView.frame != sf { scrollView.frame = sf }
@@ -982,7 +1002,7 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         l.dot.isHidden = !c.unread
         l.dot.frame = CGRect(x: metrics.dotCenterX - d / 2, y: frame.height / 2 - d / 2, width: d, height: d)
         l.dot.cornerRadius = d / 2
-        l.dot.backgroundColor = k.emphasized ? palette.selectedText : palette.unread
+        l.dot.backgroundColor = k.emphasized && !neutralSelection ? palette.selectedText : palette.unread // cmux: neutral keeps the dot
         l.separator.isHidden = l.separator.isHidden || compact
         l.time.isHidden = compact
         l.content.isHidden = compact
@@ -1534,10 +1554,11 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         guard p != palette || bellSecondary == nil else { return }
         palette = p
         bellSecondary = Self.bell(NSColor.secondaryLabelColor, view.effectiveAppearance, scale: renderContext.scale)
-        bellSelected = Self.bell(NSColor.white, view.effectiveAppearance, scale: renderContext.scale)
+        // cmux: on the neutral selection the glyphs keep their unselected colours (white was unreadable on light grey).
+        bellSelected = Self.bell(neutralSelection ? NSColor.secondaryLabelColor : NSColor.white, view.effectiveAppearance, scale: renderContext.scale)
         // Not delivered: systemRed exclamationmark.circle.fill, 12 pt (size and place to verify).
         failedGlyph = Self.symbol("exclamationmark.circle.fill", size: 12, NSColor.systemRed, view.effectiveAppearance, scale: renderContext.scale)
-        failedSelected = Self.symbol("exclamationmark.circle.fill", size: 12, NSColor.white, view.effectiveAppearance, scale: renderContext.scale)
+        failedSelected = Self.symbol("exclamationmark.circle.fill", size: 12, neutralSelection ? NSColor.systemRed : NSColor.white, view.effectiveAppearance, scale: renderContext.scale) // cmux
         invalidateAll()
     }
     private func colorsChanged() {  // no selector
@@ -1546,10 +1567,19 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         invalidateAll()
     }
     private func resolvePalette() -> SidebarPalette {
-        SidebarPalette.resolve(view.effectiveAppearance, unreadColor: unreadColor, selectionColor: selectionColor)
+        var p = SidebarPalette.resolve(view.effectiveAppearance, unreadColor: unreadColor, selectionColor: selectionColor)
+        // cmux: neutral selection (see `neutralSelection`).
+        if neutralSelection {
+            p.selectionActive = p.selectionInactive
+            p.selectedText = p.name
+            p.pinName = p.secondary
+        }
+        return p
     }
     func scaleChanged() { avatars.removeAll(); invalidateAll() }
     func setWindowActive(_ active: Bool) {
+        requestedWindowActive = active // cmux
+        let active = active || neutralSelection // cmux: neutral selection looks the same in every window state
         guard active != windowActive else { return }
         windowActive = active
         CATransaction.begin(); CATransaction.setDisableActions(true)
