@@ -44,6 +44,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
+    /// A divider or column drag's daemon commands, one in flight per gesture (only the newest value waits).
+    lazy var gestureCommands = GestureCommandCoalescer { [daemon] label, body in await daemon.run(label, body) }
     /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
