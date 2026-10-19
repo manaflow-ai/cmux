@@ -81,13 +81,53 @@ enum SessionPersistencePolicy {
         return String(text[safeStart...])
     }
 
-    /// Bounds one terminal's scrollback for a session snapshot.
+    /// Bounds one terminal's scrollback for a session snapshot and reports
+    /// whether older output was dropped.
     ///
-    /// The character tail stays in `truncatedScrollback` so ANSI-safe clipping
-    /// (#15649) is unchanged. `wasTruncated` is false until a caller records
-    /// that the line or character cap actually dropped older output.
+    /// Line clipping uses the same tail as terminal capture. The character
+    /// tail stays in `truncatedScrollback`, so ANSI-safe clipping (#15649)
+    /// is unchanged.
     static func persistedScrollback(_ text: String?) -> SessionPersistedScrollback {
-        SessionPersistedScrollback(text: truncatedScrollback(text), wasTruncated: false)
+        guard let text, !text.isEmpty else {
+            return SessionPersistedScrollback(text: nil, wasTruncated: false)
+        }
+        let tailed = TerminalController.tailTerminalLines(
+            text,
+            maxLines: maxScrollbackLinesPerTerminal
+        )
+        let lineTruncated = tailed.count != text.count
+        guard let bounded = truncatedScrollback(tailed) else {
+            return SessionPersistedScrollback(text: nil, wasTruncated: lineTruncated)
+        }
+        return SessionPersistedScrollback(
+            text: bounded,
+            wasTruncated: lineTruncated || bounded.count != tailed.count
+        )
+    }
+
+    /// Prefers a fresh capture over fallback scrollback, and keeps a fallback
+    /// truncation marker when the stored tail is already inside the caps.
+    static func persistedSnapshotScrollback(
+        capturedScrollback: String?,
+        fallbackScrollback: String?,
+        fallbackWasTruncated: Bool = false,
+        allowFallbackScrollback: Bool = true
+    ) -> SessionPersistedScrollback {
+        let captured = persistedScrollback(capturedScrollback)
+        if captured.text != nil {
+            return captured
+        }
+        guard allowFallbackScrollback else {
+            return SessionPersistedScrollback(text: nil, wasTruncated: false)
+        }
+        let fallback = persistedScrollback(fallbackScrollback)
+        guard let text = fallback.text else {
+            return SessionPersistedScrollback(text: nil, wasTruncated: false)
+        }
+        return SessionPersistedScrollback(
+            text: text,
+            wasTruncated: fallback.wasTruncated || fallbackWasTruncated
+        )
     }
 
     /// If truncation starts in the middle of an ANSI control sequence, advance
@@ -2055,21 +2095,22 @@ enum SessionScrollbackReplayStore {
         scrollbackWasTruncated: Bool = false,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> URL? {
-        guard let replayText = normalizedScrollback(scrollback) else { return nil }
-        // `scrollbackWasTruncated` is accepted so restore can pass the snapshot
-        // marker. The replay notice is added with the truncation fix.
-        _ = scrollbackWasTruncated
+        guard var replayText = normalizedScrollback(scrollback) else { return nil }
+        if scrollbackWasTruncated {
+            // Prepend after the character cap so the notice is not clipped off
+            // the front of an already-full tail.
+            replayText = truncationNoticeLine() + "\n" + replayText
+        }
         return writeReplayFile(contents: replayText, tempDirectory: tempDirectory)
     }
     /// One plain line shown above a restored scrollback tail.
+    ///
+    /// The numbers match `SessionPersistencePolicy.maxScrollbackLinesPerTerminal`
+    /// and `maxScrollbackCharactersPerTerminal`.
     nonisolated static func truncationNoticeLine() -> String {
-        String.localizedStringWithFormat(
-            String(
-                localized: "session.scrollback.truncatedRestoreNotice",
-                defaultValue: "[cmux] Older terminal output was omitted from this restore. Snapshots keep the latest %lld lines or %lld characters."
-            ),
-            Int64(SessionPersistencePolicy.maxScrollbackLinesPerTerminal),
-            Int64(SessionPersistencePolicy.maxScrollbackCharactersPerTerminal)
+        String(
+            localized: "session.scrollback.truncatedRestoreNotice",
+            defaultValue: "[cmux] Older terminal output was omitted from this restore. Snapshots keep the latest 4,000 lines or 400,000 characters."
         )
     }
 

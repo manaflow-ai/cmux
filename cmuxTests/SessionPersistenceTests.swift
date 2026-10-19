@@ -1536,22 +1536,6 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNotEqual(restored.minY, -90, "Changed display geometry should clamp/remap frame")
     }
 
-    private func containsIntegerToken(_ value: Int, in text: String) -> Bool {
-        let token = String(value)
-        var remainder = Substring(text)
-        while let range = remainder.range(of: token) {
-            let beforeIsDigit = range.lowerBound > remainder.startIndex
-                && remainder[remainder.index(before: range.lowerBound)].isNumber
-            let afterIsDigit = range.upperBound < remainder.endIndex
-                && remainder[range.upperBound].isNumber
-            if !beforeIsDigit && !afterIsDigit {
-                return true
-            }
-            remainder = remainder[range.upperBound...]
-        }
-        return false
-    }
-
     func testResolvedSnapshotTerminalScrollbackPrefersCaptured() {
         let resolved = Workspace.resolvedSnapshotTerminalScrollback(
             capturedScrollback: "captured-value",
@@ -1633,6 +1617,25 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(charPersisted.text, atCharCap)
     }
 
+    func testPersistedSnapshotScrollbackKeepsFallbackTruncation() {
+        let fallback = "already-bounded tail\n"
+        let persisted = SessionPersistencePolicy.persistedSnapshotScrollback(
+            capturedScrollback: nil,
+            fallbackScrollback: fallback,
+            fallbackWasTruncated: true
+        )
+        XCTAssertEqual(persisted.text, fallback)
+        XCTAssertTrue(persisted.wasTruncated)
+
+        let fresh = SessionPersistencePolicy.persistedSnapshotScrollback(
+            capturedScrollback: "fresh\n",
+            fallbackScrollback: fallback,
+            fallbackWasTruncated: true
+        )
+        XCTAssertEqual(fresh.text, "fresh\n")
+        XCTAssertFalse(fresh.wasTruncated)
+    }
+
     func testLegacyTerminalSnapshotDecodesWithoutTruncationFlag() throws {
         let json = #"{"workingDirectory":"/tmp","scrollback":"kept tail"}"#
         let decoded = try JSONDecoder().decode(
@@ -1677,18 +1680,8 @@ final class SessionPersistenceTests: XCTestCase {
 
         XCTAssertTrue(contents.hasPrefix(notice + "\n"))
         XCTAssertTrue(contents.contains(String(repeating: "x", count: 32)))
-        XCTAssertTrue(
-            containsIntegerToken(
-                SessionPersistencePolicy.maxScrollbackLinesPerTerminal,
-                in: notice
-            )
-        )
-        XCTAssertTrue(
-            containsIntegerToken(
-                SessionPersistencePolicy.maxScrollbackCharactersPerTerminal,
-                in: notice
-            )
-        )
+        XCTAssertEqual(SessionPersistencePolicy.maxScrollbackLinesPerTerminal, 4_000)
+        XCTAssertEqual(SessionPersistencePolicy.maxScrollbackCharactersPerTerminal, 400_000)
 
         let completeURL = try XCTUnwrap(
             SessionScrollbackReplayStore.replayFileURL(
