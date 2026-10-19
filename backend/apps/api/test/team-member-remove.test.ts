@@ -234,6 +234,11 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     // The host stays for an owner to reassign; it says whose it was.
     expect(after.host).toMatchObject({ id: hostId, owner_user: member.user, orphaned: { former_owner: member.user } })
     expect(after.other?.orphaned).toBeUndefined()
+    // The orphaned host's read replica is dropped (object-sync phase 3); another member's host keeps its replica.
+    await fireAlarm(team(owner.team))
+    const dropped = (id: string) => inDO(testEnv.HOST_DO.get(testEnv.HOST_DO.idFromName(id)), async (_i, st) => st.storage.sql.exec(`SELECT reason FROM replica_dropped`).toArray())
+    expect(await dropped(hostId)).toEqual([{ reason: "the host's owner left the team" }])
+    expect(await dropped(otherHost)).toEqual([])
   })
 
   it("ends the member's SSO sessions of the team, so no new install gets the team's SSO from them", async () => {
