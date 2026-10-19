@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -240,7 +241,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// This Mac in the terminal's shared sizing: views name it, and their attach joins
     /// `shared-sizing-v1` (size states for "Sized for", and the Mac's name on other devices).
     /// Read once, off the main actor (MacName).
-    static let sizingDevice = Task { TerminalSizingDevice(kind: "mac", name: await MacName.computerName()) }
+    static let sizingDevice = Task { TerminalSizingDevice(kind: "mac", name: await MacName().computerName()) }
 
     static func sizedFor(_ notice: TerminalSizeNotice) -> TerminalSizedFor {
         TerminalSizedFor(deviceName: notice.ownerName, deviceKind: notice.ownerKind, sameDevice: notice.sameDevice,
