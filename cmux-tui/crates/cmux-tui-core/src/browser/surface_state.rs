@@ -152,7 +152,11 @@ impl BrowserSurface {
         self.prepare_provider_session_replacement(|session| {
             !lease.is_some_and(|lease| {
                 session.target_id == lease.target_id
-                    && session.runtime.matches_provider(&lease.endpoint, &lease.authentication)
+                    && session.runtime.matches_provider(
+                        &lease.endpoint,
+                        &lease.authentication,
+                        lease.hosting,
+                    )
             })
         })
     }
@@ -192,6 +196,9 @@ impl BrowserSurface {
         state.accepted_frame_epoch = frame_epoch;
         state.page_viewport = None;
         state.status = BrowserStatus::Starting;
+        // The replacement session starts its own screencast (or none).
+        state.screencast_paused = false;
+        state.frame_demand_retry_at = None;
         state.failure_kind = None;
         state.source = None;
         state.title = state.url.clone();

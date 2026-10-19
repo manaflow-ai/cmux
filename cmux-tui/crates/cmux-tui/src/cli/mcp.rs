@@ -8,13 +8,22 @@
 //! public ids, idempotency keys, read barriers and deadlines. Off by default:
 //! `serve` refuses unless cmux.json sets `"mcp": {"enabled": true}`, it
 //! speaks only on stdin and stdout, and nothing listens on the network
-//! (plans/cmux-next/mcp.md).
+//! (plans/cmux-next/mcp.md). `serve` speaks code mode (`code_mode`): two
+//! tools that search this tool list and run scripts against it;
+//! `serve --all-tools` lists every tool instead. `CMUX_MCP_TOOLS` (a
+//! comma-separated allowlist, the Chief's turns) lists exactly those tools
+//! and refuses every other call, from a script too.
 
 mod action_tools;
+mod agent_events_tool;
+mod agent_tools;
+mod agent_wait_tool;
 mod browser_tools;
+mod code_mode;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod render_tool;
 mod schema;
 #[cfg(test)]
 mod tests;
@@ -22,16 +31,18 @@ mod transport;
 mod v2_tools;
 mod watch;
 
+use std::collections::BTreeSet;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
 use super::command::RequestPlan;
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
-use transport::{CallFailure, FailureKind, Prefix};
+use transport::Prefix;
+pub(super) use transport::{CallFailure, FailureKind};
 
 /// Runs one daemon request for the agent composite surface. The composite
 /// surface uses the same socket discovery, routing, idempotency and deadline
@@ -50,12 +61,20 @@ pub(super) fn agent_app(
     timeout: Duration,
     idempotency_key: Option<&str>,
 ) -> Result<Value, Value> {
-    transport::app_method(global, method, params, timeout, idempotency_key)
+    transport::app_method(global, method, params, timeout, idempotency_key, false)
         .map_err(agent_failure_value)
 }
 
+/// The CLI's transport as a `Backend`, so the agent composite surface runs
+/// one code path for the CLI and for MCP tools.
+pub(super) fn cli_backend(global: GlobalArgs) -> impl Backend {
+    LiveBackend { global }
+}
+
+/// A failed owner call as the CLI prints it: the owner's error with its
+/// `state` and idempotency key in `details`.
 #[cfg(unix)]
-fn agent_failure_value(failure: CallFailure) -> Value {
+pub(super) fn agent_failure_value(failure: CallFailure) -> Value {
     let mut error = failure.error;
     if let Some(object) = error.as_object_mut() {
         let details = object.entry("details").or_insert_with(|| Value::Object(Map::new()));
@@ -106,18 +125,34 @@ pub(super) trait Backend {
         plan: RequestPlan,
         prefixes: &[Prefix],
     ) -> Result<Value, CallFailure>;
+    /// `mutation`: the request changes app state, so a transport failure
+    /// after sending leaves its outcome unknown (`in_progress`).
     fn app(
         &self,
         method: &str,
         params: Value,
         timeout: Duration,
         idempotency_key: Option<&str>,
+        mutation: bool,
     ) -> Result<Value, CallFailure>;
     fn browser(
         &self,
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// Holds the session daemon's `session.events` stream open until
+    /// `deadline` and calls `on_wake` with each item (the initial snapshot
+    /// first, or with `cursor` the journal batches after it), and with
+    /// `None` after each `tick` without one, until it returns `true`. An
+    /// error means no stream opened.
+    fn session_events(
+        &self,
+        session: Option<&str>,
+        cursor: Option<&Value>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure>;
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -125,13 +160,9 @@ struct LiveBackend {
     global: GlobalArgs,
 }
 
-impl Backend for LiveBackend {
-    fn resource(
-        &self,
-        session: Option<&str>,
-        plan: RequestPlan,
-        prefixes: &[Prefix],
-    ) -> Result<Value, CallFailure> {
+impl LiveBackend {
+    /// The global options with the call's session.
+    fn routed(&self, session: Option<&str>) -> Result<GlobalArgs, CallFailure> {
         let mut global = self.global.clone();
         if let Some(session) = session
             && global.session.as_deref() != Some(session)
@@ -145,7 +176,29 @@ impl Backend for LiveBackend {
             }
             global.session = Some(session.to_owned());
         }
-        transport::resource(&global, plan, prefixes)
+        Ok(global)
+    }
+}
+
+impl Backend for LiveBackend {
+    fn resource(
+        &self,
+        session: Option<&str>,
+        plan: RequestPlan,
+        prefixes: &[Prefix],
+    ) -> Result<Value, CallFailure> {
+        transport::resource(&self.routed(session)?, plan, prefixes)
+    }
+
+    fn session_events(
+        &self,
+        session: Option<&str>,
+        cursor: Option<&Value>,
+        deadline: Instant,
+        tick: Duration,
+        on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure> {
+        transport::session_events(&self.routed(session)?, cursor, deadline, tick, on_wake)
     }
 
     fn app(
@@ -154,8 +207,9 @@ impl Backend for LiveBackend {
         params: Value,
         timeout: Duration,
         idempotency_key: Option<&str>,
+        mutation: bool,
     ) -> Result<Value, CallFailure> {
-        transport::app_method(&self.global, method, params, timeout, idempotency_key)
+        transport::app_method(&self.global, method, params, timeout, idempotency_key, mutation)
     }
 
     fn browser(
@@ -182,7 +236,8 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
             println!("{usage}");
             0
         }
-        [command] if command == "serve" => serve(global),
+        [command] if command == "serve" => serve(global, true),
+        [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
         _ => {
             eprintln!("cmux: {usage}");
@@ -191,18 +246,52 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
 }
 
+/// The env acpmux gives the cmux MCP server of an agent chat
+/// (`CMUX_AGENT_SESSION`, acpmux `agent_tools.rs`).
+const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
+
+/// The env acpmux gives the cmux MCP server of a session whose preset names
+/// the tools it may use (acpmux `agent_tools::MCP_TOOLS_ENV`, the Chief's
+/// turns). Fail closed: an empty value allows no tool.
+const ALLOWED_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The allowlist in `value`, or `None` when the env is unset.
+fn allowed_tools(value: Option<std::ffi::OsString>) -> Option<BTreeSet<String>> {
+    let value = value?;
+    Some(
+        value
+            .to_str()
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
 /// Why `serve` must not run with the settings file at `path`, or `None`
-/// when cmux.json turns the server on.
+/// when cmux.json turns the server on. An agent chat that cmux started
+/// (`CMUX_AGENT_SESSION` set) has it on unless the file says `false`
+/// (cx-wx93i, Lawrence 2026-10-14: every agent chat gets the cmux MCP tools
+/// by default); any other client needs `"mcp": {"enabled": true}`. The env
+/// is no security boundary: the same process can run the cmux CLI.
 pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
+    let agent_chat = std::env::var_os(AGENT_SESSION_ENV).is_some_and(|v| !v.is_empty());
+    refusal_for(path, agent_chat)
+}
+
+fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
     let messages = messages::messages();
-    match config::enabled(path) {
-        Ok(true) => None,
-        Ok(false) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
+    match config::setting(path) {
+        Ok(Some(true)) => None,
+        Ok(None) if agent_chat => None,
+        Ok(_) => Some(messages.disabled.replace("{path}", &path.display().to_string())),
         Err(error) => Some(messages.config_invalid.replace("{error}", &error)),
     }
 }
 
-fn serve(global: GlobalArgs) -> i32 {
+fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     let path = config::path();
     if let Some(message) = refusal(&path) {
         eprintln!("cmux: {message}");
@@ -215,6 +304,8 @@ fn serve(global: GlobalArgs) -> i32 {
     watch::spawn(global.clone(), output.clone());
     let mut server = Server::new(LiveBackend { global }, Some(path));
     server.list_changed = true;
+    server.code_mode = code_mode;
+    server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
     server.run(io::stdin().lock(), &output)
 }
 
@@ -279,6 +370,15 @@ pub(super) struct Server<B> {
     list_changed: bool,
     /// The client sent `notifications/initialized`.
     initialized: bool,
+    /// `tools/list` offers only `cmux_docs` and `cmux_exec` (`code_mode`).
+    code_mode: bool,
+    /// What one `cmux_exec` script may use.
+    script_limits: code_mode::Limits,
+    /// `CMUX_MCP_TOOLS`: the only tools listed and callable. It turns code
+    /// mode off (the few tools are listed directly).
+    allowed: Option<BTreeSet<String>>,
+    /// Where `run` writes, for a call's `notifications/progress`.
+    notes: Option<watch::Output>,
 }
 
 impl<B: Backend> Server<B> {
@@ -291,11 +391,16 @@ impl<B: Backend> Server<B> {
             actions_loaded: false,
             list_changed: false,
             initialized: false,
+            code_mode: false,
+            script_limits: code_mode::Limits::default(),
+            allowed: None,
+            notes: None,
         }
     }
 
     /// Answers each line of `input` on `output` until stdin closes.
     pub(super) fn run(&mut self, mut input: impl BufRead, output: &watch::Output) -> i32 {
+        self.notes = Some(output.clone());
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -350,8 +455,14 @@ impl<B: Backend> Server<B> {
         let id = id?;
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
-            "initialize" => Ok(initialize(&params, self.list_changed)),
+            "initialize" => {
+                Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
+            }
             "ping" => Ok(json!({})),
+            "tools/list" if self.code_mode && self.allowed.is_none() => {
+                let tools = self.list();
+                Ok(json!({ "tools": code_mode::descriptors(&tools) }))
+            }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => self.call(&params),
             _ => Err((-32601, format!("method not found: {method}"))),
@@ -363,7 +474,8 @@ impl<B: Backend> Server<B> {
     }
 
     /// Every tool: the daemon operations, the browser host's REPL ops,
-    /// `window_list`, and the app's CLI actions when the app answers.
+    /// `window_list`, `agents_snapshot`, `agents_doctor`, `render`, and the app's CLI actions
+    /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
         let mut tools =
@@ -372,15 +484,23 @@ impl<B: Backend> Server<B> {
             .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
         tools.push(super::agents::snapshot_tool());
+        tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
+        tools.push(super::agents_doctor::mcp_tool());
+        tools.push(agent_wait_tool::descriptor());
+        tools.push(agent_events_tool::descriptor());
+        tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
+        if let Some(allowed) = &self.allowed {
+            tools.retain(|tool| tool["name"].as_str().is_some_and(|name| allowed.contains(name)));
+        }
         tools
     }
 
     fn refresh_actions(&mut self) {
-        match self.backend.app("action.list", json!({}), super::app::READ_TIMEOUT, None) {
+        match self.backend.app("action.list", json!({}), super::app::READ_TIMEOUT, None, false) {
             Ok(list) => {
                 (self.actions, self.action_exclusions) = action_tools::from_list(&list);
                 self.actions_loaded = true;
@@ -411,6 +531,34 @@ impl<B: Backend> Server<B> {
                 "retryable": false,
             });
             return Ok(tool_error(envelope(error, "not_run", None)));
+        }
+        if let Some(allowed) = &self.allowed
+            && !allowed.contains(name)
+        {
+            let error = json!({
+                "code": "tool.not_allowed",
+                "message": format!("this chat may not use {name}"),
+                "details": {},
+                "retryable": false,
+            });
+            return Ok(tool_error(envelope(error, "not_run", None)));
+        }
+        if name == code_mode::DOCS {
+            let tools = self.list();
+            return Ok(match code_mode::docs(&tools, &arguments) {
+                Ok(value) => success(value, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
+        }
+        if name == code_mode::EXEC {
+            // One tool list per script, for its docs searches.
+            let mut tools = None;
+            let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
+                self.script_request(request, &mut tools)
+            });
+            return Ok(answered.unwrap_or_else(|message| {
+                tool_error(envelope(v2_tools::invalid(message), "not_run", None))
+            }));
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -475,7 +623,7 @@ impl<B: Backend> Server<B> {
                 .map_err(agent_failure_value);
             let app = self
                 .backend
-                .app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None)
+                .app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None, false)
                 .map_err(agent_failure_value);
             let snapshot = super::agents::compose_snapshot(daemon, app);
             if let Some(error) = super::agents::snapshot_error(&snapshot) {
@@ -483,10 +631,50 @@ impl<B: Backend> Server<B> {
             }
             return Ok(success(super::agents::snapshot_page(snapshot, offset, limit), false));
         }
+        if name == super::agents_doctor::MCP_TOOL {
+            // Read-only: the CLI's checks, and at most one app read.
+            let app_status = || {
+                self.backend
+                    .app(
+                        super::agents_doctor::STATUS_METHOD,
+                        json!({}),
+                        super::app::READ_TIMEOUT,
+                        None,
+                        false,
+                    )
+                    .map_err(agent_failure_value)
+            };
+            return Ok(match super::agents_doctor::mcp_findings(&arguments, app_status) {
+                Ok(report) => success(report, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
+        }
+        if let Some(tool) = agent_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
+        }
+        if name == agent_wait_tool::NAME {
+            let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
+            return Ok(agent_wait_tool::call(&self.backend, &arguments, progress));
+        }
+        if name == agent_events_tool::NAME {
+            return Ok(agent_events_tool::call(&self.backend, &arguments));
+        }
+        if name == render_tool::NAME {
+            return Ok(match render_tool::receipt(&arguments) {
+                Ok(receipt) => success(receipt, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
+        }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
                 Ok(params) => {
-                    match self.backend.app(tool.method, params, super::app::READ_TIMEOUT, None) {
+                    match self.backend.app(
+                        tool.method,
+                        params,
+                        super::app::READ_TIMEOUT,
+                        None,
+                        false,
+                    ) {
                         Ok(value) => success(value, false),
                         Err(failure) => failure_result(failure),
                     }
@@ -501,6 +689,36 @@ impl<B: Backend> Server<B> {
             return Err((-32602, format!("unknown tool: {name}")));
         };
         Ok(self.call_action(tool, &arguments))
+    }
+
+    /// One request from a running `cmux_exec` script: a tool call through
+    /// `call`, so a script has the rights of a direct call, or a docs search.
+    fn script_request(
+        &mut self,
+        request: code_mode::Request,
+        tools: &mut Option<Vec<Value>>,
+    ) -> Value {
+        match request {
+            code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
+                code_mode::script_answer(Err((
+                    -32602,
+                    "a script cannot start another script".into(),
+                )))
+            }
+            code_mode::Request::Call { name, arguments } => {
+                code_mode::script_answer(self.call(&json!({"name": name, "arguments": arguments})))
+            }
+            code_mode::Request::Docs { query } => {
+                let tools = match tools {
+                    Some(tools) => tools,
+                    None => tools.insert(self.list()),
+                };
+                let mut arguments = Map::new();
+                arguments.insert("query".into(), Value::String(query));
+                code_mode::docs(tools, &arguments)
+                    .unwrap_or_else(|message| json!({"error": message}))
+            }
+        }
     }
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
@@ -529,7 +747,7 @@ impl<B: Backend> Server<B> {
                 None,
             ));
         }
-        match self.backend.app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None) {
+        match self.backend.app("snapshot.get", json!({}), super::app::READ_TIMEOUT, None, false) {
             Ok(snapshot) => success(json!({ "items": snapshot["topology"]["windows"] }), false),
             Err(failure) => failure_result(failure),
         }
@@ -540,15 +758,15 @@ impl<B: Backend> Server<B> {
             Ok(run) => run,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
         };
-        let timeout = super::app::WAITING_RUN_TIMEOUT;
-        match self.backend.app("action.run", params, timeout, key.as_deref()) {
+        let timeout = super::app::waiting_run_timeout(&tool.cli_name);
+        match self.backend.app("action.run", params, timeout, key.as_deref(), true) {
             Ok(value) => success(value, true),
             Err(failure) => failure_result(failure),
         }
     }
 }
 
-fn initialize(params: &Value, list_changed: bool) -> Value {
+fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
     let requested = params["protocolVersion"].as_str();
     let version = PROTOCOL_VERSIONS
         .iter()
@@ -558,7 +776,7 @@ fn initialize(params: &Value, list_changed: bool) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": INSTRUCTIONS,
+        "instructions": if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
     })
 }
 

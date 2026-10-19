@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-send-stop.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -31,6 +32,7 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // One throwaway load of the same stage first. Cold, beside the parallel test batch, compiling
     // the stage (every gallery entry file, then the dependency optimizer, which reloads the page
@@ -58,10 +60,15 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
   test("stops a running turn and restores Send after the host snapshot", async () => {
     const page: Page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
     await page.goto(stageURL());
-    await page.waitForFunction(() => {
-      const ready = document.documentElement.dataset.galleryReady;
-      return ready === "1" || ready === "error";
-    });
+    // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
+    await page.waitForFunction(
+      () => {
+        const ready = document.documentElement.dataset.galleryReady;
+        return ready === "1" || ready === "error";
+      },
+      undefined,
+      { timeout: 90_000 },
+    );
 
     const state = await page.evaluate(() => ({
       send: document.querySelector('button[aria-label="Send"]') !== null,

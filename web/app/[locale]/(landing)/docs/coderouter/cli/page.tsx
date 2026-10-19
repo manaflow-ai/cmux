@@ -86,7 +86,8 @@ cmux coderouter usage [--json|--tsv] [--days <n>]
 cmux coderouter models
 cmux coderouter accounts [--json]
 cmux coderouter org current [--json]
-cmux coderouter agent <claude|codex|opencode|pi> [--timeout <seconds>] [args...]`}</CodeBlock>
+cmux coderouter agent <claude|codex|opencode|pi> [--timeout <seconds>] [args...]
+cr use [own|team|auto] [claude|codex|opencode] [--json]   # your own sign-in or the team's accounts`}</CodeBlock>
 
       <DocsHeading level={2} id="troubleshooting">{t("troubleTitle")}</DocsHeading>
       <p>{t("troubleDesc")}</p>

@@ -5,7 +5,9 @@
 // workspace named, the session's Home workspace), so every host (the app, a plain browser,
 // Chromium, GPUI) gets the same result. A daemon without the operation, or one that cannot open a
 // browser engine gets the click as before: the page only takes a click when the daemon names the
-// operation's capability (`workspace-open-url-v1` in `identify`).
+// operation's capability (`workspace-open-url-v1` in `identify`). The daemon takes the operation
+// from a page only with the person's confirmation, so the handler is installed only where the host
+// relays the click with one (not yet: cx-ebm.59.6).
 import type { DaemonSocket } from "../shared/daemonSocket";
 
 /** An http(s) link the click landed on, when it is the person's own plain click. */

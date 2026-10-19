@@ -26,6 +26,9 @@ public struct Motion {
     /// (`NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`).
     public static let reduceMotionDidChange = Notification.Name("CmuxNextDesign.Motion.reduceMotionDidChange")
 
+    /// Posted on the main actor when `ui.animationSpeed` (`DesignSettings.animationSpeed`) changes.
+    public static let speedDidChange = Notification.Name("CmuxNextDesign.Motion.speedDidChange")
+
     /// System Reduce Motion (Accessibility > Display), or the test override.
     public static var reduceMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -33,10 +36,24 @@ public struct Motion {
 
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }
 
-    public static var policy: MotionPolicy { MotionPolicy(speed: speed, reduceMotion: reduceMotion) }
+    public static var policy: MotionPolicy {
+        let design = DesignSettings.shared
+        return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
+                            enabledKinds: design.enabledAnimations, liveResize: isLiveResizing)
+    }
+
+    /// `kind` animates: movement animates (not `off`, not Reduce Motion, not a
+    /// live resize) and its `ui.animations.*` switch is on. When false the
+    /// change applies in one frame, with no crossfade.
+    public static func animates(_ kind: MotionKind) -> Bool { policy.animates(kind) }
 
     /// Position, size, scale and scroll animate. When false, snap.
     public static var animatesMovement: Bool { policy.animatesMovement }
+    /// Pane layout changes (split, close, move, swap, zoom, column reveal,
+    /// screen switch) spring: `ui.paneAnimations` is on and movement
+    /// animates. Off by default, so they apply in one frame; direct
+    /// manipulation (trackpad fling, wheel, divider drag) keeps its physics.
+    public static var animatesPaneLayout: Bool { DesignSettings.shared.paneAnimations && animatesMovement }
     /// Opacity and color changes animate.
     public static var animatesFades: Bool { policy.animatesFades }
     /// Spinners and pulses run.
@@ -46,6 +63,12 @@ public struct Motion {
     public static func duration(_ token: MotionFade) -> TimeInterval { policy.duration(token) }
     public static func duration(_ token: MotionSpring) -> TimeInterval { policy.duration(token) }
     public static func period(_ loop: MotionLoop) -> TimeInterval? { policy.period(loop) }
+
+    /// Seconds of a released divider's velocity projected to find a snap; 0
+    /// when movement does not animate.
+    public static var dividerReleaseProjection: Double {
+        animatesMovement ? MotionTunables.dividerReleaseProjection.value * speed.timeScale : 0
+    }
 
     /// The standard ease-out curve for timed fades.
     public static var fadeCurve: CAMediaTimingFunction { CAMediaTimingFunction(name: .easeOut) }

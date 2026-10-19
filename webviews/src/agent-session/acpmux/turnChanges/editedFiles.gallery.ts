@@ -190,7 +190,7 @@ const variants: Record<string, AgentPaneVariant> = {
     snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
     play: async ({ click, waitFor, document }) => {
       await click({ selector: ".acpmux-summary-button" });
-      await waitFor(() => document.querySelector(".acpmux-summary-popover .acpmux-summary-file"));
+      await waitFor(() => document.querySelector(".acpmux-summary-card .acpmux-summary-file"));
     },
   },
   collapsed: {

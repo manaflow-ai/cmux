@@ -32,8 +32,10 @@ public enum DaemonEvent: Sendable, Hashable {
     /// Full resync barrier: refetch `list-workspaces`. `transaction` echoes
     /// the client transaction id of the command that caused it, when any.
     case treeChanged(transaction: ClientTransactionID?)
-    /// Pane geometry changed on a screen: refetch.
-    case layoutChanged(screen: ScreenID, transaction: ClientTransactionID?)
+    /// Pane geometry changed on a screen. With `layout-delta-v1` it carries
+    /// the screen's new layout, which patches that screen; without one
+    /// (an older daemon) the store refetches.
+    case layoutChanged(screen: ScreenID, layout: ScreenLayoutDelta?, transaction: ClientTransactionID?)
 
     // Surface state.
     case titleChanged(surface: SurfaceID, title: String)
@@ -66,6 +68,10 @@ public enum DaemonEvent: Sendable, Hashable {
     case conversationTyping(ConversationTyping)
     /// The running reply of an agent participant (ephemeral).
     case conversationDraft(ConversationDraft)
+    /// A Chief's live run frame (`chief-live-v1`, ephemeral): reply text so far and its activity line.
+    case conversationLive(ConversationLive)
+    /// A local run after an append (`conversation-runs-v1`): its status ends live text.
+    case conversationRunChanged(ConversationRunChanged)
     /// A `cloud-*` event of `cloud-conversations-v1` (cloud conversations,
     /// the account inbox, socket states and lease requests).
     case cloudConversations(CloudConversationsEvent)
@@ -97,9 +103,17 @@ extension DaemonEvent {
         // change resyncs; dropping its `agent-changed` behind that snapshot left the row on
         // "working" (cx-ag5.6.8). Each event carries the whole state of one surface.
         case .agentChanged, .agentPresenceChanged: true
+        // A notification's text is in its event alone; the snapshot has only the tab's unread
+        // marker. The daemon follows each notification with `tree-changed`, so a second one often
+        // lands while that resync's snapshot is in flight, under its barrier.
+        case .notification: true
         // The app supervisor's events (apps-v1): scene batches, changes and provider calls.
         // And browser pairings (cx-hnmbt.2): a dropped request would never show its Approve dialog.
-        case .unknown(let name, _): DaemonSideEvents.isAppsEvent(name) || name.hasPrefix("pairing-")
+        // Inventory leases have their own revision/lifecycle; a tree resync
+        // cannot replace a targeted invalidation or acknowledge an ended lease.
+        case .unknown(let name, _):
+            DaemonSideEvents.isAppsEvent(name) || name.hasPrefix("pairing-")
+                || name == "agent-inventory-changed" || name == "agent-inventory-watch-ended"
         default: false
         }
     }

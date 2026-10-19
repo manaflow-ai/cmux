@@ -13,6 +13,10 @@
 //
 // The engine comes from `playwright install webkit`; where it is not installed, the cases are
 // skipped and say so.
+//
+// Starting Vite, warming the gallery (every entry, about 2,300 modules) and 22 page loads took
+// about 115 s on the CI runner (run-webviews-tests.sh):
+// cmux-web-test-timeout: 240
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
@@ -20,7 +24,9 @@ import path from "node:path";
 import fs from "node:fs";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { loadEntries } from "../scripts/gallery/entries";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("text-field-focus.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -99,12 +105,13 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
+    await warmDevServer(base, "/gallery/frame.html");
     browser = await engine!.launch({ headless: true });
-  }, 120_000);
+  }, 300_000);
 
   afterAll(async () => {
     await browser?.close();
-    server?.kill();
+    stopDevServer(server);
   });
 
   type FieldReport = { field: string; ring: string; shown: boolean };
@@ -129,9 +136,14 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
             rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && !(field as HTMLInputElement).disabled
           );
         });
+      // A card under the composer's location strip draws its rim on ::before (composerLocation.css),
+      // so the rim's focus step is read there too.
       const look = (element: Element) => {
         const style = getComputedStyle(element);
-        return [style.boxShadow, style.borderColor, style.backgroundColor, style.color, style.outlineStyle].join("|");
+        const rim = getComputedStyle(element, "::before").boxShadow;
+        return [style.boxShadow, rim, style.borderColor, style.backgroundColor, style.color, style.outlineStyle].join(
+          "|",
+        );
       };
       const ancestors = (field: HTMLElement) => {
         const chain: Element[] = [];

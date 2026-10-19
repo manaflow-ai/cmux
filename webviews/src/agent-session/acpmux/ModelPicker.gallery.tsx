@@ -158,8 +158,13 @@ export default componentEntry<ModelPickerProps>({
         label: "Claude Code",
         catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z"),
       },
+      // An empty list never collapses the menu to its search field (Lawrence 2026-10-13).
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+          return !!menu && menu.style.visibility === "visible" && menu.getBoundingClientRect().height >= 219;
+        });
       },
     },
     curated: { props: curated, play: openModels },
@@ -179,6 +184,16 @@ export default componentEntry<ModelPickerProps>({
     "numeric-search": {
       props: { ...base },
       play: numericSearch,
+    },
+    // Codex is signed out on this Mac (cx-ae9eb): its rail tab dims, and its list offers Log In in
+    // place of models, so a pick never starts a chat that fails its first turn.
+    "signed-out": {
+      props: { ...base, signedOut: { codex: "codex login" }, onLogIn: () => undefined },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.click({ selector: ".acpmux-mp-harness[data-signed-out]" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
+      },
     },
     // A folder profile whose icon names no brand: the chip draws no mark (never a placeholder
     // square), and its rail tab its initial.

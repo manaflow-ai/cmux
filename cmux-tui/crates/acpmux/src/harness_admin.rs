@@ -263,10 +263,10 @@ fn ensure_dir(dir: &Path) -> Result<(), AdminError> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir).map_err(failed)
 }
-/// Windows port: owner-only is an ACL there (a later landing).
-#[cfg(not(unix))]
+/// Windows: an owner-only folder when made here (`owner_only.rs`).
+#[cfg(windows)]
 fn ensure_dir(dir: &Path) -> Result<(), AdminError> {
-    std::fs::DirBuilder::new().recursive(true).create(dir).map_err(failed)
+    crate::owner_only::create_dir_all(dir).map_err(failed)
 }
 
 /// Writes the profile `p` asks for. `registry` is the ACP Registry to use for

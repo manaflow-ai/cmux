@@ -39,11 +39,26 @@ export type AcpmuxSessionEntry = {
   preview?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
   parentId?: string;
+  /** Started by another session's agent (acpmux `spawnedBy`): it folds under that chat, off every list. */
+  spawnedBy?: string;
   forkSeq?: number;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
+  /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
+   *  the person, and no turn running or waiting): a New Tab's chip pick starts such a session before
+   *  its first prompt. */
+  unsent?: boolean;
   /** Its last turn completed: its harness profile runs here (signed in, routed). */
   worked?: boolean;
+  /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
+  lifecycleReceipt?: LifecycleReceipt;
+};
+
+export type LifecycleReceipt = {
+  id: string;
+  sequence: number;
+  state: string;
+  source: string;
 };
 
 export type SessionPullRequest = {
@@ -82,6 +97,18 @@ const ASIDE_TAG = "aside";
 /** Whether a session belongs in the sidebar, Home and recents: neither archived nor a side chat. */
 export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side;
 
+/** `entries` without the chats that fold under another of them (`spawnedBy`). A child whose parent
+ *  is not in `entries` (gone, archived, filtered out) or that waits on the user lists on its own,
+ *  so no chat is hidden everywhere. */
+export function withoutChildren(entries: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  const parents = new Set(entries.filter((entry) => !entry.spawnedBy).map((entry) => entry.sessionId));
+  return entries.filter((entry) => !folded(entry, parents));
+}
+
+/** Whether `entry` folds under a parent in `parents`: it has one there and needs no answer. */
+export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) =>
+  Boolean(entry.spawnedBy && parents.has(entry.spawnedBy) && sessionMark(entry, false) !== "input");
+
 /** Whether acpmux's tags (an object of key to value; a list in older fixtures) hold `tag`. */
 function tagged(tags: unknown, tag: string): boolean {
   if (Array.isArray(tags)) return tags.includes(tag);
@@ -109,7 +136,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     harness: session.harness,
     agentSessionId: text(session.agentSessionId),
     status: session.status,
-    model: session.model,
+    model: text(session.model),
     cwd: typeof session.cwd === "string" ? session.cwd : undefined,
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
@@ -127,10 +154,38 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
     parentId: text(session.parentId),
+    spawnedBy: text(session.spawnedBy),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
+    unsent:
+      session.lastPrompt === null &&
+      !(typeof session.turnCount === "number" && session.turnCount > 0) &&
+      // A first prompt waiting in the queue, a turn, or the person (a permission, an answer) is sent.
+      !(Number(session.queued) > 0) &&
+      !(Number(session.pendingPermissions) > 0) &&
+      session.inputSince == null &&
+      // Running or waiting is a first turn under way; any other state (an agent gone away) is not.
+      session.status !== "running" &&
+      session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
+    lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
   };
+}
+
+/** Reuses a direct-client entry while retaining compatibility with raw summary fixtures/callers. */
+export function normalizedSessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
+  return typeof session.displayTitle === "string" ? (session as AcpmuxSessionEntry) : sessionEntry(session);
+}
+
+function lifecycleReceipt(value: unknown): LifecycleReceipt | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const raw = value as Record<string, unknown>;
+  const sequence = raw.sequence;
+  if (typeof raw.id !== "string" || !raw.id) return undefined;
+  if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) return undefined;
+  if (typeof raw.state !== "string" || !raw.state) return undefined;
+  if (typeof raw.source !== "string" || !raw.source) return undefined;
+  return { id: raw.id, sequence, state: raw.state, source: raw.source };
 }
 
 function pullRequest(value: any): SessionPullRequest | undefined {
@@ -172,6 +227,28 @@ export function isAgentHome(cwd: string | undefined): boolean {
   return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
+/// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
+/// folder of its own starts. Not a private agent-home folder, the home folder or `/`, and not a chat
+/// on another machine (a peer or a Cloud host). With `known` (the host's project list, which drops
+/// folders that no longer exist), only a folder in it: a deleted or removed project never starts one.
+/// An empty list is one not loaded yet, so every local chat folder counts until it lands.
+export function mostRecentProject(
+  sessions: readonly AcpmuxSessionEntry[],
+  home?: string,
+  known?: readonly string[],
+): string | undefined {
+  const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
+  let newest: AcpmuxSessionEntry | undefined;
+  for (const session of sessions) {
+    const cwd = session.cwd?.replace(/\/+$/, "");
+    if (!cwd || cwd === "~" || cwd === home?.replace(/\/+$/, "") || isAgentHome(cwd)) continue;
+    if (projects && !projects.has(cwd)) continue;
+    if (session.peer || (session.hostKind && session.hostKind !== "local") || !listed(session)) continue;
+    if (!newest || (session.updatedAt ?? 0) > (newest.updatedAt ?? 0)) newest = session;
+  }
+  return newest?.cwd;
+}
+
 /** A project's name for its header: the folder's last component, `~` for a home folder. */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
@@ -194,6 +271,30 @@ function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
 /** A stable newest-first view for ungrouped sidebar sections. */
 export function sortByRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return byRecency(sessions);
+}
+
+// Session entries are immutable snapshots. Reuse the assembled, case-folded search text while a
+// user types so each sidebar keystroke does not rebuild every title/path/branch string. A weak map
+// releases entries when the session snapshot is replaced.
+const sessionSearchTextCache = new WeakMap<AcpmuxSessionEntry, string>();
+
+function sessionSearchText(session: AcpmuxSessionEntry): string {
+  const cached = sessionSearchTextCache.get(session);
+  if (cached !== undefined) return cached;
+  const text = [
+    session.displayTitle,
+    session.title,
+    session.name,
+    session.cwd && projectLabel(session.cwd),
+    session.branch,
+    session.worktree && projectLabel(session.worktree),
+    cloudHost(session),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+  sessionSearchTextCache.set(session, text);
+  return text;
 }
 
 /** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */
@@ -253,47 +354,45 @@ export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): S
 export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): AcpmuxSessionEntry[] {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return sessions;
-  return sessions.filter((session) => {
-    const text = [
-      session.displayTitle,
-      session.title,
-      session.name,
-      // Folder names, not full paths: a path prefix like `/Users/me` would match every session.
-      session.cwd && projectLabel(session.cwd),
-      session.branch,
-      session.worktree && projectLabel(session.worktree),
-      cloudHost(session),
-    ]
-      .filter(Boolean)
-      .join("\n")
-      .toLowerCase();
-    return terms.every((term) => text.includes(term));
-  });
+  return sessions.filter((session) => terms.every((term) => sessionSearchText(session).includes(term)));
 }
 
 /** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. Archived sessions and side chats are in neither. */
 export function sidebarSections(
   all: AcpmuxSessionEntry[],
   query = "",
+  groupProjects = true,
 ): {
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
+  active: AcpmuxSessionEntry[];
 } {
-  const sessions = all.filter(listed);
+  const sessions = withoutChildren(all.filter(listed));
   const pinned = byRecency(
     filterSessions(
       sessions.filter((session) => session.pinned),
       query,
     ),
   );
-  const groups = groupByProject(
-    sessions.filter((session) => !session.pinned),
-    sessions,
-  );
-  if (!query.trim()) return { pinned, groups };
+  const groups = groupProjects
+    ? groupByProject(
+        sessions.filter((session) => !session.pinned),
+        sessions,
+      )
+    : [];
+  const active = groupProjects
+    ? []
+    : byRecency(
+        filterSessions(
+          sessions.filter((session) => !session.pinned),
+          query,
+        ),
+      );
+  if (!query.trim()) return { pinned, groups, active };
   // Projects and their headers come from every session, so a search only hides rows.
   return {
     pinned,
+    active,
     groups: groups
       .map((group) => ({ ...group, sessions: filterSessions(group.sessions, query) }))
       .filter((group) => group.sessions.length > 0),

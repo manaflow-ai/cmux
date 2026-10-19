@@ -70,7 +70,7 @@ final class HeaderView: UIView {
 
     func refresh() {
         guard let source, !useSystemBlur else { return }
-        let scale = Fixture.renderScale
+        let scale = labRenderScale
         let pad: CGFloat = 70
         // Outside the window there is nothing to blur, so pad with the
         // background colour (this gives the darker fringe at the edges).
@@ -134,14 +134,33 @@ final class HeaderView: UIView {
         // Avatar (the contact's picture; colours from screencapture -l, Display P3).
         UIColor(white: 1, alpha: 1).setFill()
         UIBezierPath(ovalIn: CGRect(x: 294, y: 8, width: 40, height: 40)).fill()
-        // Monogram "I": a thin flared stem (no installed font matched it).
+        // Monogram "I". macOS 27: a serif capital I, its outline measured row by row on the real header
+        // (deactivate-activate tp1200ms, same in tp0000ms): ink width per device pixel
+        // row (2x), centre x 314.16 pt; stem 2.03 pt from y 21.75 to 34.25 pt, bracketed serifs out
+        // to 3.57 pt at the top (y 17.4) and 3.65 pt at the bottom (y 38.33). No installed font matched.
+        // macOS 26 keeps the earlier thin flared stem (no macOS 26 Messages header reference;
+        // ComposeMetrics.macOS26, the OS split of the other fits).
         let stem = UIBezierPath()
-        let cx: CGFloat = 314, y0: CGFloat = 17.5, y1: CGFloat = 38, end: CGFloat = 1.4, mid: CGFloat = 0.8
-        stem.move(to: CGPoint(x: cx - end, y: y0))
-        stem.addLine(to: CGPoint(x: cx + end, y: y0))
-        stem.addQuadCurve(to: CGPoint(x: cx + end, y: y1), controlPoint: CGPoint(x: cx + 2 * mid - end, y: (y0 + y1) / 2))
-        stem.addLine(to: CGPoint(x: cx - end, y: y1))
-        stem.addQuadCurve(to: CGPoint(x: cx - end, y: y0), controlPoint: CGPoint(x: cx - 2 * mid + end, y: (y0 + y1) / 2))
+        if ComposeMetrics.macOS26 {
+            let cx: CGFloat = 314, y0: CGFloat = 17.5, y1: CGFloat = 38, end: CGFloat = 1.4, mid: CGFloat = 0.8
+            stem.move(to: CGPoint(x: cx - end, y: y0))
+            stem.addLine(to: CGPoint(x: cx + end, y: y0))
+            stem.addQuadCurve(to: CGPoint(x: cx + end, y: y1), controlPoint: CGPoint(x: cx + 2 * mid - end, y: (y0 + y1) / 2))
+            stem.addLine(to: CGPoint(x: cx - end, y: y1))
+            stem.addQuadCurve(to: CGPoint(x: cx - end, y: y0), controlPoint: CGPoint(x: cx - 2 * mid + end, y: (y0 + y1) / 2))
+        } else {
+            // (y in 2x device px, full ink width in device px.)
+            let rows: [(CGFloat, CGFloat)] = [(34.8, 7.14), (35.5, 7.0), (36.5, 6.07), (37.5, 5.35), (38.5, 4.83), (39.5, 4.48),
+                                              (40.5, 4.24), (41.5, 4.13), (42.5, 4.07), (43.5, 4.06), (68.5, 4.06), (69.5, 4.09),
+                                              (70.5, 4.19), (71.5, 4.32), (72.5, 4.63), (73.5, 5.07), (74.5, 5.69), (75.5, 6.51),
+                                              (76.67, 7.3)]
+            let cx: CGFloat = 314.16
+            for (i, r) in rows.enumerated() {
+                let pt = CGPoint(x: cx - r.1 / 4, y: r.0 / 2)
+                if i == 0 { stem.move(to: pt) } else { stem.addLine(to: pt) }
+            }
+            for r in rows.reversed() { stem.addLine(to: CGPoint(x: cx + r.1 / 4, y: r.0 / 2)) }
+        }
         stem.close()
         Fixture.p3(7, 10, 9).setFill()
         stem.fill()
@@ -242,7 +261,7 @@ final class ChromeView: UIView {
     /// moves the tree to the window again): the slice is drawn again at the new scale.
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if sliceDrawn != nil, sliceDrawn?.scale != Fixture.renderScale { sliceDrawn = nil; setNeedsLayout() }
+        if sliceDrawn != nil, sliceDrawn?.scale != labRenderScale { sliceDrawn = nil; setNeedsLayout() }
     }
     /// A scale or palette change (WindowView) draws the border again.
     override func setNeedsDisplay() {
@@ -252,7 +271,7 @@ final class ChromeView: UIView {
     }
     override func layoutSubviews() {
         super.layoutSubviews()
-        let n = ChromeView.sliceSize, scale = Fixture.renderScale
+        let n = ChromeView.sliceSize, scale = labRenderScale // its window view's (cx-3cb view-scale)
         // Whole device pixels only: at a fractional width the right and bottom parts would land
         // between pixels and be resampled (the canvas's backing store is whole pixels).
         let whole = (bounds.width * scale).rounded() == bounds.width * scale && (bounds.height * scale).rounded() == bounds.height * scale
@@ -269,7 +288,7 @@ final class ChromeView: UIView {
             fmt.opaque = false
             fmt.preferredRange = .standard
             let r = CGRect(x: 0, y: 0, width: n, height: n), draw = canvas.drawer
-            slice.contents = UIGraphicsImageRenderer(size: r.size, format: fmt).image { draw($0.cgContext, r) }.cgImage
+            slice.contents = Fixture.withRenderScale(scale) { UIGraphicsImageRenderer(size: r.size, format: fmt).image { draw($0.cgContext, r) }.cgImage }
             slice.contentsScale = scale
             // One device pixel at the middle of each side.
             let px = n * scale, mid = (px / 2).rounded(.down) / px
@@ -305,10 +324,11 @@ class CanvasView: UIView {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
         drawer(ctx, bounds)
     }
-    /// A canvas draws at the render scale (UIKit would pick the screen's,
+    /// A canvas draws at its window view's render scale (UIKit would pick the screen's,
     /// which is the same live; test renders keep the reference's 2x).
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if layer.contentsScale != Fixture.renderScale { layer.contentsScale = Fixture.renderScale; setNeedsDisplay() }
+        let s = labRenderScale
+        if layer.contentsScale != s { layer.contentsScale = s; setNeedsDisplay() }
     }
 }

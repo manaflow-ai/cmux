@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextSidebar
 
 /// Which of a window's workspaces its current room shows
 /// (plans/cmux-next/data-model.md 3.2 and 4). Rooms are personal state of
@@ -33,8 +34,13 @@ enum WindowProfiles {
     }
 
     static func visible(_ members: [String], profile: ProfileID, machines: MachineRegistry) -> [String] {
-        let membership = membership(machines)
+        guard let membership = membership(machines) else { return members } // no rooms: every member shows
         return members.filter { shows($0, profile: profile, machines: machines, membership: membership) }
+    }
+
+    /// `visible` without the workspaces whose close is under way (`ClosingWorkspaces`), unless none would be left.
+    static func shown(_ members: [String], profile: ProfileID, machines: MachineRegistry) -> [String] {
+        ClosingWorkspaces.shared.survivors(visible(members, profile: profile, machines: machines))
     }
 
     /// The room a workspace is in for "select it and switch the window":

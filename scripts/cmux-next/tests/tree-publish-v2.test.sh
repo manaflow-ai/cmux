@@ -42,12 +42,17 @@ cat > "$src/scripts/ci/upload-r2-object.py" <<PY
 import argparse, pathlib, shutil, sys
 parser = argparse.ArgumentParser()
 parser.add_argument("--write-once", action="store_true")
+parser.add_argument("--conflict-exit-code", type=int)
 for name in ("--file", "--endpoint-url", "--bucket", "--key", "--cache-control"):
     parser.add_argument(name)
 args = parser.parse_args()
 target = pathlib.Path("$cdn") / args.key.removeprefix("cmux-tui/")
 if target.exists():
-    sys.exit(0 if target.read_bytes() == pathlib.Path(args.file).read_bytes() else "write-once object differs: " + args.key)
+    if target.read_bytes() == pathlib.Path(args.file).read_bytes():
+        sys.exit(0)
+    if args.conflict_exit_code is not None:
+        sys.exit(args.conflict_exit_code)
+    sys.exit("write-once object differs: " + args.key)
 target.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy(args.file, target)
 PY

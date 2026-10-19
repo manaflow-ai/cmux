@@ -4,6 +4,7 @@ import type { OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
 import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
+export { avatarGetRoute, avatarSetRoute } from "./home-avatar-routes.ts"
 import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
 
 /**
@@ -266,6 +267,11 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
     case "conversation.import": {
       // First call: the id is derived from the signed-in user and the source (never a client field).
       const source = params.source as { host?: unknown; local_id?: unknown } | null | undefined
+      // A fill names the owner's existing (empty) chief conversation; its owner checks the caller.
+      if (params.fill === true) {
+        if (typeof params.id !== "string" || !CONVERSATION_ID.test(params.id)) return reject(key, "validation.invalid", "a fill names the chief conversation's id")
+        return conversationStub(env, params.id).submit(params.id, principal, frame)
+      }
       if (source !== undefined) {
         if (!source || typeof source !== "object" || typeof source.host !== "string" || typeof source.local_id !== "string") return reject(key, "validation.invalid", "source needs host and local_id")
         const id = homeConversation.importConversationId(actorOf(principal), source.host, source.local_id)

@@ -52,7 +52,33 @@ credentials, host-write access, network access or writable caches shared with
 release jobs. The verification scripts do not provide that sandbox. A local pass
 is not a supply-chain safety attestation and does not replace required CI.
 
+### Reviewed fork PRs
+
+A reviewed checkout can come from a fork. After reviewing the exact source that
+merged-tree checks execute, run `scripts/gh-merge-green OWNER/REPO#NUMBER
+--trust-fork-head FULL_SHA --squash` from the trusted helper checkout. The flag
+records source trust for that commit only; a different current head is refused.
+It does not waive CI, frozen paths, mergeability, or merged-tree validation.
+No coordinator acknowledgement or duplicate upstream PR is needed solely because
+the branch is in a fork. Leave unfamiliar code untrusted.
+
 ## PR check progression
+
+Treat a check result as evidence about one exact commit, not a property of a
+branch name: a push supersedes earlier results. Classify each non-green result
+before changing source:
+
+| Result | Action |
+| --- | --- |
+| Changed-file defect | Repair the changed file or its focused test. |
+| Same finding on the parent/base | Link the base run in a PR comment; it does not block. Route the fix to its owner. |
+| Derived wrapper | Follow the root check; do not debug the wrapper separately. |
+| Cancelled, queued, or coordinator-blocked | Retry the same head after capacity or coordinator state recovers. |
+
+Required source, compile, security, and repository gate checks block a merge
+when the failure is the PR's own. Screenshot/gallery and full webview jobs are useful retained evidence
+when they run, but should stay advisory unless the change explicitly promotes
+them.
 
 PR workflows run Fast static checks beside workflow guards and routed Linux checks.
 Applicable macOS compile admission and native checks wait for the static checks and
@@ -120,6 +146,31 @@ origin; it does not bypass authentication. Team members provision their credenti
 with [`scripts/setup-team-dev.sh`](../scripts/setup-team-dev.sh); the launcher
 requires a current-user-owned file with mode `0600`. Cloning the public repository
 does not provide those credentials or team access.
+
+Setup prompts separately for a development personal dogfood account and a
+development simulator/test account. Both may belong to you. Complete profiles
+are preserved on rerun; use `--refresh` to replace the personal profile or
+`--refresh-agent` to replace the simulator/test profile.
+
+**Account passwords are required for this automation, including production.**
+If you normally sign in with an email code, first set a password on your own
+account through the Hexclave account portal for the matching cmux environment.
+Team members who want automated production verification should set their own
+production account password before configuring that optional profile. Agents
+should direct developers to this prerequisite when an account has no password;
+a one-time sign-in code cannot be used in the setup script's password prompt.
+
+Setup also offers an optional production account for developers who may want
+to verify against the production environment. Press Enter or answer `no` to
+skip it. Production credentials are verified against production and stored in
+`~/.secrets/cmuxterm-prod.env`, separately from development credentials.
+Use `--refresh-production` to configure or replace them later. A production
+verification launcher must explicitly select that file with `--credentials-file`
+and use the production environment; normal development launches do not read it.
+If the production file is absent, setup adopts a complete, protected
+`~/.secrets/cmux-beta-production.env` by copying it to the production path.
+The legacy file remains intact for callers that explicitly select it. Setup
+never overwrites an existing production file or combines partial profiles.
 
 Without that access, the source checks, package tests and build-only steps above
 remain available. Record runtime verification as not performed and identify an

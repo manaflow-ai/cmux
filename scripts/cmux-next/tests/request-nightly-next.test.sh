@@ -218,13 +218,14 @@ fetches=$(grep -c . "$TMP/git.log" || true)
 
 # A commit whose generated page strings are stale fails the nightly's web
 # bundle step 30 minutes in (nightly-next run 38348747848): never promoted.
-# A stub node stands in for gen-strings --check (exit 1 = stale).
+# A stub node stands in for gen-strings (exit 1 = stale, or since #21946, for a
+# commit that no longer tracks the tables, a missing translation).
 git_q -C "$src" checkout -q -b strings "$app"
 mkdir -p "$src/webviews/scripts/pages"; echo "// gen-strings" > "$src/webviews/scripts/pages/gen-strings.mjs"
 git_q -C "$src" add -A; git_q -C "$src" commit -m "app with page strings"
 strings=$(git -C "$src" rev-parse HEAD)
 # The stub reads the commit it runs in: a STALE marker beside gen-strings.mjs means stale strings.
-printf '#!/usr/bin/env bash\n[[ "$*" == *"gen-strings.mjs --check"* ]] || exit 9\n[[ ! -f scripts/pages/STALE ]] || exit 1\nexit "${STUB_STRINGS_EXIT:-0}"\n' > "$TMP/bin/node"; chmod +x "$TMP/bin/node"
+printf '#!/usr/bin/env bash\n[[ "$*" == *"gen-strings.mjs"* ]] || exit 9\n[[ ! -f scripts/pages/STALE ]] || exit 1\nexit "${STUB_STRINGS_EXIT:-0}"\n' > "$TMP/bin/node"; chmod +x "$TMP/bin/node"
 STUB_STRINGS_EXIT=1 request --sha "$strings" --release-compile-green
 [[ "$status" == 0 ]] && ! dispatched "$strings" || fail "a commit with stale page strings must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 grep -q "page strings are stale" <<<"$out" || fail "the refusal must name the stale strings:" "$out"
@@ -275,6 +276,38 @@ request --sha "$other" --release-compile-green
 printf '{"key": "%s", "result": "success"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
 request --sha "$other" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$other" || fail "a tree with its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$head"
+
+# The tree's publisher can be NEWER than the green commit (2026-10-14: 2e420aa7a9
+# compiled green at 10:21Z, its tree published later from a newer push whose
+# own compile was replaced). Candidates are bounded below by nightly-next, not
+# by the publisher, so the older green commit is still requested.
+git -C "$src" remote add origin "$src" 2>/dev/null || git -C "$src" remote set-url origin "$src"
+git_q -C "$src" checkout -q -b lowerbound "$head"
+echo x > "$src/GreenX.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "green, before the publisher"
+greenx=$(git -C "$src" rev-parse HEAD)
+echo y > "$src/PublisherY.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "publisher, compile replaced"
+publisher=$(git -C "$src" rev-parse HEAD)
+[[ "$(key "$greenx")" == "$(key "$head")" && "$(key "$publisher")" == "$(key "$head")" ]] || fail "fixture: X and Y must share the published tree"
+git_q -C "$src" update-ref refs/heads/nightly-next "$head^"
+git_q -C "$src" checkout -q --detach "$publisher"
+runs 41 "$publisher" feat-cmux-next 40 "$greenx" feat-cmux-next
+jobs 41 completed cancelled; jobs 40 completed success
+request --tree-ready "$publisher"
+[[ "$status" == 0 ]] && dispatched "$greenx" \
+  || fail "a green commit older than the tree's publisher but ahead of nightly-next must be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+
+# A commit already on nightly-next is never requested again, from either side:
+# a stale request would evict a newer waiting one in main's promote job group.
+git_q -C "$src" update-ref refs/heads/nightly-next "$greenx"
+request --tree-ready "$publisher"
+[[ "$status" == 0 ]] && ! dispatched "$greenx" \
+  || fail "a commit already on nightly-next must not be requested again (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$greenx"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$greenx" && grep -q "already on nightly-next" <<<"$out" \
+  || fail "--release-compile-green must not re-request a promoted commit (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" update-ref -d refs/heads/nightly-next
 git_q -C "$src" checkout -q --detach "$head"
 
 # The checkout must be the commit it asks for; bad input is a usage error.

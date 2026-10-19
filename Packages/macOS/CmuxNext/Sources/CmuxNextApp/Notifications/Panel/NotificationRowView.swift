@@ -17,7 +17,7 @@ final class NotificationRowView: NSView {
     private let dot = NSView()
     private var close: NSButton?
     /// Each label and the color it draws in, applied in the view's theme scope.
-    private var tinted: [(NSTextField, Tone)] = []
+    private var tinted: [(ChromeLabel, Tone)] = []
     var isSelected = false { didSet { needsDisplay = true } }
 
     private static let timeFormatter: RelativeDateTimeFormatter = {
@@ -44,7 +44,7 @@ final class NotificationRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// The text colors the panel uses.
     enum Tone {
@@ -114,7 +114,7 @@ final class NotificationRowView: NSView {
             // The list width less the dot, the close button and the gaps.
             body.preferredMaxLayoutWidth = NotificationsPanelView.listWidth - 4 * Metrics.space2 - Metrics.space2 - Metrics.space6
             body.lineBreakMode = .byTruncatingTail
-            body.cell?.wraps = true
+            body.wraps = true
             lines.append(body)
         }
         let text = NSStackView(views: lines)
@@ -151,8 +151,8 @@ final class NotificationRowView: NSView {
     }
 
     /// A one-line label; its owner sets the color in its theme scope.
-    static func label(_ text: String, font: NSFont) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
+    static func label(_ text: String, font: NSFont) -> ChromeLabel {
+        let label = ChromeLabel(labelWithString: text)
         label.font = font
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1

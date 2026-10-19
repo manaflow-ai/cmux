@@ -12,7 +12,7 @@ import CmuxNextTerminal
 /// `NSApplication.sendEvent`, as typed (the key router, key equivalents and the menu included).
 ///
 /// The same hold covers Ctrl-1…9 onto a terminal tab with no surface yet (hq#1925 item 3; bound
-/// in `CreationInputBuffer.holds`). Any hold ends as soon as focus leaves the content.
+/// in `CreationInputBuffer.holds`). Any hold ends as soon as focus leaves the content (cx-wb5.78: `earlyTab`).
 @MainActor
 final class CreationInputCoordinator {
     weak var router: KeyRouter?
@@ -27,9 +27,15 @@ final class CreationInputCoordinator {
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
     /// script or agent run without `focus`), which leaves the keys where they are.
-    func begin(in window: NSWindow?, generation: UInt64?) -> CreationInputBuffer.Ticket? {
+    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
-        return buffer(in: window).open(generation: generation)
+        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
+    }
+
+    /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
+    /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``).
+    func drop(tab: String, in window: NSWindow?) {
+        if let window, buffers[window.windowNumber]?.cancel(tab: tab) == true { scheduleFlush(in: window) }
     }
 
     /// A selection shows a terminal whose surface comes later: keys wait for it, at most `holdLimit`.
@@ -74,12 +80,19 @@ final class CreationInputCoordinator {
             next.capture(event)
             return true
         }
+        // A pending creation's early view has the keyboard: held keys first, then this one.
+        if let controller, case .terminal(_, let tab) = controller.focus.state.resolved, buffer.takesKeysEarly(tab: tab), Self.responderTakesKeys(controller, window: shell) {
+            for held in buffer.take() { replaying = true; NSApp.sendEvent(held); replaying = false }
+            return false
+        }
         buffer.capture(event)
         return true
     }
 
+    func giveBack(_ bytes: Data = Data()) { GivenBackInput.shared.deliver(adding: bytes, to: router?.services?.cache.terminals.values.first { $0.session.model.isFocused && $0.gate == nil }.map { $0.session.sendBytes }) }
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
+        giveBack()
         guard let window, buffers[window.windowNumber] != nil else { return }
         scheduleFlush(in: window)
     }

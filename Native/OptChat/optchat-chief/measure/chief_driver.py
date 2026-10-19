@@ -39,7 +39,7 @@ sys.path.insert(0, HERE)
 import scenario  # noqa: E402
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20"])
+ap.add_argument("--scenario", required=True, choices=["smoke", "soak", "interrupt", "codex6", "import", "effort", "warm20", "chiefux"])
 ap.add_argument("--out", required=True)
 ap.add_argument("--bins", required=True)
 ap.add_argument("--login-env", default="")
@@ -166,8 +166,13 @@ def stop_acpmux():
     this run's (the home is this run's alone): SIGTERM, then SIGKILL."""
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "ACPMUX_HOME": ACPMUX_HOME,
            "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}
+    # The run's agents end with the daemon: `--end-agents` (cx-qryd0). An acpmux
+    # from before that flag refuses it; its plain shutdown already ends agents.
+    acp = os.path.join(BINS, "acpmux")
     try:
-        subprocess.run([os.path.join(BINS, "acpmux"), "daemon", "shutdown"], env=env, timeout=30, capture_output=True)
+        r = subprocess.run([acp, "daemon", "shutdown", "--end-agents"], env=env, timeout=30, capture_output=True, text=True)
+        if r.returncode != 0 and "end-agents" in (r.stdout + r.stderr):
+            subprocess.run([acp, "daemon", "shutdown"], env=env, timeout=30, capture_output=True)
     except (OSError, subprocess.TimeoutExpired):
         pass
     router = os.path.join(ACPMUX_HOME, "router", "router.sock")
@@ -295,6 +300,7 @@ try:
                     ACPMUX_SOCKET=os.path.join(ACPMUX_HOME, "acpmux.sock"), ACPMUX_BIN=os.path.join(BINS, "acpmux"),
                     MUX_HARNESS=opts.harness, CMUX_DAEMON_SOCKET=SOCK, OPTCHAT_BACKUP_REMOTE="off", **login_env())
     host_env.update(dict(kv.split("=", 1) for kv in opts.env))
+    host_started = now_ms()
     h = subprocess.Popen([oc, "host", "--daemon-socket", SOCK, "--mux-home", MUX], stdout=open(os.path.join(OUT, "host.log"), "w"),
                          stderr=subprocess.STDOUT, env=host_env)
     pids.append(h.pid)
@@ -314,6 +320,8 @@ try:
     if not conv:
         raise SystemExit("no Chief conversation")
     run["conversation"] = conv
+    # Brain cold start: host process start to its tools socket (the brain serves).
+    run["brain_up_ms"] = now_ms() - host_started
     log(f"brain {BRAIN} up; conversation {conv}; harness {opts.harness}")
 
     TRACES = os.path.join(MUX, "optchat", "traces")

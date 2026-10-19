@@ -61,6 +61,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.next-route.outputs.macos || steps.detect.outputs.macos }}
+      # The last green head a merge-only head was routed from; empty otherwise.
+      delta_base_sha: ${{ steps.delta.outputs.base_sha }}
       browser: ${{ steps.standalone.outputs.browser }}
       remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}
       remote_daemon_native: ${{ steps.standalone.outputs.remote_daemon_native }}
@@ -842,9 +844,9 @@ jobs:
                 fi
 
                 if [ "$release_only" = true ]; then
-                  echo 'linux_guard_test_groups=["preflight","ci","release-ios","release-notary","release-tooling"]'
+                  echo 'linux_guard_test_groups=["preflight","preflight-agent-chat","ci","release-ios","release-notary","release-tooling"]'
                 else
-                  echo 'linux_guard_test_groups=["preflight","ci","app-host-execution","app-host-watchdog","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
+                  echo 'linux_guard_test_groups=["preflight","preflight-agent-chat","ci","app-host-execution","app-host-watchdog","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
                 fi
               else
                 echo 'linux_guard_test_groups=["ci"]'
@@ -937,6 +939,27 @@ jobs:
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
+  fast-guards:
+    name: CI fast guards
+    # Keep the authoritative fast guard in this DAG. It starts beside routing
+    # and static checks, so macOS admission can depend on its real result
+    # without a second runner polling another workflow. A pull request into
+    # feat-cmux-next skips it, as it skips `guards` (cmux-next has its own lanes).
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run the fast guard tests
+        env:
+          CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
+        run: scripts/ci/guards-local.sh --no-stamp --jobs 8
   static-preflight:
     name: Fast static checks
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' }}
@@ -952,9 +975,15 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # HEAD^1 is the diff base lint-feature-flags uses to fail an expired
+          # reviewBy only on the change that edits that flag.
+          fetch-depth: 2
 
       - name: Run the contributor static preflight
-        run: python3 scripts/verify-local.py
+        # The recipe is read-only and each check owns its temporary state, so
+        # bounded overlap cuts the Linux gate's wall time without changing
+        # which checks run. Keep verify-local's local default serial.
+        run: python3 scripts/verify-local.py --jobs 4
 
   guards:
     # Not after static-preflight: the guards are the last job
@@ -963,10 +992,8 @@ jobs:
     # decline ~25 s sooner without admitting macOS on a rejected diff.
     needs: [changes]
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && (needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false') }}
-    # The reusable workflow's ci matrix leg reads the fast-guards check.
     permissions:
       contents: read
-      checks: read
     uses: ./.github/workflows/ci-guards.yml
     with:
       linux_guard_tests: ${{ needs.changes.outputs.linux_guard_tests }}
@@ -1059,6 +1086,7 @@ jobs:
     name: macOS admission gate
     needs:
       - changes
+      - fast-guards
       - static-preflight
       - ghosttykit-release-check
       - browser
@@ -1135,94 +1163,6 @@ jobs:
       CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
       CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
 
-  tests:
-    name: tests
-    needs:
-      - changes
-      - linux-preflight
-      - macos
-      - web
-    # Keep the aggregate verdict after a failed dependency, but let a
-    # cancelled run stop without spending another runner minute on a rollup.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    steps:
-      - name: Check platform workflow routing
-        env:
-          TESTS_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          needs = json.loads(os.environ["TESTS_NEEDS"])
-          # A cancelled job reaches this gate as a `cancelled` result, and the
-          # routing verdict below would report it as though the pull request had
-          # a routing defect. It does not: the run was stopped before it tested
-          # anything. Say that instead, and still fail. This gate is rolled
-          # into the required ci-status check, so reporting success on a
-          # cancelled run would put a green on a required check that no suite
-          # stood behind, and a pull request could merge with nothing having
-          # tested it. Rerunning the run clears it.
-          cancelled = sorted(name for name, data in needs.items()
-                             if data["result"] == "cancelled")
-          if cancelled:
-              print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
-              print("this run was stopped before it reported a test verdict; "
-                    "rerun it, or push again, to get one", file=sys.stderr)
-              sys.exit(1)
-          changes = needs["changes"]
-          if changes["result"] != "success":
-              print(f"changes: {changes['result']}", file=sys.stderr)
-              sys.exit(1)
-          outputs = changes.get("outputs", {})
-          macos_route = outputs.get("macos")
-          if macos_route not in {"true", "false"}:
-              print(f"invalid route macos={macos_route!r}", file=sys.stderr)
-              sys.exit(1)
-          preflight = needs["linux-preflight"]
-          if macos_route == "true":
-              if preflight["result"] != "success":
-                  print(f"linux preflight did not pass: {preflight['result']}", file=sys.stderr)
-                  sys.exit(1)
-          elif preflight["result"] not in {"success", "skipped"}:
-              print(
-                  f"linux preflight had unexpected result: {preflight['result']}",
-                  file=sys.stderr,
-              )
-              sys.exit(1)
-          macos_result = needs["macos"]["result"]
-          full_suite = outputs.get("full_suite")
-          compile_admitted = outputs.get("compile_admitted")
-          # The package-test lane is routed independently of compile admission
-          # and of the macOS area, so it can require the called workflow on its
-          # own. Keep this in sync with the `macos` job's own `if:`.
-          swift_packages = outputs.get("swift_packages") == "true"
-          macos_work_required = swift_packages or (
-              not (full_suite == "false" and compile_admitted == "true")
-              and macos_route == "true"
-          )
-          if macos_work_required:
-              if macos_result != "success":
-                  print(f"macOS workflow did not pass: {macos_result}", file=sys.stderr)
-                  sys.exit(1)
-          elif macos_result not in {"success", "skipped"}:
-              print(f"macOS workflow had unexpected result: {macos_result}", file=sys.stderr)
-              sys.exit(1)
-          web_result = needs["web"]["result"]
-          if web_result not in {"success", "skipped"}:
-              print(f"web workflow did not pass: {web_result}", file=sys.stderr)
-              sys.exit(1)
-          print(f"changes.macos={macos_route}")
-          print(f"changes.full_suite={outputs.get('full_suite')}")
-          print(f"changes.swift_packages={outputs.get('swift_packages')}")
-          print(f"linux-preflight={preflight['result']}")
-          print(f"macos={macos_result}")
-          print(f"web={web_result}")
-          PY
-
   linux-preflight:
     name: linux-preflight
     # Retain the Linux verdict in the required final statuses. It no longer
@@ -1230,6 +1170,7 @@ jobs:
     needs:
       - changes
       - static-preflight
+      - fast-guards
       - guards
       - ghosttykit-release-check
       - web
@@ -1254,6 +1195,7 @@ jobs:
           required = (
               "changes",
               "static-preflight",
+              "fast-guards",
           )
           allowed_routed = {
               "ghosttykit-release-check",
@@ -1337,10 +1279,12 @@ jobs:
     # the ZIP to the default-branch publisher. That publisher writes the
     # private R2 object and keeps one short-lived signed link on the PR while
     # the fleet controller is tailnet-only.
+    # A head that only merged main is routed from its last green head, so its
+    # macOS area reads false; the label still asks for a build of this head.
     # <!-- cmux:dogfood-build -->
     name: "Dogfood build #${{ github.event.pull_request.number }}"
     needs: [changes, static-preflight]
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.delta_base_sha != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     # This job is intentionally outside ci-status, so a build or publication
@@ -1400,6 +1344,7 @@ jobs:
   ci-status:
     needs:
       - changes
+      - fast-guards
       - static-preflight
       - guards
       - ghosttykit-release-check
@@ -1409,16 +1354,104 @@ jobs:
       - linux-preflight
       - macos-admission-gate
       - macos
-      - tests
     # A cancelled run already has its terminal outcome; the required status
     # remains cancelled and does not need a post-cancel rollup.
     if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # One step that reads `needs` and decides. Its siblings are bounded at 5
-    # to 20 minutes; this one was inheriting the six-hour default, as the
+    # These verdict steps read `needs` and decide. Their siblings are bounded
+    # at 5 to 20 minutes; this job was inheriting the six-hour default, as the
     # required check every pull request waits on.
     timeout-minutes: 5
     steps:
+      - name: Check platform workflow routing
+        env:
+          PLATFORM_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["PLATFORM_NEEDS"])
+          # The retired `tests` rollup skipped pull requests into feat-cmux-next;
+          # this verdict, folded in from it, does too.
+          if os.environ.get("GITHUB_EVENT_NAME") == "pull_request" and os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next":
+              print("feat-cmux-next uses cmux-next and its current product lanes")
+              raise SystemExit(0)
+          # A cancelled job reaches this gate as a `cancelled` result, and the
+          # routing verdict below would report it as though the pull request had
+          # a routing defect. It does not: the run was stopped before it tested
+          # anything. Say that instead, and still fail. This gate is rolled
+          # into the required ci-status check, so reporting success on a
+          # cancelled run would put a green on a required check that no suite
+          # stood behind, and a pull request could merge with nothing having
+          # tested it. Rerunning the run clears it.
+          platform_names = ("changes", "linux-preflight", "macos", "web")
+          cancelled = sorted(name for name in platform_names
+                             if needs[name]["result"] == "cancelled")
+          if cancelled:
+              print("cancelled: " + ", ".join(cancelled), file=sys.stderr)
+              print("this run was stopped before it reported a test verdict; "
+                    "rerun it, or push again, to get one", file=sys.stderr)
+              sys.exit(1)
+          changes = needs["changes"]
+          if changes["result"] != "success":
+              print(f"changes: {changes['result']}", file=sys.stderr)
+              sys.exit(1)
+          outputs = changes.get("outputs", {})
+          macos_route = outputs.get("macos")
+          if macos_route not in {"true", "false"}:
+              print(f"invalid route macos={macos_route!r}", file=sys.stderr)
+              sys.exit(1)
+          preflight = needs["linux-preflight"]
+          if macos_route == "true":
+              if preflight["result"] != "success":
+                  print(f"linux preflight did not pass: {preflight['result']}", file=sys.stderr)
+                  sys.exit(1)
+          elif preflight["result"] not in {"success", "skipped"}:
+              print(
+                  f"linux preflight had unexpected result: {preflight['result']}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          macos_result = needs["macos"]["result"]
+          full_suite = outputs.get("full_suite")
+          compile_admitted = outputs.get("compile_admitted")
+          # The package-test lane is routed independently of compile admission
+          # and of the macOS area, so it can require the called workflow on its
+          # own. Keep this in sync with the `macos` job's own `if:`.
+          swift_packages = outputs.get("swift_packages") == "true"
+          # `unit-ci` asks for app-host unit tests without the full suite, so a
+          # routed macOS run is required even when compile admission reused a
+          # product and full_suite stayed false.
+          unit_suite = outputs.get("unit_suite") == "true"
+          macos_work_required = swift_packages or (
+              (
+                  unit_suite
+                  or outputs.get("cli") == "true"
+                  or not (full_suite == "false" and compile_admitted == "true")
+              )
+              and (macos_route == "true" or outputs.get("cli") == "true")
+          )
+          if macos_work_required:
+              if macos_result != "success":
+                  print(f"macOS workflow did not pass: {macos_result}", file=sys.stderr)
+                  sys.exit(1)
+          elif macos_result not in {"success", "skipped"}:
+              print(f"macOS workflow had unexpected result: {macos_result}", file=sys.stderr)
+              sys.exit(1)
+          web_result = needs["web"]["result"]
+          if web_result not in {"success", "skipped"}:
+              print(f"web workflow did not pass: {web_result}", file=sys.stderr)
+              sys.exit(1)
+          print(f"changes.macos={macos_route}")
+          print(f"changes.full_suite={outputs.get('full_suite')}")
+          print(f"changes.swift_packages={outputs.get('swift_packages')}")
+          print(f"linux-preflight={preflight['result']}")
+          print(f"macos={macos_result}")
+          print(f"web={web_result}")
+          PY
+
       - name: Check routed CI jobs
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
@@ -1469,6 +1502,7 @@ jobs:
     name: CI timing
     needs:
       - changes
+      - fast-guards
       - static-preflight
       - guards
       - ghosttykit-release-check
@@ -1478,7 +1512,6 @@ jobs:
       - linux-preflight
       - macos-admission-gate
       - macos
-      - tests
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5

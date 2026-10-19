@@ -7,11 +7,19 @@ import type { AcpmuxPermission } from "./model";
 const permission: AcpmuxPermission = {
   permissionId: "stack-permission",
   title: "Run the checks",
+  command: "git grep -- ':!vendor' -- cmux-tui",
+  description: "Search the cmux-tui sources before the agent continues.",
   pending: true,
   options: [
-    { id: "allow_once", name: "Allow", kind: "allow_once", allow: true },
-    { id: "allow_chat", name: "Allow for this session", kind: "allow_chat", allow: true },
-    { id: "deny", name: "Reject", kind: "deny", allow: false },
+    { id: "allow_once", name: "Yes", kind: "allow_once", allow: true },
+    {
+      id: "allow_always",
+      name: "Yes, and don't ask again this session",
+      kind: "allow_always",
+      rule: "Allow git grep in cmux-tui for this session",
+      allow: true,
+    },
+    { id: "reject_once", name: "No", kind: "reject_once", allow: false },
   ],
 };
 const queue = [{ id: "correction", prompt: "Correction from the coordinator: keep the bottom stack in one column." }];
@@ -21,6 +29,22 @@ const rows = [
   row("permission", 0, { permission }),
 ];
 const individual = chat(rows, { isWorking: true, permission, queue });
+const prQueue = chat(
+  [
+    user("Open the pull request", 1),
+    activity(
+      [
+        tool("gh pr create --fill", "execute", "completed", {
+          command: "gh pr create --fill",
+          output: "https://github.com/acme/atlas-web/pull/128\n",
+          exitCode: 0,
+        }),
+      ],
+      0,
+    ),
+  ],
+  { isWorking: true, queue, sessionId: "pr-queue-session" },
+);
 const grouped = {
   ...individual,
   permissionGroups: {
@@ -55,11 +79,9 @@ const native = { "acp.trust.get": { cwd: CWD, level: "unknown" }, "acp.trust.set
 // a floated queue or a flex-shrunk ask must not paint into a sibling's frame.
 function geometry(ctx: PlayContext) {
   const selectors = [
-    ".acpmux-stage",
+    ".acpmux-pr-dock",
     ".acpmux-trust-ask",
     ".acpmux-permission-panel",
-    ".acpmux-permission > fieldset",
-    ".acpmux-composer-trust-note",
     ".acpmux-composer-queue",
     ".acpmux-composer-box",
   ];
@@ -90,6 +112,23 @@ const checkTrust: Play = async (ctx) => {
   if (ctx.document.querySelector(".acpmux-permission-card"))
     throw new Error("Tool permission is visible before folder trust");
 };
+const checkPrQueue: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-dock"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-queue"));
+  geometry(ctx);
+  await ctx.click({ selector: ".acpmux-queued" });
+  geometry(ctx);
+  const scope = ctx.find({ selector: ".acpmux-composer-context" });
+  const composer = ctx.find({ selector: ".acpmux-composer-box" });
+  const style = ctx.document.defaultView!.getComputedStyle(scope);
+  const composerStyle = ctx.document.defaultView!.getComputedStyle(composer);
+  if (
+    style.backgroundColor !== composerStyle.backgroundColor ||
+    style.boxShadow !== "none" ||
+    parseFloat(style.borderTopWidth) !== 0
+  )
+    throw new Error("The folder/host strip paints a separate surface");
+};
 async function samplePinned(ctx: PlayContext, frames = 8) {
   const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
   const view = ctx.document.defaultView;
@@ -108,22 +147,34 @@ const trustThenPermission: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelectorAll(".acpmux-permission-card").length !== 1)
     throw new Error("More than one tool permission card");
-  if (!ctx.document.querySelector(".acpmux-permission-card .acpmux-permission-card-heading"))
-    throw new Error("Permission card is missing its unified heading surface");
-  ctx.find({ role: "button", name: "Allow for this chat" });
-  ctx.find({ role: "button", name: "Allow once" });
-  ctx.find({ role: "button", name: "Allow for this chat" });
+  if (
+    !ctx.document.querySelector(
+      ".acpmux-permission-card .acpmux-permission-card-heading, .acpmux-permission-card .acpmux-permission-request-label",
+    )
+  )
+    throw new Error("Permission card is missing its unified request surface");
+  const individual = Boolean(ctx.document.querySelector(".acpmux-permission-ask"));
+  const allowOnce = individual ? "Yes" : "Allow once";
+  const allowAlways = individual ? "Yes, and don't ask again this session" : "Allow for this chat";
+  ctx.find({ role: "button", name: allowAlways });
+  ctx.find({ role: "button", name: allowOnce });
   geometry(ctx);
-  await ctx.click({ selector: '[data-menu="permission-status"]' });
-  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
-  await ctx.click({ role: "menuitem", name: "Undo" });
+  // These chats offer no modes: Access still mounts for the folder grant, so trust stays revocable.
+  await ctx.click({ selector: ".acpmux-access-trigger" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-grant-remove") !== null);
+  await ctx.click({ selector: ".acpmux-access-grant-remove" });
   await checkTrust(ctx);
 };
 const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
   await ctx.click({ role: "button", name: "Trust" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
-  ctx.find({ role: "button", name: "Allow for this chat" });
+  ctx.find({
+    role: "button",
+    name: ctx.document.querySelector(".acpmux-permission-ask")
+      ? "Yes, and don't ask again this session"
+      : "Allow for this chat",
+  });
   if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
   geometry(ctx);
 };
@@ -136,6 +187,7 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-composer-bar" }],
   covers: ["agent-session/acpmux/PermissionCard.tsx", "agent-session/acpmux/TrustAsk.tsx"],
   variants: {
+    "pr-queue": { snapshot: prQueue, native: { "acp.trust.get": { cwd: CWD, level: "trusted" } }, play: checkPrQueue },
     "trust-permission-queue": { snapshot: grouped, native, play: checkTrust },
     "trust-individual-queue": { snapshot: individual, native, play: checkTrust },
     "trust-then-permission": { snapshot: grouped, native, play: trustThenPermission },

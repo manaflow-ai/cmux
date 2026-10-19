@@ -48,6 +48,11 @@ const CONVERSATION_REASON: &str = "A conversation belongs to the person: MCP cli
 /// agent-bound connection); an MCP client is an agent acting as the user.
 const CHIEF_REASON: &str = "The Chief's engine and turn are the owner's: cmux chief, Home and the owner's scripts control them, never an agent.";
 
+/// The person's Chiefs: the owner and each Chief itself (its own bound
+/// connection) use the registry; an MCP client is an agent acting as the user.
+const AVATAR_REASON: &str = "A person's picture is set by that person (cmux avatar set, Home) and a Chief's by the person or that Chief, never by an agent acting as the user.";
+const CHIEF_REGISTRY_REASON: &str = "The person's Chiefs are edited by the person (cmux chief new|edit|delete, Home) and by each Chief on its own bound connection, never by an agent acting as the user.";
+
 /// Launch credentials (identity.md section 2) are the session host's and the
 /// owner's; an MCP client is an agent and never mints, rotates or checks one.
 const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host and the owner: acpmux and the owner's connection call them, never an agent.";
@@ -88,14 +93,22 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("chief.engine.get", CHIEF_REASON),
     ("chief.engine.set", CHIEF_REASON),
     ("chief.stop", CHIEF_REASON),
-    ("machine.list", MACHINE_REASON),
-    ("machine.get", MACHINE_REASON),
-    ("session.list", MACHINE_REASON),
-    ("session.open", MACHINE_REASON),
-    ("session.get", MACHINE_REASON),
-    ("session.snapshot", MACHINE_REASON),
-    ("session.ping", MACHINE_REASON),
-    ("session.creation.resolve", MACHINE_REASON),
+    ("chief.profile.list", CHIEF_REGISTRY_REASON),
+    ("chief.profile.get", CHIEF_REGISTRY_REASON),
+    ("chief.profile.create", CHIEF_REGISTRY_REASON),
+    ("chief.profile.adopt", CHIEF_REGISTRY_REASON),
+    ("chief.profile.update", CHIEF_REGISTRY_REASON),
+    ("chief.profile.delete", CHIEF_REGISTRY_REASON),
+    ("chief.profile.avatar.set", CHIEF_REGISTRY_REASON),
+    ("chief.profile.avatar.get", CHIEF_REGISTRY_REASON),
+    ("participant.avatar.set", AVATAR_REASON),
+    ("participant.avatar.get", AVATAR_REASON),
+    ("session.list", SESSION_REASON),
+    ("session.open", SESSION_REASON),
+    ("session.get", SESSION_REASON),
+    ("session.snapshot", SESSION_REASON),
+    ("session.ping", SESSION_REASON),
+    ("session.creation.resolve", SESSION_REASON),
     ("session.shutdown", LIFECYCLE_REASON),
     ("session.reload_config", LIFECYCLE_REASON),
     ("session.terminal_defaults.update", SESSION_SETTING_REASON),
@@ -127,17 +140,41 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.delete", WINDOW_RECORD_REASON),
     ("sidebar_layout.get", SIDEBAR_LAYOUT_REASON),
     ("sidebar_layout.update", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.adopt", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.apply", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.get", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.group.create", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.group.ungroup", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.group.update", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.item.add", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.item.remove", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.item.remove_ref", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.item.update", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.move", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.pin", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.reset", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.section.add", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.section.move", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.section.remove", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.section.update", SIDEBAR_LAYOUT_REASON),
+    ("sidebar.unpin", SIDEBAR_LAYOUT_REASON),
     ("project.list", PROJECT_REASON),
     ("project.observe", PROJECT_REASON),
     ("project.add", PROJECT_REASON),
     ("project.update", PROJECT_REASON),
     ("project.remove", PROJECT_REASON),
     ("project.sync", PROJECT_REASON),
+    ("project.source.update", PROJECT_REASON),
     ("palette_usage.get", PALETTE_USAGE_REASON),
     ("palette_usage.record", PALETTE_USAGE_REASON),
     ("palette_usage.import", PALETTE_USAGE_REASON),
     ("palette_usage.hide", PALETTE_USAGE_REASON),
     ("palette_usage.forget", PALETTE_USAGE_REASON),
+    ("stash.create", STASH_REASON),
+    ("stash.list", STASH_REASON),
+    ("stash.restore", STASH_REASON),
+    ("stash.delete", STASH_REASON),
+    ("stash.import", STASH_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
@@ -157,6 +194,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 /// Operations the curated `cmux` CLI offers but MCP does not, with the
 /// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
+    ("agent.message.release", AGENT_MESSAGE_RELEASE_REASON),
+    ("agent.message.unsend", AGENT_MESSAGE_UNSEND_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),
     ("history.entries.remove", HISTORY_MCP_PENDING_REASON),
     ("history.site.remove", HISTORY_MCP_PENDING_REASON),
@@ -173,9 +212,15 @@ const AGENT_MESSAGE_REASON: &str = "Agent messages go through `cmux agent messag
      agent inbox`, which store, deliver and mark in one command; one operation alone would \
      store a message without delivering it or change another agent's delivery state.";
 
+const AGENT_MESSAGE_RELEASE_REASON: &str = "Releasing a held agent message is the person's \
+     decision (`cmux agent message release`); an agent gets no tool to approve messages.";
+
+const AGENT_MESSAGE_UNSEND_REASON: &str = "Agent messages go through `cmux agent message`; \
+     taking one back is `cmux agent message unsend`, beside the send it undoes.";
+
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
-const MACHINE_REASON: &str =
-    "Machine and session plumbing in the cmux-tui-only scopes; the curated cmux CLI omits it.";
+const SESSION_REASON: &str =
+    "Session plumbing in the cmux-tui-only scope; the curated cmux CLI omits it.";
 const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
      cmux-tui-only, and the cmux CLI's `server` scope does not send it.";
 const SESSION_SETTING_REASON: &str = "A session-wide setting in the cmux-tui-only scope.";
@@ -191,6 +236,8 @@ const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit i
      app's sidebar actions (action tools), which keep the app's intent log.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
+const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
+     list; agents close and open tabs through the tab and browser tools, never the stash.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
@@ -355,6 +402,10 @@ impl V2Tool {
                 "Reads the cmux session daemon and changes nothing."
             }
         );
+        if matches!(self.operation, ResourceOperation::MachineList | ResourceOperation::MachineGet)
+        {
+            text.push_str(" By default reads the original local-only machine shape. catalog:true explicitly includes owner metadata and currently published admitted routes. Metadata grants no execution rights and opens no machine connection.");
+        }
         if let Some(constraints) = schema::joined(&self.descriptor["params"]["constraints"]) {
             text.push(' ');
             text.push_str(&constraints);
@@ -387,7 +438,7 @@ impl V2Tool {
             }),
         );
         for (selector, requiredness) in self.selectors() {
-            if matches!(selector.as_str(), "machine" | "session") {
+            if !self.selector_argument(selector) {
                 continue;
             }
             properties.insert(selector.clone(), schema::id(selector));
@@ -440,6 +491,9 @@ impl V2Tool {
     /// a unique prefix (resolved with a list read on the request's own
     /// connection), `<session>:<id>`, `current` or a name.
     pub(super) fn plan(&self, arguments: &Map<String, Value>) -> Result<CallPlan, Value> {
+        if self.operation == ResourceOperation::MachineGet {
+            text("machine", arguments.get("machine").unwrap_or(&Value::Null))?;
+        }
         let selectors = self.descriptor["params"]["selectors"].as_object();
         let fields = self.fields().as_object();
         let mut params = Map::new();
@@ -454,7 +508,7 @@ impl V2Tool {
         let (mut offset, mut limit) = (None, None);
         for (name, value) in arguments {
             let selector = selectors.is_some_and(|selectors| selectors.contains_key(name))
-                && !matches!(name.as_str(), "machine" | "session");
+                && self.selector_argument(name);
             let field = fields.and_then(|fields| fields.get(name));
             match name.as_str() {
                 "session" => set_session(&mut session, text(name, value)?)?,
@@ -524,6 +578,12 @@ impl V2Tool {
             page,
             prefixes,
         })
+    }
+
+    /// Machine selection is a metadata lookup only on machine.get; other tools keep their owner scope.
+    fn selector_argument(&self, selector: &str) -> bool {
+        (selector == "machine" && self.operation == ResourceOperation::MachineGet)
+            || !matches!(selector, "machine" | "session")
     }
 
     fn waits(&self) -> bool {
@@ -632,6 +692,7 @@ fn summary(wire: &str, target: &str) -> String {
         "run" => format!("Run a command in a new terminal of the {target}"),
         "create terminal" => "Open a terminal tab in a pane".into(),
         "create browser" => "Open a browser tab in a pane".into(),
+        "open url" => "Open a web link on a workspace's right side, reusing its browser tab".into(),
         "split" => "Split a pane and open a new one beside it".into(),
         "swap" => "Swap two panes".into(),
         "zoom" => "Zoom or unzoom a pane".into(),
@@ -674,6 +735,10 @@ fn summary(wire: &str, target: &str) -> String {
         "back" | "forward" => format!("Go {action} in a browser's history"),
         "reload" => "Reload a browser's page".into(),
         "activate" => format!("Activate a {target}"),
+        "profile list" => "List the browser profiles: names and ids, never their data".into(),
+        "profile create" => "Create an empty browser profile".into(),
+        "profile open" => "Open a browser tab in a browser profile".into(),
+        "tab set profile" => "Move a browser tab to another browser profile".into(),
         _ => format!("{} a {target}", capitalized(&action)),
     }
 }

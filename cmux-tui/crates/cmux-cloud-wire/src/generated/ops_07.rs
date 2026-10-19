@@ -4,6 +4,117 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
+    ParticipantsAddOp {
+        name: "participants.add",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: ParticipantsAddParams,
+        result: HomeConversationCommit,
+        error: ParticipantsAddError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantsAddParams {
+    pub conversation: ConversationId,
+    pub participant: HomeParticipantInput,
+}
+
+wire_errors! {
+    /// The error codes participants.add declares.
+    ParticipantsAddError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        DuplicateParticipant = "duplicate_participant",
+        Forbidden = "forbidden",
+        HomeRateLimited = "home.rate_limited",
+        HomeUserNotReady = "home.user_not_ready",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        NotReachable = "not_reachable",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Leave (yourself), or remove a participant (conversation owner; a chief's owner for that chief). Removing the last human archives the conversation.
+    ParticipantsRemoveOp {
+        name: "participants.remove",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "destructive",
+        principals: [Session, Install],
+        params: ParticipantsRemoveParams,
+        result: HomeConversationCommit,
+        error: ParticipantsRemoveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantsRemoveParams {
+    pub conversation: ConversationId,
+    pub participant: ParticipantId,
+}
+
+wire_errors! {
+    /// The error codes participants.remove declares.
+    ParticipantsRemoveError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Register the calling iPhone or iPad install's APNs token (replaces the install's earlier token).
+    PushTargetRegisterOp {
+        name: "push.target.register",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: PushTargetRegisterParams,
+        result: PushTarget,
+        error: PushTargetRegisterError,
+    }
+}
+
+wire_enum! {
+    PushTargetRegisterParamsEnvironment {
+        Development = "development",
+        Production = "production",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PushTargetRegisterParams {
+    pub token: PushToken,
+    pub topic: String,
+    pub environment: PushTargetRegisterParamsEnvironment,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_name: Option<String>,
+}
+
 wire_errors! {
     /// The error codes push.target.register declares.
     PushTargetRegisterError {
@@ -777,122 +888,5 @@ wire_errors! {
     TeamDeviceComplianceError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance.
-    TeamDeviceEnrollOp {
-        name: "team.device.enroll",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: TeamDeviceEnrollParams,
-        result: ManagedDevice,
-        error: TeamDeviceEnrollError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceEnrollParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_hash: Option<EnrollmentTokenHash>,
-}
-
-wire_errors! {
-    /// The error codes team.device.enroll declares.
-    TeamDeviceEnrollError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The device-scoped policy for the calling install: values only when this team manages it (decision E3).
-    TeamDevicePolicyOp {
-        name: "team.device.policy",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Install],
-        params: TeamDevicePolicyParams,
-        result: TeamDevicePolicyResult,
-        error: TeamDevicePolicyError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDevicePolicyParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDevicePolicyResultDefaults {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDevicePolicyResultEnforced {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDevicePolicyResultFeatures {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDevicePolicyResult {
-    pub team: TeamId,
-    pub managed: bool,
-    pub team_name: String,
-    pub version: i64,
-    pub defaults: TeamDevicePolicyResultDefaults,
-    pub enforced: TeamDevicePolicyResultEnforced,
-    pub features: TeamDevicePolicyResultFeatures,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.device.policy declares.
-    TeamDevicePolicyError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never.
-    TeamDeviceReleaseOp {
-        name: "team.device.release",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: TeamDeviceReleaseParams,
-        result: TeamDeviceReleaseResult,
-        error: TeamDeviceReleaseError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceReleaseParams {
-    pub install: InstallId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceReleaseResult {
-    pub install: InstallId,
-}
-
-wire_errors! {
-    /// The error codes team.device.release declares.
-    TeamDeviceReleaseError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
     }
 }

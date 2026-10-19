@@ -1,5 +1,6 @@
 import { errorMessage } from "../transportErrors";
 import { translate } from "../i18n";
+import { typedRequest } from "../protocol/client";
 import {
   PERMISSION_GROUP_OPS,
   PermissionRpcError,
@@ -220,7 +221,7 @@ export class PermissionGroupClient {
     this.changed();
     try {
       const result: PermissionGroupList = permissionGroups(
-        await this.request(PERMISSION_GROUP_OPS.groups, { sessionId }),
+        await typedRequest(this.request, PERMISSION_GROUP_OPS.groups, { sessionId }),
       );
       if (generation !== this.generation || refreshSerial !== this.refreshSerial || this.sessionId !== sessionId)
         return;
@@ -299,7 +300,7 @@ export class PermissionGroupClient {
     this.changed();
     try {
       let rawReceipt: unknown;
-      rawReceipt = await this.request(PERMISSION_GROUP_OPS.respond, {
+      rawReceipt = await typedRequest(this.request, PERMISSION_GROUP_OPS.respond, {
         sessionId: pending.sessionId,
         groupId: pending.groupId,
         revision: pending.revision,
@@ -462,7 +463,7 @@ export class PermissionGroupClient {
     this.state = { ...this.state, busy: true, error: undefined };
     this.changed();
     try {
-      permissionChatRevokeReceipt(await this.request(PERMISSION_GROUP_OPS.revoke, { sessionId }));
+      permissionChatRevokeReceipt(await typedRequest(this.request, PERMISSION_GROUP_OPS.revoke, { sessionId }));
       if (generation === this.generation) {
         this.pendingRevoke = false;
         this.state = { ...this.state, chatAllowance: false, uncertain: false, error: undefined };

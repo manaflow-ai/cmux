@@ -580,7 +580,10 @@ jobs:
           persist-credentials: false
 
       - name: Initialize Ghostty protocol submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        shell: bash
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
         run: |
@@ -701,4 +704,4 @@ jobs:
           CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
         run: |
           cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live --test capabilities_per_connection_live -- --nocapture
-          cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live --test spaces_live -- --nocapture
+          cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live --test spaces_live --test session_deltas_live -- --nocapture

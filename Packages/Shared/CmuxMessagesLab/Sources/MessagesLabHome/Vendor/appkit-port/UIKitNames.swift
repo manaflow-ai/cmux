@@ -62,10 +62,16 @@ enum UIScreen {
 /// updates it in `viewDidChangeBackingProperties`; everything that rasterizes
 /// reads it.
 enum DisplayScale {
-    /// The window view takes it as `Fixture.renderScale` through
+    /// The window view takes it as its renderScale through
     /// `setRenderScale(_:)` (rows, morph, compose and header bitmaps
-    /// rasterize at it).
-    static var current: CGFloat = 2
+    /// rasterize at it). Inside `Fixture.withRenderScale` (a view's own work:
+    /// cells, drawing, bitmap jobs) this is the scope's scale, so renderers made
+    /// there (UIGraphicsImageRendererFormat) and views made there draw at it.
+    static var current: CGFloat {
+        get { RenderScaleScope.scoped ?? stored }
+        set { stored = newValue }
+    }
+    private static var stored: CGFloat = 2
     /// The color space bitmaps are drawn in: the window's display space live
     /// (Core Animation then uploads them without a per-commit color
     /// conversion on the main thread, which cost 5-9 ms per fling frame),

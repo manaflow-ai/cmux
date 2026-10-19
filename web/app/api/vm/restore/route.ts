@@ -100,7 +100,9 @@ export async function POST(request: Request): Promise<Response> {
         }
         throw err;
       }
-      const idempotencyKey = idempotencyKeyFromRequest(request);
+      const idempotency = idempotencyKeyFromRequest(request);
+      if (!idempotency.ok) return idempotency.response;
+      const idempotencyKey = idempotency.key;
       setSpanAttributes(span, {
         "cmux.snapshot.id": snapshotId,
         "cmux.vm.provider": provider,
@@ -124,6 +126,7 @@ export async function POST(request: Request): Promise<Response> {
         timing,
       }), {
         request,
+        deadline: { operation: "restore" },
         onError: vmCreateLikeErrorResponders({
           operation: "restore",
           planId: entitlements.planId,

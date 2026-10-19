@@ -431,6 +431,16 @@ impl Db {
         state_prefix(&self.conn, prefix)
     }
 
+    /// The log id of the message logged with key `key` (`<conversation>#<seq>`).
+    pub fn logged_id(&self, key: &str) -> Option<u64> {
+        self.conn
+            .prepare_cached("SELECT id FROM messages WHERE conv_msg = ?1")
+            .and_then(|mut s| s.query_row([key], |r| r.get::<_, i64>(0)).optional())
+            // crash-allow: a committed row that cannot be read means the disk is failing (see `message`).
+            .unwrap_or_else(|e| panic!("optchat: cannot read the message with key {key}: {e}"))
+            .map(|id| id as u64)
+    }
+
     /// The stored ISO date of message `i`.
     pub fn date(&self, i: u64) -> Option<String> {
         if i >= self.t {

@@ -136,6 +136,9 @@ impl Hub {
         adopt: &AdoptRequest,
         agent: &str,
     ) -> Result<(), RpcError> {
+        super::titles::keep_adopted_title(
+            &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()),
+        );
         if session.meta().agent_session_id.as_deref() == Some(adopt.agent_session_id.as_str()) {
             return Ok(());
         }
@@ -244,6 +247,20 @@ pub(super) fn session_cwd(
         return Err(RpcError::invalid_params(format!("cwd {} is not a directory", cwd.display())));
     }
     Ok((cwd, remapped_from))
+}
+
+/// `session_cwd` and that folder's git branch and HEAD as the session starts
+/// (`git_state.rs`). Both read the disk, so `session/new` runs this off the
+/// async runtime.
+pub(super) fn start_folder(
+    cwd: Option<PathBuf>,
+    recorded: Option<PathBuf>,
+    family: &str,
+    cwd_map: &[(PathBuf, PathBuf)],
+) -> Result<(PathBuf, Option<PathBuf>, crate::git_state::GitState), RpcError> {
+    let (cwd, remapped_from) = session_cwd(cwd, recorded, family, cwd_map)?;
+    let git = crate::git_state::GitState::read(&cwd);
+    Ok((cwd, remapped_from, git))
 }
 
 /// Ok when `given` stands in for the gone `recorded` folder of a chat moved

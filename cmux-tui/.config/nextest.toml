@@ -21,3 +21,37 @@ failure-output = "immediate-final"
 
 [profile.ci.junit]
 path = "junit.xml"
+
+# Start the slowest tests first (nextest test priorities, 0.9.91+; higher runs
+# first, the default is 0), so none of them starts near the end of a run and
+# holds it open alone. Measured on macOS (aws-m4pro, 3 shards of b7b706a0e064):
+# the 300-terminal open_file_limit test took 101 s and started last in its
+# shard, which ended at 147 s while the other shards ended at 96-99 s. The
+# rest of the list took 30-59 s each. A test belongs here when it takes 30 s
+# or more on macOS and opens few PTYs (the 100-terminal close_path tests, 47-59
+# s, keep the default: started beside the 300-terminal test they slowed it to
+# 120 s); a test that waits a fixed 30 s is a bug for its owner
+# (cx-ngrtv, cx-086x8), and leaves this list when it is fixed.
+[[profile.default.overrides]]
+filter = 'test(=cmux_next_owner_runs_300_terminals_with_a_256_open_file_soft_limit)'
+priority = 100
+# 101 s on a quiet start, 120 s when it started beside the 100-terminal tests
+# (4fa5d0fc348d): 240 s keeps a 2x margin; a hang still fails.
+slow-timeout = { period = "60s", terminate-after = 4, grace-period = "5s" }
+
+[[profile.default.overrides]]
+filter = '''
+test(=cmux_next_daemon_idle_has_no_periodic_wakeups)
+| test(=cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder)
+| test(=terminal_creates_under_output_commit_effect_receipts_in_writer_batches)
+| test(=machine_provider_runtime::tests::stale_connection_closed_event_preserves_the_current_connection)
+| test(=machine_provider_runtime::tests::snapshot_event_replaces_dynamic_ui_with_stable_machine_key)
+| test(=machine_provider_runtime::tests::initial_durable_replay_suppresses_the_legacy_snapshot_notice)
+'''
+priority = 50
+
+# The lifecycle latency test (perf-10x lifecycle) prints its LIFECYCLE lines
+# on stderr; a fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
+success-output = "final"

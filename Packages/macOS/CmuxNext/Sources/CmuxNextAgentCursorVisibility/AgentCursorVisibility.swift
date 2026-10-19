@@ -7,7 +7,8 @@ public nonisolated enum AgentCursorVisibility: Equatable, Sendable {
     /// The target's page is on screen. `viewport` is the page viewport the
     /// event coordinates map into; `clip` is its part not scrolled out or
     /// under a docked column (equal to `viewport` when fully shown).
-    case visible(window: String, viewport: CGRect, clip: CGRect, zoom: Double)
+    /// `scale` is the page's points per CSS px at zoom 1 (a fit or a big device; 1 otherwise).
+    case visible(window: String, viewport: CGRect, clip: CGRect, zoom: Double, scale: Double = 1)
     /// The target is in `window` but not shown: an indicator in the session
     /// color pulses at `rect`. Never over a pane that is not the target.
     case hidden(window: String, anchor: AgentCursorAnchor, rect: CGRect)

@@ -794,112 +794,103 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
-    ParticipantsAddOp {
-        name: "participants.add",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
+    /// A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant.
+    ParticipantAvatarGetOp {
+        name: "participant.avatar.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
         principals: [Session, Install],
-        params: ParticipantsAddParams,
-        result: HomeConversationCommit,
-        error: ParticipantsAddError,
+        params: ParticipantAvatarGetParams,
+        result: ParticipantAvatarGetResult,
+        error: ParticipantAvatarGetError,
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantsAddParams {
-    pub conversation: ConversationId,
-    pub participant: HomeParticipantInput,
+pub struct ParticipantAvatarGetParams {
+    pub participant_id: ParticipantId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
+}
+
+wire_enum! {
+    ParticipantAvatarGetResultAvatarMediaType {
+        ImagePng = "image/png",
+        ImageJpeg = "image/jpeg",
+        ImageGif = "image/gif",
+        ImageWebp = "image/webp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetResultAvatar {
+    pub sha256: String,
+    pub media_type: ParticipantAvatarGetResultAvatarMediaType,
+    pub bytes: i64,
+    /// The image, base64.
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetResult {
+    pub participant_id: ParticipantId,
+    pub avatar: Option<ParticipantAvatarGetResultAvatar>,
 }
 
 wire_errors! {
-    /// The error codes participants.add declares.
-    ParticipantsAddError {
-        Archived = "archived",
+    /// The error codes participant.avatar.get declares.
+    ParticipantAvatarGetError {
         AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        DuplicateParticipant = "duplicate_participant",
-        Forbidden = "forbidden",
-        HomeRateLimited = "home.rate_limited",
-        HomeUserNotReady = "home.user_not_ready",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        NotReachable = "not_reachable",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
+        SelectorNotFound = "selector.not_found",
         ValidationInvalid = "validation.invalid",
     }
 }
 
 wire_op! {
-    /// Leave (yourself), or remove a participant (conversation owner; a chief's owner for that chief). Removing the last human archives the conversation.
-    ParticipantsRemoveOp {
-        name: "participants.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "destructive",
-        principals: [Session, Install],
-        params: ParticipantsRemoveParams,
-        result: HomeConversationCommit,
-        error: ParticipantsRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantsRemoveParams {
-    pub conversation: ConversationId,
-    pub participant: ParticipantId,
-}
-
-wire_errors! {
-    /// The error codes participants.remove declares.
-    ParticipantsRemoveError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Register the calling iPhone or iPad install's APNs token (replaces the install's earlier token).
-    PushTargetRegisterOp {
-        name: "push.target.register",
+    /// Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's.
+    ParticipantAvatarSetOp {
+        name: "participant.avatar.set",
         class: Mutation,
         idempotency: Required,
         owner: "cloud:UserDO",
         risk: "mutate-own",
-        principals: [Install],
-        params: PushTargetRegisterParams,
-        result: PushTarget,
-        error: PushTargetRegisterError,
-    }
-}
-
-wire_enum! {
-    PushTargetRegisterParamsEnvironment {
-        Development = "development",
-        Production = "production",
+        principals: [Session, Install],
+        params: ParticipantAvatarSetParams,
+        result: ParticipantAvatarSetResult,
+        error: ParticipantAvatarSetError,
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PushTargetRegisterParams {
-    pub token: PushToken,
-    pub topic: String,
-    pub environment: PushTargetRegisterParamsEnvironment,
+pub struct ParticipantAvatarSetParams {
+    pub participant_id: ParticipantId,
+    /// The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device_name: Option<String>,
+    pub bytes: Option<String>,
+    /// true removes the picture (no bytes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clear: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarSetResult {
+    pub participant_id: ParticipantId,
+    pub avatar: Option<AvatarRef>,
+}
+
+wire_errors! {
+    /// The error codes participant.avatar.set declares.
+    ParticipantAvatarSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AvatarInvalid = "avatar_invalid",
+        AvatarTooLarge = "avatar_too_large",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
 }

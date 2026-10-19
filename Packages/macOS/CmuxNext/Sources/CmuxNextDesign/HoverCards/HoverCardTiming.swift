@@ -1,0 +1,26 @@
+public import Foundation
+
+/// Hover card timing for the sidebar's workspace cards and the tab cards.
+///
+/// Lawrence 2026-10-14 first asked for Chrome's delay (1300 ms at the default tab width, Chromium
+/// chrome/browser/ui/views/tabs/hovercard/tab_hover_card_controller.cc `GetShowDelay`:
+/// `kMaximumTriggerDelay` 800 ms plus `kTabHoverCardAdditionalMaxWidthDelay` 500 ms). On
+/// 2026-10-18 he found that too slow ("hover on tab/workspace takes too long to show the card"),
+/// so the cold delay is now short (250 ms, msg 1754), and the warm rules below keep the next card
+/// instant.
+public nonisolated struct HoverCardTiming {
+    public nonisolated init() {}
+    /// The cold delay: how long the pointer rests on a row or a tab before the first card opens.
+    /// Rows and tabs wait the same (no width scaling). `sidebar.hoverCards.delay` overrides it
+    /// (`DesignSettings.hoverCardDelay`).
+    public static let showDelay: Duration = .milliseconds(250)
+    /// Warm mode: after a card goes, a hover this soon shows the next one at once (like macOS
+    /// tooltips). While a card shows, the next target's card replaces it at once and the card
+    /// slides over (`HoverCardPanel`).
+    public static let reshowWindow: Duration = .milliseconds(500)
+}
+
+extension DesignSettings {
+    /// Posted when `hoverCardsEnabled` changes (the hover card coordinator hides a shown card).
+    public static let hoverCardsDidChange = Notification.Name("CmuxNextDesign.DesignSettings.hoverCardsDidChange")
+}

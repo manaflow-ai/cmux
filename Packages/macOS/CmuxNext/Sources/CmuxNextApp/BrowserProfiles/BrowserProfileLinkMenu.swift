@@ -57,7 +57,7 @@ enum BrowserProfileLinkMenu {
         case .emoji(let emoji):
             return NSImage(size: size, flipped: false) { rect in
                 // 12 pt: a color emoji's glyph runs past its point size.
-                let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: 12)])
+                let text = NSAttributedString(string: emoji, attributes: [.font: Typography.system(size: 12)])
                 let drawn = text.size()
                 text.draw(at: NSPoint(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2))
                 return true

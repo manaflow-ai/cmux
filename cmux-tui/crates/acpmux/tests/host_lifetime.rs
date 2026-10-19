@@ -5,10 +5,15 @@
 //! with parent pid 1, most in deleted test homes.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -34,18 +39,14 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 fn start_daemon(home: &Path) -> Child {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::command(home, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
         // No catalog fetch: a test never reaches the network, and the fetch's
         // warning (a catalog server 404) came on stdout before the ready line.
         .env("ACPMUX_CATALOG_FETCH", "0")
-        .env_remove("ACPMUX_AGENT_HOSTS")
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("ACPMUX_LOCAL_ROUTER")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("ACPMUX_IDLE_CHILD_SECS")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -211,4 +212,86 @@ async fn a_pooled_host_ends_with_its_daemon_and_a_taken_one_stays() {
     assert!(alive(taken_host), "the taken session's host must wait for the next daemon");
     std::fs::remove_dir_all(&home).unwrap();
     assert!(gone_within(taken_host, Duration::from_secs(10)), "taken host outlived its home");
+}
+
+/// Read syscalls and CPU ticks the process has used so far (Linux /proc).
+#[cfg(target_os = "linux")]
+fn usage(pid: i64) -> (u64, u64) {
+    let io = std::fs::read_to_string(format!("/proc/{pid}/io")).expect("/proc io");
+    let reads = io
+        .lines()
+        .find_map(|l| l.strip_prefix("syscr:"))
+        .and_then(|v| v.trim().parse().ok())
+        .expect("syscr");
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).expect("/proc stat");
+    // Fields after the command name: state is field 3, utime 14, stime 15.
+    let rest: Vec<&str> = stat.rsplit_once(')').unwrap().1.split_whitespace().collect();
+    let ticks = rest[11].parse::<u64>().unwrap() + rest[12].parse::<u64>().unwrap();
+    (reads, ticks)
+}
+
+/// Idle usage of `pid` over `secs` seconds: (read syscalls, CPU ticks).
+#[cfg(target_os = "linux")]
+async fn idle_usage(pid: i64, secs: u64) -> (u64, u64) {
+    let (reads, ticks) = usage(pid);
+    tokio::time::sleep(Duration::from_secs(secs)).await;
+    let (reads_after, ticks_after) = usage(pid);
+    (reads_after - reads, ticks_after - ticks)
+}
+
+/// Ends the daemon and the host and deletes the home when the test ends,
+/// also on a failed assertion (a spinning host must not outlive the test).
+#[cfg(target_os = "linux")]
+struct Cleanup {
+    daemon: Child,
+    /// Set while the host may still run; None once it is gone (its pid
+    /// may then belong to another process).
+    host: Option<i64>,
+    home: PathBuf,
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        let _ = self.daemon.kill();
+        let _ = self.daemon.wait();
+        if let Some(host) = self.host.filter(|&host| alive(host)) {
+            // SAFETY: SIGKILL to the host this test started, still running.
+            unsafe { libc::kill(host as i32, libc::SIGKILL) };
+        }
+        let _ = std::fs::remove_dir_all(&self.home);
+    }
+}
+
+/// A pooled host waits without work while nothing changes: its record watch
+/// never wakes on the reads of the record it makes itself (inotify reports
+/// every open and read in a watched directory; the host spun at 100% CPU,
+/// about 200,000 read calls a second, on the Linux build host). A record
+/// rewritten by rename keeps it; the record removed ends it.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pooled_host_is_idle_and_follows_its_record() {
+    let home = scratch("idle");
+    let mut cleanup = Cleanup { daemon: start_daemon(&home), host: None, home: home.clone() };
+    let mut rpc = Rpc::connect(&home).await;
+    rpc.pool_ready(&home, "fakeb").await;
+    let pool = home.join("hosts").join("pool");
+    let session = pool_session(&home);
+    let path = pool.join(format!("{session}.json"));
+    let (host, _) = pids(&record(&pool, &session));
+    cleanup.host = Some(host);
+    let (reads, ticks) = idle_usage(host, 3).await;
+    assert!(reads < 100 && ticks < 30, "idle pooled host {host}: {reads} reads, {ticks} ticks");
+    // A record rewritten in place (write, then rename) is still this host's.
+    let bytes = std::fs::read(&path).unwrap();
+    let staged = pool.join(format!("{session}.rewrite"));
+    std::fs::write(&staged, &bytes).unwrap();
+    std::fs::rename(&staged, &path).unwrap();
+    let (reads, ticks) = idle_usage(host, 2).await;
+    assert!(alive(host), "a rename rewrite of the record ended the host");
+    assert!(reads < 100 && ticks < 30, "after the rewrite {host}: {reads} reads, {ticks} ticks");
+    std::fs::remove_file(&path).unwrap();
+    assert!(gone_within(host, Duration::from_secs(10)), "host {host} outlived its record");
+    cleanup.host = None;
+    drop(rpc);
 }

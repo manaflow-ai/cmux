@@ -38,6 +38,60 @@ const AGENT_EVENT_KINDS: [&str; 13] = [
     "agent.plugin.exited",
 ];
 
+/// Longest prompt kept for the hover card's task line (characters).
+pub const LIVE_PROMPT_CHARS: usize = 200;
+
+/// The prompt a turn-start hook carries, for the hover card's task line: shown text (no
+/// control or invisible formatting characters), trimmed, at most [`LIVE_PROMPT_CHARS`]
+/// characters. Read before redaction; it never enters the journal or a log (Lawrence
+/// 2026-10-14: memory only). `None` for other events and empty prompts.
+pub fn agent_hook_live_prompt(native_event: &str, native: &Value) -> Option<String> {
+    if semantic_key(native_event) != "userpromptsubmit" {
+        return None;
+    }
+    let text =
+        first_string_at(native, &[&["prompt"][..], &["user_prompt"][..], &["userPrompt"][..]])?;
+    live_prompt_text(text)
+}
+
+/// The agent's last message a finished or failed turn carries (Claude's
+/// `last_assistant_message`, a provider's `message`/`response`/`summary`), for the banner's
+/// preview: shown text, whitespace folded, at most [`LIVE_PROMPT_CHARS`] characters. Read
+/// before redaction; like the prompt it travels beside the event and is kept in memory only
+/// until its banner takes it (cx-kz6m0). `None` for other events and empty messages.
+pub fn agent_hook_live_reply(source: &str, native_event: &str, native: &Value) -> Option<String> {
+    let normalized = normalized_fields(native);
+    let kind = semantic_kind(source, native_event, &normalized);
+    if !matches!(kind, "agent.turn.completed" | "agent.error.reported") {
+        return None;
+    }
+    live_prompt_text(normalized.get("message")?.as_str()?)
+}
+
+/// The texts a hook sends beside its journal event, memory only (`session.journal.append`
+/// `live_prompt`, `live_reply`). Read them before the event redacts its payload.
+pub fn agent_hook_live_fields(
+    source: &str,
+    native_event: &str,
+    native: &Value,
+) -> Map<String, Value> {
+    let mut fields = Map::new();
+    if let Some(prompt) = agent_hook_live_prompt(native_event, native) {
+        fields.insert("live_prompt".into(), Value::String(prompt));
+    }
+    if let Some(reply) = agent_hook_live_reply(source, native_event, native) {
+        fields.insert("live_reply".into(), Value::String(reply));
+    }
+    fields
+}
+
+/// `text` as a kept prompt: shown text, whitespace folded, cut to [`LIVE_PROMPT_CHARS`].
+pub(crate) fn live_prompt_text(text: &str) -> Option<String> {
+    let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let shown = crate::program_status::shown_text(&folded, LIVE_PROMPT_CHARS);
+    (!shown.is_empty()).then_some(shown)
+}
+
 pub fn agent_hook_journal_ingress(
     source: &str,
     native_event: &str,
@@ -50,11 +104,19 @@ pub fn agent_hook_journal_ingress(
     // Read before redaction: `tool_input` is redacted whole, and live
     // presence needs only its file target.
     let tool_target = tool_target_fields(&native);
+    // Read the structured reason before redaction replaces free-form strings.
+    let resumable_interruption = is_resumable_opencode_interruption(source, native_event, &native);
     let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
     normalized.extend(tool_target);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
-    let kind = semantic_kind(source, native_event, &normalized);
+    let kind = if resumable_interruption {
+        // OpenCode keeps a shutdown-interrupted execution and resumes it, so
+        // the turn is still running rather than completed.
+        "agent.state.changed"
+    } else {
+        semantic_kind(source, native_event, &normalized)
+    };
     let mut subjects = Vec::with_capacity(4);
     if let Some(terminal_id) = terminal_id {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
@@ -391,6 +453,12 @@ fn semantic_kind(
         ("antigravity" | "hermes-agent", "sessionend" | "onsessionend") => "agent.turn.completed",
         ("opencode", "sessioncreated") => "agent.session.started",
         ("opencode", "sessionidle") => "agent.turn.completed",
+        ("opencode", "sessionexecutionsucceeded" | "sessionexecutioninterrupted") => {
+            "agent.turn.completed"
+        }
+        ("opencode", "sessionexecutionfailed" | "sessionnextstepfailed" | "sessionerror") => {
+            "agent.error.reported"
+        }
         ("opencode", "sessiondeleted") => "agent.session.ended",
         (_, event) if is_child_spawn(event) => "agent.child.spawned",
         (_, event) if is_child_completion(event) => "agent.child.completed",
@@ -419,6 +487,17 @@ fn semantic_kind(
         }
         _ => "agent.state.changed",
     }
+}
+
+fn is_resumable_opencode_interruption(source: &str, native_event: &str, native: &Value) -> bool {
+    if source != "opencode" || semantic_key(native_event) != "sessionexecutioninterrupted" {
+        return false;
+    }
+    let event = native.get("event").unwrap_or(native);
+    ["data", "properties"]
+        .iter()
+        .filter_map(|key| event.get(key))
+        .any(|properties| properties.get("reason").and_then(Value::as_str) == Some("shutdown"))
 }
 
 fn is_child_spawn(event: &str) -> bool {

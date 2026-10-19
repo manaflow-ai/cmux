@@ -1,7 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-#[cfg(test)]
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -11,7 +9,9 @@ use cmux_tui_cdp::{
     TargetCreated, resolve_browser_ws_url,
 };
 
-use crate::browser_provider::{BrowserProviderAuthentication, BrowserProviderTargetLease};
+use crate::browser_provider::{
+    BrowserProviderAuthentication, BrowserProviderHosting, BrowserProviderTargetLease,
+};
 use crate::resource::TabResourceIdentity;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -93,6 +93,40 @@ pub struct BrowserFrameStream {
     pub slot: Arc<Mutex<BrowserAttachUpdate>>,
     /// Coalescing wake; a stream interrupt can also wake it.
     pub notify: crate::stream_interrupt::SignalReceiver,
+    /// This stream's claim on the surface's frames. A natively hosted page is
+    /// screencast only while at least one claim is alive.
+    _viewer: FrameViewer,
+}
+
+// Explicit so a `move` closure that uses `slot` and `notify` captures the
+// whole stream, and the viewer claim lives exactly as long as the stream.
+impl Drop for BrowserFrameStream {
+    fn drop(&mut self) {}
+}
+
+/// One attached frame viewer of a browser surface. Dropping the last one of
+/// a natively hosted page wakes the worker, which stops its screencast.
+struct FrameViewer {
+    viewers: Arc<AtomicUsize>,
+    command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,
+    command_order: Arc<Mutex<BrowserCommandOrder>>,
+}
+
+impl FrameViewer {
+    fn wake_worker(&self) {
+        let Some(tx) = self.command_tx.lock().unwrap().clone() else { return };
+        let mut order = self.command_order.lock().unwrap();
+        let wake = order.sequence(BrowserCommand::WakeLatest);
+        let _ = tx.try_send(wake);
+    }
+}
+
+impl Drop for FrameViewer {
+    fn drop(&mut self) {
+        if self.viewers.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.wake_worker();
+        }
+    }
 }
 
 pub(crate) type BrowserResizeOutcome = Result<(), Arc<str>>;
@@ -315,6 +349,11 @@ struct BrowserState {
     last_frame_at: Option<Instant>,
     stall_nudged: bool,
     not_responding_reported: bool,
+    /// The attached session has no screencast: a natively hosted page with
+    /// no frame viewer. Never set for a daemon-hosted page.
+    screencast_paused: bool,
+    /// A failed frame-demand start or stop is retried at this time.
+    frame_demand_retry_at: Option<Instant>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -614,6 +653,7 @@ pub struct BrowserRuntime {
     source: BrowserSource,
     endpoint: String,
     bearer_token: Option<String>,
+    hosting: BrowserProviderHosting,
     stealth_user_agent: Option<String>,
     routes: Mutex<Routes>,
     closed: AtomicBool,
@@ -748,7 +788,9 @@ pub struct BrowserSurface {
     dead: AtomicBool,
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
-    command_tx: Mutex<Option<SyncSender<SequencedBrowserCommand>>>,
+    command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,
+    /// Live [`BrowserFrameStream`]s (attached viewers) of this surface.
+    frame_viewers: Arc<AtomicUsize>,
     command_order: Arc<Mutex<BrowserCommandOrder>>,
     latest_nav: Arc<Mutex<Option<SequencedBrowserCommand>>>,
     latest_authority: Arc<Mutex<Option<SequencedBrowserCommand>>>,
@@ -772,6 +814,7 @@ struct BrowserCaptureOptions {
 pub const TRANSPORT_SAFE_CAPTURE_MEGAPIXELS: f64 = 2.0;
 const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
+const FRAME_DEMAND_RETRY_DELAY: Duration = Duration::from_millis(500);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_RETAINED_RELEASE_CAPACITY: usize = BROWSER_COMMAND_QUEUE_CAPACITY + 1;
 const LEGACY_POINTER_PRESS_LEASE: Duration = Duration::from_secs(30);
@@ -832,7 +875,7 @@ fn frames_stalled_locked(state: &BrowserState, now: Instant, dead: bool) -> bool
     if dead || !matches!(state.status, BrowserStatus::Live) {
         return false;
     }
-    if state.source == Some(BrowserSource::Launched) {
+    if state.source == Some(BrowserSource::Launched) || state.screencast_paused {
         return false;
     }
     let Some(since) = state.last_frame_at.or(state.live_since) else {

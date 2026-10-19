@@ -289,7 +289,7 @@ impl RemoteSession {
         matches!(&*self.disconnect_state.lock().unwrap(), DisconnectState::ExpectedRemoteShutdown)
     }
 
-    fn request_shutdown_error(&self) -> Option<RemoteRequestError> {
+    pub(super) fn request_shutdown_error(&self) -> Option<RemoteRequestError> {
         match &*self.disconnect_state.lock().unwrap() {
             DisconnectState::LocalShutdown => Some(RemoteRequestError::Shutdown),
             DisconnectState::ExpectedRemoteShutdown => Some(RemoteRequestError::DaemonShutdown),
@@ -301,7 +301,7 @@ impl RemoteSession {
         self.request_shutdown_error().unwrap_or(RemoteRequestError::Shutdown)
     }
 
-    fn classify_transport_error(&self, error: io::Error) -> RemoteRequestError {
+    pub(super) fn classify_transport_error(&self, error: io::Error) -> RemoteRequestError {
         self.request_shutdown_error().unwrap_or(RemoteRequestError::Transport(error))
     }
 
@@ -312,6 +312,7 @@ impl RemoteSession {
         for (_, request) in pending {
             let _ = request.response.send(json!({"shutdown": true}));
         }
+        self.sidebar_doc.fail_pending();
         if let Ok(Some(sequence)) = self.interactive_writer.last_enqueued_sequence() {
             let _ = self.wait_for_ordered_write(sequence);
         }

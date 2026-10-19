@@ -79,6 +79,20 @@ class GeneratedProtocolTests(unittest.TestCase):
         self.assertEqual(event.event, "protocol-11-added")
         self.assertEqual(event.raw["value"], 42)
 
+    def test_native_inventory_events_decode_owner_lease_and_exact_revision(self) -> None:
+        owner = "machine_" + "a" * 32
+        watch = "inventory_watch_" + "b" * 32
+        changed = decode_event({"event": "agent-inventory-changed", "machine": owner,
+                                "watch_id": watch, "revision": 2**64 - 1})
+        self.assertNotIsInstance(changed, UnknownEvent)
+        self.assertEqual((changed.machine, changed.watch_id, changed.revision),
+                         (owner, watch, 2**64 - 1))
+        ended = decode_event({"event": "agent-inventory-watch-ended", "machine": owner,
+                             "watch_id": watch, "reason": "agent_inventory.unavailable"})
+        self.assertNotIsInstance(ended, UnknownEvent)
+        self.assertEqual((ended.machine, ended.watch_id, ended.reason),
+                         (owner, watch, "agent_inventory.unavailable"))
+
     def test_authority_and_version_metadata_cover_each_method(self) -> None:
         authorities = {metadata.authority for metadata in COMMANDS.values()}
         self.assertEqual(

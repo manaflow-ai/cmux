@@ -27,6 +27,7 @@ pub(super) struct Messages {
     pub started_brain: &'static str,
     pub daemon_failed: &'static str,
     pub no_brain: &'static str,
+    pub agents_disabled: &'static str,
     pub home_and_socket: &'static str,
     pub stop_sent: &'static str,
     pub shutdown_needs_home: &'static str,
@@ -41,7 +42,7 @@ pub(super) struct Messages {
 }
 
 static ENGLISH: Messages = Messages {
-    usage: "usage: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--harness H] [--model M] [--effort E] | cmux chief stop | cmux chief shutdown\n\n  Talk to your Chief: the same conversation as Home, live in both.\n  On a terminal it opens the chat. With -p, or with text on stdin, it sends\n  one message, prints the Chief's reply and exits when the turn ends.\n\n  -p, --prompt TEXT    send TEXT (pipe mode)\n  --timeout SECONDS    pipe mode: give up after SECONDS (default 1800, 0: no limit; exit 124)\n  --no-wait-agents     pipe mode: exit when the turn that answers ends, not after the subagents it started\n  --history N          chat: show the last N messages first (default 20)\n  --chief-home DIR     an isolated Chief (its own daemon and brain), also CMUX_CHIEF_HOME;\n                       without it and without --socket the CLI starts your Chief when it is not running\n  --json               pipe mode: print the reply messages as JSON lines\n  engine               show the Chief's engine, or set --harness, --model, --effort\n  stop                 stop the Chief's running turn\n  shutdown             stop the Chief: its brain, acpmux daemon, agent sessions and session daemon",
+    usage: "usage: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--chief ID] [--harness H] [--model M] [--effort E] | cmux chief stop [--chief ID] | cmux chief shutdown\n       cmux chief list | new | adopt | edit | delete   (cmux chief new --help)\n\n  Talk to your Chief: the same conversation as Home, live in both.\n  On a terminal it opens the chat. With -p, or with text on stdin, it sends\n  one message, prints the Chief's reply and exits when the turn ends.\n\n  -p, --prompt TEXT    send TEXT (pipe mode)\n  --timeout SECONDS    pipe mode: give up after SECONDS (default 1800, 0: no limit; exit 124)\n  --no-wait-agents     pipe mode: exit when the turn that answers ends, not after the subagents it started\n  --history N          chat: show the last N messages first (default 20)\n  --chief-home DIR     an isolated Chief (its own daemon and brain), also CMUX_CHIEF_HOME;\n                       without it and without --socket the CLI starts your Chief when it is not running\n  --json               pipe mode: print the reply messages as JSON lines\n  engine               show the Chief's engine, or set --harness, --model, --effort\n  --chief ID           with engine or stop: that Chief (cmux chief list), not your default Chief\n  stop                 stop the Chief's running turn\n  shutdown             stop the Chief: its brain, acpmux daemon, agent sessions and session daemon",
     help: "Enter sends. Alt+Enter or Ctrl+J adds a line. Up and Down recall sent messages.\nCtrl+C stops the Chief's turn (or clears the input); Ctrl+D quits.\n/model [NAME]   show or set the Chief's model\n/effort [LEVEL] show or set the Chief's effort\n/thoughts       show or hide the Chief's thinking\n/help           this text\n/quit           leave (the Chief keeps working)",
     you: "You",
     chief: "Chief",
@@ -66,6 +67,7 @@ static ENGLISH: Messages = Messages {
     started_brain: "started the Chief at {home} (pid {pid}); its log is host.log there",
     daemon_failed: "the Chief's session daemon is not running and {why}",
     no_brain: "the Chief is not running and this cmux has no Chief brain (optchat-chief) beside it or on PATH; open Home in a cmux DEV or NIGHTLY app once, or set CMUX_CHIEF_BRAIN_BIN",
+    agents_disabled: "agents are disabled in this build session (ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1): the Chief does not start a turn, so nothing was sent; unset the variable to talk to the Chief",
     home_and_socket: "give --chief-home or --socket/--session, not both",
     stop_sent: "stopping the Chief's turn",
     shutdown_needs_home: "cmux chief shutdown stops a Chief home: give --chief-home (or none for your Chief), not --socket or --session",
@@ -80,7 +82,7 @@ static ENGLISH: Messages = Messages {
 };
 
 static JAPANESE: Messages = Messages {
-    usage: "使い方: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--harness H] [--model M] [--effort E] | cmux chief stop | cmux chief shutdown\n\n  Chief と話します。Home と同じ会話で、両方にすぐ表示されます。\n  端末ではチャットを開きます。-p または標準入力のテキストがあると、\n  メッセージを 1 件送り、Chief の返信を表示して、ターンの終わりに終了します。\n\n  -p, --prompt TEXT    TEXT を送信 (パイプモード)\n  --timeout SECONDS    パイプモード: SECONDS 秒で中止 (既定 1800、0 で無制限、終了コード 124)\n  --no-wait-agents     パイプモード: 開始したサブエージェントを待たず、答えたターンの終わりに終了\n  --history N          チャット: 最初に直近 N 件を表示 (既定 20)\n  --chief-home DIR     独立した Chief (専用のデーモンと頭脳)。CMUX_CHIEF_HOME でも可。\n                       指定も --socket もないとき、動いていなければあなたの Chief を開始します\n  --json               パイプモード: 返信を JSON Lines で出力\n  engine               Chief のエンジンを表示、または --harness、--model、--effort を設定\n  stop                 Chief の実行中のターンを停止\n  shutdown             Chief を停止 (頭脳、acpmux デーモン、エージェントのセッション、セッションデーモン)",
+    usage: "使い方: cmux chief [-p TEXT] [--timeout SECONDS] [--history N]\n       cmux chief engine [--chief ID] [--harness H] [--model M] [--effort E] | cmux chief stop [--chief ID] | cmux chief shutdown\n       cmux chief list | new | adopt | edit | delete   (cmux chief new --help)\n\n  Chief と話します。Home と同じ会話で、両方にすぐ表示されます。\n  端末ではチャットを開きます。-p または標準入力のテキストがあると、\n  メッセージを 1 件送り、Chief の返信を表示して、ターンの終わりに終了します。\n\n  -p, --prompt TEXT    TEXT を送信 (パイプモード)\n  --timeout SECONDS    パイプモード: SECONDS 秒で中止 (既定 1800、0 で無制限、終了コード 124)\n  --no-wait-agents     パイプモード: 開始したサブエージェントを待たず、答えたターンの終わりに終了\n  --history N          チャット: 最初に直近 N 件を表示 (既定 20)\n  --chief-home DIR     独立した Chief (専用のデーモンと頭脳)。CMUX_CHIEF_HOME でも可。\n                       指定も --socket もないとき、動いていなければあなたの Chief を開始します\n  --json               パイプモード: 返信を JSON Lines で出力\n  engine               Chief のエンジンを表示、または --harness、--model、--effort を設定\n  --chief ID           engine または stop と使用: 既定の Chief ではなく、その Chief (cmux chief list)\n  stop                 Chief の実行中のターンを停止\n  shutdown             Chief を停止 (頭脳、acpmux デーモン、エージェントのセッション、セッションデーモン)",
     help: "Enter で送信。Alt+Enter または Ctrl+J で改行。上下キーで送信済みメッセージを呼び出します。\nCtrl+C で Chief のターンを停止 (または入力を消去)、Ctrl+D で終了します。\n/model [NAME]   Chief のモデルを表示または設定\n/effort [LEVEL] Chief の effort を表示または設定\n/thoughts       Chief の思考の表示を切り替え\n/help           このテキスト\n/quit           終了 (Chief は作業を続けます)",
     you: "あなた",
     chief: "Chief",
@@ -105,6 +107,7 @@ static JAPANESE: Messages = Messages {
     started_brain: "{home} で Chief を開始しました (pid {pid})。ログはそこの host.log です",
     daemon_failed: "Chief のセッションデーモンが動いておらず、{why}",
     no_brain: "Chief が動いておらず、この cmux の隣にも PATH にも Chief の頭脳 (optchat-chief) がありません。cmux DEV か NIGHTLY のアプリで Home を一度開くか、CMUX_CHIEF_BRAIN_BIN を設定してください",
+    agents_disabled: "このビルドセッションではエージェントが無効です (ACPMUX_AGENT_LAUNCH=deny または CMUX_AGENTS_DISABLED=1)。Chief はターンを始めないため、何も送信していません。Chief と話すには環境変数の設定を解除してください",
     home_and_socket: "--chief-home と --socket/--session は同時に指定できません",
     stop_sent: "Chief のターンを停止します",
     shutdown_needs_home: "cmux chief shutdown は Chief ホームを停止します。--socket や --session ではなく --chief-home を指定してください (省略するとあなたの Chief)",

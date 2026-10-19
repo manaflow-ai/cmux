@@ -3,25 +3,30 @@
 
 Reads the pull requests merged into feat-cmux-next or main since the last run
 (GitHub GraphQL search, one query per run; never a REST polling loop), takes
-the beads each one names, and for each open bead closes it only when the
+the beads each one names in its title, body, or commits, and for each open bead closes it only when the
 landing says it is the whole bead:
   - the title or body says "closes", "fixes" or "resolves" <bead> (the
     convention for the final pull request of a bead), or
   - the title names the bead with no part or slice marker ("part 2", "2/3",
     "slice", "partial", "wip", ...) and no other open pull request names it,
 and the bead is not an epic and has no open children. It closes with
-"landed <sha> (#N): <title>", as its assignee (the claim guard refuses anyone
-else without --force, which this never passes) or as leo when it is
-unassigned. Any other landing gets a bd comment with the pull request link: a
-partial close is worse than none. A bead the body only mentions is untouched.
-A closed or unknown bead is skipped. The board is reached through BEADS_SSH_HOST
+"landed <sha> (#N): <title>" as `--actor leo`. Any other landing gets a bd
+comment with the pull request link: a partial close is worse than none. A closed
+or unknown bead is skipped. Open
+pull requests on feat-cmux-next that name no bead get a task created from
+their title, with the pull request as its external reference, and the bead
+line of the PR's status comment links it back (a dispatch of pr-status.yml,
+so the line posts as github-actions and not under this token's account; with
+CMUX_CI_GITHUB_APP_ID_FILE and CMUX_CI_GITHUB_APP_KEY_FILE the dispatch itself
+runs as the org App, see scripts/ci/pr_status.py). The board is reached through BEADS_SSH_HOST
 (the host whose ~/agent-tasks holds the board) or, for tests, BEADS_BD_COMMAND
 (an executable run with bd's arguments); with neither set it refuses to run.
-State lives in BEAD_AUTOCLOSE_STATE: the latest merge handled and the pull
-requests handled within OVERLAP of it. Each run searches from OVERLAP before
-that merge (search indexes merges late) and skips the pull requests already
-handled, so a merge is never handled twice. A board ssh cannot reach stops the
-run with its merges unhandled; the next run retries them.
+State lives in BEAD_AUTOCLOSE_STATE: the latest merge handled, the pull
+requests handled within OVERLAP of it, and open pull requests already checked
+for bead creation. Each run searches from OVERLAP before that merge (search
+indexes merges late) and skips the pull requests already handled, so a merge
+is never handled twice. A board ssh cannot reach stops the run with its merges
+and open pull requests unhandled; the next run retries them.
 
 Usage: scripts/cmux-next/bead-autoclose.py [--dry-run] [--since ISO8601]
 """
@@ -37,6 +42,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
+import pr_status  # noqa: E402
+
 REPO = "manaflow-ai/cmux"
 BASES = ("feat-cmux-next", "main")
 OVERLAP = timedelta(hours=1)
@@ -47,7 +55,11 @@ QUERY = """
 query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: 100, after: $after) {
     pageInfo { hasNextPage endCursor }
-    nodes { ... on PullRequest { number title body url mergedAt mergeCommit { oid } baseRefName } }
+    nodes { ... on PullRequest {
+      id number title body url mergedAt createdAt mergeCommit { oid } baseRefName
+      commits(first: 100) { nodes { commit { message } } }
+      comments(first: 50) { nodes { body } }
+    } }
   }
 }
 """
@@ -55,8 +67,9 @@ query($q: String!, $after: String) {
 
 def merged_pull_requests(since: str) -> list[dict]:
     pulls, after = [], None
-    base = " ".join(f"base:{name}" for name in BASES)
-    query = f"repo:{REPO} is:pr is:merged merged:>={since} {base}"
+    # Search once, then filter the two accepted target branches locally. GitHub
+    # search treats repeated `base:` qualifiers as AND, which would match none.
+    query = f"repo:{REPO} is:pr is:merged merged:>={since}"
     while True:
         args = ["gh", "api", "graphql", "-f", f"query={QUERY}", "-f", f"q={query}"]
         if after:
@@ -70,11 +83,26 @@ def merged_pull_requests(since: str) -> list[dict]:
 
 
 def open_pull_requests_naming(bead_id: str) -> list[int]:
-    query = f'repo:{REPO} is:pr is:open "{bead_id}" in:title'
+    query = f'repo:{REPO} is:pr is:open "{bead_id}" base:feat-cmux-next'
     args = ["gh", "api", "graphql", "-f", f"query={QUERY}", "-f", f"q={query}"]
     page = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
     return [node["number"] for node in page["data"]["search"]["nodes"]
-            if node and bead_id in BEAD_ID.findall(node["title"])]
+            if node and bead_id in beads_named(node)]
+
+
+def open_pull_requests() -> list[dict]:
+    pulls, after = [], None
+    query = f"repo:{REPO} is:pr is:open base:feat-cmux-next"
+    while True:
+        args = ["gh", "api", "graphql", "-f", f"query={QUERY}", "-f", f"q={query}"]
+        if after:
+            args += ["-f", f"after={after}"]
+        page = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
+        search = page["data"]["search"]
+        pulls.extend(node for node in search["nodes"] if node and node.get("baseRefName") == "feat-cmux-next")
+        if not search["pageInfo"]["hasNextPage"]:
+            return pulls
+        after = search["pageInfo"]["endCursor"]
 
 
 class BoardUnreachable(Exception):
@@ -108,8 +136,23 @@ def explicit_closes(pull: dict) -> list[str]:
     return [match.lower() for match in CLOSES.findall(f"{pull['title']}\n{pull.get('body') or ''}")]
 
 
-def beads_named(pull: dict) -> list[str]:
-    return list(dict.fromkeys(BEAD_ID.findall(pull["title"]) + explicit_closes(pull)))
+def beads_named(pull: dict, *, include_comments: bool = False) -> list[str]:
+    texts = [pull.get("title") or "", pull.get("body") or ""]
+    texts.extend(
+        (commit.get("message") or (commit.get("commit") or {}).get("message") or "")
+        for commit in (pull.get("commits") or {}).get("nodes", [])
+    )
+    if include_comments:
+        texts.extend(comment.get("body") or "" for comment in (pull.get("comments") or {}).get("nodes", []))
+    return list(dict.fromkeys(match.lower() for text in texts for match in BEAD_ID.findall(text)))
+
+
+def link_bead_on_pull_request(pull: dict, bead_id: str) -> None:
+    """The bead line of the PR's status comment, through pr-status.yml (scripts/ci/pr_status.py)."""
+    try:
+        pr_status.dispatch(REPO, int(pull["number"]), bead=bead_id)
+    except (RuntimeError, ValueError) as error:
+        raise BoardUnreachable(str(error)) from error
 
 
 def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
@@ -122,8 +165,7 @@ def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
     sha = (pull.get("mergeCommit") or {}).get("oid", "")[:12]
     link = pull.get("url") or f"https://github.com/{REPO}/pull/{pull['number']}"
     landed = f"landed {sha} (#{pull['number']}): {pull['title']}"
-    assignee = bead.get("assignee") or ""
-    actor = assignee if assignee and assignee != "unassigned" else "leo"
+    actor = "leo"
     children = bd_json("children", bead_id) or []
     open_children = [child["id"] for child in children if child.get("status") != "closed"]
     explicit = bead_id in explicit_closes(pull)
@@ -147,6 +189,38 @@ def handle(pull: dict, bead_id: str, dry_run: bool) -> str:
     return f"close {bead_id} as {actor}: {landed}"
 
 
+def create_for_pull(pull: dict, dry_run: bool) -> tuple[str, str]:
+    """Create and link the bead for a new bead-less pull request."""
+    title = (pull.get("title") or "").strip()
+    url = pull.get("url") or f"https://github.com/{REPO}/pull/{pull['number']}"
+    description = (
+        f"Automatically created for {url}.\n\n"
+        f"Opened pull request: {url}\n\n{pull.get('body') or ''}"
+    )
+    if dry_run:
+        return "dry-run", f"create bead for {url}: {title}"
+    result = bd("--actor", "leo", "create", title, "--description", description,
+                "--external-ref", url, "--labels", "cmux-next", "--json")
+    if result.returncode:
+        return "", f"failed create for #{pull['number']}: {(result.stderr or result.stdout).strip()}"
+    try:
+        created = json.loads(result.stdout)
+    except ValueError:
+        return "", f"failed create for #{pull['number']}: bd returned invalid JSON"
+    if isinstance(created, list):
+        created = created[0] if created else {}
+    bead_id = str(created.get("id") or "").strip()
+    if not bead_id:
+        return "", f"failed create for #{pull['number']}: bd returned no id"
+    try:
+        link_bead_on_pull_request(pull, bead_id)
+    except BoardUnreachable as error:
+        # The bead exists and names the PR as its external reference: record the PR, so the
+        # next run does not create a second bead, and report the missing link.
+        return bead_id, f"create {bead_id} for #{pull['number']}; linking it on the PR failed: {error}"
+    return bead_id, f"create {bead_id} for #{pull['number']} and link it on the PR"
+
+
 def parse_time(text: str) -> datetime:
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
 
@@ -155,17 +229,18 @@ def format_time(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def read_state(path: Path) -> tuple[str, dict[str, str], str]:
-    """(last merge handled, pull requests handled, window start of a run that handled none)."""
+def read_state(path: Path) -> tuple[str, dict[str, str], str, dict[str, str]]:
+    """Return merge state and the open PRs already checked for a bead."""
     try:
         text = path.read_text().strip()
     except OSError:
-        return "", {}, ""
+        return "", {}, "", {}
     try:
         state = json.loads(text)
     except ValueError:
-        return text, {}, ""  # a bare merge time
-    return state.get("last", ""), dict(state.get("handled", {})), state.get("since", "")
+        return text, {}, "", {}  # a bare merge time
+    return (state.get("last", ""), dict(state.get("handled", {})),
+            state.get("since", ""), dict(state.get("open", {})))
 
 
 def main() -> int:
@@ -178,7 +253,7 @@ def main() -> int:
         return 2
     state = Path(os.environ.get("BEAD_AUTOCLOSE_STATE",
                                 Path.home() / ".local/state/cmux-bead-autoclose/last-merged-at"))
-    last, handled, pending = read_state(state)
+    last, handled, pending, open_handled = read_state(state)
     if args.since:
         since = args.since
     elif last:
@@ -189,17 +264,22 @@ def main() -> int:
     def save() -> None:
         if args.dry_run:
             return
+        snapshot = {"handled": handled, "open": open_handled}
         if not last:
             # Nothing handled yet (the board was unreachable): keep this run's
             # window start, so the next run does not lose its merges.
-            state.parent.mkdir(parents=True, exist_ok=True)
-            state.write_text(json.dumps({"since": since}, sort_keys=True) + "\n")
-            return
-        keep = parse_time(last) - OVERLAP
-        kept = {number: at for number, at in handled.items() if parse_time(at) >= keep}
+            snapshot["since"] = since
+        else:
+            keep = parse_time(last) - OVERLAP
+            snapshot["last"] = last
+            snapshot["handled"] = {
+                number: at for number, at in handled.items()
+                if parse_time(at) >= keep
+            }
         state.parent.mkdir(parents=True, exist_ok=True)
-        state.write_text(json.dumps({"last": last, "handled": kept}, sort_keys=True) + "\n")
+        state.write_text(json.dumps(snapshot, sort_keys=True) + "\n")
 
+    open_failed = False
     try:
         for pull in merged_pull_requests(since):
             number = str(pull["number"])
@@ -212,13 +292,25 @@ def main() -> int:
             if not any(outcome.startswith("failed ") for outcome in outcomes):
                 handled[number] = pull["mergedAt"]  # a failed close retries while in the window
                 last = max(last, pull["mergedAt"]) if last else pull["mergedAt"]
+        for pull in open_pull_requests():
+            number = str(pull["number"])
+            if number in open_handled:
+                continue
+            if beads_named(pull, include_comments=True):
+                open_handled[number] = pull.get("createdAt") or format_time(datetime.now(timezone.utc))
+                continue
+            _, outcome = create_for_pull(pull, args.dry_run)
+            print(f"#{pull['number']} {outcome}")
+            open_failed = open_failed or outcome.startswith("failed ") or "linking it on the PR failed" in outcome
+            if not outcome.startswith("failed "):
+                open_handled[number] = pull.get("createdAt") or format_time(datetime.now(timezone.utc))
     except BoardUnreachable as error:
         save()
         print(f"bead-autoclose: the board is unreachable ({error}); the rest waits for the next run",
               file=sys.stderr)
         return 1
     save()
-    return 0
+    return 1 if open_failed else 0
 
 
 if __name__ == "__main__":

@@ -58,7 +58,6 @@ impl HostLaunchAdopt {
         let launch = &self.launch;
         let (cols, rows) = normalize_terminal_geometry(launch.cols, launch.rows)?;
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         anyhow::ensure!(self.child_pid != 0 && self.session_id != 0, "adopted session is unnamed");
         let mut output = Vec::new();
         put_string(&mut output, &launch.endpoint)?;
@@ -103,7 +102,6 @@ impl HostLaunchAdopt {
         let scrollback = decoder.u32()? as usize;
         let default_colors = decode_default_colors(&mut decoder)?;
         let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
         let child_pid = decoder.u32()?;
         let session_id = decoder.u32()?;
@@ -251,7 +249,7 @@ fn spawn_adopted_runtime(
     let fd = unsafe { OwnedFd::from_raw_fd(spec.fd) };
     let master = cmux_pty::adopt_master(fd)?;
     let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-    master.resize(pty_size(launch.cols, launch.rows, cell_pixels)?)?;
+    master.resize(pty_size(launch.cols, launch.rows, cell_pixels))?;
     crate::debug_spans::mark("host.pty_adopted");
     let child = HostChild::Adopted(child);
     start_host_runtime(launch, bootstrapped, master, child, &spec.seed, spec.program_status)
@@ -284,7 +282,11 @@ fn spawn_adopting_host(
     binary: Option<PathBuf>,
     master: RawFd,
 ) -> anyhow::Result<(SpawnedHostProcess, ChildStdinPair)> {
+    let orphan_env = host_orphan_env();
     let configure = |command: &mut Command| {
+        if let Some((name, value)) = &orphan_env {
+            command.env(name, value);
+        }
         command
             .args(["__terminal-host", "--bootstrap-stdio", ADOPT_PTY_FD_FLAG])
             .arg(ADOPTED_PTY_FD.to_string())
@@ -378,9 +380,9 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
     let terminal_hex = terminal_id.to_hex();
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
     let uid = fs::metadata(root)?.uid();
-    let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
-    prepare_endpoint_dir(&endpoint_root)?;
-    let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
+    prepare_endpoint_dir(&sys::endpoint_dir(uid))?;
+    prepare_endpoint_dir(&sys::host_endpoint_dir(uid, root))?;
+    let endpoint = sys::host_endpoint(uid, root, &terminal_hex);
     let record_path =
         crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
     let predecessor = predecessor(&record_path, &adoption.identity)?;

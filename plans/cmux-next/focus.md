@@ -146,6 +146,15 @@ workspace and browser focus mode; `WindowState.focusedPane` is gone. A pure stat
 owns focus. AppKit, Ghostty, WebKit, CEF, `LayoutModel` and the
 registry context become outputs. Nothing else writes focus.
 
+The state machine's rules (the reducer, what the state resolves to, the close-focus
+successor, the type-ahead queue and the child-window key rule) live in the Rust crate
+`cmux-focus-core` (`cmux-tui/crates/cmux-focus-core`), so every platform shell runs the same
+rules. The macOS app links it in-process through cmux-app-ffi (`cmux_layout_reducer_json`
+operations `focus_*`) and calls it synchronously, once per event, with no daemon round trip;
+Swift keeps value mirrors of the state, events and effects and applies the effects. The
+conformance corpus recorded from the former Swift reducer (`cmux-layout-reducer-ffi`
+`tests/focus/corpus.json`) is replayed through the C ABI.
+
 State (`FocusState`, value type, never persisted, never sent to the daemon):
 - `windowKey`, `appActive`
 - `topology`: shown workspace, panes in layout order, each with its tabs (id, surface,
@@ -237,7 +246,7 @@ recently focused one wins. Every focus source updates the history (a click, the 
 palette, a directional move, a script). A pane position breaks a tie.
 
 - History: `FocusState.history[workspace]`, newest first, at most 64 panes per workspace, per
-  window, in memory, never persisted. `FocusReducer.finish` records the focused pane after
+  window, in memory, never persisted. The reducer's `finish` step (`cmux-focus-core`) records the focused pane after
   every reduction, whatever the source (mouse, keyboard, CLI, palette, a responder report, a
   landed expectation, app-driven repair); a `focusPane` or `selectTab` for a workspace the
   window does not show records into that workspace. A topology for the shown workspace drops

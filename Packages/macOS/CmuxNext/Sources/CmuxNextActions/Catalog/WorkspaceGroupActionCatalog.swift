@@ -127,6 +127,21 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 targets: [.workspaceGroup], cliName: "workspace-group close-workspaces",
                 destructive: true
             ),
+            // Close All Workspaces in Group for every other group of the window.
+            ActionDescriptor(
+                id: "workspaceGroup.closeOthers",
+                title: String(localized: "action.workspaceGroup.closeOthers", defaultValue: "Close Other Groups", bundle: .module),
+                keywords: ["group", "close", "other", "others", "remove"], category: .workspace, symbol: "xmark.square.fill",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group close-others",
+                destructive: true
+            ),
+            // A new group with the same name, of a duplicate of each member.
+            ActionDescriptor(
+                id: "workspaceGroup.duplicate",
+                title: String(localized: "action.workspaceGroup.duplicate", defaultValue: "Duplicate Workspace Group", bundle: .module),
+                keywords: ["group", "duplicate", "copy", "clone"], category: .workspace, symbol: "plus.square.on.square",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group duplicate"
+            ),
             ActionDescriptor(
                 id: "workspaceGroup.moveToNewWindow",
                 title: String(localized: "action.workspaceGroup.moveToNewWindow", defaultValue: "Move Workspace Group to New Window", bundle: .module),

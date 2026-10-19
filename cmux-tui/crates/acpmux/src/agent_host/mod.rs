@@ -279,22 +279,12 @@ pub fn socket_path(dir: &Path, session_id: &str) -> PathBuf {
 /// Create `dir` mode 0700 and check that only this user can enter it.
 #[cfg(unix)]
 pub fn ensure_private_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    let meta = std::fs::symlink_metadata(dir)?;
-    // SAFETY: getuid has no preconditions.
-    let uid = unsafe { libc::getuid() };
-    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
-        bail!("{} is not a private directory", dir.display());
-    }
-    Ok(())
+    crate::config::private_state_dir(dir)
 }
-/// Windows port: an owner-only ACL there (`cmux::local_socket::private_directory`,
-/// a later landing). Until then no private directory is made, so nothing
-/// that needs one is written.
-#[cfg(not(unix))]
-pub fn ensure_private_dir(_dir: &Path) -> Result<()> {
-    Err(crate::platform::unsupported("private directories"))
+/// Windows: an owner-only access list, made or checked (`owner_only.rs`).
+#[cfg(windows)]
+pub fn ensure_private_dir(dir: &Path) -> Result<()> {
+    Ok(crate::owner_only::private_dir(dir)?)
 }
 
 /// Random lowercase hex.
@@ -308,19 +298,45 @@ pub fn random_hex(bytes: usize) -> String {
 pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<UnreadableRecord>)> {
     let mut good = Vec::new();
     let mut bad = Vec::new();
+    match std::fs::symlink_metadata(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((good, bad)),
+        Err(e) => return Err(e.into()),
+        Ok(_) => crate::config::private_state_dir(dir)?,
+    }
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((good, bad)),
         Err(e) => return Err(e.into()),
     };
     for entry in entries {
-        let path = entry?.path();
+        let entry = entry?;
+        let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
         let Some(session_id) = path.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else {
             continue;
         };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let kind = entry.file_type()?;
+            let metadata = entry.metadata()?;
+            // SAFETY: getuid has no preconditions.
+            let uid = unsafe { libc::getuid() };
+            if !kind.is_file() || metadata.uid() != uid || metadata.mode() & 0o077 != 0 {
+                bad.push(UnreadableRecord {
+                    session_id,
+                    path,
+                    record_version: None,
+                    host_pid: None,
+                    harness_pid: None,
+                    start_nonce: None,
+                    reason: "record is not an owner-only regular file".into(),
+                });
+                continue;
+            }
+        }
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -339,30 +355,61 @@ pub fn load_records(dir: &Path) -> Result<(Vec<(PathBuf, HostRecord)>, Vec<Unrea
         };
         let loose = serde_json::from_slice::<Value>(&bytes).ok();
         let field = |name: &str| loose.as_ref().and_then(|v| v.get(name)?.as_u64());
+        let mut expected_sockets = vec![socket_path(dir, &session_id)];
+        // Taking a pooled host moves its record and liveness lock into the
+        // main hosts directory, but its already-bound socket stays in pool/.
+        if dir.file_name().and_then(|name| name.to_str()) != Some(POOL_DIR_NAME) {
+            expected_sockets.push(socket_path(&pool_dir(dir), &session_id));
+        }
+        let expected_socket =
+            |path: &Path| expected_sockets.iter().any(|expected| expected == path);
+        let identity_ok = loose.as_ref().is_some_and(|value| {
+            value.get("session_id").and_then(Value::as_str) == Some(session_id.as_str())
+                && value
+                    .get("socket")
+                    .and_then(Value::as_str)
+                    .map(Path::new)
+                    .is_some_and(&expected_socket)
+        });
         let reason = match serde_json::from_slice::<HostRecord>(&bytes) {
-            Ok(r) if r.record_version == RECORD_VERSION && r.session_id == session_id => {
+            Ok(r)
+                if r.record_version == RECORD_VERSION
+                    && r.session_id == session_id
+                    && expected_socket(&r.socket) =>
+            {
                 good.push((path, r));
                 continue;
             }
             Ok(r) if r.session_id != session_id => "record names another session".to_owned(),
+            Ok(r) if !expected_socket(&r.socket) => "record names another socket".to_owned(),
             Ok(r) => format!("record version {}", r.record_version),
             Err(e) => format!("undecodable: {e}"),
         };
-        let start_nonce = loose
-            .as_ref()
-            .and_then(|v| v.get("start_nonce")?.as_str())
-            .filter(|n| {
-                !n.is_empty()
-                    && n.len() <= 128
-                    && n.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-            })
-            .map(str::to_owned);
+        let start_nonce = if identity_ok {
+            loose
+                .as_ref()
+                .and_then(|v| v.get("start_nonce")?.as_str())
+                .filter(|n| {
+                    !n.is_empty()
+                        && n.len() <= 128
+                        && n.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                })
+                .map(str::to_owned)
+        } else {
+            None
+        };
         bad.push(UnreadableRecord {
             session_id,
             path,
             record_version: field("record_version"),
-            host_pid: field("host_pid").and_then(|p| u32::try_from(p).ok()),
-            harness_pid: field("harness_pid").and_then(|p| u32::try_from(p).ok()),
+            host_pid: identity_ok
+                .then(|| field("host_pid"))
+                .flatten()
+                .and_then(|p| u32::try_from(p).ok()),
+            harness_pid: identity_ok
+                .then(|| field("harness_pid"))
+                .flatten()
+                .and_then(|p| u32::try_from(p).ok()),
             start_nonce,
             reason,
         });

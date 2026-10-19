@@ -10,7 +10,9 @@ import { withAdmit } from "./home-admit.ts"
 import * as store from "./home-attachment-store.ts"
 import * as gc from "./home-attachment-gc.ts"
 import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
+import { firstName } from "./invite-first-name.ts"
 import { MAX_THREAD_PAGE, threadReplies, threadsOf, threadSummary } from "./conversation-threads.ts"
+import { LIVE_CAPABILITY, liveBuffer, liveSocketFrame } from "./conversation-live.ts"
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
@@ -38,12 +40,6 @@ const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participan
 /** Accept rejects that count toward the lock (a wrong or used link), not transient ones. */
 const ACCEPT_FAILURES = new Set(["unknown_invite", "invite_not_pending", "invite_expired"])
 
-/** First word of a display name, for the public invite card (never a full name or an address). */
-const firstName = (name: string | undefined): string | null => {
-  const first = (name ?? "").trim().split(/\s+/)[0] ?? ""
-  return first.length > 0 && first.length <= 40 && !first.includes("@") ? first : null
-}
-
 /** What the Worker learns about an attachment hash for one caller (never whether another conversation holds it). */
 export type AttachmentAccess =
   | { readonly ok: false; readonly code: "auth.forbidden"; readonly message: string }
@@ -62,6 +58,7 @@ export type InvitePreviewResult =
  * mode. Token hashes and accept proofs stay here (conversationRedact, private `invhash`).
  */
 export class ConversationDO extends OwnerDO<Head> {
+  protected override readonly welcomeCapabilities: ReadonlyArray<string> = [LIVE_CAPABILITY] // Chief live frames (conversation-live.ts)
   constructor(ctx: DurableObjectState, env: Env) {
     const sql = { exec: <T>(q: string, ...b: Array<unknown>) => ctx.storage.sql.exec(q, ...b).toArray() as Array<T> }
     const domain = conversation.makeConversationDomain({
@@ -102,11 +99,11 @@ export class ConversationDO extends OwnerDO<Head> {
    * from the socket: a frame would carry client-chosen values and skip the accept lock. They go
    * through POST /v1/ops; other ops may use the socket.
    */
-  protected routeFrame(ws: WebSocket, _a: unknown, frame: { readonly t?: string; readonly op?: unknown; readonly idempotency_key?: unknown }): boolean {
+  protected routeFrame(ws: WebSocket, a: { principal: Principal }, frame: { readonly t?: string; readonly type?: unknown; readonly op?: unknown; readonly idempotency_key?: unknown }): boolean {
+    const state = this.boundEngine?.currentState // Live Chief frames: run.live on subscribe and run.live.get (conversation-live.ts).
+    if (liveSocketFrame(this.ctx, ws, frame, state?.id, !!state && this.member(state, a.principal) !== undefined)) return true
     if (frame.t !== "op" || typeof frame.op !== "string" || !WORKER_DERIVED_OPS.has(frame.op)) return false
-    try {
-      ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false }))
-    } catch {}
+    try { ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false })) } catch {}
     return true
   }
 
@@ -212,9 +209,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const a = ws.deserializeAttachment() as ConvAttachment | null
     const state = this.boundEngine?.currentState
     const fail = (code: string, message: string) => {
-      try {
-        ws.send(JSON.stringify({ t: "error", code, message }))
-      } catch {}
+      try { ws.send(JSON.stringify({ t: "error", code, message })) } catch {}
       return true
     }
     if (typeof frame.on !== "boolean" || (frame.conversation !== undefined && frame.conversation !== state?.id)) return fail("validation.invalid", "typing needs a boolean `on` (and this conversation, when named)")
@@ -237,19 +232,29 @@ export class ConversationDO extends OwnerDO<Head> {
     await super.webSocketClose(ws, code)
   }
 
-  private sendTyping(state: NonNullable<Head>, actor: string, on: boolean, from: WebSocket, force = false) {
+  /** A chief brain's ephemeral frames (chief-brain/brain-do.ts), never committed: typing (a socket's gate), a run change, or a live frame (conversation-live.ts). */
+  async agentFrame(entity: string, agent: string, f: { typing: boolean } | { run: unknown; steps: ReadonlyArray<unknown> } | { live: unknown }): Promise<void> {
+    const state = this.isBound(entity) ? this.bind(entity).currentState : null
+    if (!state?.participants.some((p) => p.id === agent && p.kind === "agent" && p.left_at === undefined)) return
+    // A brain's `off` always passes (once per turn end or skipped wake): a client that shows "Thinking…" from
+    // the send waits for it even when this brain never typed (a skipped turn, brain-turn.ts skip).
+    if ("typing" in f) return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null, !f.typing))
+    const live = "live" in f ? liveBuffer(this.ctx).apply(state.id, agent, f.live) : (liveBuffer(this.ctx).runChanged(agent, f.run, f.steps), { frame: JSON.stringify({ t: "conversation-run-changed", conversation: state.id, run: f.run, steps: f.steps }), reset: false })
+    if (live) [this.toMembers(state, null, live.frame), live.reset && this.toMembers(state, null, liveBuffer(this.ctx).snapshot(state.id))]
+  }
+
+  private sendTyping(state: NonNullable<Head>, actor: string, on: boolean, from: WebSocket | null, force = false) {
     const memo = this.typing.get(actor)
     const decision = force ? { send: true, memo: memo ? { ...memo, on: false, at: Date.now() } : undefined } : conversation.typingGate(memo, on, Date.now())
     if (decision.memo) this.typing.set(actor, decision.memo)
-    if (!decision.send) return
-    const text = JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on })
+    if (decision.send) this.toMembers(state, from, JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on }))
+  }
+
+  private toMembers(state: NonNullable<Head>, from: WebSocket | null, text: string) {
     for (const ws of this.ctx.getWebSockets()) {
-      if (ws === from) continue
-      const other = ws.deserializeAttachment() as ConvAttachment | null
+      const other = ws === from ? null : (ws.deserializeAttachment() as ConvAttachment | null)
       if (!other?.subscribed || !this.member(state, other.principal)) continue
-      try {
-        ws.send(text)
-      } catch {}
+      try { ws.send(text) } catch {}
     }
   }
 
@@ -285,7 +290,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const root = this.boundEngine!.rows.get<conversation.Message>(conversation.TABLE_MSG, q.root)?.row
     // One code for unknown, a reply, and below the floor: no existence probe.
     if (!root || root.thread_root !== undefined || root.seq <= floor) return { ok: false, code: "unknown_message", message: "no such thread root in this conversation" }
-    return { ok: true, value: { root, ...threadReplies(this.sqlStore, root.id, after, limit), thread: threadSummary(this.sqlStore, root.id) }, revision: "" }
+    return { ok: true, value: { root, ...threadReplies(this.sqlStore, root.id, after, limit), thread: threadSummary(this.sqlStore, root) }, revision: "" }
   }
 
   /**

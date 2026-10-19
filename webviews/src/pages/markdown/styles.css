@@ -50,7 +50,7 @@
   --cmux-md-error-color: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
   --cmux-md-link-broken-color: var(--cmux-md-error-color);
   --cmux-md-popover-background: var(--surface-popup);
-  --cmux-md-popover-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  --cmux-md-popover-shadow: var(--elevation-2);
   --cmux-md-popover-font-size: 12px;
 }
 
@@ -193,7 +193,10 @@ body {
 .md-scroll {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  /* The page scrolls only up and down. A wide table or code block scrolls sideways in its own box
+     (below), so a sideways swipe never drags the whole page, and nothing wider than the pane
+     pushes the column off screen. */
+  overflow: hidden auto;
 }
 
 /* The reading column: `ch` is measured in the body font at its size. */
@@ -203,7 +206,8 @@ body {
   margin: 0 auto;
   padding: var(--cmux-md-page-padding) var(--cmux-md-page-padding) calc(var(--cmux-md-page-padding) * 3);
   font-family: var(--cmux-md-font-family);
-  font-size: var(--cmux-md-font-size);
+  /* `--cmux-md-zoom`: the viewer's Cmd-= / Cmd-- size over the default (fontZoom.ts). */
+  font-size: calc(var(--cmux-md-font-size) * var(--cmux-md-zoom, 1));
   font-weight: var(--cmux-md-font-weight);
   line-height: var(--cmux-md-line-height);
 }
@@ -222,7 +226,7 @@ body {
   color: var(--cmux-md-text-color);
   caret-color: var(--cmux-md-caret-color);
   font-family: var(--cmux-md-code-font-family);
-  font-size: var(--cmux-md-code-block-size);
+  font-size: calc(var(--cmux-md-code-block-size) * var(--cmux-md-zoom, 1));
   line-height: var(--cmux-md-code-line-height);
   tab-size: 4;
 }
@@ -344,11 +348,36 @@ body {
   max-width: 100%;
 }
 
+/* Wide tables (MARKDOWN-TABLE-SCROLL, user 2026-10-19). The editor draws every table inside a
+   `.tableWrapper` (prosemirror-tables TableView) and gives the table an inline `min-width` of
+   100px a column. That wrapper is the table's horizontal scroller: the table keeps its natural
+   width inside it, the wrapper clips to the column and scrolls sideways (trackpad, Shift-wheel,
+   its scrollbar), and `overscroll-behavior-x: contain` keeps the swipe from chaining to the page
+   or the back gesture at either end. A vertical wheel over it has no vertical overflow to take,
+   so it goes on to the page. Before, the table itself was the scroller (`display: block`) but
+   its inline min-width made it as wide as its content, so it never overflowed itself: it spilled
+   out of the column and the whole page scrolled sideways instead. */
+.md-prose .tableWrapper,
+.md-prose > table {
+  max-width: 100%;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+}
+
 .md-prose table {
   border-collapse: collapse;
-  display: block;
-  overflow-x: auto;
   white-space: normal;
+}
+
+/* `markdown.tables: "wrap"`: tables fit the column and their cells wrap instead. */
+:root[data-cmux-md-tables="wrap"] .md-prose table {
+  width: 100%;
+  min-width: 0 !important;
+  table-layout: auto;
+}
+
+:root[data-cmux-md-tables="wrap"] .md-prose :is(th, td) {
+  overflow-wrap: anywhere;
 }
 
 .md-prose th,
@@ -385,10 +414,16 @@ body {
   background: var(--cmux-md-code-background);
 }
 
+.md-code {
+  max-width: 100%;
+}
+
+/* A long code line scrolls inside its block, as a wide table does. */
 .md-code pre {
   margin: 0;
   padding: 0.2em 1em 0.8em;
-  overflow-x: auto;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
   white-space: pre;
 }
 
@@ -396,7 +431,7 @@ body {
   padding: 0;
   background: transparent;
   font-family: var(--cmux-md-code-font-family);
-  font-size: var(--cmux-md-code-block-size);
+  font-size: calc(var(--cmux-md-code-block-size) * var(--cmux-md-zoom, 1));
   line-height: var(--cmux-md-code-line-height);
 }
 
@@ -472,7 +507,7 @@ body {
   padding: 0;
   background: transparent;
   font-family: var(--cmux-md-code-font-family);
-  font-size: var(--cmux-md-code-block-size);
+  font-size: calc(var(--cmux-md-code-block-size) * var(--cmux-md-zoom, 1));
   line-height: var(--cmux-md-code-line-height);
   color: var(--cmux-md-muted-color);
 }
@@ -680,4 +715,144 @@ body {
 .md-page[data-navigating] .md-doc {
   opacity: 0.55;
   transition: opacity 120ms ease-out 80ms;
+}
+
+/* The Reading Settings popover (ReadingSettings.tsx), opened by the toolbar's Aa button. */
+.md-reading-anchor {
+  display: inline-flex;
+}
+
+.md-reading-button {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.md-reading {
+  width: 280px;
+  max-width: calc(100vw - 16px);
+}
+
+.md-reading-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  font-size: var(--cmux-md-ui-font-size);
+}
+
+.md-reading-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.md-reading-label {
+  padding: 0;
+  color: var(--page-text);
+}
+
+.md-reading-value {
+  color: var(--page-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.md-reading-slider {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--page-text-2);
+}
+
+.md-reading-check {
+  display: flex;
+  gap: 6px;
+}
+
+.md-reading-check input {
+  margin: 0;
+  accent-color: var(--page-text-2);
+}
+
+.md-reading-choice legend {
+  float: left;
+}
+
+.md-reading-segments {
+  grid-column: 1 / -1;
+  display: flex;
+  border-radius: 6px;
+  background: var(--page-hover);
+  padding: 2px;
+}
+
+.md-reading-segment {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 3px 6px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+.md-reading-segment input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.md-reading-segment[data-checked] {
+  background: var(--page-elevated);
+  box-shadow: 0 0 0 0.5px var(--page-separator);
+}
+
+.md-reading-segment:has(input:focus-visible) {
+  outline: 2px solid var(--page-text-2);
+  outline-offset: -2px;
+}
+
+.md-reading-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+  border-top: 1px solid var(--page-separator);
+}
+
+.md-reading-footer .md-button {
+  margin-top: 8px;
+}
+
+/* `markdown.theme`: light or dark paper whatever the app's theme. The page's base colors
+   (pageBase.css `--page-*`, which every `--cmux-md-*` color derives from) are set again on the root,
+   so the `markdown` color settings still win over them. */
+:root[data-cmux-md-theme="light"] {
+  color-scheme: light;
+  --page-text: #1d1d1f;
+  --page-text-2: #6e6e73;
+  --page-text-3: #8e8e93;
+  --page-text-disabled: #8e8e93;
+  --page-separator: #d2d2d7;
+  --page-hover: rgb(0 0 0 / 0.05);
+  --page-selection: rgb(0 0 0 / 0.08);
+  --page-elevated: #ffffff;
+  background: #ffffff;
+}
+
+:root[data-cmux-md-theme="dark"] {
+  color-scheme: dark;
+  --page-text: #e6e6e6;
+  --page-text-2: #a8a8a8;
+  --page-text-3: #808080;
+  --page-text-disabled: #808080;
+  --page-separator: #3a3a3a;
+  --page-hover: rgb(255 255 255 / 0.06);
+  --page-selection: rgb(255 255 255 / 0.1);
+  --page-elevated: #2a2a2a;
+  background: #1c1c1e;
 }

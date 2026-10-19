@@ -6,9 +6,9 @@
 //! order across connections, up to [`CREATING_INPUT_LIMIT`] bytes. When the creation committed
 //! and its terminal is live, the queue is written to it in order. Until that flush ended, input
 //! to the id still joins the queue, and every other input path to the new terminal (`send
-//! {surface}`, `send-key`, the `terminal.input.*` effects) waits for it, or starts it when the
-//! commit's flush has not ([`Mux::wait_for_creating_input_flush`]), so queued bytes precede
-//! later input. Image paste and the clear-history fallback key do not wait yet. No
+//! {surface}`, `send-key`, the `terminal.input.*` effects, image paste, `clear-history`) waits
+//! for it, or starts it when the commit's flush has not
+//! ([`Mux::wait_for_creating_input_flush`]), so queued bytes precede all later input. No
 //! daemon-wide lock is held while bytes go to a host. A creation that fails, a closed
 //! connection, or no commit within the expiry (from the first queued byte) writes nothing;
 //! each sending connection gets its own bytes back in one `terminal-input-unclaimed` notice, so

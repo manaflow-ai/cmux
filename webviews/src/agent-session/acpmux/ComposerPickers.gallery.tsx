@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
-import { ComposerPickers } from "./ComposerPickers";
+import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
 
 type Props = Record<string, never>;
 
@@ -82,6 +82,10 @@ function GalleryComposerPickers() {
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
   const [effort, setEffort] = useState("medium");
   const [fast, setFast] = useState("off");
+  const [grants, setGrants] = useState<ComposerPermissionGrant[]>([
+    { id: "folder", label: "Trusted cmux-tui", onRemove: () => setGrants((current) => current.slice(1)) },
+    { id: "git-grep", label: "Allow git grep in cmux for this session", onRemove: () => setGrants([]) },
+  ]);
   const snapshot = useMemo<AcpmuxSnapshot>(
     () => ({
       ...initialSnapshot,
@@ -105,6 +109,7 @@ function GalleryComposerPickers() {
       </div>
       <ComposerPickers
         snapshot={snapshot}
+        permissionAccess={{ grants }}
         onModel={setModel}
         onMode={setMode}
         onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
@@ -201,6 +206,23 @@ const openMode: Play = async (ctx) => {
   }
 };
 
+const accessGrants: Play = async (ctx) => {
+  const trigger = ctx.find({ role: "button", name: "Mode" });
+  if (trigger.textContent?.includes("Trusted")) throw new Error("Trust state leaked into the Access trigger");
+  // The allowed rules live in the menu only; the trigger shows no count beside the mode.
+  if (trigger.querySelector(".acpmux-access-grant-count") || /\d/.test(trigger.textContent ?? ""))
+    throw new Error("Access trigger shows an allowed-rule count");
+  await ctx.click({ role: "button", name: "Mode" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-grants") !== null);
+  const grants = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-access-grant")];
+  if (grants.length !== 2) throw new Error(`Expected two allowed rules, found ${grants.length}`);
+  if (!grants.every((row) => row.querySelector(".acpmux-access-grant-remove")))
+    throw new Error("Allowed rules must each have a remove button");
+  await ctx.click({ selector: ".acpmux-access-grant-remove" });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-access-grant").length === 1);
+  await ctx.press("Escape");
+};
+
 const modeFocus: Play = async (ctx) => {
   const trigger = ctx.find({ role: "button", name: "Mode" });
   await ctx.click({ role: "button", name: "Mode" });
@@ -211,19 +233,6 @@ const modeFocus: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
   await ctx.press("Escape");
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
-};
-
-const openContext: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-context-ring" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-pop") !== null);
-};
-
-const contextFocus: Play = async (ctx) => {
-  const trigger = ctx.find({ selector: ".acpmux-context-ring" });
-  await ctx.click({ selector: ".acpmux-context-ring" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-pop") !== null);
-  await ctx.press("Escape");
-  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-context-pop") && ctx.document.activeElement === trigger);
 };
 
 const planToggle: Play = async (ctx) => {
@@ -257,6 +266,10 @@ export default componentEntry<Props>({
     ]),
   variants: {
     closed: { props: {} },
+    "pill-rail": {
+      note: "The 400 px composer rail keeps the model, effort, and access controls as rounded tonal pills before any menu opens.",
+      props: {},
+    },
     "model-menu": { props: {}, play: openModel },
     "model-focus": {
       note: "The model search owns focus while open; Escape closes it and restores focus to Model.",
@@ -280,16 +293,15 @@ export default componentEntry<Props>({
       play: effortPressDragRelease,
     },
     "permission-menu": { props: {}, play: openMode },
+    "access-grants": {
+      note: "Allowed folder and chat rules stay inside Access; the footer shows only a compact count and the menu offers removal.",
+      props: {},
+      play: accessGrants,
+    },
     "permission-focus": {
       note: "The numeric mode shortcut picks Full access; Escape from a reopen returns focus to Mode.",
       props: {},
       play: modeFocus,
-    },
-    "context-details": { props: {}, play: openContext },
-    "context-focus": {
-      note: "Escape closes the context details popover and restores focus to the context ring.",
-      props: {},
-      play: contextFocus,
     },
     plan: { props: {}, play: planToggle },
   },

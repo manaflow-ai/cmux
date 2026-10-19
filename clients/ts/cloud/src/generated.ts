@@ -38,6 +38,13 @@ export type AutomationSettings = {
   readonly agent_run_default_seconds: number | null
 }
 
+/** A stored avatar: its SHA-256, its media type (from the bytes) and its size. */
+export type AvatarRef = {
+  readonly sha256: string
+  readonly media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+  readonly bytes: number
+}
+
 export type Body = {
   readonly type: "agent_prompt"
   readonly instructions: string
@@ -525,6 +532,7 @@ export type HomeMessage = {
   readonly parts: ReadonlyArray<HomePart>
   readonly reply_to?: HomePartRef
   readonly thread_root?: MessageId
+  readonly thread?: HomeThreadState
   readonly created_at: Timestamp
   readonly edited_at?: Timestamp
   readonly retracted_at?: Timestamp
@@ -610,12 +618,31 @@ export type HomeTextRun = {
   readonly link?: string
 }
 
+/** title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it. */
+export type HomeThreadState = {
+  readonly title?: string
+  readonly owner?: ParticipantId
+  readonly resolved?: {
+    readonly by: ParticipantId
+    readonly at: Timestamp
+    readonly seq: number
+  }
+}
+
+export type HomeThreadStatus = "open" | "resolved"
+
+/** status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved. */
 export type HomeThreadSummary = {
   readonly root: MessageId
   readonly reply_count: number
   readonly last_reply_seq: number | null
   readonly last_reply_at: Timestamp | null
   readonly authors: ReadonlyArray<ParticipantId>
+  readonly status?: HomeThreadStatus
+  readonly title?: string
+  readonly owner?: ParticipantId
+  readonly resolved_by?: ParticipantId
+  readonly resolved_at?: Timestamp
 }
 
 export type Host = {
@@ -1694,7 +1721,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
+  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same. */
   readonly "conversation.import": {
     readonly params: {
       readonly id?: ConversationId
@@ -1707,6 +1734,7 @@ export interface CloudOps {
       readonly title?: string
       readonly participants?: ReadonlyArray<HomeParticipantInput>
       readonly after_seq?: number
+      readonly fill?: boolean
       readonly messages: ReadonlyArray<unknown>
       readonly read_cursors?: unknown
     }
@@ -2567,6 +2595,37 @@ export interface CloudOps {
       }>
     }
   }
+  /** A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant. */
+  readonly "participant.avatar.get": {
+    readonly params: {
+      readonly participant_id: ParticipantId
+      readonly conversation?: ConversationId
+    }
+    readonly result: {
+      readonly participant_id: ParticipantId
+      readonly avatar: {
+        readonly sha256: string
+        readonly media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+        readonly bytes: number
+        /** The image, base64. */
+        readonly data: string
+      } | null
+    }
+  }
+  /** Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's. */
+  readonly "participant.avatar.set": {
+    readonly params: {
+      readonly participant_id: ParticipantId
+      /** The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature. */
+      readonly bytes?: string
+      /** true removes the picture (no bytes). */
+      readonly clear?: boolean
+    }
+    readonly result: {
+      readonly participant_id: ParticipantId
+      readonly avatar: AvatarRef | null
+    }
+  }
   /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "participants.add": {
     readonly params: {
@@ -3177,6 +3236,17 @@ export interface CloudOps {
     }
     readonly result: TeamPolicy
   }
+  /** Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread. */
+  readonly "thread.update": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly root: MessageId
+      readonly title?: string
+      readonly status?: HomeThreadStatus
+      readonly owner?: string
+    }
+    readonly result: HomeConversationCommit
+  }
   /** Rename a group conversation (not a dm or chief thread). */
   readonly "title.set": {
     readonly params: {
@@ -3411,6 +3481,8 @@ export const cloudOpMeta = {
   "mux.ack": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "mux.configure": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "participant.avatar.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "participant.avatar.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "participants.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "participants.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
   "push.target.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
@@ -3466,6 +3538,7 @@ export const cloudOpMeta = {
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.update": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "thread.update": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "title.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "tunnel.attach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

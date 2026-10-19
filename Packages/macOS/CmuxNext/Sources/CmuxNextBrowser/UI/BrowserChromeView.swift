@@ -78,7 +78,7 @@ public final class BrowserChromeView: NSView {
     lazy var extensionToolbar: ExtensionActionToolbar = {
         let toolbar = ExtensionActionToolbar(slot: extensionSlot)
         toolbar.onPinnedCountChange = { [weak self] in self?.applyToolbarLayout() }
-        // With no extension pinned the Extensions menu opens from More.
+        // An extension popup opened while the Extensions button is not placed anchors at More.
         toolbar.menuAnchor = { [weak self] in self?.toolbarButtons.anchor(for: .overflow) }
         return toolbar
     }()
@@ -120,9 +120,9 @@ public final class BrowserChromeView: NSView {
         self.tab = tab
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
         // Chromium toolbar glyphs: plain arrows, not chevrons.
-        backButton = ChromeIconButton(icon: .navBack, label: Strings.back, action: nil, target: nil, toolbar: true)
-        forwardButton = ChromeIconButton(icon: .navForward, label: Strings.forward, action: nil, target: nil, toolbar: true)
-        reloadButton = ChromeIconButton(icon: .actionReload, label: Strings.reload, action: nil, target: nil, toolbar: true)
+        backButton = ChromeIconButton(icon: .navBack, label: Strings.back, action: nil, target: nil, toolbar: true, toolTip: false)
+        forwardButton = ChromeIconButton(icon: .navForward, label: Strings.forward, action: nil, target: nil, toolbar: true, toolTip: false)
+        reloadButton = ChromeIconButton(icon: .actionReload, label: Strings.reload, action: nil, target: nil, toolbar: true, toolTip: false)
         super.init(frame: .zero)
         wantsLayer = true
         backButton.setAccessibilityIdentifier(BrowserChromeView.backIdentifier)
@@ -241,7 +241,8 @@ public final class BrowserChromeView: NSView {
             separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            density.bind(separator.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.separatorThickness },
+            // No line between the omnibar and the page (Lawrence 2026-10-16): the separator is only an anchor.
+            separator.heightAnchor.constraint(equalToConstant: 0),
 
             progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
             progressLine.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -390,7 +391,6 @@ public final class BrowserChromeView: NSView {
             let surface = paints ? Palette.surfaceBackground.cgColor : nil
             layer?.backgroundColor = surface
             toolbar.layer?.backgroundColor = Palette.surfaceOverride(.browserChrome)?.cgColor ?? surface
-            separator.layer?.backgroundColor = Palette.separator.cgColor
             contentContainer.layer?.borderColor = Palette.separator.cgColor
         }
     }

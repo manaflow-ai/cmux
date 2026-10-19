@@ -20,38 +20,47 @@ impl PtySurface {
         for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
             let mut pending = chunk.to_vec();
             loop {
-                let space_epoch = {
+                let retry = {
                     let _gate = self.journal_capture_gate.lock().unwrap();
-                    if !self.journal_capture_open.load(Ordering::Acquire) {
+                    if !self.journal_capture_open.load(Ordering::Acquire)
+                        || self.journal_capture_disabled.load(Ordering::Acquire)
+                    {
                         return;
                     }
-                    let retry = match mux.try_journal_terminal_output(
+                    mux.try_journal_terminal_output(
                         terminal_id.clone(),
                         self.journal_generation.clone(),
                         occurred_at_ms,
                         pending,
-                    ) {
-                        Ok(retry) => retry,
-                        Err(error) => return self.stop_journal_capture(&error),
-                    };
-                    let Some((retry, space_epoch)) = retry else { break };
-                    pending = retry;
-                    space_epoch
+                    )
                 };
-                if let Err(error) = mux.wait_for_terminal_journal_space(space_epoch) {
-                    return self.stop_journal_capture(&error);
+                let retry = match retry {
+                    Ok(retry) => retry,
+                    Err(error) => {
+                        return self.stop_journal_capture(
+                            &mux,
+                            terminal_id,
+                            "journal_output_write_failed",
+                            None,
+                            &error,
+                        );
+                    }
+                };
+                let Some((retry, space_epoch)) = retry else { break };
+                pending = retry;
+                let deadline = mux.terminal_journal_durable_deadline();
+                if let Err(error) = mux.wait_for_terminal_journal_space_until(space_epoch, deadline)
+                {
+                    return self.stop_journal_capture(
+                        &mux,
+                        terminal_id,
+                        "journal_output_deadline_expired",
+                        Some(deadline),
+                        &error,
+                    );
                 }
             }
         }
-    }
-
-    /// A failed journal writer stops this terminal's capture; the terminal
-    /// and the daemon keep running. The failure is involuntary, so it must
-    /// not take the user shutdown path (`request_daemon_shutdown` marks a
-    /// session shutdown, which records signal deaths as session_shutdown).
-    pub(super) fn stop_journal_capture(&self, error: &str) {
-        self.journal_capture_open.store(false, Ordering::Release);
-        eprintln!("cmux-tui: terminal journal capture stopped: {error}");
     }
 
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {
@@ -147,7 +156,22 @@ impl PtySurface {
         }
         let frame = AttachFrame::Output(bytes.to_vec());
         taps.retain(|tap| tap.try_send(frame.clone()));
-        !taps.is_empty()
+        let sent = !taps.is_empty();
+        drop(taps);
+        if sent {
+            self.mark_attach_output_sent();
+        }
+        sent
+    }
+
+    /// The first output a followed terminal sends an attachment
+    /// (`CMUX_TUI_DEBUG_SPANS`).
+    fn mark_attach_output_sent(&self) {
+        if crate::debug_spans::following()
+            && let Some(identity) = self.host_identity.as_ref()
+        {
+            crate::debug_spans::terminal_mark(&identity.terminal_id, "attach.first_output_sent");
+        }
     }
 
     /// Viewers without pending-sequence support reconnect from a fresh
@@ -190,7 +214,13 @@ impl PtySurface {
 
     pub(super) fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.snapshot_position.observe_frame(&frame);
-        self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
+        let mut taps = self.taps.lock().unwrap();
+        taps.retain(|tap| tap.try_send(frame.clone()));
+        let sent_output = matches!(frame, AttachFrame::OutputWithColors { .. }) && !taps.is_empty();
+        drop(taps);
+        if sent_output {
+            self.mark_attach_output_sent();
+        }
     }
 
     /// Replace every byte-stream mirror after a sidecar-only state change.
@@ -414,18 +444,16 @@ impl PtySurface {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let mut geometry = self.geometry.lock().unwrap();
         let next = PtyGeometry { cols, rows, ..*geometry };
-        next.pty_size()?;
         #[cfg(any(unix, windows))]
         {
             let runtime = self.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
-                if *geometry == next && host.viewer_size() == Some((cols, rows)) {
-                    return Ok(false);
-                }
                 // Do not speculatively reflow the mirror. The host orders
                 // either a compact smart-renderer marker or a legacy
                 // Resized+Colors replay on its authoritative byte stream.
-                return Ok(host.send_viewer_size(cols, rows).is_ok());
+                // `true` only when a new size went to the host, so callers
+                // wait for a `Resized` only when one can come.
+                return Ok(host.send_viewer_size(cols, rows)?);
             }
             if matches!(&*runtime, PtyRuntime::ExitedHosted) {
                 return Ok(false);
@@ -456,8 +484,6 @@ impl PtySurface {
             if (geometry.cell_width, geometry.cell_height) == requested {
                 return Ok(false);
             }
-            PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry }
-                .pty_size()?;
         }
         #[cfg(any(unix, windows))]
         {
@@ -496,7 +522,6 @@ impl PtySurface {
         }
         let mut geometry = self.geometry.lock().unwrap();
         let next = PtyGeometry { cell_width: requested.0, cell_height: requested.1, ..*geometry };
-        next.pty_size()?;
         self.commit_geometry(&mut geometry, next, false)
     }
 
@@ -537,8 +562,8 @@ impl PtySurface {
         }
         let grid_changed = (geometry.cols, geometry.rows) != (next.cols, next.rows);
         let previous = *geometry;
-        let next_pty_size = next.pty_size()?;
-        let previous_pty_size = previous.pty_size()?;
+        let next_pty_size = next.pty_size();
+        let previous_pty_size = previous.pty_size();
         // Hold the terminal lock while resizing and while sending the attach
         // marker, so mirrors observe bytes and geometry in server order.
         let mut term = self.term.lock().unwrap();
@@ -682,5 +707,40 @@ impl PtySurface {
         // one consistent boundary for text and dimensions.
         self.stream_progress.notify();
         Ok(true)
+    }
+}
+
+impl PtyTerminalRuntime {
+    /// A failed journal writer, or one that stays full past the durable
+    /// deadline, stops this terminal's capture; the terminal reader, the
+    /// terminal and the daemon keep running. The journal gets a
+    /// `terminal.output.gap` record when it still accepts one. The failure is
+    /// involuntary, so it must not take the user shutdown path
+    /// (`request_daemon_shutdown` marks a session shutdown, which records
+    /// signal deaths as session_shutdown).
+    pub(super) fn stop_journal_capture(
+        &self,
+        mux: &Mux,
+        terminal_id: Arc<TerminalPublicId>,
+        reason: &'static str,
+        deadline: Option<Instant>,
+        error: &str,
+    ) {
+        self.journal_capture_disabled.store(true, Ordering::Release);
+        let generation = self.journal_generation.clone();
+        let gap = match deadline {
+            Some(deadline) => {
+                mux.try_journal_terminal_output_gap_until(terminal_id, generation, reason, deadline)
+            }
+            None => mux.try_journal_terminal_output_gap(terminal_id, generation, reason),
+        };
+        if gap.is_err() {
+            eprintln!(
+                "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
+            );
+        }
+        eprintln!(
+            "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
+        );
     }
 }

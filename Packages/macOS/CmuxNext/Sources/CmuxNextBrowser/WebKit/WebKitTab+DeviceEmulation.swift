@@ -3,7 +3,7 @@ import WebKit
 
 /// The daemon's emulation record in WebKit, what Safari's Responsive Design
 /// Mode sets: the page's viewport size (the web view's size,
-/// `WebKitPageContainer.emulatedSize`), the device pixel ratio
+/// `WebKitPageContainer.emulation`; a fit's desktop layout too), the device pixel ratio
 /// (`_overrideDeviceScaleFactor` SPI, checked first) and the user agent
 /// (`customUserAgent`). WebKit on macOS has nothing for the rest of the
 /// record: client hints, touch and `(pointer: coarse)`, the mobile flag,
@@ -14,7 +14,7 @@ extension WebKitTab: BrowserEmulating {
         if deviceEmulation == nil, emulation != nil { userAgentBeforeEmulation = webView.customUserAgent }
         deviceEmulation = emulation
         let container = contentView as? WebKitPageContainer
-        container?.emulatedSize = emulation.map { CGSize(width: $0.width, height: $0.height) }
+        container?.emulation = emulation
         setOverrideDeviceScaleFactor(emulation.map { CGFloat($0.deviceScaleFactor) } ?? 0)
         if let emulation {
             webView.customUserAgent = emulation.userAgent.isEmpty ? userAgentBeforeEmulation : emulation.userAgent

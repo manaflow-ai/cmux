@@ -6,6 +6,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
@@ -15,7 +16,7 @@ import CmuxNextWakeups
 @MainActor
 final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
-    private let message = NSTextField(labelWithString: "")
+    private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a right sidebar the header's name pill toggles
     /// (Chief conversation only); the transcript narrows while it shows.
@@ -28,6 +29,7 @@ final class HomeHostView: NSView {
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
+    private var shortcutsWatch: Task<Void, Never>?
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
@@ -38,7 +40,7 @@ final class HomeHostView: NSView {
     static let defaultTileAvatar = Bundle.module.url(forResource: "ChiefAvatar", withExtension: "png").map(HomeChiefAvatar.picture)
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
-    private let control: HomeChiefControl
+    private var control: HomeChiefControl
     private var stopObserver: (any NSObjectProtocol)?
     /// The settings panel shows a paired server's brain (a cloud Chief).
     private var showsCloud = false
@@ -49,22 +51,17 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
-        sidebar = HomeChiefSidebar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag), source: control.engineSource())
+        sidebar = HomeChiefSidebar(muxHome: control.brainHome, source: control.engineSource())
         super.init(frame: .zero)
+        transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
-        let files = HomeChiefFiles(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
-        // task-owner: one profile read off the main actor; ends when it is shown
-        Task { [weak self] in
-            let avatar = await Task.detached { files.headerAvatar() }.value
-            self?.transcript.avatarPicture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
-            self?.transcript.avatarText = avatar.text
-        }
-        sidebar.onAvatar = { [weak self, weak service] text in
-            self?.transcript.avatarPicture = text == nil ? Self.defaultAvatar : nil
-            self?.transcript.avatarText = text
-            service?.directory.chiefAvatar = text.map(HomeChiefAvatar.text) ?? Self.defaultTileAvatar
+        loadAvatar()
+        sidebar.onAvatar = { [weak self, weak service] in
+            self?.loadAvatar()
+            // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
+            if self?.control.named == nil { service?.refreshChiefAvatar() }
         }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
@@ -85,8 +82,9 @@ final class HomeHostView: NSView {
         // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
         let registry = services.registry
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
-        // A Chief subagent's link: its workspace and chat tab, through link.open.
-        transcript.onAppLink = { [weak services] url in if let services { ChiefSubagentLinks.open(url, services: services) } }
+        // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
+        transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
+        transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }
@@ -96,16 +94,22 @@ final class HomeHostView: NSView {
         // whether this is the Chief conversation, and a refresh of the
         // sidebar's last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _, title, cloud, typing) in ObservationStream({ () -> (Bool, Int, String, Bool, Bool) in
+            for await (isChief, _, title, cloud, typing, named) in ObservationStream({ () -> (Bool, Int, String, Bool, Bool, String?) in
                 let row = store.rows.first { $0.summary.id == id }
                 let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
                 // A cloud Chief's brain runs on its paired server, never on
                 // this Mac's mux home (2026-10-08: the sidebar wrote codex
                 // here while cmux-lawrence ran claude-sr).
                 return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "", service.isCloudConversation(id),
-                        row?.isTyping ?? false)
+                        row?.isTyping ?? false, row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) })
             }) {
                 guard let self else { return }
+                // A named Chief's conversation: its panel, Stop and avatar name it (cx-327wl).
+                if named != control.chief {
+                    control.chief = named
+                    sidebar.use(control.engineSource())
+                    loadAvatar()
+                }
                 self.isChief = isChief
                 // The Chief types while its turn runs: the compose bar offers Stop.
                 isWorking = isChief && typing
@@ -147,9 +151,23 @@ final class HomeHostView: NSView {
                 self?.transcript.setFirstRunAgents(agents)
             }
         }
-        transcript.setFirstRunShortcuts(terminal: registry.shortcutDisplay(for: Self.openTerminalAction),
-                                        agent: registry.shortcutDisplay(for: Self.startAgentAction),
-                                        tabs: registry.shortcutDisplay(for: Self.selectTabByNumberAction))
+        // The first-run rows' shortcuts and the Switching card follow rebinds
+        // (Settings, cmux.json, keybindings.json) while the view lives.
+        let switchKeys = services.homeSwitchKeys
+        transcript.onHideSwitchKeys = { switchKeys.hide() }
+        transcript.onOpenKeyboardShortcutSettings = {
+            if let url = HomeSwitchKeysSource.keyboardShortcutsURL { NSWorkspace.shared.open(url) }
+        }
+        // task-owner: lives as long as this view; event-driven (Observation of the registry)
+        shortcutsWatch = Task { [weak self] in
+            for await keys in ObservationStream({
+                HomeFirstRunKeys(terminal: registry.shortcutDisplay(for: Self.openTerminalAction),
+                                 agent: registry.shortcutDisplay(for: Self.startAgentAction),
+                                 switching: switchKeys.keys(registry: registry))
+            }) {
+                self?.transcript.setFirstRunShortcuts(terminal: keys.terminal, agent: keys.agent, switching: keys.switching)
+            }
+        }
         // The first-run panel waits for the first page, so a conversation
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
@@ -167,7 +185,7 @@ final class HomeHostView: NSView {
         // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
         message.maximumNumberOfLines = 0
         message.lineBreakMode = .byWordWrapping
-        message.cell?.wraps = true
+        message.wraps = true
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
@@ -194,8 +212,6 @@ final class HomeHostView: NSView {
 
     static let openTerminalAction: ActionID = "newSurface"
     static let startAgentAction: ActionID = "palette.newAgentChat"
-    /// Ctrl-1 to 9 (a numbered family, shown as `⌃1…9`).
-    static let selectTabByNumberAction: ActionID = "selectSurfaceByNumber"
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -207,6 +223,7 @@ final class HomeHostView: NSView {
             availability?.cancel()
             engineWatch?.cancel()
             agentsWatch?.cancel()
+            shortcutsWatch?.cancel()
             slideClient?.deactivate()
             if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
             if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
@@ -215,7 +232,7 @@ final class HomeHostView: NSView {
         }
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {
@@ -233,8 +250,7 @@ final class HomeHostView: NSView {
         let inset: CGFloat = 24
         let width = max(0, bounds.width - 2 * inset)
         message.preferredMaxLayoutWidth = width
-        let height = ceil(message.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height
-            ?? message.intrinsicContentSize.height)
+        let height = ceil(message.size(forWidth: width).height)
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
     }
 
@@ -288,10 +304,52 @@ final class HomeHostView: NSView {
         }
     }
 
+    /// The header avatar of the Chief shown here (its own mux home's profile).
+    private func loadAvatar() {
+        let home = control.brainHome
+        let files = HomeChiefFiles(muxHome: home)
+        // task-owner: one profile read off the main actor; ends when it is shown
+        Task { [weak self] in
+            let avatar = await Task.detached { files.headerAvatar() }.value
+            // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
+            guard let self, control.brainHome == home else { return }
+            transcript.avatarPicture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
+            transcript.avatarText = avatar.text
+        }
+    }
+
+    #if DEBUG
+    /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
+    func debugPickEngine(_ key: String, _ value: String?) { sidebar.pick(key, value) }
+    /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
+    var debugNamedChief: String? { control.named }
+    #endif
+
     /// The view that takes the keyboard when the tab's pane is focused.
     /// Home's primary input: the message box itself. Focusing the transcript
     /// view would leave it the responder after it forwards to the box.
     var focusTarget: NSView { transcript.primaryInput }
+
+    /// Whether the pane getting focus moves the keyboard to `focusTarget`
+    /// from `responder`: always when it is outside this view; inside, unless
+    /// a text view or field has it or the transcript holds a text selection
+    /// (the pane, a header button or the bare transcript gave the person a
+    /// Home with nowhere to type, Lawrence 2026-10-18).
+    func focusTargetShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        guard let view = responder as? NSView, view === self || view.isDescendant(of: self) else { return true }
+        return transcript.primaryInputShouldTakeKeyboard(from: responder)
+    }
+}
+
+extension HomeHostView: NSMenuItemValidation {
+    /// Cmd+V that no text view in Home took: the message box takes the
+    /// keyboard and the paste (the transcript's pane routes its own first).
+    @objc func paste(_ sender: Any?) { transcript.paste(sender) }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard item.action == #selector(paste(_:)) else { return true }
+        return transcript.canPasteIntoPrimaryInput
+    }
 }
 
 /// Home's primary input is its message box (R65, spec app-screens.md 3):

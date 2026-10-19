@@ -35,6 +35,8 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
     let socket = home.socket().map_err(|e| e.to_string())?;
     let session = home.session();
     std::fs::create_dir_all(home.state_dir()).map_err(|e| e.to_string())?;
+    // Asked for the Chief again: the app may restart its brain again.
+    let _ = std::fs::remove_file(home.shutdown_marker());
     let spec = OwnerSpec {
         session: session.clone(),
         socket: socket.clone(),
@@ -47,6 +49,8 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         // An owner this call starts serves chief.engine.* and chief.stop
         // through the home's brain.
         chief_tools_socket: Some(home.root.join("optchat/tools.sock")),
+        // ...and runs the brains of the home's other Chiefs.
+        chief_brains: brains_value(home),
         websocket: None,
     };
     let progress = RestoreProgress::silent();
@@ -96,6 +100,22 @@ fn ensure_error(error: &EnsureError) -> &'static str {
             "it speaks another protocol version"
         }
     }
+}
+
+/// `CMUX_TUI_CHIEF_BRAINS` for an owner this call starts (cmux-tui-core
+/// chief_brains): the same brain executable, this home, and this `cmux`'s
+/// directory first on the brains' `PATH`.
+fn brains_value(home: &ChiefHome) -> Option<String> {
+    let executable = std::path::absolute(brain_binary()?).ok()?;
+    let bin_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
+    // The person's PATH (a login shell's): the brains find the harnesses
+    // this terminal finds. Whoever first starts the owner sets it for every
+    // brain until the owner restarts (a venv or direnv entry included); the
+    // daemon keeps only absolute entries.
+    let path = std::env::var("PATH").ok().filter(|p| !p.is_empty());
+    let value = serde_json::json!({"executable": executable, "home": home.root,
+                                   "app": {"bin_dir": bin_dir, "path": path}});
+    Some(value.to_string())
 }
 
 /// Whether a brain holds the home's lock (`flock`, as optchat-chief's
@@ -175,7 +195,13 @@ fn write_token(path: &Path, token: &str) -> std::io::Result<()> {
 /// `host.log`, with the app's environment for it.
 fn spawn_brain(brain: &Path, home: &ChiefHome, socket: &Path, user: &str) -> std::io::Result<u32> {
     let log = OpenOptions::new().create(true).append(true).open(home.host_log())?;
-    let user_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    // The account's home (the user database), not the caller's HOME: a job
+    // runner's own HOME made the brain miss the person's harness settings
+    // (the daemon's brains do the same, c47dd2fd0112).
+    let user_home = cmux_tui_core::chief_brains::account_home()
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+        .unwrap_or_default();
     let mut path_dirs: Vec<PathBuf> = std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))

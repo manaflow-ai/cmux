@@ -179,7 +179,8 @@ async function mount(start: {
   return { sent, catalog: BUNDLED_MODEL_CATALOG };
 }
 
-const chip = () => host.querySelector(".acpmux-model-name")?.textContent ?? "";
+// The model the chip names, in full: its title (the visible name drops the vendor its mark draws).
+const chip = () => host.querySelector('[data-menu="Model"]')?.getAttribute("title") ?? "";
 
 async function openOn(harnessName: string) {
   if (!host.querySelector(".acpmux-mp"))
@@ -506,24 +507,58 @@ test("a typed combo for another provider starts it on that model, then sets its 
   ]);
 });
 
-test("the rail's + shows only where the Harnesses page can open (never in the Quick Composer)", async () => {
+test("Add harness… shows only where the Harnesses page can open (never in the Quick Composer)", async () => {
   const { registerHarnessesPage } = await import("../src/agent-session/acpmux/harnesses/harnessesPage");
   await mountNewTab({ harness: "claude" });
   await act(async () => {
     host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
   });
   // No pane that can show the page is mounted (the Quick Composer registers none).
-  expect(host.querySelector(".acpmux-mp-add-agent")).toBeNull();
+  expect(host.querySelector(".acpmux-mp-add-harness")).toBeNull();
   const opened: string[] = [];
   let unregister = () => {};
   await act(async () => {
     unregister = registerHarnessesPage(() => opened.push("harnesses"));
   });
-  const add = host.querySelector<HTMLButtonElement>(".acpmux-mp-add-agent");
+  const add = host.querySelector<HTMLButtonElement>(".acpmux-mp-add-harness");
   expect(add).not.toBeNull();
   await act(async () => add!.click());
   expect(opened).toEqual(["harnesses"]);
   act(() => unregister());
+});
+
+// Review of #20606: with no model row left, Add harness… was current by default, so Return on a
+// search with no match left the chat for the Harnesses page.
+test("Return on a search with no match stays put; an arrow onto Add harness… then opens it", async () => {
+  const { registerHarnessesPage } = await import("../src/agent-session/acpmux/harnesses/harnessesPage");
+  const opened: string[] = [];
+  const unregister = registerHarnessesPage(() => opened.push("harnesses"));
+  try {
+    await mountNewTab({ harness: "claude" });
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    });
+    const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
+    const key = (name: string) =>
+      act(async () => {
+        search.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+      });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "zzz");
+      search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    expect(rows()).toEqual([]);
+    const add = host.querySelector<HTMLButtonElement>(".acpmux-mp-add-harness")!;
+    expect(add.getAttribute("aria-selected")).not.toBe("true");
+    await key("Enter");
+    expect(opened).toEqual([]);
+    await key("ArrowDown");
+    expect(add.getAttribute("aria-selected")).toBe("true");
+    await key("Enter");
+    expect(opened).toEqual(["harnesses"]);
+  } finally {
+    act(() => unregister());
+  }
 });
 
 async function pickOnNewTab(from: string, provider: string, id: string, folder?: string) {

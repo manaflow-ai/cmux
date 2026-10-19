@@ -217,8 +217,8 @@ echo "hydrated. This makes it an exact checkout of $SOURCE_SHA."
 # at main's commit. After the reset it no longer matches the candidate's
 # gitlink and the stage refuses the dirty tree, so deinitialize every
 # checked-out submodule and initialize only ghostty-next, the one cmux-tui
-# builds from.
-pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule foreach --quiet 'printf \"%s\\n\" \"\$sm_path\"' | xargs -r git submodule deinit --force --; git submodule update --init --depth 1 ghostty-next; git rev-parse HEAD"
+# builds from (with init-submodule.sh's network retries when the tree has it).
+pin_command="set -euo pipefail; git fetch --no-tags origin $SOURCE_SHA; git reset --hard $SOURCE_SHA; git submodule foreach --quiet 'printf \"%s\\n\" \"\$sm_path\"' | xargs -r git submodule deinit --force --; if [ -f scripts/ci/init-submodule.sh ]; then bash scripts/ci/init-submodule.sh ghostty-next; else git submodule update --init --depth 1 ghostty-next; fi; git rev-parse HEAD"
 printf '\033[2m$ blacksmith testbox run --id %s "%s"\033[0m\n' "$TBX" "$pin_command"
 bounded 300 blacksmith testbox run --id "$TBX" "$pin_command"
 

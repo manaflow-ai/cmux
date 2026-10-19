@@ -1,10 +1,15 @@
 // The Channels page connected straight to its cmux instance over the daemon WebSocket. In a plain
 // browser (`?daemon=ws://host:port`, or the page the daemon serves itself at /pages/home-channels/)
 // the person either pastes the instance's credential or pairs this browser with a code they approve
-// in cmux; the credential stays in this tab's sessionStorage, never in the URL. In the app the host
-// hands the endpoint and the daemon's own credential (`cmux.host.credential.load`, a host verb).
-// Then the page runs on the daemon's real conversations, and the instance bar controls that
-// instance (a new workspace). A dropped connection reconnects with capped backoff and the same
+// in cmux; the credential stays in this tab's sessionStorage, never in the URL. A same-origin endpoint
+// whose server answers `GET /auth/session` with `{"authorized": true}` (a relay that identified the
+// person, for example by a private-network identity, and attaches the credential upstream itself)
+// connects with no credential and no form. In the app the host
+// hands the endpoint and the daemon's own credential (`cmux.host.credential.load`, a host verb), and
+// `owner` when this build's Chief conversations live on the Chief home's owner: the page opens a
+// second socket there for the local conversations (a credential bound to this page, single use, so
+// every reconnect loads again).
+// Then the page runs on the daemon's real conversations. A dropped connection reconnects with capped backoff and the same
 // credential; each connection gets a fresh store (spec transports.md "Reconnect").
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
@@ -12,12 +17,38 @@ import type { Strings } from "../shared/i18n";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
 
+/** The endpoint is this page's own origin (same host and port, ws for http, wss for https). */
+function sameOrigin(url: string): boolean {
+  try {
+    const endpoint = new URL(url);
+    const scheme = location.protocol === "https:" ? "wss:" : location.protocol === "http:" ? "ws:" : "";
+    return endpoint.protocol === scheme && endpoint.host === location.host;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether this page's origin already authorized the person (`GET /auth/session`). Any other answer,
+ *  a 404 from a daemon that serves the page itself included, means no: the form is shown. */
+async function originAuthorized(): Promise<boolean> {
+  try {
+    const response = await fetch("/auth/session", { cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) return false;
+    const body = (await response.json()) as { authorized?: unknown };
+    return body.authorized === true;
+  } catch {
+    return false;
+  }
+}
+
 /** The endpoint and credential the host hands the page (`cmux.host.credential.load`). */
 export interface HostCredential {
   url: string;
   token: string;
   /** The page bundle URL a browser opens (`http://127.0.0.1:<port>/pages/`). */
   pages?: string;
+  /** The local conversation owner when it is not this daemon (this build's Chief home's owner). */
+  owner?: { url: string; token: string };
 }
 
 /** Where the page's daemon comes from: a URL the person authenticates, or the hosting app. */
@@ -29,7 +60,7 @@ type Phase =
   | { kind: "pairing"; code: string }
   /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no retry loop. */
   | { kind: "blocked"; error: string }
-  | { kind: "ready"; daemon: DaemonSocket; generation: number; pages?: string };
+  | { kind: "ready"; daemon: DaemonSocket; owner?: DaemonSocket; generation: number; pages?: string };
 
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
@@ -41,12 +72,14 @@ export function DaemonGate({
 }: {
   source: DaemonSource;
   strings: Strings;
-  children: (daemon: DaemonSocket, pages?: string) => ReactNode;
+  children: (daemon: DaemonSocket, pages?: string, owner?: DaemonSocket) => ReactNode;
 }) {
   const { t, format } = strings;
   const url = source.kind === "url" ? source.url : "";
   const [phase, setPhase] = useState<Phase>(() =>
-    source.kind === "host" || sessionStorage.getItem(storageKey(url)) ? { kind: "connecting" } : { kind: "form" },
+    source.kind === "host" || sessionStorage.getItem(storageKey(url)) || sameOrigin(url)
+      ? { kind: "connecting" }
+      : { kind: "form" },
   );
   const [credential, setCredential] = useState("");
   const live = useRef({
@@ -55,35 +88,77 @@ export function DaemonGate({
     generation: 0,
     timer: 0 as ReturnType<typeof setTimeout> | 0,
     daemon: null as DaemonSocket | null,
+    owner: null as DaemonSocket | null,
   });
 
+  /** A socket that serves the conversations to a page: authenticated and new enough. `closed`
+   *  says whether it closed before the page took it (a close listener added later never fires). */
+  const open = (endpoint: string, auth: DaemonAuth) =>
+    DaemonSocket.connect(endpoint, auth).then(async (daemon) => {
+      let closed = false;
+      daemon.onClose(() => (closed = true));
+      try {
+        const identity = await daemon.request<{ capabilities?: string[] }>("identify");
+        // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
+        if (!identity.capabilities?.includes("ws-conversations-v1")) throw new Error(t("connect.tooOld"));
+      } catch (error) {
+        daemon.close();
+        throw error;
+      }
+      return { daemon, closed: () => closed };
+    });
+
   /** One connect: authenticate, check the capability, then keep the socket until it drops. */
-  const connect = (endpoint: string, auth: DaemonAuth, remember?: string, pages?: string) => {
-    DaemonSocket.connect(endpoint, auth)
-      .then(async (daemon) => {
-        try {
-          const identity = await daemon.request<{ capabilities?: string[] }>("identify");
-          // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
-          if (!identity.capabilities?.includes("ws-conversations-v1")) throw new Error(t("connect.tooOld"));
-        } catch (error) {
-          daemon.close();
-          throw error;
+  const connect = (
+    endpoint: string,
+    auth: DaemonAuth,
+    remember?: string,
+    pages?: string,
+    ownerCredential?: HostCredential["owner"],
+  ) => {
+    const opening = [
+      open(endpoint, auth),
+      ownerCredential ? open(ownerCredential.url, { token: ownerCredential.token }) : Promise.resolve(undefined),
+    ] as const;
+    Promise.allSettled(opening)
+      .then(([main, second]) => {
+        const opened = [main, second].flatMap((result) =>
+          result.status === "fulfilled" && result.value ? [result.value] : [],
+        );
+        // Either socket failing (or closing already) fails the connect: the page never shows half of
+        // its owners, and the socket that did open is closed, not leaked.
+        const failed = main.status === "rejected" ? main : second.status === "rejected" ? second : null;
+        if (failed || opened.some((socket) => socket.closed())) {
+          for (const socket of opened) socket.daemon.close();
+          throw failed ? failed.reason : Object.assign(new Error(t("connect.connecting")), { code: "unreachable" });
         }
+        const daemon = (main as PromiseFulfilledResult<{ daemon: DaemonSocket }>).value.daemon;
+        const owner = second.status === "fulfilled" ? second.value?.daemon : undefined;
         // Unmounted, or a newer connection already won: this one is not used.
-        if (!live.current.mounted || live.current.daemon) return daemon.close();
+        if (!live.current.mounted || live.current.daemon) {
+          owner?.close();
+          return daemon.close();
+        }
         if (remember) sessionStorage.setItem(storageKey(endpoint), remember);
         live.current.attempt = 0;
         live.current.daemon = daemon;
+        live.current.owner = owner ?? null;
         const generation = ++live.current.generation;
-        daemon.onClose((reason) => {
-          if (!live.current.mounted || live.current.generation !== generation) return;
+        const lost = (reason: string) => {
+          if (!live.current.mounted || live.current.generation !== generation || live.current.daemon !== daemon) return;
+          // One lost socket drops both: the reconnect loads fresh credentials for each.
           live.current.daemon = null;
+          live.current.owner = null;
+          daemon.close();
+          owner?.close();
           if (reason === "authentication failed" && source.kind === "url") {
             sessionStorage.removeItem(storageKey(url));
             setPhase({ kind: "form", error: reason });
           } else retry();
-        });
-        setPhase({ kind: "ready", daemon, generation, pages });
+        };
+        daemon.onClose(lost);
+        owner?.onClose(lost);
+        setPhase({ kind: "ready", daemon, owner, generation, pages });
       })
       .catch((error: Error & { code?: string }) => {
         if (!live.current.mounted) return;
@@ -102,7 +177,7 @@ export function DaemonGate({
     if (source.kind === "host") {
       source
         .load()
-        .then((value) => connect(value.url, { token: value.token }, undefined, value.pages))
+        .then((value) => connect(value.url, { token: value.token }, undefined, value.pages, value.owner))
         // The host says why it has no endpoint. A final answer (an external daemon too old for the
         // listener) stops here with the reason; anything else (a restart in progress) retries.
         .catch((error: Error & { retryable?: boolean }) => {
@@ -113,6 +188,12 @@ export function DaemonGate({
     }
     const saved = sessionStorage.getItem(storageKey(url));
     if (saved) connect(url, { token: saved }, saved);
+    else if (sameOrigin(url))
+      void originAuthorized().then((authorized) => {
+        if (!live.current.mounted) return;
+        if (authorized) connect(url, { origin: true });
+        else setPhase({ kind: "form" });
+      });
     else setPhase({ kind: "form" });
   };
 
@@ -136,14 +217,17 @@ export function DaemonGate({
       state.mounted = false;
       clearTimeout(state.timer);
       state.daemon?.close();
+      state.owner?.close();
       state.daemon = null;
+      state.owner = null;
     };
     // Runs once per endpoint.
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- resume is rebuilt each render; the effect runs once per endpoint.
   }, [url, source.kind]);
 
   // A new store per connection: the key remounts the page on every reconnect.
-  if (phase.kind === "ready") return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages)}</Fragment>;
+  if (phase.kind === "ready")
+    return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
   return (
     <section className="hc-gate" aria-labelledby="hc-gate-title">
       <h1 id="hc-gate-title">{t("connect.title")}</h1>
@@ -210,56 +294,5 @@ export function DaemonGate({
         </form>
       )}
     </section>
-  );
-}
-
-/** One control of the connected instance: its workspace count and a new workspace. */
-export function InstanceBar({
-  daemon,
-  strings,
-  pageUrl,
-}: {
-  daemon: DaemonSocket;
-  strings: Strings;
-  pageUrl?: string;
-}) {
-  const { t, format } = strings;
-  const [count, setCount] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const refresh = () =>
-    daemon
-      .request<{ workspaces?: unknown[] }>("list-workspaces")
-      .then((tree) => setCount(tree.workspaces?.length ?? 0))
-      .catch(() => setCount(null));
-
-  useEffect(() => {
-    void refresh();
-    // The tree changes reach every subscriber; one reread per change keeps the count true.
-    return daemon.onEvent((event) => {
-      if (event.event === "tree-changed" || event.event === "workspace-changed") void refresh();
-    });
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- refresh is rebuilt each render; one subscription per daemon.
-  }, [daemon]);
-
-  return (
-    <div className="hc-instance" role="toolbar" aria-label={t("instance.label")}>
-      <span>{count === null ? t("instance.label") : format("instance.workspaces", String(count))}</span>
-      {/* In the app: the address a browser opens this page at (the person copies it). */}
-      {pageUrl && <span className="hc-instance-url">{pageUrl}</span>}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => {
-          setBusy(true);
-          void daemon
-            .request("new-workspace", {})
-            .then(refresh)
-            .finally(() => setBusy(false));
-        }}
-      >
-        {t("instance.newWorkspace")}
-      </button>
-    </div>
   );
 }

@@ -15,6 +15,17 @@ public nonisolated enum HomeStrings {
     static var chiefMergeBlocked: String {
         String(localized: "home.chief.mergeBlocked", defaultValue: "Quit older cmux DEV builds to merge Chief history", table: "Home", bundle: .module)
     }
+    /// The Chief's notice while agents are off in this build session (cx-tgf4h).
+    public static var chiefAgentsDisabled: String {
+        String(localized: "home.chief.agentsDisabled",
+               defaultValue: "Agents are disabled in this build session. The Chief does not answer.",
+               table: "Home", bundle: .module)
+    }
+    /// The Chief conversation's system notice while the compactor cannot build summaries (cx-oqnw3).
+    static var chiefMemoryPaused: String {
+        String(localized: "home.chief.memoryPaused", defaultValue: "Chief memory summaries are paused. The Chief still answers.",
+               table: "Home", bundle: .module)
+    }
     /// The Chief conversation's notice while a turn waits for the compactor.
     static func chiefOrganizing(built: Int, total: Int) -> String {
         String(format: String(localized: "home.chief.organizing", defaultValue: "Organizing Chief history: %1$lld of %2$lld",

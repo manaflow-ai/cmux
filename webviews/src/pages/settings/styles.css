@@ -692,7 +692,7 @@ mark {
 
 /* The popup surfaces keep their fades (pages/shared/desktop.css). */
 @media (prefers-reduced-motion: reduce) {
-  *:not(.ui-popup, .ui-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop) {
+  *:not(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop) {
     transition: none !important;
   }
 }
@@ -893,6 +893,7 @@ mark {
 }
 
 .backdrop-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -913,6 +914,19 @@ mark {
   object-fit: cover;
 }
 
+/* A moving wallpaper (cx-14vdf): a play mark over its first frame. */
+.backdrop-badge {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: var(--text-caption);
+  pointer-events: none;
+}
+
 .backdrop-tile[aria-pressed="true"] .backdrop-thumb {
   border-color: var(--text);
 }
@@ -920,6 +934,36 @@ mark {
 .backdrop-none {
   display: block;
   border-color: var(--border);
+}
+
+/* A thumbnail with room for a corner badge. */
+.backdrop-frame {
+  position: relative;
+  display: block;
+}
+
+.backdrop-frame .backdrop-thumb {
+  display: block;
+}
+
+/* A macOS wallpaper that is not downloaded: dimmed, with a cloud in the corner. */
+.backdrop-pending .backdrop-thumb {
+  opacity: 0.7;
+}
+
+.backdrop-pending:hover .backdrop-thumb {
+  opacity: 0.9;
+}
+
+/* On a chip like the moving wallpaper's badge, so it reads over any picture. */
+.backdrop-download {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 2px;
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--text);
 }
 
 /* Choose Image… (cx-t2x.8): an empty tile with a plus. */
@@ -930,6 +974,41 @@ mark {
   color: var(--muted-text);
   font-size: var(--text-title);
   border-style: dashed;
+}
+
+/* Your images (backgrounds plan phase 3): what they take, Show in Finder, and a remove
+   button in each tile's corner, shown on hover or focus. */
+.backdrop-own-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.backdrop-own {
+  position: relative;
+  min-width: 0;
+}
+
+.backdrop-own > .backdrop-tile {
+  width: 100%;
+}
+
+.backdrop-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  opacity: 0;
+}
+
+.backdrop-own:hover .backdrop-remove:not(:disabled),
+.backdrop-remove:focus-visible {
+  opacity: 1;
 }
 
 /* Browse More Art (cx-t2x.8). */

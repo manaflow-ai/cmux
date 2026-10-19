@@ -499,8 +499,8 @@ public actor StackClientApp {
         request.httpMethod = "POST"
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue("client", forHTTPHeaderField: "x-stack-access-type")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
+        request.setValue("client", forHTTPHeaderField: "x-hexclave-access-type")
         
         client.applyPublishableClientKey(to: &request)
         
@@ -572,7 +572,7 @@ public actor StackClientApp {
         request.httpMethod = "POST"
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
         
         let body = [
             "grant_type=authorization_code",
@@ -877,6 +877,11 @@ public actor StackClientApp {
             
             return user
             
+        } catch let error as StackAuthError where error.code == "RATE_LIMITED" {
+            // A 429 says nothing about the session. Reporting it as "no
+            // user" made sign-in fail as a generic server error and could
+            // read as signed out to callers that pass `.returnNull`.
+            throw error
         } catch {
             return try handleNoUser(or: or)
         }

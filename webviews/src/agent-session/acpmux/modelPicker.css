@@ -113,10 +113,6 @@
     align-items: center;
     padding: 6px;
   }
-  .acpmux-mp-rail-list .acpmux-mp-add-agent {
-    margin-top: 0;
-    margin-inline-start: auto;
-  }
   .acpmux-mp-content {
     width: 100%;
     min-width: 0;

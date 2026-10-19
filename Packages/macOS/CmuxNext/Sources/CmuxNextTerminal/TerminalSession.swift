@@ -42,6 +42,24 @@ public final class TerminalSession {
         didSet { surfaceView.ownsGeometry = ownsGeometry }
     }
 
+    /// The grid a new terminal in this terminal's pane would fit: this view's
+    /// fitted grid while it is in a window at the configured font size. Nil
+    /// before its first layout, out of a window, or with its font zoomed (a
+    /// new terminal starts at the configured size).
+    public var gridForNewTerminal: TerminalGridSize? {
+        guard surfaceView.window != nil, TerminalFontScale(surfaceView).current == nil else { return nil }
+        return surfaceView.fittedGrid
+    }
+
+    /// Ghostty's cell size in backing pixels at the configured font size, for
+    /// working out a new terminal's grid (``TerminalGridEstimate``). Nil while
+    /// unknown or with this terminal's font zoomed.
+    public var configuredCellPixelSize: CGSize? {
+        let cell = model.cellPixelSize
+        guard cell.width > 0, cell.height > 0, TerminalFontScale(surfaceView).current == nil else { return nil }
+        return cell
+    }
+
     /// Why a dead terminal's host was lost (nil: its process ended, or it runs).
     public var hostLoss: TerminalHostLoss? {
         didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
@@ -81,7 +99,7 @@ public final class TerminalSession {
         guard force || config !== previous else { return }
         theme = config
         view.theme = config
-        applyTheme(to: surfaceView, clearing: previous != nil && config == nil)
+        applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: true)
     }
 
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
@@ -90,11 +108,13 @@ public final class TerminalSession {
         didSet { surfaceView.mirrorDemand = mirrorDemand }
     }
 
-    private let io: any TerminalIO
+    let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e
     private let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
+    /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
+    public var closeCancels: [Task<Void, Never>] = []
     /// Latest `.resize` grid, re-applied to a swapped-in surface.
     private var canonicalGrid: TerminalGridSize?
     /// True once the current surface received a replay or output; a later
@@ -105,6 +125,8 @@ public final class TerminalSession {
     /// later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
     private(set) var swappedSurfaces = 0
+    /// Last frames shown while this session attached (``showLastFrame(_:)``).
+    private(set) var lastFrameHolds = 0
     /// Local-history restores whose history did not match the owner's (or
     /// failed): each one asked the owner for READY + history.
     private(set) var localHistoryMismatches = 0
@@ -141,6 +163,8 @@ public final class TerminalSession {
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
                     await io.focusGained()
+                case .takeOverSize(let setLatest):
+                    await io.takeOverSize(setLatest: setLatest)
                 case .reconnect:
                     await io.reconnectRequested()
                 case .resync:
@@ -159,6 +183,9 @@ public final class TerminalSession {
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
+        #if DEBUG
+        if NewTerminalTrace.shared.isArmed { traceSurfaceCreated(io: io) }
+        #endif
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -200,6 +227,13 @@ public final class TerminalSession {
         surfaceView.applyAction(.openURL(text))
     }
 
+    /// Sends bytes as typed, in order with this terminal's keys (they join the same queue to
+    /// `io.write`): input the daemon gave back from a creation that did not take it.
+    public func sendBytes(_ data: Data) {
+        guard !data.isEmpty else { return }
+        input.send(data)
+    }
+
     /// Sends text as if pasted (Ghostty applies bracketed paste when the
     /// program enabled it). The encoded bytes reach `io.write`.
     public func sendText(_ text: String) {
@@ -214,6 +248,18 @@ public final class TerminalSession {
         surfaceView.snapshot(maxPixelSize: maxPixelSize)
     }
 
+    /// A new session for an evicted terminal: its last frame shows at once, until the first
+    /// content the owner sends is parsed and drawn (no empty pane while it attaches). Returns
+    /// why it did not (diagnostics), nil when it holds the frame.
+    @discardableResult
+    public func showLastFrame(_ frame: TerminalLastFrame) -> String? {
+        guard !surfaceHasContent else { return "has_content" }
+        guard let surface = frame.take() else { return "purged" }
+        lastFrameHolds += 1
+        frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+        return nil
+    }
+
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
@@ -224,6 +270,8 @@ public final class TerminalSession {
     public func close() {
         eventsTask?.cancel()
         eventsTask = nil
+        closeCancels.forEach { $0.cancel() }
+        closeCancels = []
         input.finish()
         surfaceView.removeFromSuperview()
     }
@@ -231,11 +279,15 @@ public final class TerminalSession {
     // MARK: Events
 
     private func handle(_ event: TerminalIOEvent) async {
+        #if DEBUG
+        if NewTerminalTrace.shared.isArmed { traceEvent(event) }
+        #endif
         switch event {
         case .replay(let data):
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .kittyReplay(let replay):
             // GhosttyNextKit restores Kitty graphics through GHOSTSNP snapshots
@@ -246,6 +298,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
@@ -253,6 +306,7 @@ public final class TerminalSession {
             guard restored, phase.isReady else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
             TypingLatencyProbe.shared.mark(.outputMain)
@@ -262,6 +316,7 @@ public final class TerminalSession {
             // The surface may have been swapped while waiting (a replay).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
@@ -271,8 +326,19 @@ public final class TerminalSession {
         case .status(let status):
             model.connection = status
             model.hasExited = status == .exited
+            surfaceView.updateReflowPreview()
             view.showStatus(status)
+            // A disconnected or exited view no longer knows who sets the grid.
+            if status != .connected { view.showSizedFor(nil) }
+        case .sizedFor(let sizedFor):
+            view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
+    }
+
+    /// Take over ("Sized for" chip): this view sets the grid, always with a new claim; under a
+    /// policy that picks by size the terminal becomes last active first.
+    func takeOverSize(setLatest: Bool) {
+        input.takeOverSize(setLatest: setLatest)
     }
 
     /// A click in the surface: a disconnected terminal re-attaches.
@@ -298,6 +364,9 @@ public final class TerminalSession {
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1
+        #if DEBUG
+        if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
+        #endif
         fresh.ownsGeometry = ownsGeometry
         fresh.isRenderingSuspended = isRenderingSuspended
         fresh.mirrorDemand = mirrorDemand
@@ -306,7 +375,8 @@ public final class TerminalSession {
         fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
-        applyTheme(to: fresh, clearing: false)
+        applyTheme(to: fresh, clearing: false, animated: false)
+        TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
@@ -318,8 +388,11 @@ public final class TerminalSession {
     /// A new surface starts from the app config, so only a theme needs
     /// applying; clearing one re-applies the app config (Ghostty resolves
     /// its light/dark variant per surface).
-    private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool) {
+    /// `animated`: the live surface blends to the new colors on the GPU from the colors on
+    /// screen (a theme change); a fresh surface takes its first colors at once.
+    private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool, animated: Bool) {
         guard let surface = surfaceView.surface else { return }
+        surfaceView.applyColorTransition(animated: animated)
         if let theme {
             ghostty_surface_update_config(surface, theme.config)
         } else if clearing, let config = GhosttyRuntime.shared.config {

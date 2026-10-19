@@ -1,6 +1,6 @@
 import React from "react";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
-import { type AcpmuxSessionEntry, listed, projectLabel, sessionMark } from "./sessionList";
+import { type AcpmuxSessionEntry, listed, projectLabel, sessionMark, withoutChildren } from "./sessionList";
 
 /// Home-list copy: keys of the pane's string table.
 export const HOME_LABELS = {
@@ -20,8 +20,8 @@ export function homeLists(
   sessions: AcpmuxSessionEntry[],
   currentId?: string,
 ): { input: AcpmuxSessionEntry[]; review: AcpmuxSessionEntry[] } {
-  const others = sessions
-    .filter((session) => session.sessionId !== currentId && listed(session))
+  const others = withoutChildren(sessions.filter(listed))
+    .filter((session) => session.sessionId !== currentId)
     .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
   return {
     input: others.filter((session) => sessionMark(session, false) === "input").slice(0, HOME_ROWS),

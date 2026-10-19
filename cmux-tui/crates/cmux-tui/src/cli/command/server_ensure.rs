@@ -5,18 +5,20 @@ use crate::cli::lifecycle::ServerAction;
 use crate::local_owner::EnsureWebSocket;
 
 /// `server ensure [--terminal-reap-grace-seconds <n>] [--install-key-stdin]
-/// [--restore-progress] [--ws-loopback [--ws-allow-origin <origin>[,<origin>...]]]`: the
+/// [--restore-progress] [--replace-unresponsive] [--ws-loopback [--ws-allow-origin <origin>[,<origin>...]]]`: the
 /// grace has the owner's own startup bounds, checked before any spawn.
 pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
     let install_key_stdin = flags.boolean("install-key-stdin");
     let progress = flags.boolean("restore-progress");
     let websocket = websocket(flags)?;
+    let replace_unresponsive = flags.boolean("replace-unresponsive");
     let Some(value) = flags.take("terminal-reap-grace-seconds") else {
         return Ok(ServerAction::Ensure {
             terminal_reap_grace: None,
             install_key_stdin,
             progress,
             websocket,
+            replace_unresponsive,
         });
     };
     let seconds = value
@@ -30,6 +32,7 @@ pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
         install_key_stdin,
         progress,
         websocket,
+        replace_unresponsive,
     })
 }
 

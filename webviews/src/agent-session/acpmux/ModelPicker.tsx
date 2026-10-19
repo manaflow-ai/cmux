@@ -14,7 +14,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
-import { MODEL_PICKER_MAX_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
+import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
@@ -203,9 +203,10 @@ const STARRED = "\u0000starred";
 const blockedProfile = (entry: HarnessChoice | undefined) =>
   entry?.folder?.state === "needs-trust" || entry?.folder?.state === "error";
 
-/// A rail tab: one icon in a rounded square, filled while its models show.
+/// A rail tab: a plain icon on a round wash, filled while its models show (no square tile; Leo
+/// 2026-10-18).
 const railTab =
-  "acpmux-mp-rail-tab grid size-8 flex-none cursor-pointer place-items-center rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
+  "acpmux-mp-rail-tab grid size-8 flex-none cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-muted hover:bg-hover hover:text-fg aria-selected:bg-hover aria-selected:text-fg disabled:cursor-default disabled:opacity-50 aria-disabled:opacity-50";
 /// A model row: one line, the theme's text. The fill is separate (`rowFill`): two background
 /// utilities on one element resolve by Tailwind's output order, not by the class list.
 const modelRow =
@@ -236,6 +237,7 @@ export function ModelPicker(props: ModelPickerProps) {
     catalog,
     harness,
     label,
+    chip,
     switching,
     onLand,
     onHarness,
@@ -245,14 +247,19 @@ export function ModelPicker(props: ModelPickerProps) {
     onCombo,
     fastMode,
     catalogRefresh,
+    signedOut,
+    onLogIn,
+    usage,
   } = props;
+  /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
+  const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
   const modelText = t(PICKER_LABELS.model);
   const searchText = t("picker.search");
   const harnessText = t("picker.harness");
   const noMatchesText = t("picker.noMatches");
   const starredText = t("picker.starred");
-  const addAgentText = t("picker.addAgent");
+  const addHarnessText = t("modelPicker.addHarness");
   const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
@@ -262,6 +269,9 @@ export function ModelPicker(props: ModelPickerProps) {
   const [activeHarness, setActiveHarness] = useState(0);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  // On an empty list the add row is the only stop; it is current only once an arrow or the pointer
+  // reaches it, so Return on a search with no match does not open the Harnesses page.
+  const [addChosen, setAddChosen] = useState(false);
   const [olderOpen, setOlderOpen] = useState(false);
   const [favorites, setFavorites] = useState<Set<string>>(() => {
     try {
@@ -302,20 +312,29 @@ export function ModelPicker(props: ModelPickerProps) {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (searching) {
       for (const entry of harnesses)
-        if (entry.pickable && !blockedProfile(entry))
+        if (entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined)
           for (const model of choicesFor(entry)) if (fitsQuery(model, entry.name, parsed)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
-        for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
-    } else if (selected) {
+        if (loginFor(entry) === undefined)
+          for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
+    } else if (selected && loginFor(selected) === undefined) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
       const { latest, older } = shownSections(selected, runsHere);
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere]);
+  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere, loginFor]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
-  const olderCount = searching || starredView ? 0 : shownSections(selected, runsHere).older.length;
+  // Add harness… is the list's last row, after the models: arrows reach it like a model row.
+  const addRow = onAddAgent ? visible.length : -1;
+  const rowCount = visible.length + (onAddAgent ? 1 : 0);
+  const addRowId = `${menuId}-add-harness`;
+  const onAddRow = active === addRow && (visible.length > 0 || addChosen);
+  const olderCount =
+    searching || starredView || (selected && loginFor(selected) !== undefined)
+      ? 0
+      : shownSections(selected, runsHere).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -342,7 +361,13 @@ export function ModelPicker(props: ModelPickerProps) {
     // the local promise state from the previous click.
     if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
   }, [catalogRefresh?.date, catalogRefresh?.status]);
-  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
+  // Opens on the side that has room for the picker's floor, not only for what it measures before its
+  // models load: above the chip, else below it (Leo: the menu stays inside the page).
+  const menuStyle = useUiAnchor(trigger, menu, open, {
+    side: "above",
+    align: "start",
+    minHeight: MODEL_PICKER_MIN_HEIGHT,
+  });
   useLayoutEffect(() => {
     if (!open) {
       setOpenHeight(undefined);
@@ -413,7 +438,7 @@ export function ModelPicker(props: ModelPickerProps) {
   // The highlighted row stays in view (Lawrence 2026-10-09 recording: ArrowDown moved the highlight below the
   // visible rows and the list did not follow). The nearest scroll only moves when the row is outside the list's
   // viewport, so a pointer hover (always over a visible row) never scrolls.
-  const activeRowId = visible[active] ? modelRowId(visible[active].id) : undefined;
+  const activeRowId = visible[active] ? modelRowId(visible[active].id) : onAddRow ? addRowId : undefined;
   useLayoutEffect(() => {
     if (!open || !activeRowId) return;
     menu.current?.ownerDocument.getElementById(activeRowId)?.scrollIntoView?.({ block: "nearest" });
@@ -424,10 +449,12 @@ export function ModelPicker(props: ModelPickerProps) {
       if (!root.current?.contains(event.target as Node)) close(false);
     };
     const blur = () => close(false);
-    document.addEventListener("pointerdown", away);
+    // In the capture phase, as Base UI's menus close: a press outside only closes the picker, and
+    // nothing under it sees the press (menuPressGuard.ts).
+    document.addEventListener("pointerdown", away, true);
     window.addEventListener("blur", blur);
     return () => {
-      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("pointerdown", away, true);
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
@@ -447,12 +474,12 @@ export function ModelPicker(props: ModelPickerProps) {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);
   useEffect(() => {
-    if (active >= visible.length) setActive(Math.max(visible.length - 1, 0));
-  }, [active, visible.length]);
+    if (active >= rowCount) setActive(Math.max(rowCount - 1, 0));
+  }, [active, rowCount]);
 
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
-    if (model.unavailable || !owner?.pickable) return;
+    if (model.unavailable || !owner?.pickable || loginFor(owner) !== undefined) return;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
     const fast = searching ? parsed.fast : undefined;
@@ -469,6 +496,10 @@ export function ModelPicker(props: ModelPickerProps) {
     }
     onLand(model.id);
     close();
+  };
+  const addHarness = () => {
+    close();
+    onAddAgent?.();
   };
   const refreshCatalog = () => {
     if (!catalogRefresh || refreshStatus === "fetching") return;
@@ -504,6 +535,7 @@ export function ModelPicker(props: ModelPickerProps) {
     setOlderOpen(false);
     if (index >= 0) setActiveHarness(index);
     setActive(0);
+    setAddChosen(false);
   };
   // The rail is Starred, then the pickable harnesses. Disabled or blocked profiles stay visible
   // for context but are never a keyboard stop. Reaching either end returns to Starred.
@@ -540,12 +572,13 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const move = (step: number) => {
     // Moving down past the last row opens the More models fold, so keys reach every model.
-    if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1) {
+    if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1 && active !== addRow) {
       setOlderOpen(true);
       setActive(visible.length);
       return;
     }
-    setActive((index) => (visible.length ? (index + step + visible.length) % visible.length : 0));
+    setActive((index) => (rowCount ? (index + step + rowCount) % rowCount : 0));
+    setAddChosen(true);
   };
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     // Candidate acceptance belongs to the IME. WebKit can report only keyCode 229 on commit.
@@ -568,6 +601,7 @@ export function ModelPicker(props: ModelPickerProps) {
       event.preventDefault();
       const model = visible[active];
       if (model) selectModel(model);
+      else if (onAddRow) addHarness();
     } else if (
       /^[1-9]$/.test(event.key) &&
       !event.ctrlKey &&
@@ -598,6 +632,13 @@ export function ModelPicker(props: ModelPickerProps) {
     : undefined;
   const chipHarness = switchingMark ?? current?.mark ?? current?.id ?? harness;
   const chipLabel = switchingTo?.name ?? label;
+  // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
+  const rowChip = switchingTo ? undefined : chip;
+  // The name the chip writes: without the vendor its mark draws ("Opus 5.5"), the title keeps it whole.
+  const chipName = switchingTo ? chipLabel : withoutVendor(chipLabel, chipHarness);
+  const chipShort = rowChip?.short && rowChip.short !== chipName ? rowChip.short : undefined;
+  const chipFamily = rowChip?.family && rowChip.family !== (chipShort ?? chipName) ? rowChip.family : undefined;
+  const chipTitle = rowChip?.title ?? chipLabel;
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
     onHarnessEnable?.(entry.folder.folder, entry.id);
@@ -624,16 +665,25 @@ export function ModelPicker(props: ModelPickerProps) {
   const railTitle = (entry: HarnessChoice) => {
     const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
     const shared = (markCounts.get(mark) ?? 0) > 1 && entry.name !== entry.id;
-    return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry)].filter(Boolean).join(" · ");
+    const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
+    return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
   return (
-    <span ref={root} className="acpmux-picker acpmux-model" style={{ position: "relative" }}>
+    <span
+      ref={root}
+      className="acpmux-picker acpmux-model"
+      style={{ position: "relative" }}
+      // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
+      {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
+    >
       <PickerButton
         ref={trigger}
         type="button"
         className="acpmux-picker-button"
         data-menu={modelText}
         aria-label={modelText}
+        /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
+        title={usage ? `${chipLabel} · ${usage}` : chipLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -642,6 +692,7 @@ export function ModelPicker(props: ModelPickerProps) {
             event.preventDefault();
             setQuery(event.key);
             setActive(0);
+            setAddChosen(false);
             search.current?.focus();
           } else if (!open && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
             event.preventDefault();
@@ -651,25 +702,43 @@ export function ModelPicker(props: ModelPickerProps) {
         {...press}
       >
         <AgentMark agent={chipHarness} size={15} />
-        <span className="acpmux-model-name">{chipLabel}</span>
+        <span
+          className="acpmux-model-name"
+          {...(chipShort
+            ? { "data-short": "" }
+            : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : "full family" })}
+        >
+          {chipName}
+        </span>
+        {/* The row's forms are drawn, not written: the chip's text stays the model's name. */}
+        {chipShort && (
+          <span
+            className="acpmux-model-short acpmux-fit-label"
+            data-fit-part="model"
+            data-fit-forms={chipFamily ? "full" : "full family"}
+            data-label={chipShort}
+          />
+        )}
+        {chipFamily && (
+          <span
+            className="acpmux-model-short acpmux-fit-label"
+            data-fit-part="model"
+            data-fit-forms="family"
+            data-label={chipFamily}
+          />
+        )}
         <ChevronIcon />
       </PickerButton>
       {open && (
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex max-h-[480px] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          className="ui-popup ui-picker-popup acpmux-mp z-(--layer-dropdown) flex w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
-          // The anchor's room above or below the chip, never more than MODEL_PICKER_MAX_HEIGHT.
-          style={{
-            ...menuStyle,
-            maxHeight: Math.min(
-              typeof menuStyle.maxHeight === "number" ? menuStyle.maxHeight : MODEL_PICKER_MAX_HEIGHT,
-              MODEL_PICKER_MAX_HEIGHT,
-            ),
-            ...(openHeight == null ? {} : { height: openHeight }),
-          }}
+          // The anchor's room above or below the chip, between the picker's minimum and maximum
+          // heights; a fixed height here collapsed a menu that opened before its models loaded.
+          style={{ ...menuStyle, ...pickerHeightBounds(menuStyle.maxHeight, openHeight) }}
         >
           {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. */}
           <ScrollArea
@@ -718,7 +787,8 @@ export function ModelPicker(props: ModelPickerProps) {
                   type="button"
                   key={entry.folder ? `folder:${entry.id}` : entry.name}
                   aria-selected={entry.ids.includes(selectedHarness ?? "")}
-                  aria-disabled={blockedProfile(entry) || undefined}
+                  aria-disabled={blockedProfile(entry) || loginFor(entry) !== undefined || undefined}
+                  data-signed-out={loginFor(entry) !== undefined || undefined}
                   disabled={!entry.pickable}
                   data-harness-index={index}
                   className={`acpmux-mp-harness ${railTab}`}
@@ -749,30 +819,13 @@ export function ModelPicker(props: ModelPickerProps) {
                     <AgentMark agent={entry.mark ?? entry.id} size={16} />
                   ) : (
                     // A harness without a mark: its initial, never an empty tab.
-                    <span aria-hidden="true" className="text-control font-medium">
+                    <span aria-hidden="true" className="text-control font-semibold">
                       {entry.name.trim().charAt(0).toUpperCase()}
                     </span>
                   )}
                   <span className="sr-only">{entry.name}</span>
                 </PickerOption>,
               ])}
-              {onAddAgent && (
-                // Add agent… (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add. Not a tab: a click runs it.
-                <button
-                  type="button"
-                  className={`acpmux-mp-add-agent mt-auto ${railTab}`}
-                  aria-label={addAgentText}
-                  title={addAgentText}
-                  onClick={() => {
-                    close();
-                    onAddAgent();
-                  }}
-                >
-                  <span aria-hidden="true" className="text-heading leading-none">
-                    +
-                  </span>
-                </button>
-              )}
             </PickerOptionList>
           </ScrollArea>
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
@@ -783,17 +836,18 @@ export function ModelPicker(props: ModelPickerProps) {
                 type="search"
                 // The picker opens with focus here; its row shows the focus, not a ring inside it.
                 data-focus-ring="none"
-                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
+                className="h-full min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 font-[inherit] text-body text-fg outline-none placeholder:text-muted [&::-webkit-search-cancel-button]:appearance-none"
                 aria-label={searchText}
                 aria-autocomplete="list"
                 aria-controls={`${menuId}-models`}
-                aria-activedescendant={visible[active] ? modelRowId(visible[active].id) : undefined}
+                aria-activedescendant={activeRowId}
                 aria-expanded="true"
                 value={query}
                 placeholder={searchText}
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setActive(0);
+                  setAddChosen(false);
                 }}
                 keyboard={keyDown}
               />
@@ -821,7 +875,23 @@ export function ModelPicker(props: ModelPickerProps) {
                 className="acpmux-mp-models p-1.5"
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >
-                {selectedOther && blockedProfile(selected) ? (
+                {selected && !searching && !starredView && loginFor(selected) !== undefined ? (
+                  <>
+                    <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
+                    {loginFor(selected) && onLogIn && (
+                      <button
+                        type="button"
+                        className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
+                        onClick={() => {
+                          onLogIn(selected.acpmuxHarness ?? selected.id, loginFor(selected)!);
+                          close();
+                        }}
+                      >
+                        <span className="acpmux-menu-label flex-1 truncate">{t("harness.logIn")}</span>
+                      </button>
+                    )}
+                  </>
+                ) : selectedOther && blockedProfile(selected) ? (
                   <div className={emptyNote}>
                     {selected.folder?.state === "needs-trust"
                       ? t("picker.trustFirst")
@@ -916,6 +986,26 @@ export function ModelPicker(props: ModelPickerProps) {
                     </span>
                   </button>
                 )}
+                {onAddAgent && (
+                  // Add harness… (Leo 2026-10-14): the list's last row; it opens the Harnesses page.
+                  <>
+                    <hr className="mx-2 my-1 h-0 border-0 border-t-[0.5px] border-edge" />
+                    <PickerOption
+                      type="button"
+                      id={addRowId}
+                      className={`acpmux-mp-add-harness acpmux-mp-row ${modelRow} ${rowFill(onAddRow)}${onAddRow ? " acpmux-mp-active" : ""}`}
+                      onPointerEnter={() => {
+                        setActive(addRow);
+                        setAddChosen(true);
+                      }}
+                      onClick={addHarness}
+                      selected={onAddRow}
+                      active={onAddRow}
+                    >
+                      <span className="acpmux-menu-label min-w-0 flex-1 truncate">{addHarnessText}</span>
+                    </PickerOption>
+                  </>
+                )}
               </PickerOptionList>
             </ScrollArea>
             {fastMode && (
@@ -940,4 +1030,14 @@ export function ModelPicker(props: ModelPickerProps) {
       )}
     </span>
   );
+}
+
+/** A model name as the chip shows it, without the vendor its mark already draws ("Claude Opus 5.5"
+ * under Claude's mark reads "Opus 5.5"; Leo 2026-10-13: the footer "tells too much"). Only Claude's
+ * names lead with a vendor word that says nothing else ("Gemini 2.5 Pro" would read as a bare
+ * number), and another harness's mark (a gateway's) does not say the vendor. The title keeps the
+ * full name. */
+export function withoutVendor(name: string, mark?: string): string {
+  if (!mark?.toLowerCase().startsWith("claude")) return name;
+  return name.replace(/^Claude\s+(?=\S)/, "");
 }

@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""Live check: the bottom-left update cards' x (UPDATE-CARD-CLOSE, Lawrence 2026-10-14: "make sure
-we can close bottom left thing for check for updates (like remind in X days, X button to close)").
+"""Live check: the bottom-left update cards' Hide button (UPDATE-CARD-CLOSE, Lawrence 2026-10-14: "make
+sure we can close bottom left thing for check for updates (like remind in X days, X button to close)",
+then "need a more explicit button?": one click hides this version, remind-later moves to right-click).
 
   scripts/cmux-next/update-card-close-live.py --app "$NX_APP" [--out DIR]
 
 Launches the tagged app with no activation, an isolated Chief home, the automation socket and a
 scratch cmux.json. It forces an update state with the existing debug hooks
 (`debug.updater {action: "stage" | "available"}`; no feed is touched and no fake appcast item is
-served), presses the card's x through hint mode (the keyboard path a person uses), reads the open
-menu (`debug.hints`) and picks an item with `debug.hints {pick_menu}` (the item's own action):
+served) and clicks through hint mode, which posts a real left click (a Shift label: a right click)
+at the control; a right-click menu item is picked with `debug.hints {pick_menu}` (its own action):
 
-  1. "Update Ready" for 1.99.0 shows; the x opens Hide Until a Newer Version, Remind Me in 1 Day,
-     Remind Me in 3 Days, Remind Me in 1 Week; Hide Until a Newer Version hides the card;
-  2. after a relaunch, 1.99.0 staged again: still hidden; 1.99.1 staged: the card shows again;
-  3. Check for Updates (the menu's action) shows a closed card again and clears the close;
-  4. Remind Me in 1 Day hides the card; after a relaunch still hidden, also for a newer 1.99.2;
-     23 h later still hidden; 25 h later the card shows;
-  5. the found-update notice (updates.downloadAutomatically off) has the same x menu;
+  1. "Update Ready" 1.99.0 shows with a "Hide" button (VoiceOver label "Hide Until a Newer
+     Version"); one click hides it at once (no menu);
+  2. after a relaunch, 1.99.0 staged again stays hidden; 1.99.1 shows the card again;
+  3. Check for Updates (the menu's action) shows a hidden card again and clears the hide;
+  4. the card's right-click menu: Hide Until a Newer Version, Remind Me in 1 Day / 3 Days / 1 Week;
+     Remind Me in 1 Day hides it; after a relaunch still hidden, also for a newer 1.99.2; 23 h later
+     still hidden; 25 h later it shows;
+  5. the found-update notice (debug.updater available): Hide hides 1.99.3 at once, 1.99.4
+     shows it again, its right-click menu's Remind Me in 3 Days hides it;
   6. window captures (main display pixels, through $NX_CAPTURE) of each state, light and dark.
 
 GUI host only (nx-remote --needs gui --app-from-fleet). It quits the app with its own quit and ends
@@ -44,7 +47,7 @@ GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
 BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 MENU = ["Hide Until a Newer Version", "Remind Me in 1 Day", "Remind Me in 3 Days", "Remind Me in 1 Week"]
-X_LABEL = "Close or Remind Me Later"
+HIDE_LABEL = "Hide Until a Newer Version"
 HOUR = 3600
 failures, transcript, apps, shots = [], [], [], []
 
@@ -141,20 +144,27 @@ def quit_app(app):
         check(False, f"app {app.pid} did not quit by itself")
 
 
-def open_x_menu(name):
-    """Presses the card's x through hint mode; returns the open menu's items."""
+def press_hint(title, name, menu=False):
+    """Clicks the control titled `title` through hint mode (`menu`: a right click)."""
     rpc("settings.set", {"path": "labs.previewFeatures", "value": True})
     rpc("action.run", {"action": "hints.show", "origin": "script"})
     shown = wait_for(lambda: (rpc("debug.hints") or {}).get("hints"), "hint labels", 10) or []
-    xs = [h for h in shown if h.get("title") == X_LABEL]
-    check(len(xs) == 1, f"{name}: hint mode labels the card's x '{X_LABEL}' (its VoiceOver label): {[h.get('title') for h in shown][:40]}")
+    xs = [h for h in shown if h.get("title") == title]
+    check(len(xs) == 1, f"{name}: hint mode labels '{title}' (its VoiceOver label): {[h.get('title') for h in shown][:12]}")
     if not xs:
         rpc("debug.key", {"key": "Escape", "modifiers": []})
-        return []
+        return False
     for letter in xs[0]["label"]:
-        rpc("debug.key", {"key": letter.lower(), "modifiers": []})
-    menu = wait_for(lambda: (lambda m: m if m.get("open") else None)((rpc("debug.hints") or {}).get("menu") or {}), f"{name}: the x's menu opens", 10) or {}
-    check(menu.get("items") == MENU, f"{name}: the x opens {MENU}: {menu.get('items')}")
+        rpc("debug.key", {"key": letter.lower() if not menu else letter.upper(), "modifiers": ["shift"] if menu else []})
+    return True
+
+
+def open_menu(name, expected):
+    """Right-clicks the card's Hide button through hint mode; returns the menu's items."""
+    if not press_hint(HIDE_LABEL, name, menu=True):
+        return []
+    menu = wait_for(lambda: (lambda m: m if m.get("open") else None)((rpc("debug.hints") or {}).get("menu") or {}), f"{name}: the right-click menu opens", 10) or {}
+    check(menu.get("items") == expected, f"{name}: the right-click menu is {expected}: {menu.get('items')}")
     return menu.get("items") or []
 
 
@@ -173,45 +183,38 @@ try:
     rpc("debug.appearance", {"mode": "dark"})
     snooze(press="clear")
 
-    # 1. the card, its x menu, Hide Until a Newer Version
+    # 1. one click on Hide
     state = stage("1.99.0")
     check(state.get("readyCard") == "true", f"Update Ready 1.99.0 shows: {state}")
     shot("1-ready-dark")
-    open_x_menu("ready card")
-    shot("2-ready-menu-dark", popups=True)
-    pick(MENU[0])
-    state = snooze()
-    check(state.get("readyCard") == "false" and state.get("closedVersion") == "1.99.0",
-          f"Hide Until a Newer Version hides the card and records 1.99.0: {state}")
-    shot("3-ready-closed-dark")
+    press_hint(HIDE_LABEL, "ready card Hide")
+    state = wait_for(lambda: (lambda s: s if s.get("readyCard") == "false" else None)(snooze()), "Hide hides the card") or {}
+    check(state.get("closedVersion") == "1.99.0", f"one click on Hide hides the card and records 1.99.0: {state}")
+    check(not ((rpc("debug.hints") or {}).get("menu") or {}).get("open"), "Hide opens no menu")
+    shot("2-ready-hidden-dark")
 
     # 2. relaunch: the same version stays hidden, a newer one shows
     quit_app(app)
     app = launch()
     rpc("debug.appearance", {"mode": "dark"})
-    state = snooze()
-    check(state.get("closedVersion") == "1.99.0", f"after a relaunch the close is still recorded: {state}")
     state = stage("1.99.0")
-    check(state.get("readyCard") == "false", f"after a relaunch 1.99.0 staged again stays hidden: {state}")
-    shot("4-relaunch-same-version-hidden-dark")
+    check(state.get("readyCard") == "false" and state.get("closedVersion") == "1.99.0", f"after a relaunch 1.99.0 stays hidden: {state}")
     state = stage("1.99.1")
     check(state.get("readyCard") == "true", f"a newer version (1.99.1) shows the card again: {state}")
-    shot("5-newer-version-shows-dark")
 
-    # 3. Check for Updates shows a closed card again
-    open_x_menu("ready card 1.99.1")
-    pick(MENU[0])
-    check(snooze().get("readyCard") == "false", "1.99.1 closed")
-    rpc("action.run", {"action": "palette.checkForUpdates", "origin": "user"})
+    # 3. Check for Updates shows a hidden card again
+    press_hint(HIDE_LABEL, "ready card 1.99.1 Hide")
+    wait_for(lambda: snooze().get("readyCard") == "false", "1.99.1 hidden")
+    rpc("action.run", {"action": "palette.checkForUpdates", "origin": "script"})
     state = wait_for(lambda: (lambda s: s if s.get("readyCard") == "true" else None)(snooze()), "Check for Updates shows the card") or {}
     check(state.get("readyCard") == "true" and state.get("closedVersion") is None,
-          f"Check for Updates shows the closed card and clears the close: {state}")
+          f"Check for Updates shows the hidden card and clears the hide: {state}")
 
-    # 4. Remind Me in 1 Day, across a relaunch and a newer version
+    # 4. remind me later from the right-click menu, across a relaunch and a newer version
     rpc("debug.appearance", {"mode": "light"})
-    shot("6-ready-light")
-    open_x_menu("ready card, light")
-    shot("7-ready-menu-light", popups=True)
+    shot("3-ready-light")
+    open_menu("ready card", MENU)
+    shot("4-ready-menu-light", popups=True)
     pressed = time.time()
     pick(MENU[1])
     state = snooze()
@@ -223,27 +226,31 @@ try:
     check(state.get("readyCard") == "false" and bool(state.get("remindAfter")), f"after a relaunch the reminder holds: {state}")
     state = stage("1.99.2")
     check(state.get("readyCard") == "false", f"a newer version waits for the reminder too: {state}")
-    shot("8-relaunch-reminder-hidden-light")
     state = snooze(at=pressed + 23 * HOUR)
     check(state.get("readyCard") == "false", f"23 h later still hidden: {state}")
     state = snooze(at=pressed + 25 * HOUR)
     check(state.get("readyCard") == "true" and state.get("remindAfter") is None, f"25 h later the card shows again: {state}")
-    shot("9-reminder-ended-shows-light")
 
-    # 5. the found-update notice has the same x
+    # 5. the found-update notice
     rpc("debug.updater", {"action": "unstage"})
     rpc("debug.updater", {"action": "available", "version": "1.99.3"})
     state = wait_for(lambda: (lambda s: s if s.get("noticeCard") == "available" else None)(snooze()), "the found-update notice") or {}
     check(state.get("noticeCard") == "available", f"the found-update notice shows: {state}")
-    shot("10-notice-light")
-    open_x_menu("notice card")
-    shot("11-notice-menu-light", popups=True)
+    shot("5-notice-light")
+    press_hint(HIDE_LABEL, "notice Hide")
+    state = wait_for(lambda: (lambda s: s if s.get("noticeCard") == "none" else None)(snooze()), "Hide hides the notice") or {}
+    check(state.get("closedVersion") == "1.99.3", f"one click on the notice's Hide hides 1.99.3: {state}")
+    rpc("debug.updater", {"action": "available", "version": "1.99.4"})
+    state = wait_for(lambda: (lambda s: s if s.get("noticeCard") == "available" else None)(snooze()), "1.99.4 shows the notice") or {}
+    check(state.get("noticeCard") == "available", f"a newer found version (1.99.4) shows the notice again: {state}")
+    open_menu("notice card", ["Update", "Release Notes", "-"] + MENU)
+    shot("6-notice-menu-light", popups=True)
     pick(MENU[2])
-    state = snooze()
+    state = wait_for(lambda: (lambda s: s if s.get("noticeCard") == "none" else None)(snooze()), "Remind Me in 3 Days hides the notice") or {}
     check(state.get("noticeCard") == "none" and bool(state.get("remindAfter")), f"Remind Me in 3 Days hides the notice: {state}")
 
     focus = rpc("debug.focus")
-    check(not focus.get("app_active"), f"no activation: {focus}")
+    check(not focus.get("app_active"), f"no activation: {focus.get('app_active')}")
 finally:
     if apps and apps[-1].poll() is None:
         snooze(press="clear")

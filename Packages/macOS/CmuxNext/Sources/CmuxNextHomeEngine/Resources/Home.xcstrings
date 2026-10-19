@@ -1,6 +1,402 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.engine.choosePicture": {
+      "comment": "Button in Chief Settings that picks an image as the Chief's picture.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختيار صورة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberi sliku…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg billede…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild auswählen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Picture…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir imagen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir une image…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli immagine…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を選択…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើសរូបភាព…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 선택…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg bilde …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz obraz…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher imagem…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать изображение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกรูปภาพ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görsel Seç…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибрати зображення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn hình…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择图片…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇圖片…"
+          }
+        }
+      }
+    },
+    "home.engine.pictureUnreadable": {
+      "comment": "Shown in Chief Settings when a chosen picture cannot be used.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر استخدام هذه الصورة. اختر PNG أو JPEG أو HEIC أو WebP أو GIF بحجم 1 ميغابايت كحد أقصى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta slika se ne može koristiti. Odaberite PNG, JPEG, HEIC, WebP ili GIF do 1 MB."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billedet kunne ikke bruges. Vælg en PNG, JPEG, HEIC, WebP eller en GIF på op til 1 MB."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Bild kann nicht verwendet werden. Wähle ein PNG, JPEG, HEIC, WebP oder ein GIF bis 1 MB."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That picture could not be used. Choose a PNG, JPEG, HEIC, WebP, or a GIF up to 1 MB."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo usar esa imagen. Elige un PNG, JPEG, HEIC, WebP o un GIF de hasta 1 MB."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’utiliser cette image. Choisissez un PNG, JPEG, HEIC, WebP ou un GIF de 1 Mo maximum."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile usare l’immagine. Scegli un PNG, JPEG, HEIC, WebP o una GIF fino a 1 MB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画像は使用できません。PNG、JPEG、HEIC、WebP、または 1 MB までの GIF を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្រើរូបភាពនេះបានទេ។ សូមជ្រើស PNG, JPEG, HEIC, WebP ឬ GIF ដែលមិនលើស 1 MB។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 사진을 사용할 수 없습니다. PNG, JPEG, HEIC, WebP 또는 1MB 이하의 GIF를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildet kunne ikke brukes. Velg en PNG, JPEG, HEIC, WebP eller en GIF på opptil 1 MB."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można użyć tego obrazu. Wybierz PNG, JPEG, HEIC, WebP lub GIF do 1 MB."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível usar essa imagem. Escolha um PNG, JPEG, HEIC, WebP ou um GIF de até 1 MB."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это изображение нельзя использовать. Выберите PNG, JPEG, HEIC, WebP или GIF до 1 МБ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้รูปภาพนี้ไม่ได้ เลือก PNG, JPEG, HEIC, WebP หรือ GIF ขนาดไม่เกิน 1 MB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu görsel kullanılamadı. PNG, JPEG, HEIC, WebP veya en fazla 1 MB’lık bir GIF seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це зображення не можна використати. Виберіть PNG, JPEG, HEIC, WebP або GIF до 1 МБ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không dùng được hình này. Hãy chọn PNG, JPEG, HEIC, WebP hoặc GIF tối đa 1 MB."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法使用该图片。请选择 PNG、JPEG、HEIC、WebP，或不超过 1 MB 的 GIF。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用該圖片。請選擇 PNG、JPEG、HEIC、WebP，或不超過 1 MB 的 GIF。"
+          }
+        }
+      }
+    },
+    "home.engine.useDefaultPicture": {
+      "comment": "Button in Chief Settings that goes back to the bundled picture.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام الصورة الافتراضية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi zadanu sliku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug standardbillede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardbild verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Default Picture"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar imagen predeterminada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser l’image par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa immagine predefinita"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトの画像を使う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើរូបភាពលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 사진 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk standardbilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj domyślnego obrazu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar imagem padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать стандартное изображение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้รูปภาพเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan Görseli Kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використати стандартне зображення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng hình mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用默认图片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用預設圖片"
+          }
+        }
+      }
+    },
     "home.title": {
       "extractionState": "manual",
       "localizations": {
@@ -2754,6 +3150,138 @@
         }
       }
     },
+    "home.chief.memoryPaused": {
+      "comment": "Home system notice in the Chief conversation while the Chief's memory compactor cannot build summaries (cx-oqnw3).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief memory summaries are paused. The Chief still answers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملخصات ذاكرة Chief متوقفة مؤقتًا. لا يزال Chief يجيب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sažeci memorije za Chief su pauzirani. Chief i dalje odgovara."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs hukommelsesresuméer er sat på pause. Chief svarer stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Gedächtniszusammenfassungen von Chief sind pausiert. Chief antwortet weiterhin."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los resúmenes de memoria de Chief están en pausa. Chief sigue respondiendo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les résumés de mémoire de Chief sont en pause. Chief répond toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I riepiloghi della memoria di Chief sono in pausa. Chief risponde comunque."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief のメモリ要約は一時停止中です。Chief は引き続き応答します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសង្ខេបការចងចាំរបស់ Chief ត្រូវបានផ្អាក។ Chief នៅតែឆ្លើយតប។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 메모리 요약이 일시 중지되었습니다. Chief는 계속 응답합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefs minnesammendrag er satt på pause. Chief svarer fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podsumowania pamięci Chief są wstrzymane. Chief nadal odpowiada."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os resumos de memória do Chief estão pausados. O Chief continua respondendo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сводки памяти Chief приостановлены. Chief по-прежнему отвечает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การสรุปหน่วยความจำของ Chief หยุดชั่วคราว Chief ยังคงตอบอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief bellek özetleri duraklatıldı. Chief yanıt vermeye devam ediyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підсумки пам'яті Chief призупинено. Chief і далі відповідає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tóm tắt bộ nhớ của Chief đang tạm dừng. Chief vẫn trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的记忆摘要已暂停。Chief 仍会回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 的記憶摘要已暫停。Chief 仍會回覆。"
+          }
+        }
+      }
+    },
     "home.chief.organizing": {
       "comment": "Home notice while older cmux DEV builds still run their own Chief, so its history cannot be merged yet.",
       "extractionState": "manual",
@@ -4061,6 +4589,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "變更失敗：%@"
+          }
+        }
+      }
+    },
+    "home.chief.agentsDisabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents are disabled in this build session. The Chief does not answer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドセッションではエージェントが無効です。Chief は返信しません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الوكلاء معطّلون في جلسة البناء هذه. لن يرد الـ Chief."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenti su isključeni u ovoj sesiji builda. Chief ne odgovara."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenter er slået fra i denne build-session. Chief svarer ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten sind in dieser Build-Sitzung deaktiviert. Der Chief antwortet nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los agentes están desactivados en esta sesión de compilación. El Chief no responde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les agents sont désactivés dans cette session de build. Le Chief ne répond pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli agenti sono disattivati in questa sessione di build. Il Chief non risponde."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារត្រូវបានបិទនៅក្នុងវគ្គ build នេះ។ Chief មិនឆ្លើយតបទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드 세션에서는 에이전트가 꺼져 있습니다. Chief가 답하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenter er slått av i denne byggeøkten. Chief svarer ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenci są wyłączeni w tej sesji kompilacji. Chief nie odpowiada."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os agentes estão desativados nesta sessão de build. O Chief não responde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агенты отключены в этом сеансе сборки. Chief не отвечает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์ถูกปิดในเซสชันบิลด์นี้ Chief จะไม่ตอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu derleme oturumunda ajanlar devre dışı. Chief yanıt vermiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Агентів вимкнено в цьому сеансі збірки. Chief не відповідає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các tác tử bị tắt trong phiên build này. Chief không trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此构建会话中已停用代理。Chief 不会回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此建置工作階段已停用代理。Chief 不會回覆。"
           }
         }
       }

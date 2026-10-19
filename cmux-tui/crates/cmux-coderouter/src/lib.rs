@@ -19,12 +19,17 @@ use std::{
     sync::Arc,
 };
 #[cfg(unix)]
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::UnixListener;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     net::TcpListener,
 };
 use tower_http::limit::RequestBodyLimitLayer;
+
+mod admin_socket;
+pub use admin_socket::{MAX_SOCKET_PATH_BYTES, admin_socket_path};
+pub mod free_tier;
+use free_tier::FreeTier;
 use zeroize::Zeroize;
 
 pub const BODY_LIMIT: usize = 64 * 1024 * 1024;
@@ -63,8 +68,8 @@ impl<T: Zeroize> Drop for Secret<T> {
     }
 }
 
-/// Loads the install identity and Keychain-held secret without exposing the
-/// storage mechanism to the router.
+/// Loads the install identity and its secret without exposing the storage
+/// mechanism to the router.
 pub trait InstallSecretStore: Send + Sync {
     /// Stable installation identifier used in scoped key strings.
     fn install_id(&self) -> &str;
@@ -72,25 +77,26 @@ pub trait InstallSecretStore: Send + Sync {
     fn load(&self) -> anyhow::Result<Secret<Vec<u8>>>;
 }
 
-/// A deterministic store for tests and local fixtures. Production composition
-/// supplies a Keychain implementation through the same trait.
+/// A deterministic store for tests and local fixtures.
 pub struct StaticInstallSecretStore {
     install_id: String,
     secret: Vec<u8>,
 }
 
-/// A per-install random store used by tests to model first-launch Keychain
-/// creation. Each instance creates one OS-CSPRNG secret and reuses it.
+/// The router's store: one OS-CSPRNG secret per router run, in memory only
+/// (keys never outlive the run). Each instance creates one secret and reuses it.
 pub struct RandomInstallSecretStore {
     install_id: String,
-    secret: Vec<u8>,
+    secret: Secret<Vec<u8>>,
 }
 impl RandomInstallSecretStore {
     /// Create one install identity with a fresh 32-byte secret.
     pub fn new(install_id: impl Into<String>) -> anyhow::Result<Self> {
         let mut secret = [0u8; 32];
         getrandom::fill(&mut secret)?;
-        Ok(Self { install_id: install_id.into(), secret: secret.to_vec() })
+        let kept = Secret::new(secret.to_vec());
+        secret.zeroize();
+        Ok(Self { install_id: install_id.into(), secret: kept })
     }
 }
 impl InstallSecretStore for RandomInstallSecretStore {
@@ -98,7 +104,7 @@ impl InstallSecretStore for RandomInstallSecretStore {
         &self.install_id
     }
     fn load(&self) -> anyhow::Result<Secret<Vec<u8>>> {
-        Ok(Secret::new(self.secret.clone()))
+        Ok(Secret::new(self.secret.expose().clone()))
     }
 }
 impl StaticInstallSecretStore {
@@ -116,44 +122,6 @@ impl InstallSecretStore for StaticInstallSecretStore {
             anyhow::bail!("install secret is empty");
         }
         Ok(Secret::new(self.secret.clone()))
-    }
-}
-
-/// Production Keychain store. The item is addressed by service and install id;
-/// the router never persists the returned bytes.
-pub struct KeychainInstallSecretStore {
-    install_id: String,
-}
-impl KeychainInstallSecretStore {
-    /// Use the per-install CodeRouter generic-password account.
-    pub fn new(install_id: impl Into<String>) -> Self {
-        Self { install_id: install_id.into() }
-    }
-}
-impl InstallSecretStore for KeychainInstallSecretStore {
-    fn install_id(&self) -> &str {
-        &self.install_id
-    }
-    #[cfg(target_os = "macos")]
-    fn load(&self) -> anyhow::Result<Secret<Vec<u8>>> {
-        let keychain = security_framework::os::macos::keychain::SecKeychain::default()?;
-        match keychain.find_generic_password("com.cmuxterm.coderouter", &self.install_id) {
-            Ok((password, _item)) => Ok(Secret::new(password.to_owned())),
-            Err(_) => {
-                let mut secret = [0u8; 32];
-                getrandom::fill(&mut secret)?;
-                keychain.set_generic_password(
-                    "com.cmuxterm.coderouter",
-                    &self.install_id,
-                    &secret,
-                )?;
-                Ok(Secret::new(secret.to_vec()))
-            }
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    fn load(&self) -> anyhow::Result<Secret<Vec<u8>>> {
-        anyhow::bail!("Keychain install secrets require macOS")
     }
 }
 
@@ -336,6 +304,7 @@ struct AppState {
     port: u16,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
+    free: Arc<FreeTier>,
     http: reqwest::Client,
 }
 
@@ -356,6 +325,18 @@ fn disable_core_dumps() {
     }
 }
 
+/// One admin connection: its read and write halves, and its peer as read
+/// from the whole socket at accept, before the split
+/// ([`free_tier::ProviderPeer`]: the attestation provider check needs it).
+pub type AdminConnection = (
+    Box<dyn AsyncRead + Send + Unpin>,
+    Box<dyn AsyncWrite + Send + Unpin>,
+    free_tier::ProviderPeer,
+);
+/// Accepted admin connections; an error ends the router as a failed accept
+/// does.
+pub type AdminConnections = tokio::sync::mpsc::Receiver<std::io::Result<AdminConnection>>;
+
 /// Start the admin UDS and loopback data-plane listener. Returns when the
 /// router is told to stop (`shutdown`) or when its last owner is gone: with
 /// `CMUX_ROUTER_OWNER_FIFO` set, the router reads that FIFO and stops once
@@ -363,12 +344,50 @@ fn disable_core_dumps() {
 /// do), also while it still waits on router.lock.
 #[cfg(unix)]
 pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
+    serve_with_admin(home, |socket_path| {
+        let admin = UnixListener::bind(socket_path)?;
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        tokio::spawn(async move {
+            loop {
+                let accepted = admin.accept().await.map(|(stream, _)| {
+                    let peer = free_tier::ProviderPeer::of_unix(&stream);
+                    let (read, write) = stream.into_split();
+                    (Box::new(read) as _, Box::new(write) as _, peer)
+                });
+                let failed = accepted.is_err();
+                if tx.send(accepted).await.is_err() || failed {
+                    break;
+                }
+            }
+        });
+        Ok(rx)
+    })
+    .await
+}
+
+/// The router with its admin socket bound by `bind_admin` (given the socket
+/// path, after the router lock is held and a stale socket file removed):
+/// Unix binds a unix socket ([`serve`]); the Windows host binds its local
+/// socket (AF_UNIX with same-user checks) and hands each connection over.
+pub async fn serve_with_admin(
+    home: impl AsRef<Path>,
+    bind_admin: impl FnOnce(&Path) -> anyhow::Result<AdminConnections>,
+) -> anyhow::Result<()> {
     install_panic_hook();
     disable_core_dumps();
+    // Windows has no owner FIFO: the daemon's kill-on-close job object ends
+    // the router with the daemon (acpmux daemon/router_owner.rs).
+    #[cfg(unix)]
     let owners =
         std::env::var_os("CMUX_ROUTER_OWNER_FIFO").map(std::path::PathBuf::from).map(watch_owners);
+    #[cfg(not(unix))]
+    let owners = None;
     tokio::select! {
-        result = serve_owned(home.as_ref()) => result,
+        result = serve_owned(home.as_ref(), bind_admin) => result,
         () = owners_gone(owners) => {
             tracing::info!("the local router has no owner left; it stops");
             Ok(())
@@ -378,8 +397,14 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
 
 /// True once the owner watch saw no writer left: `adopt` is refused from
 /// then on, so a daemon never adopts a router that is stopping.
-#[cfg(unix)]
 static OWNERS_GONE: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+/// Where this run's install secret lives, for `status` (`install_secret`):
+/// always `ephemeral` (random, in memory, this run only). The router never
+/// uses the Keychain: a macOS access prompt appeared for every differently
+/// signed build ("acpmux wants to use ... com.cmuxterm.coderouter").
+static INSTALL_SECRET_KIND: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+const INSTALL_SECRET_EPHEMERAL: &str = "ephemeral";
 
 /// Reads the owner FIFO on its own thread (a blocking read: no polling, no
 /// timer). A read returns 0 when no process holds a write end. Under
@@ -446,7 +471,6 @@ fn watch_owners(fifo: std::path::PathBuf) -> tokio::sync::oneshot::Receiver<()> 
 }
 
 /// Resolves when the owners are gone; never without an owner FIFO.
-#[cfg(unix)]
 async fn owners_gone(owners: Option<tokio::sync::oneshot::Receiver<()>>) {
     match owners {
         Some(receiver) => {
@@ -456,8 +480,10 @@ async fn owners_gone(owners: Option<tokio::sync::oneshot::Receiver<()>>) {
     }
 }
 
-#[cfg(unix)]
-async fn serve_owned(home: &Path) -> anyhow::Result<()> {
+async fn serve_owned(
+    home: &Path,
+    bind_admin: impl FnOnce(&Path) -> anyhow::Result<AdminConnections>,
+) -> anyhow::Result<()> {
     // reqwest is built without a default TLS provider; the relay's upstream calls need one.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let router_dir = home.join("router");
@@ -486,30 +512,28 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     let lock = tokio::time::timeout(std::time::Duration::from_secs(30), lock_rx)
         .await
         .map_err(|_| anyhow::anyhow!("another local router holds router.lock"))???;
-    let socket_path = router_dir.join("router.sock");
+    // Keys live in memory for one router run, so a fresh random install secret
+    // per run is as strong as a stored one, on every platform. No Keychain:
+    // its access prompt asked again for every differently signed build.
+    // Chosen before the admin socket exists: a client that reaches the socket
+    // gets an answer.
+    let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
+    let _ = INSTALL_SECRET_KIND.set(INSTALL_SECRET_EPHEMERAL);
+    // `<home>/router/router.sock`, or a short path for a long home (admin_socket.rs).
+    let socket_path = admin_socket_path(home);
     let _ = tokio::fs::remove_file(&socket_path).await;
-    let admin = UnixListener::bind(&socket_path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600)).await?;
-    }
+    let admin = bind_admin(&socket_path)?;
     let bind_address: SocketAddr = "127.0.0.1:0".parse()?;
     let listener = TcpListener::bind(LoopbackAddr::try_from(bind_address)?.address()).await?;
-    // Keys live in memory for one router run. macOS keeps the install secret in
-    // the Keychain; elsewhere a fresh random secret per run is equivalent.
-    #[cfg(target_os = "macos")]
-    let store: Arc<dyn InstallSecretStore> = Arc::new(KeychainInstallSecretStore::new("default"));
-    #[cfg(not(target_os = "macos"))]
-    let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
     let port = listener.local_addr()?.port();
     let upstream: SharedUpstream = Arc::new(tokio::sync::RwLock::new(None));
-    let data = data_server(listener, keys.clone(), upstream.clone());
+    let free = FreeTier::new(http_client());
+    let data = data_server(listener, keys.clone(), upstream.clone(), free.clone());
     let stop = Arc::new(tokio::sync::Notify::new());
     tokio::select! {
         _ = data => (),
-        result = admin_loop(admin, keys, upstream, port, stop.clone()) => result?,
+        result = admin_loop(admin, keys, upstream, free, port, stop.clone()) => result?,
         _ = stop.notified() => (),
     }
     drop(lock);
@@ -525,28 +549,36 @@ pub async fn spawn_data_plane(
         TcpListener::bind(LoopbackAddr::try_from("127.0.0.1:0".parse::<SocketAddr>()?)?.address())
             .await?;
     let address = listener.local_addr()?;
-    let task = tokio::spawn(data_server(listener, keys, upstream));
+    let free = FreeTier::new(http_client());
+    let task = tokio::spawn(data_server(listener, keys, upstream, free));
     Ok((address, task))
 }
 
-async fn data_server(
-    listener: TcpListener,
-    keys: Arc<tokio::sync::RwLock<KeyRing>>,
-    upstream: SharedUpstream,
-) {
-    let http = reqwest::Client::builder()
+/// The relay's HTTP client toward the hosted router: no redirects (a bearer
+/// never follows one to another host).
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
         // Per read, not per request: a long stream keeps going while bytes
         // arrive; an upstream that stops sending ends the request.
         .read_timeout(std::time::Duration::from_secs(300))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+async fn data_server(
+    listener: TcpListener,
+    keys: Arc<tokio::sync::RwLock<KeyRing>>,
+    upstream: SharedUpstream,
+    free: Arc<FreeTier>,
+) {
     let state = AppState {
         port: listener.local_addr().map(|address| address.port()).unwrap_or(0),
         keys,
         upstream,
-        http,
+        free,
+        http: http_client(),
     };
     let app = Router::new()
         .fallback(any(data_request))
@@ -554,27 +586,25 @@ async fn data_server(
         .with_state(state);
     let _ = axum::serve(listener, app.into_make_service()).await;
 }
-#[cfg(not(unix))]
-pub async fn serve(_home: impl AsRef<Path>) -> anyhow::Result<()> {
-    anyhow::bail!("the local router admin socket requires Unix")
-}
-#[cfg(unix)]
 async fn admin_loop(
-    listener: UnixListener,
+    mut admin: AdminConnections,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
+    free: Arc<FreeTier>,
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
-    loop {
-        let (stream, _) = listener.accept().await?;
+    while let Some(accepted) = admin.recv().await {
+        let connection = accepted?;
         let keys = keys.clone();
         let upstream = upstream.clone();
+        let free = free.clone();
         let stop = stop.clone();
         tokio::spawn(async move {
-            let _ = admin_connection(stream, keys, upstream, port, stop).await;
+            let _ = admin_connection(connection, keys, upstream, free, port, stop).await;
         });
     }
+    anyhow::bail!("the router admin listener ended")
 }
 
 /// The build of the acpmux that started this router (`CMUX_ROUTER_BUILD`):
@@ -582,7 +612,6 @@ async fn admin_loop(
 fn router_build() -> String {
     std::env::var("CMUX_ROUTER_BUILD").unwrap_or_default()
 }
-#[cfg(unix)]
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum AdminRequest {
@@ -619,16 +648,20 @@ enum AdminRequest {
     /// (`{adopted, stopping, pid}`); refused once the router is stopping, or
     /// when it has no owner FIFO (started by hand).
     Adopt,
+    /// The cmux app offers App Attest proofs for the free tier
+    /// (`free_tier`): the connection then carries relay requests and the
+    /// app's replies until it ends.
+    AttestProvider(free_tier::Register),
 }
-#[cfg(unix)]
 async fn admin_connection(
-    stream: UnixStream,
+    connection: AdminConnection,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
+    free: Arc<FreeTier>,
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
-    let (read, mut write) = stream.into_split();
+    let (read, mut write, peer) = connection;
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
         let request: AdminRequest = match serde_json::from_str(&line) {
@@ -641,18 +674,18 @@ async fn admin_connection(
             }
         };
         let response = match request {
-            AdminRequest::Mint { key_id, scope } => {
-                let mut guard = keys.write().await;
-                let key = guard.mint(key_id, scope)?;
-                serde_json::json!({"key": key.expose()})
-            }
+            // A mint error (no install secret) is answered, not a closed socket.
+            AdminRequest::Mint { key_id, scope } => match keys.write().await.mint(key_id, scope) {
+                Ok(key) => serde_json::json!({"key": key.expose()}),
+                Err(error) => serde_json::json!({"error": error.to_string()}),
+            },
             AdminRequest::List => serde_json::json!({"keys": keys.read().await.list()}),
             AdminRequest::Revoke { key_id } => {
                 serde_json::json!({"revoked": keys.write().await.revoke(&key_id)})
             }
             AdminRequest::Status => {
                 let up = upstream.read().await;
-                serde_json::json!({"port": port, "build": router_build(), "pid": std::process::id(), "upstream": up.as_ref().map(Upstream::view)})
+                serde_json::json!({"port": port, "build": router_build(), "pid": std::process::id(), "upstream": up.as_ref().map(Upstream::view), "free": free.view(), "install_secret": INSTALL_SECRET_KIND.get().copied()})
             }
             AdminRequest::Adopt => {
                 // The daemon opened the owner FIFO before it asked; a router
@@ -668,8 +701,10 @@ async fn admin_connection(
             }
             AdminRequest::MintKey { scope } => {
                 let id = format!("s{}", uuid::Uuid::new_v4().simple());
-                let key = keys.write().await.mint(id.clone(), scope)?;
-                serde_json::json!({"id": id, "key": key.expose()})
+                match keys.write().await.mint(id.clone(), scope) {
+                    Ok(key) => serde_json::json!({"id": id, "key": key.expose()}),
+                    Err(error) => serde_json::json!({"error": error.to_string()}),
+                }
             }
             AdminRequest::RevokeKey { id } => {
                 serde_json::json!({"revoked": keys.write().await.revoke(&id)})
@@ -688,8 +723,18 @@ async fn admin_connection(
                 *upstream.write().await = None;
                 serde_json::json!({"upstream": null})
             }
+            AdminRequest::AttestProvider(register) => {
+                // The peer check runs on this connection's peer (read at
+                // accept), before anything is written to it.
+                if !free_tier::provider_peer_allowed(&peer) {
+                    write.write_all(b"{\"error\":\"provider refused\"}\n").await?;
+                    return Ok(());
+                }
+                return free.serve_provider(register, lines, write).await;
+            }
             AdminRequest::Shutdown => {
                 *upstream.write().await = None;
+                free.drop_token();
                 write.write_all(b"{\"stopping\":true}\n").await?;
                 stop.notify_one();
                 return Ok(());
@@ -714,7 +759,7 @@ fn upstream_path(method: &Method, path: &str) -> Option<&'static str> {
     }
 }
 
-fn json_error(status: StatusCode, code: &str, message: &str) -> Response<Body> {
+pub(crate) fn json_error(status: StatusCode, code: &str, message: &str) -> Response<Body> {
     let body = serde_json::json!({"error": {"code": code, "message": message}}).to_string();
     Response::builder()
         .status(status)
@@ -752,27 +797,31 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
             .body(Body::empty())
             .unwrap_or_else(|_| Response::new(Body::empty()));
     };
-    let (url, bearer) = {
+    // The account bearer wins while one is set; with none (signed out) the
+    // free-tier device token, leased at this first request (free_tier).
+    let account = {
         let up = state.upstream.read().await;
         match up.as_ref() {
-            Some(up) if up.live() => (format!("{}{path}", up.origin), up.bearer.expose().clone()),
-            Some(_) => {
-                return json_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "router.upstream_expired",
-                    "the cmux model router sign-in expired; open cmux to renew it",
-                );
+            Some(up) if up.live() => {
+                Some(Ok((format!("{}{path}", up.origin), up.bearer.expose().clone())))
             }
-            None => {
-                return json_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "router.no_upstream",
-                    "the cmux model router is not connected; open cmux",
-                );
-            }
+            Some(_) => Some(Err(json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "router.upstream_expired",
+                "the cmux model router sign-in expired; open cmux to renew it",
+            ))),
+            None => None,
         }
     };
-    let mut forward = state.http.request(method, &url).bearer_auth(bearer);
+    let (url, bearer, free) = match account {
+        Some(Ok((url, bearer))) => (url, bearer, false),
+        Some(Err(refused)) => return refused,
+        None => match state.free.bearer().await {
+            Ok((origin, bearer)) => (format!("{origin}{path}"), bearer, true),
+            Err(refused) => return *refused,
+        },
+    };
+    let mut forward = state.http.request(method, &url).bearer_auth(&bearer);
     for name in FORWARD_REQUEST_HEADERS {
         if let Some(value) = headers.get(*name) {
             forward = forward.header(*name, value);
@@ -789,6 +838,10 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
             );
         }
     };
+    // A refused free token (its grant ended, or the device is unknown): lease again next time.
+    if free && answer.status() == StatusCode::UNAUTHORIZED {
+        state.free.drop_token_if(&bearer);
+    }
     let mut out = Response::builder().status(answer.status().as_u16());
     for name in FORWARD_RESPONSE_HEADERS {
         if let Some(value) = answer.headers().get(*name) {

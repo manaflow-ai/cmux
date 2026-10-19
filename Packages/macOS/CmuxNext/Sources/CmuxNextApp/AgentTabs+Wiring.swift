@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -107,7 +108,7 @@ extension AgentTabStore {
 
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
-        let tabs = AgentTabStore(tag: services.environment.tag, registry: services.registry,
+        let tabs = AgentTabStore(build: services.environment.build, registry: services.registry,
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
@@ -174,18 +175,12 @@ extension AgentTabStore {
         // A new chat on another machine with no folder in its seed starts in a folder of its
         // workspace there (a terminal's), never a folder of this Mac.
         tabs.remoteFolder = { [weak services] key in
-            guard let services, let (_, pane) = services.locateTab(key),
-                  let workspace = services.machines.daemon(forPane: pane).store.workspace(containing: pane.handle) else { return nil }
-            let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            return tabs.lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
+            guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+            return services.machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.firstTabFolder
         }
         tabs.remoteFolders = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key) else { return [] }
-            let store = services.machines.daemon(forTab: tab).store
-            var folders: [String] = []
-            for folder in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
-                where folder.hasPrefix("/") && !folders.contains(folder) { folders.append(folder) }
-            return folders
+            return services.machines.daemon(forTab: tab).store.tabFolders
         }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
@@ -204,7 +199,8 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint)
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.shared.agentSessionTrust),
+                                           servesKeyedReason: daemon.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -220,17 +216,20 @@ extension AgentTabStore {
                 guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else {
                     return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
                 }
-                host.start = { [weak tabs] cwd, harness in
+                host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
+                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
             if let link = services.machines.sshSession(daemon.machineID) ?? services.machines.server(daemon.machineID)?.link {
-                host.approvals = AgentPaneRemoteApprovals(machineID: link.machineID, label: link.host.label) { [weak services, weak link] in
+                host.approvals = AgentPaneRemoteApprovals(machineID: link.machineID, label: link.host.label, restart: { [weak services, weak link] in
                     guard let services, let link else { return .failed("") }
                     return await services.ssh.restartWithApprovals(link)
-                }
+                }, prepare: { [weak services, weak link] preparation in
+                    guard let services, let link else { return false }
+                    return await services.ssh.restartWithApprovalsIfIdle(link, preparation)
+                })
             } else if let cloud = services.machines.session(daemon.machineID), cloud.link != nil || cloud.appLink != nil {
                 // cx-psxg: a Cloud machine on the /api/vm link, through the web Cloud service; cx-kvmz:
                 // one on the Cloud app server link, through the API Worker with the person's session.
@@ -247,10 +246,11 @@ extension AgentTabStore {
                 workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in tab.agentSession.map { (key: tab.id, record: $0) } }
             }
         }
-        tabs.create = { pane, daemon, record, key, transaction in
+        tabs.create = { pane, daemon, record, key, transaction, split in
             guard let connection = daemon.connection else { throw DaemonError.notConnected }
-            let request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
+            var request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,
                                                     transaction: transaction)
+            request.split = split
             let response = try await connection.request(request)
             let created = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                           surface: response.surface)
@@ -261,6 +261,7 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key) else { return nil }
             return services.machines.daemon(forTab: tab)
         }
+        tabs.daemonListing = { [weak services] tab in services?.machines.daemon(forTab: tab) }
         tabs.moveSelection = { [weak services] provisional, surface in
             for controller in services?.windows.controllers ?? [] {
                 guard let panes = controller.content?.panes.values else { continue }
@@ -269,11 +270,11 @@ extension AgentTabStore {
                 }
             }
         }
-        tabs.bind = { [weak services] key, surface, expected, session in
+        tabs.bind = { [weak services] key, surface, expected, session, harness in
             guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else {
                 return (.failed, nil)
             }
-            let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected)
+            let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected, harness: harness)
             let outcome: AgentSessionBindOutcome, sequence: UInt64? // one return: swiftlang/swift#92698 (cx-21wc5)
             do {
                 _ = try await connection.request(request)
@@ -288,7 +289,7 @@ extension AgentTabStore {
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
         AgentPaneModel.localMachineName = Task { [weak tabs] in
-            let name = await MacName.computerName()
+            let name = await MacName().computerName()
             tabs?.localHostName = name
             return AgentTabStore.displayName(name) ?? name
         }

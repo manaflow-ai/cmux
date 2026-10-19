@@ -213,3 +213,48 @@ export const homeMessageSearch = mysqlTable("home_message_search", {
   primaryKey({ columns: [t.conversationId, t.seq], name: "home_message_search_pkey" }),
   index("home_message_search_recent").on(t.conversationId, t.createdAt)
 ])
+
+/**
+ * Prepaid Cloud Chief credits: the billing source of truth (Lawrence 2026-10-15). Each team's
+ * UsageMeterDO is the single writer and hot copy (apps/api/src/usage-credits.ts) and mirrors here
+ * (apps/api/src/credits-mirror.ts): ledger rows are immutable and keyed by the DO's entry key (a
+ * repeat is ignored); the balance row is guarded by the DO's state version; a team's customer is set once.
+ */
+export const creditLedger = mysqlTable("credit_ledger", {
+  teamId: ascii("team_id").notNull(),
+  entryKey: ascii("entry_key", 255).notNull(),
+  kind: ascii("kind", 16).notNull(),
+  micros: bigint("micros", { mode: "number" }).notNull(),
+  costMicros: bigint("cost_micros", { mode: "number" }),
+  chief: ascii("chief"),
+  conversation: ascii("conversation"),
+  actor: label("actor", 128),
+  reason: label("reason", 256),
+  corrects: ascii("corrects", 255),
+  at: at("at").notNull(),
+  seq: seq("seq").notNull(),
+  createdAt: at("created_at").notNull().default(now3)
+}, (t) => [
+  primaryKey({ columns: [t.teamId, t.entryKey], name: "credit_ledger_pkey" }),
+  uniqueIndex("credit_ledger_team_seq").on(t.teamId, t.seq),
+  index("credit_ledger_team_at").on(t.teamId, t.at),
+  index("credit_ledger_chief_at").on(t.chief, t.at)
+])
+
+export const creditBalance = mysqlTable("credit_balance", {
+  teamId: ascii("team_id").primaryKey(),
+  balanceMicros: bigint("balance_micros", { mode: "number" }).notNull(),
+  heldMicros: bigint("held_micros", { mode: "number" }).notNull(),
+  lastSeq: seq("last_seq").notNull(),
+  changedAt: at("changed_at").notNull(),
+  version: seq("version").notNull(),
+  updatedAt: at("updated_at").notNull().default(now3)
+})
+
+/** The team's payment-service customer per key mode (test, live); one per team and mode. */
+export const teamBillingCustomer = mysqlTable("team_billing_customer", {
+  teamId: ascii("team_id").notNull(),
+  mode: ascii("mode", 8).notNull(),
+  customerId: ascii("customer_id", 128).notNull(),
+  createdAt: at("created_at").notNull()
+}, (t) => [primaryKey({ columns: [t.teamId, t.mode], name: "team_billing_customer_pkey" }), uniqueIndex("team_billing_customer_customer").on(t.customerId, t.mode)])

@@ -11,7 +11,15 @@ import os
 import sys
 import time
 
-if len(sys.argv) < 2 or sys.argv[1] != "app-server":
+# Global options (`-c key=value`, `--config key=value`) come before the subcommand, as codex
+# takes them. FAKE_CODEX_ARGS=<path> gets a line with the arguments of each start.
+if os.environ.get("FAKE_CODEX_ARGS"):
+    with open(os.environ["FAKE_CODEX_ARGS"], "a") as f:
+        f.write(json.dumps(sys.argv[1:]) + "\n")
+args = sys.argv[1:]
+while len(args) >= 2 and args[0] in ("-c", "--config"):
+    args = args[2:]
+if not args or args[0] != "app-server":
     sys.stderr.write("usage: codex app-server\n")
     sys.exit(2)
 

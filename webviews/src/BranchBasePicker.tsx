@@ -361,13 +361,6 @@ export function BranchBasePicker({
 
   const buttonText = generatingRef != null ? label("branchPickerGenerating").replace("{ref}", generatingRef) : null;
 
-  // The visual `title` exposes the full, untruncated label on hover so a
-  // narrowed button (ref ellipsized, reason/ahead-behind shed by container
-  // queries) still surfaces the complete value. The aria-label stays the action
-  // label ("Change diff base") for assistive tech. While generating, the button
-  // is disabled and shows its own transient text, so fall back to the action.
-  const buttonTitle = generatingRef != null ? label("branchPickerOpen") : baseButtonTitle(label, picker);
-
   return (
     <div id="base-picker" ref={containerRef}>
       <button
@@ -379,7 +372,6 @@ export function BranchBasePicker({
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-label={label("branchPickerOpen")}
-        title={buttonTitle}
         data-generating={generatingRef != null ? "true" : "false"}
         disabled={generatingRef != null}
         onClick={() => (open ? setOpen(false) : openPopover())}
@@ -464,23 +456,6 @@ export function BranchBasePicker({
   );
 }
 
-// Full, untruncated button label as a plain string for the visual `title`
-// tooltip. Mirrors what BranchBaseButtonLabel renders: `Comparing <head>
-// against <base> (<reason>) +<ahead> -<behind>`, with the low-confidence `~`
-// prefix and omitting empty parts, so a truncated button still exposes the
-// complete comparison on hover.
-function baseButtonTitle(label: DiffViewerLabelResolver, picker: BranchPickerPayload): string {
-  const low = picker.confidence === "low";
-  const parts = [label("branchPickerComparing").replace("{head}", picker.headRef).replace("{base}", picker.currentRef)];
-  if (picker.currentReason) {
-    parts.push(`(${low ? "~" : ""}${picker.currentReason})`);
-  }
-  if (picker.aheadBehind) {
-    parts.push(`+${picker.aheadBehind.ahead} -${picker.aheadBehind.behind}`);
-  }
-  return parts.join(" ");
-}
-
 function BranchBaseButtonLabel({ picker }: { picker: BranchPickerPayload }) {
   const low = picker.confidence === "low";
   const reason = `${low ? "~" : ""}${picker.currentReason}`;
@@ -561,7 +536,6 @@ export function BranchPickerRowView({
         aria-selected={selected}
         aria-current={current || undefined}
         className={selected ? "base-picker-row base-picker-row-selected" : "base-picker-row"}
-        title={row.worktreeDir}
         onMouseMove={onHover}
         onMouseDown={(event) => {
           // Keep input focus; select on click without blurring the field.

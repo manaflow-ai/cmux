@@ -9,10 +9,12 @@
 //! tab whose group or pin changed and every tab group the change touched,
 //! so `session.events` readers converge without refetching.
 
+pub(crate) mod tab_slot;
+
 use std::collections::BTreeSet;
 
 use super::tab_drag;
-use super::tab_groups::prune_tab_groups;
+use super::tab_groups::{pane_by_public_id, prune_tab_groups};
 use super::*;
 use crate::state::store::{state_delete, state_upsert};
 use crate::state::tab_state_store::{
@@ -20,7 +22,9 @@ use crate::state::tab_state_store::{
     tab_group_snapshot, update_tab_state, write_tab_groups,
 };
 use crate::state::values::{fresh_upserts, upserted_value};
-use crate::workspace_registry::{SavedTabGroupRecord, TabGroupState, WorkspacePresentationUpdate};
+use crate::workspace_registry::{
+    SavedTabGroupRecord, TabGroupRecord, TabGroupState, WorkspacePresentationUpdate,
+};
 
 /// The durable identity of one strip change.
 pub(crate) struct StripRequest {
@@ -105,6 +109,9 @@ impl Mux {
                     ungrouped: None,
                     result: StripResult::None,
                 };
+                // A screen, pane or workspace close leaves the rows of the
+                // groups it emptied: drop them before the edit sees them.
+                prune_tab_groups(&projected, &mut edit.groups);
                 let result = mutate(&mux, &mut projected, &mut edit)?;
                 Mux::rebuild_split_screen_index(&mut projected);
                 prune_tab_groups(&projected, &mut edit.groups);
@@ -293,5 +300,29 @@ fn strip_state_write(
                 .ok_or_else(|| crate::state::commit::state_not_found("saved_tab_group", saved))?,
         };
         Ok(())
+    })
+}
+
+/// The closed-history archive of group `id` (`record`) with its tabs
+/// `tabs` in order: what Ungroup and Close Group record, and what a reopen
+/// forms the group again from.
+pub(crate) fn group_archive(
+    state: &State,
+    id: &str,
+    record: &TabGroupRecord,
+    tabs: &[String],
+) -> Value {
+    let workspace = pane_by_public_id(state, &record.pane_id)
+        .and_then(|pane| state.screen_of(pane))
+        .map(|(workspace, _)| state.workspaces[workspace].public_id.to_string());
+    serde_json::json!({
+        "id": id,
+        "pane_id": record.pane_id,
+        "workspace_id": workspace,
+        "name": record.name,
+        "color": record.color,
+        "collapsed": record.collapsed,
+        "icon": record.icon,
+        "tab_ids": tabs,
     })
 }

@@ -175,7 +175,7 @@ fn connection_handler_owns_every_router_connection_operation() {
         );
         connection_operations += usize::from(requires_connection);
     }
-    assert_eq!(connection_operations, 44);
+    assert_eq!(connection_operations, 54);
 }
 
 #[test]
@@ -643,8 +643,8 @@ fn browser_state_serializes_css_and_encoded_image_dimensions() {
 fn stack_json_uses_the_stored_expansion_while_focus_is_elsewhere() {
     let stack = Node::stack_with_expanded(vec![1, 2, 3], 2).unwrap();
 
-    assert_eq!(node_json(&stack, 1)["expanded"], 1);
-    assert_eq!(node_json(&stack, 9)["expanded"], 2);
+    assert_eq!(node_json(&stack, 1, &HashMap::new())["expanded"], 1);
+    assert_eq!(node_json(&stack, 9, &HashMap::new())["expanded"], 2);
 }
 
 #[test]
@@ -670,7 +670,7 @@ fn swapping_across_a_stack_boundary_keeps_exported_expansion_valid() {
     };
 
     assert!(root.swap_leaves(1, 2));
-    let exported = node_json(&root, 2);
+    let exported = node_json(&root, 2, &HashMap::new());
     assert_eq!(exported["b"]["panes"], json!([1, 3]));
     assert_eq!(exported["b"]["expanded"], 1);
 }
@@ -680,7 +680,7 @@ fn swapping_within_a_stack_keeps_the_same_pane_expanded() {
     let mut stack = Node::stack_with_expanded(vec![1, 2, 3], 2).unwrap();
 
     assert!(stack.swap_leaves(2, 3));
-    let exported = node_json(&stack, 9);
+    let exported = node_json(&stack, 9, &HashMap::new());
     assert_eq!(exported["panes"], json!([1, 3, 2]));
     assert_eq!(exported["expanded"], 2);
 }

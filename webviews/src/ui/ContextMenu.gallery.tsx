@@ -71,6 +71,24 @@ const keyboard: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.activeElement === ctx.find({ testId: "context-target" }));
 };
 
+/** Shift-F10 on the focused control opens the menu below it; Escape gives focus back. */
+const keyOpen: Play = async (ctx) => {
+  await ctx.focus({ testId: "context-target" });
+  await ctx.press("Shift+F10");
+  await ctx.waitFor(() => ctx.find({ role: "menu" }));
+  const target = ctx.find({ testId: "context-target" }).getBoundingClientRect();
+  const menu = ctx.find({ role: "menu" }).getBoundingClientRect();
+  const view = ctx.document.defaultView!;
+  // Below the control at its start edge; flipped up only when there is no room below.
+  const below = Math.abs(menu.top - target.bottom) <= 2;
+  const flipped = Math.abs(menu.bottom - target.bottom) <= 2 && target.bottom + menu.height > view.innerHeight - 4;
+  if (!(below || flipped) || Math.abs(menu.left - target.left) > 2)
+    throw new Error(`the menu did not open at the control: ${JSON.stringify({ menu, target })}`);
+  await ctx.press("Escape");
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+  await ctx.waitFor(() => ctx.document.activeElement === ctx.find({ testId: "context-target" }));
+};
+
 const pointerFocus: Play = async (ctx) => {
   await open(ctx);
   await ctx.click({ role: "menuitem", name: "Open" });
@@ -162,6 +180,7 @@ export default componentEntry<Props>({
     closed: { props: {} },
     open: { props: {}, play: open },
     keyboard: { props: {}, play: keyboard },
+    "key-open": { props: {}, play: keyOpen },
     "pointer-focus": { props: {}, play: pointerFocus },
     "escape-focus": { props: {}, play: escapeFocus },
     "selection-menu": { props: { selection: "menu" }, play: selectionMenu },

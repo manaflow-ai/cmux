@@ -24,6 +24,7 @@ import { reactCompilerMode } from "../../reactCompiler.mjs";
 import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
 import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
+import { katexStylePlugin } from "./katexStylePlugin.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -68,7 +69,9 @@ const result = await build({
         chunkNames: "chunks/[name]-[hash]",
       }
     : { outfile }),
-  plugins: cssInputsOnly ? [tailwindPlugin, jsonParsePlugin] : [reactCompiler, tailwindPlugin, jsonParsePlugin],
+  plugins: cssInputsOnly
+    ? [tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
+    : [reactCompiler, tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
   metafile: Boolean(cssInputsFile),
 });
 if (cssInputsFile) {

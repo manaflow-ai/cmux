@@ -6,7 +6,9 @@
 #   2. its cmux-next.yml push run has a successful "cmux-next Release compile
 #      (Xcode 26)" job (main's promote job checks this again), and
 #   3. its generated page strings are fresh (gen-strings --check, on the commit
-#      requested; a stale one is passed over for an older green one).
+#      requested; a stale one is passed over for an older green one). Since
+#      #21946 the tables are build output: a commit that no longer tracks them
+#      passes when they generate (no translation missing).
 # Both finish asynchronously, so each side asks when its half completes:
 #
 #   --sha <sha> --release-compile-green
@@ -29,7 +31,7 @@
 # Run from a checkout whose HEAD is <sha>. Needs GH_TOKEN with actions: write
 # (and actions: read for --tree-ready). Exit 0 when a commit was requested or
 # none is ready yet, 2 on bad usage, 1 on an API failure.
-# Env: CMUX_NIGHTLY_NEXT_RUN_WINDOW (default 30) recent push runs searched;
+# Env: CMUX_NIGHTLY_NEXT_RUN_WINDOW (default 99, one page) recent push runs searched;
 # CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over.
 set -euo pipefail
 
@@ -40,14 +42,14 @@ while [[ $# -gt 0 ]]; do
     --tree-ready) sha="${2:-}"; mode=tree-ready; shift 2 ;;
     --repo) repo="${2:-}"; shift 2 ;;
     --release-compile-green) mode=release-compile-green; shift ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "error: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 [[ -n "$mode" ]] || { echo "error: pass --sha <sha> --release-compile-green or --tree-ready <sha>" >&2; exit 2; }
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: the commit must be 40 lowercase hex characters" >&2; exit 2; }
 [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "error: --repo must be owner/repo" >&2; exit 2; }
-window="${CMUX_NIGHTLY_NEXT_RUN_WINDOW:-30}"
+window="${CMUX_NIGHTLY_NEXT_RUN_WINDOW:-99}"
 [[ "$window" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_RUN_WINDOW must be 1 to 99" >&2; exit 2; }
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
@@ -104,14 +106,39 @@ strings_fresh() { # <sha>
     [[ "$1" == "$head" ]] || cleanup_strings
     return 0
   fi
-  (cd "$root/webviews" && node scripts/pages/gen-strings.mjs --check) || rc=$?
+  if git -C "$root" ls-files --error-unmatch webviews/src/pages/settings/generated/strings.json >/dev/null 2>&1; then
+    (cd "$root/webviews" && node scripts/pages/gen-strings.mjs --check) || rc=$?
+  else
+    (cd "$root/webviews" && node scripts/pages/gen-strings.mjs) || rc=$?
+  fi
   [[ "$1" == "$head" ]] || cleanup_strings
   return "$rc"
 }
 
-# request <sha>: 0 = requested, 1 = not promotable (no gate, stale strings),
-# 2 = the dispatch itself failed (an API error: the caller exits 1).
+# The commit nightly-next points at now, when it is in this checkout's history
+# (empty otherwise). It bounds the --tree-ready search from below, and a commit
+# it already contains is never requested again: main's promote job keeps one
+# waiting request, so a stale request would evict a newer one.
+promoted=""
+if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)" \
+   && [[ "${line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]]; then
+  promoted="${line%%[[:space:]]*}"
+fi
+already_promoted() { # <sha>
+  # Equality needs no history: cmux-next.yml checks out one commit.
+  [[ -n "$promoted" ]] || return 1
+  [[ "$1" != "$promoted" ]] || return 0
+  git cat-file -e "$promoted^{commit}" 2>/dev/null && git merge-base --is-ancestor "$1" "$promoted" 2>/dev/null
+}
+
+# request <sha>: 0 = requested or already on nightly-next, 1 = not promotable
+# (no gate, stale strings), 2 = the dispatch itself failed (an API error: the
+# caller exits 1).
 request() { # <sha>
+  if already_promoted "$1"; then
+    echo "not requesting ${1:0:12}: it is already on nightly-next (${promoted:0:12})"
+    return 0
+  fi
   if ! has_notary_gate "$1"; then
     echo "not promoting ${1:0:12}: its nightly.yml has no NIGHTLY_NEXT_NOTARY_PAUSED gate"
     return 1
@@ -163,14 +190,23 @@ if [[ "$mode" == release-compile-green ]]; then
 fi
 
 # 2. --tree-ready: the newest green push run on feat-cmux-next whose commit
-# descends from <sha> and has this tree key. Runs are newest first; promotion
-# only moves forward. One fetch of the branch's recent history covers every
+# descends from nightly-next and has this tree key. Runs are newest first;
+# promotion only moves forward. The lower bound is nightly-next, not <sha>: the
+# tree's publisher can be newer than the green commit whose compile request
+# found the tree unpublished (2e420aa7a9 compiled green at 10:21Z on 2026-10-14
+# while a newer push published its tree, and the newer push's own compile was
+# replaced), and that green commit must not be lost. Without nightly-next in
+# this history the bound falls back to <sha>. One fetch of the branch's recent history covers every
 # candidate (a fetch per commit took over 5 minutes in run 37820762809); a
-# commit it does not reach is older than <sha> or off the branch.
+# commit it does not reach is older than the lower bound or off the branch.
 git fetch -q --no-tags --depth="$((window * 4))" origin refs/heads/feat-cmux-next 2>/dev/null \
   || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
 # One page holds the window (at most 99): paginating walked every push run ever made.
 runs="$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"
+lower="$sha"
+if [[ -n "$promoted" ]] && git cat-file -e "$promoted^{commit}" 2>/dev/null; then
+  lower="$promoted"
+fi
 refused=0
 max_refused="${CMUX_NIGHTLY_NEXT_MAX_REFUSED:-5}"
 [[ "$max_refused" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_MAX_REFUSED must be 1 to 99" >&2; exit 2; }
@@ -178,7 +214,7 @@ while read -r run_id run_sha; do
   [[ "$run_id" =~ ^[0-9]+$ && "$run_sha" =~ ^[0-9a-f]{40}$ ]] || continue
   if [[ "$run_sha" != "$sha" ]]; then
     git cat-file -e "$run_sha^{commit}" 2>/dev/null || continue
-    git merge-base --is-ancestor "$sha" "$run_sha" 2>/dev/null || continue
+    git merge-base --is-ancestor "$lower" "$run_sha" 2>/dev/null || continue
     run_key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$run_sha" 2>/dev/null)" || continue
     [[ "$run_key" == "$key" ]] || continue
   fi

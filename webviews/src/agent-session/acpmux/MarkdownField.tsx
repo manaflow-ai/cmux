@@ -1,5 +1,6 @@
 import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
+import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
 import {
@@ -107,6 +108,9 @@ const clean = (markdown: string) =>
 
 /** Spaces at the end of the prompt: markdown drops them, but "/review " needs its space. */
 const trailingSpaces = (view: EditorView) => /[ \t]+$/.exec(view.state.doc.lastChild?.textContent ?? "")?.[0] ?? "";
+
+/** HTML/JSX copied from a code editor is plain text, even when its clipboard advertises HTML. */
+const looksLikeMarkupText = (text: string) => /<>|<\/?[A-Za-z][\w.-]*(?:\s[^<>]*)?\/?>(?=\s|$|[.,;:!?)]|<)/.test(text);
 
 /** The document as the prompt's markdown, keeping the spaces typed at its end. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
@@ -252,7 +256,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 latest.current.onKeyDown?.(event);
                 if (event.defaultPrevented) return true;
                 const submit = latest.current.onSubmit;
-                if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !event.isComposing) {
+                if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !isImeKeyEvent(event)) {
                   event.preventDefault();
                   submit(known.current, { cmd: event.metaKey || event.ctrlKey });
                   return true;
@@ -280,8 +284,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               },
             },
             handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
-            handlePaste: (editorView, _event, slice) =>
-              beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n")),
+            handlePaste: (editorView, event, slice) => {
+              const plain = event.clipboardData?.getData("text/plain");
+              if (plain && looksLikeMarkupText(plain)) {
+                if (beforeInput(editorView, plain)) return true;
+                const { from, to } = editorView.state.selection;
+                editorView.dispatch(editorView.state.tr.insertText(plain, from, to));
+                return true;
+              }
+              return beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"));
+            },
           },
           // Report every document and caret change; the composer's menu follows the caret.
           view: () => ({
@@ -346,6 +358,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         editor.current = made;
         view.current = made.ctx.get(editorViewCtx);
         remark.current = made.ctx.get(remarkCtx);
+        if (known.current) setDocument(known.current);
         showPlaceholder(known.current);
         applyAttributes();
         if (pendingFocus.current) view.current.focus();
@@ -361,13 +374,22 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   }, []);
 
   /// Replaces the document with `markdown`. Parsing drops the spaces at its end ("/review "),
-  /// so they go back where the caret goes.
+  /// so they go back where the caret goes. It drops a blank line at its end too: after a block
+  /// that is not a paragraph (a quote put in for the reply), an empty paragraph takes the caret,
+  /// so typing goes on below the block, not inside it.
   const setDocument = (markdown: string) => {
     editor.current?.action(replaceAll(markdown));
     const current = view.current;
+    if (!current) return;
     const tail = /[ \t]+$/.exec(markdown)?.[0];
-    if (current && tail && !trailingSpaces(current))
+    if (tail && !trailingSpaces(current)) {
       current.dispatch(current.state.tr.insertText(tail, current.state.doc.content.size - 1));
+      return;
+    }
+    const { doc, schema } = current.state;
+    if (!/\n[ \t]*\n$/.test(markdown) || !doc.lastChild || doc.lastChild.type === schema.nodes.paragraph) return;
+    const tr = current.state.tr.insert(doc.content.size, schema.nodes.paragraph.create());
+    current.dispatch(tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1)));
   };
 
   // A value from outside (a send cleared it, the menu wrote a command) replaces the document.

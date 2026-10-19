@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-scroll.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -46,6 +47,7 @@ await requireBrowserLane("new-tab-scroll.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // The first load can run Vite's dependency optimizer and reload mid-compile.
     const warm = await browser.newPage({ viewport: { width: 900, height: 600 } });

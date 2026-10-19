@@ -10,6 +10,7 @@ import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
+import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
 import type { Env } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
@@ -126,13 +127,11 @@ export class UserDO extends OwnerDO<UserState> {
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     if (principal.agent === undefined) return super.submit(entity, principal, frame)
     const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
-    return {
-      frames: [
-        { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
-        { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }
-      ]
-    }
+    return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
+      { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }] }
   }
+  /** A Chief's own chief.create / chief.update from its Cloud brain (brain-chiefs.ts; DO RPC, no route reaches it): user-chief.ts `viaChief`. */
+  async chiefManage(entity: string, agent: string, frame: OpFrame): Promise<SubmitResult> { return super.submit(entity, { identity: `agent:${agent} via chief`, kind: "agent", agent, user: entity }, frame) }
 
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 
@@ -223,6 +222,8 @@ export class UserDO extends OwnerDO<UserState> {
     return { frames }
   }
 
+  async avatar(call: AvatarCall) { return avatarRpc(this.ctx, this.env, this.existing()?.currentState, call) } // RPC: participant avatars (user-avatars.ts)
+
   /** RPC: inbox reads. `inbox.list` pages the entries; `inbox.dm_peer` finds an existing DM with a peer (design Q2). */
   async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
     // A chief token never reads the owner's inbox (DM previews); a future chief that needs it gets an explicit grant (cx-59n8.11).
@@ -232,11 +233,8 @@ export class UserDO extends OwnerDO<UserState> {
     return readInboxOp(this.inbox, entity, op, params, () => this.scheduleAlarm())
   }
 
-  /**
-   * RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the
-   * user's `allow_requests_from`, never the discovery flags. An object that never served this
-   * user answers the default without binding.
-   */
+  /** RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the user's
+   *  `allow_requests_from`, never the discovery flags; an object that never served this user answers the default without binding. */
   async homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom> {
     if (this.boundEntity() !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_requests_from
     return homeUser.homeSettingsOf(this.bind(entity).currentState.home_settings).allow_requests_from
@@ -469,6 +467,34 @@ export class UserDO extends OwnerDO<UserState> {
     sql.exec(`DELETE FROM auth_challenges WHERE expires_at < ?`, now)
     sql.exec(`INSERT INTO auth_challenges (nonce, install, expires_at) VALUES (?, ?, ?)`, nonce, install, now + CHALLENGE_TTL_MS)
     return { ok: true, nonce, expires_at: now + CHALLENGE_TTL_MS }
+  }
+
+  /**
+   * A hand's ephemeral frames (hand-do.ts: `hand-approval-pending`, `hand-approval-settled`) to this
+   * person's own subscribed sockets: a person's session or app install, never a Chief token or a
+   * machine install. Never committed (GET /v1/hands/<hand>/approvals is the read after a reconnect).
+   */
+  async handFrame(entity: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" } & Record<string, unknown>): Promise<void> {
+    const text = JSON.stringify(frame)
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (!a?.subscribed || a.principal.user !== entity || a.principal.agent !== undefined || isMachineInstallKind(a.principal.install_kind)) continue
+      if (!this.socketLive(ws, a)) continue
+      try {
+        ws.send(text)
+      } catch {}
+    }
+  }
+
+  /** The key of one of this person's active app installs (mac or ios), for a person proof (hand-levels.ts); null otherwise. */
+  async personKey(entity: string, install: string): Promise<JsonWebKey | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState
+    const inst = state.installs[install]
+    if (!state.user || !inst || inst.revoked_at !== null || (inst.kind !== "mac" && inst.kind !== "ios")) return null
+    const grant = state.grants[inst.grant]
+    return grant && grant.revoked_at === null ? (inst.public_jwk as JsonWebKey) : null
   }
 
   /** One-time challenge + ES256 signature by the install key + revocation check. */

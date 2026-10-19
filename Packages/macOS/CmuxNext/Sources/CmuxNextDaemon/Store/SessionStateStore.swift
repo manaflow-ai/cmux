@@ -11,16 +11,27 @@ public import Observation
 @MainActor @Observable
 public final class SessionStateStore {
     /// Nil while the daemon serves none (it predates them, or the stream has
-    /// not delivered its snapshot).
-    public internal(set) var mirror: SessionStateMirror?
+    /// not delivered its snapshot). Not observed: a status tick changes it
+    /// several hundred times a second, and each change is laid over only
+    /// the records it touched; readers observe those records, or
+    /// `closedItems`.
+    @ObservationIgnored public private(set) var mirror: SessionStateMirror?
     /// True once this connection's daemon answered whether it serves state
     /// resources (a snapshot, or a stream it refused); reset on connect.
     public internal(set) var known = false
+    /// Recently closed tabs, screens, and workspaces, newest first. Its own
+    /// stored value: written only when the closed list changed, so its
+    /// observers do not run on every status tick.
+    public private(set) var closedItems: [ClosedItem] = []
+
+    /// Sidebar document batches (`sidebar-doc-v1`), in stream order; the
+    /// sidebar's document store applies them to its mirror.
+    @ObservationIgnored public var onSidebarBatch: (@MainActor (SidebarDocBatch) -> Void)?
+    /// A fresh stream snapshot: the sidebar document refetches (`sidebar.get`),
+    /// since batches during the gap were lost.
+    @ObservationIgnored public var onSidebarResync: (@MainActor () -> Void)?
 
     public init() {}
-
-    /// Recently closed tabs, screens, and workspaces, newest first.
-    public var closedItems: [ClosedItem] { mirror?.closed ?? [] }
 
     /// A new connection: known at once when its daemon serves no state
     /// resources, else once the stream's snapshot (or its end) arrives.
@@ -28,54 +39,93 @@ public final class SessionStateStore {
         known = !servesStateResources
     }
 
-    /// Applies one `session.events` item and lays the mirror over
-    /// `workspaces` when it changed what the records show.
-    func apply(_ item: SessionStreamItem, to workspaces: [WorkspaceModel]) {
+    /// Applies one `session.events` item to the mirror and lays what it
+    /// changed over `store`'s records: a snapshot over every record, a delta
+    /// over the records it touched (found by resource id in O(1)).
+    func apply(_ item: SessionStreamItem, in store: DaemonStore) {
         switch item {
         case .snapshot(let snapshot):
             if mirror != snapshot { mirror = snapshot }
             if !known { known = true }
+            publishClosed()
+            onSidebarResync?()
+            overlay(store.workspaces)
         case .delta(let changes):
-            guard var state = mirror else { return }
-            state.apply(changes)
-            if state != mirror { mirror = state }
+            var touched: Set<SessionStateMirror.Touched> = []
+            for change in changes {
+                if case .sidebarBatch(let batch) = change {
+                    onSidebarBatch?(batch)
+                } else if mirror != nil {
+                    mirror?.apply(change, touched: &touched)
+                }
+            }
+            for record in touched { lay(record, in: store) }
         case .ended:
             // The reopened stream's snapshot replaces the mirror; a stream
             // that could not open leaves no snapshot to wait for.
             if !known { known = true }
-            return
         }
-        overlay(workspaces)
     }
 
-    /// Lays `mirror` over every workspace, screen, and tab record. Without
-    /// state resources the records keep the raw tree's values.
-    func overlay(_ workspaces: [WorkspaceModel]) {
-        let state = mirror
-        for workspace in workspaces {
-            let id = workspace.resourceID
-            var groups: [ScreenGroupSnapshot]?
-            if let state, let id {
-                for screen in workspace.screens {
-                    guard let screenID = screen.resourceID else { continue }
-                    screen.applyState(state.screens[screenID] ?? SessionStateMirror.ScreenState())
-                }
-                groups = Self.screenGroups(state, workspace: id, screens: workspace.screens)
-            }
-            workspace.applyState(ephemeral: id.map { state?.ephemeralWorkspaces.contains($0) ?? false } ?? false,
-                                 agentFolder: id.flatMap { state?.agentFolders[$0] },
-                                 status: id.flatMap { state?.workspaceStatus[$0] }, screenGroups: groups)
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    for tab in pane.tabs {
-                        tab.applyState(tab.resourceID.flatMap { state?.tabs[$0] },
-                                       progress: tab.terminalResourceID.flatMap { state?.terminalProgress[$0] },
-                                       programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [],
-                                       commandSinceMs: tab.terminalResourceID.flatMap { state?.terminalBusySinceMs[$0] })
-                    }
-                }
-            }
+    private func publishClosed() {
+        let closed = mirror?.closed ?? []
+        if closedItems != closed { closedItems = closed }
+    }
+
+    /// Lays the mirror over the one record `touched` names.
+    private func lay(_ touched: SessionStateMirror.Touched, in store: DaemonStore) {
+        switch touched {
+        case .workspace(let id):
+            if let workspace = store.index.workspacesByResource[id] { lay(workspaceOnly: workspace) }
+        case .screen(let id):
+            guard let screen = store.index.screensByResource[id] else { return }
+            screen.applyState(mirror?.screens[id] ?? SessionStateMirror.ScreenState())
+        case .tab(let id):
+            if let tab = store.index.tabsByResource[id] { Self.lay(mirror, over: tab) }
+        case .terminal(let id):
+            if let tab = store.index.tabsByTerminalResource[id] { Self.lay(mirror, over: tab) }
+        case .closed:
+            publishClosed()
         }
+    }
+
+    /// Lays `mirror` over every workspace, screen, and tab record of
+    /// `workspaces`. Without state resources the records keep the raw
+    /// tree's values.
+    func overlay(_ workspaces: [WorkspaceModel]) {
+        for workspace in workspaces {
+            for screen in workspace.screens { lay(screen: screen) }
+            lay(workspaceOnly: workspace)
+        }
+    }
+
+    /// Lays `mirror` over `screen` and its tabs.
+    func lay(screen: ScreenModel) {
+        if let state = mirror, let id = screen.resourceID {
+            screen.applyState(state.screens[id] ?? SessionStateMirror.ScreenState())
+        }
+        for pane in screen.panes {
+            for tab in pane.tabs { Self.lay(mirror, over: tab) }
+        }
+    }
+
+    /// Lays `mirror` over the workspace's own fields (ephemeral, agent
+    /// folder, status, screen groups), not its screens.
+    func lay(workspaceOnly workspace: WorkspaceModel) {
+        let state = mirror
+        let id = workspace.resourceID
+        let groups = state.flatMap { state in id.map { Self.screenGroups(state, workspace: $0, screens: workspace.screens) } }
+        workspace.applyState(ephemeral: id.map { state?.ephemeralWorkspaces.contains($0) ?? false } ?? false,
+                             agentFolder: id.flatMap { state?.agentFolders[$0] },
+                             status: id.flatMap { state?.workspaceStatus[$0] }, screenGroups: groups)
+    }
+
+    /// Lays `state`'s tab record and terminal records over `tab` (`overlay`'s tab step).
+    static func lay(_ state: SessionStateMirror?, over tab: TabModel) {
+        tab.applyState(tab.resourceID.flatMap { state?.tabs[$0] },
+                       progress: tab.terminalResourceID.flatMap { state?.terminalProgress[$0] },
+                       programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [],
+                       commandSinceMs: tab.terminalResourceID.flatMap { state?.terminalBusySinceMs[$0] })
     }
 
     /// The app's screen group runs for `workspace`, in screen order.

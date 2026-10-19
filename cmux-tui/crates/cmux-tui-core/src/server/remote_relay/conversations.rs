@@ -130,7 +130,11 @@ fn remote_op_allowed(op: &Op) -> bool {
         | Op::ReadCursorSet { .. } => true,
         // Paired installs do not see question parts yet (project.rs), so
         // they cannot answer one; allow it with the question projection.
-        Op::ParticipantsAdd { .. } | Op::TitleSet { .. } | Op::QuestionAnswer { .. } => false,
+        // Thread objects are not projected to paired installs yet either.
+        Op::ParticipantsAdd { .. }
+        | Op::TitleSet { .. }
+        | Op::QuestionAnswer { .. }
+        | Op::ThreadUpdate { .. } => false,
     }
 }
 
@@ -202,6 +206,15 @@ pub(in crate::server) fn remote_event(
         // Drafts reach only the v2 conversation.events stream, which the
         // relay never admits (it refuses every resource-protocol frame).
         ConversationEvent::Draft { .. } => None,
+        // The person's own list state stays on the person's own local
+        // connections (`conversation-inbox-state-v1`).
+        ConversationEvent::Inbox { .. } => None,
+        // Runs stay on the person's own local connections
+        // (`conversation-runs-v1` is not served to the relay).
+        ConversationEvent::Run { .. }
+        | ConversationEvent::Live { .. }
+        | ConversationEvent::Avatar { .. }
+        | ConversationEvent::Chief { .. } => None,
     }
 }
 

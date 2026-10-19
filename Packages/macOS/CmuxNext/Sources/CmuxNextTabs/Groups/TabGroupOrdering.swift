@@ -80,7 +80,7 @@ public struct TabGroupOrdering {
     }
 
     /// The color a new group gets, as workspace groups get theirs (`GroupColor.automatic`): the
-    /// first theme palette color in `automaticOrder` no group in the same strip uses yet, never
+    /// first palette color in `automaticOrder` no group in the same strip uses yet, never
     /// blue (a user may still choose it) or grey; grey when every one is taken.
     public static func nextColor(used: some Sequence<GroupColor>) -> GroupColor {
         GroupColor.automatic(used: Set(used.map(\.rawValue))) ?? .grey

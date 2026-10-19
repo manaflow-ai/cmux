@@ -38,6 +38,8 @@ final class MarkdownOverlay {
     /// Body origin in the host layer's coordinates.
     private(set) var bodyOrigin = CGPoint.zero
     private var generation = 0
+    /// The scale the regions are drawn at: the cell's (its window view's renderScale).
+    private(set) var scale: CGFloat = Fixture.renderScale
 
     init() {
         copyButton.isHidden = true
@@ -60,7 +62,7 @@ final class MarkdownOverlay {
         let body = RowDraw.bodyRect(spec)
         let host = cell.bitmap.superlayer ?? cell.contentView.layer
         o.bitmap = cell.bitmap
-        o.attach(to: host, layout: md, outgoing: p.outgoing, bodyOrigin: CGPoint(x: body.minX, y: body.minY))
+        o.attach(to: host, layout: md, outgoing: p.outgoing, bodyOrigin: CGPoint(x: body.minX, y: body.minY), scale: cell.renderScale)
     }
 
     /// Hides the row bitmap under the overlays (the bitmap draws every block at offset 0).
@@ -79,16 +81,18 @@ final class MarkdownOverlay {
         generation += 1
     }
 
-    func attach(to host: CALayer, layout md: MarkdownLayout, outgoing: Bool, bodyOrigin: CGPoint) {
+    func attach(to host: CALayer, layout md: MarkdownLayout, outgoing: Bool, bodyOrigin: CGPoint, scale: CGFloat) {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let same = layout === md && self.outgoing == outgoing && self.host === host
+        let same = layout === md && self.outgoing == outgoing && self.host === host && self.scale == scale
         self.host = host
         self.bodyOrigin = bodyOrigin
         if !same {
             detach()
             layout = md
             self.outgoing = outgoing
+            self.scale = scale
+            copyGlyph.contentsScale = scale
             for (i, reg) in md.regions.enumerated() where MarkdownOverlay.usesOverlay(reg) {
                 let r = RegionLayers(i)
                 r.clip.masksToBounds = true
@@ -105,7 +109,7 @@ final class MarkdownOverlay {
                 r.indicator.cornerRadius = 1.25
                 r.indicator.backgroundColor = MDPalette.palette(outgoing: outgoing).text.withAlphaComponent(0.32).cgColor
                 r.fade.startPoint = CGPoint(x: 0, y: 0.5); r.fade.endPoint = CGPoint(x: 1, y: 0.5)
-                r.content.contentsScale = Fixture.renderScale
+                r.content.contentsScale = scale
                 host.addSublayer(r.clip)
                 regions.append(r)
                 render(r, md, outgoing)
@@ -134,9 +138,12 @@ final class MarkdownOverlay {
         let size = CGSize(width: reg.contentWidth, height: reg.frame.height)
         let gen = generation
         let idx = r.index
+        let sc = scale
         MarkdownOverlay.queue.async { [weak self, weak r] in
-            let img = WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
-                MarkdownDraw.draw(ctx, md, body: CGRect(origin: .zero, size: md.size), outgoing: outgoing, mode: .region(idx))
+            let img = Fixture.withRenderScale(sc) {
+                WideBitmap.make(size: size, scale: sc, opaque: false) { ctx in
+                    MarkdownDraw.draw(ctx, md, body: CGRect(origin: .zero, size: md.size), outgoing: outgoing, mode: .region(idx))
+                }
             }
             DispatchQueue.main.async {
                 guard let self, let r, self.generation == gen else { return }
