@@ -12,6 +12,12 @@ on:
       agent_session_web:
         required: true
         type: string
+      # A push's event.before (cmux-next-web.yml): subareas route from the whole push, not
+      # only its last commit. Empty on pull requests, which route from the merge commit.
+      push_base:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -36,10 +42,18 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
+      # The push base is not in a depth-2 clone; fetch it alone (an unknown one runs everything).
+      - name: Fetch the push base
+        if: ${{ inputs.push_base != '' }}
+        env:
+          PUSH_BASE: ${{ inputs.push_base }}
+        run: git fetch --no-tags --depth=1 origin "$PUSH_BASE" || echo "push base $PUSH_BASE not fetchable"
+
       - name: Classify web subareas
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
+          WEB_SUBAREAS_BASE: ${{ inputs.push_base }}
         run: python3 scripts/ci/web_subareas.py route
 
   web-typecheck:
