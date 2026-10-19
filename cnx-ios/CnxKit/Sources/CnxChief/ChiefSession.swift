@@ -177,13 +177,13 @@ public final class ChiefSession {
     /// goes away with the message, before the run's end frame.
     private var answeredLiveStep: String?
 
-    /// The live reply the transcript draws as a streaming bubble (with the
-    /// activity line under it): ``live`` until its reply message arrives.
+    /// The live run the transcript draws (the streaming reply bubble and the
+    /// status line): ``live``, without the reply text once its message arrived.
     public var shownLive: ChiefLive? {
         guard let live else { return nil }
         if let step = live.step, answeredLiveStep == "\(live.key)\u{0}\(step)" {
-            // The reply is in the transcript; the activity line may stay.
-            guard live.activity != nil else { return nil }
+            // The reply is in the transcript; the run's status line stays
+            // until the run ends.
             var rest = live
             rest.step = nil
             rest.text = ""
