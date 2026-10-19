@@ -39,6 +39,22 @@ struct AgentPaneFullAccessRelayTests {
         #expect(!reached.contains { $0.contains("set_mode") })
     }
 
+    @Test func offRefusesAFullAccessValueOnAnyConfigOption() async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        transport.allowsFullAccess = { false }
+        transport.sessions.add("s1")
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+        transport.gestures.record()
+        let frame = #"{"jsonrpc":"2.0","id":6,"method":"session/set_config_option","params":{"sessionId":"s1","configId":"approvals","value":"bypassPermissions"}}"#
+        #expect(await transport.send(connection: id, frames: [frame]) == .fullAccessOff)
+    }
+
     @Test func offKeepsOtherModes() async throws {
         let (error, _, _) = try await setMode("default", allowed: false)
         #expect(error != .fullAccessOff)

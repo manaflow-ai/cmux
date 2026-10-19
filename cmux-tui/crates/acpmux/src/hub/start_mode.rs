@@ -161,14 +161,61 @@ fn start_level(
     configured: Option<&str>,
 ) -> (DefaultMode, Source) {
     let current = setting_snapshot().unwrap_or_default();
-    match picked.and_then(DefaultMode::parse) {
+    let (level, source) = match picked.and_then(DefaultMode::parse) {
         Some(level)
             if configured.is_some() || picked_under.is_none_or(|under| under == current) =>
         {
             (level, Source::Pick)
         }
         _ => DefaultMode::resolve(configured),
+    };
+    // `sessions.allowFullAccess` off: no chat starts in a mode that skips every approval.
+    if level == DefaultMode::FullAccess && !full_access_allowed() {
+        return (DefaultMode::Standard, source);
     }
+    (level, source)
+}
+
+/// The cmux setting that allows the modes that skip every approval (Settings > Agents > Agent
+/// Sessions, "Allow Full-Access Modes").
+pub const ALLOW_FULL_ACCESS: &str = "sessions.allowFullAccess";
+
+/// Whether a mode that skips every approval may run now: yes unless the settings file turns
+/// `sessions.allowFullAccess` off. A settings file that cannot be read fails closed (no).
+pub fn full_access_allowed() -> bool {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Missing => true,
+        crate::user_settings::Settings::Unreadable(_) => false,
+        crate::user_settings::Settings::Parsed(doc) => !matches!(
+            crate::user_settings::value(&doc, ALLOW_FULL_ACCESS),
+            Some(Value::Bool(false))
+        ),
+    }
+}
+
+/// A full-access mode id (`FULL_ACCESS_MODES`).
+pub(crate) fn is_full_access(mode: &str) -> bool {
+    FULL_ACCESS_MODES.contains(&mode)
+}
+
+/// Whether a session request switches into a full-access mode: `session/set_mode` to one, or
+/// `session/set_config_option` of any option whose value is one (not only the `mode` option).
+pub(crate) fn requests_full_access(m: &str, params: &Value) -> bool {
+    let value = match m {
+        method::SESSION_SET_MODE => params.get("modeId"),
+        method::SESSION_SET_CONFIG_OPTION => params.get("value"),
+        _ => None,
+    };
+    value.and_then(Value::as_str).is_some_and(is_full_access)
+}
+
+/// The refusal of a full-access mode while `sessions.allowFullAccess` is off.
+pub(crate) fn full_access_off() -> RpcError {
+    RpcError::new(
+        -32000,
+        "full-access modes are turned off in cmux Settings (sessions.allowFullAccess)",
+    )
+    .with_data(json!({"reason": "full_access_off"}))
 }
 
 /// Whether acpmux sets a start mode on a new chat at all (module docs):
