@@ -206,6 +206,7 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+mod pinned_columns;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -325,12 +326,16 @@ pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
 };
+pub use dock_columns::PINNED_COLUMN_CODE;
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
 };
 pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
+pub(crate) use pinned_columns::{
+    ensure_pane_takes_tabs, ensure_pinned_columns_kept, pinned_columns,
+};
 pub use presentation::{
     PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
     WorkspaceGroupChange,
