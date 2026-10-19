@@ -15,7 +15,7 @@ name: cmux-next fast-tier seed
 # drops all but the two newest after it saves.
 on:
   push:
-    branches: [feat-cmux-next]
+    branches: [feat-cmux-next, ci/next-fast-tier-seed-probe]
 
 permissions: {}
 
@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SEED_INTERVAL_MINUTES: "30"
+  SEED_INTERVAL_MINUTES: "0"
   SEED_KEY_PREFIX: cmux-next-fast-v2-
 
 jobs:
@@ -93,6 +93,25 @@ jobs:
         id: fast-cache-key
         run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
 
+      # PROBE ONLY (never merged): the fast tier's warm path, to measure it.
+      - name: Restore fast-tier build cache
+        id: fast-cache-restore
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: github
+          path: |
+            Packages/macOS/CmuxNext/.build
+            Packages/Shared/CmuxHomeRender/.build
+            cmux-tui/target
+          key: ${{ steps.fast-cache-key.outputs.key }}
+          restore-keys: ${{ steps.fast-cache-key.outputs.prefix }}
+
+      - name: Replay the seed's input times
+        if: ${{ steps.fast-cache-restore.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        run: time python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
+
       # Before the build: the times the products are built from. The fast tier
       # replays them onto every file whose content is unchanged.
       - name: Record the build's input times
@@ -123,7 +142,7 @@ jobs:
           du -sh Packages/macOS/CmuxNext/.build Packages/Shared/CmuxHomeRender/.build cmux-tui/target | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the fast-tier build cache
-        if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/ci/next-fast-tier-seed-probe') }}
         uses: ./.github/actions/cache-save
         with:
           backend: github
