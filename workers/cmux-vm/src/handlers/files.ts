@@ -40,7 +40,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
             headers: responseHeaders,
           });
         }),
-      ), "files-read")),
+      "files-read")),
     )
     .handleRaw("writeFile", ({ path, urlParams, headers, request }) =>
       audited(
@@ -74,7 +74,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
             );
             return HttpServerResponse.empty({ status: 204 });
           }),
-        ), "files-write"),
+        "files-write"),
       ),
     )
     .handle("listFiles", ({ path, urlParams }) =>
@@ -93,6 +93,6 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
             entries: entries.map((entry) => new FileEntry({ name: entry.name, kind: kindOf(entry.kind) })),
           });
         }),
-      ), "files-read")),
+      "files-read")),
     ),
 );
