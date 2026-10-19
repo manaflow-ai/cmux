@@ -238,6 +238,11 @@ final class LocationTrailService {
         trail.list(direction, scope: scope, isAvailable: isAvailable)
     }
 
+    /// The headed right-click / long-press list under the Debug Settings layout (history.md 4.2c).
+    func menuSections(_ direction: LocationTrailDirection, layout: LocationTrailMenuLayout) -> [LocationTrailMenuSection] {
+        trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
+    }
+
     /// Goes to a listed entry (`history.goTo`). False when the index is gone or not focusable.
     @discardableResult
     func go(toIndex index: Int) -> Bool {
