@@ -324,3 +324,77 @@ fn the_off_switch_never_moves_a_reader_back_and_a_removed_host_stays_off() {
     wait_frame(&third, "the snapshot after enrolling again", |f| f["snapshot"].is_object());
     assert_eq!(backend.posted().len(), enrolls + 1);
 }
+
+fn lease_until(mux: &Arc<Mux>, client: u64, token: &str, expires_at: u64) -> Value {
+    run(
+        mux,
+        client,
+        json!({"cmd":"cloud-host-replica-set","api_base_url":"https://api.cmux.test",
+               "install_token":token,"expires_at":expires_at,"host_name":"studio"}),
+    )
+    .unwrap()
+}
+
+fn needed(events: &crate::MuxEventReceiver, seen: &mut Vec<Value>) -> Vec<Value> {
+    seen.extend(
+        events
+            .try_iter()
+            .filter(|event| matches!(event, MuxEvent::CloudConversation(_)))
+            .map(|event| subscribed_event_json(&event)),
+    );
+    seen.iter().filter(|event| event["event"] == "cloud-host-replica-needed").cloned().collect()
+}
+
+/// The publisher asks the app for a new install token before the lease
+/// ends, takes a renewal without dropping its socket, connects again with
+/// the new token when the old one expires (4401), and asks again with
+/// `unauthenticated` when it holds no newer token.
+#[test]
+fn the_daemon_asks_for_a_new_token_in_time_and_a_renewal_keeps_the_socket() {
+    let (mux, client, backend) = replica_mux();
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    let events = mux.subscribe();
+    let mut seen = Vec::new();
+    let now = u64::try_from(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+    )
+    .unwrap();
+    let renewed_token = INSTALL_TOKEN.replace(".sig", ".sig2");
+
+    // A lease that ends inside the refresh lead: the daemon asks at once.
+    let first = connect_again(&backend, json!({}));
+    lease_until(&mux, client, INSTALL_TOKEN, now + 30_000);
+    wait_frame(&first, "online", |f| f["snapshot"].is_object());
+    wait_until("the expiring ask", || {
+        needed(&events, &mut seen).iter().any(|e| e["reason"] == "expiring")
+    });
+    let ask = needed(&events, &mut seen)[0].clone();
+    assert_eq!(ask["expires_at"], now + 30_000, "{ask}");
+
+    // The renewal swaps the token in place: the same socket answers an op.
+    lease_until(&mux, client, &renewed_token, now + 3_600_000);
+    first.push_text(
+        json!({"t":"op","stream":stream(),"op":"workspace.close","params":{},"idempotency_key":"after-renewal",
+               "origin":"user","to":"r1","principal":{"user":ME,"kind":"session"}})
+        .to_string(),
+    );
+    wait_frame(&first, "an answer on the same socket", |f| f["t"] == "reject" && f["to"] == "r1");
+    assert_eq!(backend.connected().len(), 1, "a renewal does not reconnect");
+    assert_eq!(status(&mux, client)["state"], "online");
+
+    // The old token expires: HostDO closes 4401, and the new token connects at once.
+    let second = backend.wire();
+    second.push_text(json!({"t":"welcome","role":"publisher","host":HOST,"heads":{}}).to_string());
+    first.push_close(Some(4401));
+    wait_frame(&second, "the reconnect", |f| f["snapshot"].is_object());
+    assert_eq!(backend.connected()[1].bearer, renewed_token);
+    assert!(!needed(&events, &mut seen).iter().any(|e| e["reason"] == "unauthenticated"));
+
+    // No newer token: the publisher stops and asks for one.
+    second.push_close(Some(4401));
+    wait_until("unauthenticated", || status(&mux, client)["state"] == "unauthenticated");
+    wait_until("the unauthenticated ask", || {
+        needed(&events, &mut seen).iter().any(|e| e["reason"] == "unauthenticated")
+    });
+}
