@@ -401,6 +401,15 @@ extension CMUXCLI {
         guard FileManager.default.isExecutableFile(atPath: scriptPath) else {
             return nil
         }
+        // Mint with the Claude the user pinned through
+        // `integrations.claudeCode.customClaudePath`, so the token belongs to
+        // the install cmux runs. A cmux terminal exports the setting; outside
+        // one, read it the way `claude-teams` does. Without one, `claude`
+        // comes from PATH as before.
+        let claudeCommand = configuredClaudeExecutable([
+            ProcessInfo.processInfo.environment["CMUX_CUSTOM_CLAUDE_PATH"],
+            UserDefaults.standard.string(forKey: "claudeCodeCustomClaudePath"),
+        ]).map { [$0] } ?? ["/usr/bin/env", "claude"]
         cliWriteStderr("Running `claude setup-token`; finish the sign-in in your browser.\n")
 
         let outputPipe = Pipe()
@@ -408,8 +417,10 @@ extension CMUXCLI {
         process.executableURL = URL(fileURLWithPath: scriptPath)
         // `claude setup-token` hard-wraps at the terminal width, and a 108-character
         // token wraps in most terminals; the regex would then keep only its first
-        // line. Widen the PTY so the token always prints on one line.
-        process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", "stty cols 1000 2>/dev/null; exec claude setup-token"]
+        // line. Widen the PTY so the token always prints on one line, then exec the
+        // configured Claude command with its arguments intact.
+        process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", "stty cols 1000 2>/dev/null; exec \"$@\"", "sh"]
+            + claudeCommand + ["setup-token"]
         process.standardInput = FileHandle.standardInput
         process.standardOutput = outputPipe
         process.standardError = FileHandle.standardError

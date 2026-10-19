@@ -35,7 +35,7 @@
     "workspaceMissingID": "The peer did not return a workspace ID. No command was started.",
     "missingDaemon": "cmux-tui daemon binary not found at %s",
     "envSingleLineValue": "env set: values must be a single line",
-    "routeToken": "refusing a coderouter route token in the VM; use the Freestyle TLS edge",
+    "routeToken": "refusing a coderouter route token in the VM; use the host-managed authenticated route",
     "missingCodeRouter": "CodeRouter is not configured in this VM (CMUX_CODEROUTER_URL is missing)",
     "insecureCodeRouter": "CodeRouter requires an https:// endpoint; refusing an insecure URL",
     "invalidCodeRouter": "CodeRouter endpoint must be a bare https:// host",
@@ -280,6 +280,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go supports 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan} compute allowance used",
+      "computeMessage": "Your {plan} plan has used its {included} compute-hours for this billing period. A compute-hour is 1 vCPU with 2 GB of memory running for one hour. Your machines can start again on {resetDate}.",
+      "computeAction": "Paused machines keep their files. Contact support if you need more compute before {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} disk allowance used",
+      "storageMessage": "Your {plan} plan includes {included} GB of disk across all saved machines. Saved machines use {used} GB, and this request needs {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Not enough Cloud VM resources",
@@ -713,7 +723,7 @@
       "banners": {
         "cancelled": "Your plan will cancel at the end of the current billing period.",
         "resumed": "Your plan has been resumed and will renew normally.",
-        "nosub": "No active Stripe subscription was found for this account.",
+        "nosub": "No active web subscription was found for this account.",
         "error": "Billing could not be updated. Try again shortly.",
         "pastDue": "Your latest payment failed. Update your payment method to keep your plan active.",
         "team_admin_required": "Only team admins can manage this team's billing.",
@@ -827,6 +837,9 @@
         "unavailable": {
           "cancelScheduled": "Resume your plan to change it.",
           "granted": "Granted by cmux. There is nothing to change.",
+          "grantedNoCancel": "Granted by cmux, so there is nothing to cancel.",
+          "paymentFailed": "Update your payment method before changing plans.",
+          "foundersLifetime": "Founder's Edition includes Pro for life.",
           "adminOnly": "Only team admins can change the plan."
         },
         "names": {
@@ -869,6 +882,7 @@
       "change": {
         "title": "Switch to {plan}?",
         "upgradeBody": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per month.",
+        "upgradeBodyYearly": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per year.",
         "downgradeBody": "{plan} starts now. The unused part of your current plan, {credit}, is credited to your next invoices. Your next invoice, on {date}, is {amount}.",
         "confirm": "Switch to {plan}",
         "keep": "Keep current plan",
@@ -881,6 +895,8 @@
         "title": "Cancel {plan}?",
         "body": "You keep {plan} until {date}. After that, you lose:",
         "bodyNoDate": "You keep {plan} until the end of this billing period. After that, you lose:",
+        "foundersBody": "Your {plan} subscription ends on {date}. After that, you have Pro, which Founder's Edition includes for life.",
+        "foundersBodyNoDate": "Your {plan} subscription ends at the end of this billing period. After that, you have Pro, which Founder's Edition includes for life.",
         "reasonLabel": "Why are you canceling? (optional)",
         "otherPlaceholder": "Tell us more (optional)",
         "confirm": "Cancel plan",
@@ -3506,6 +3522,7 @@
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
         },
+        "actions": "Reusable actions for the Command Palette, shortcuts, tab-bar buttons, and plus-button menu. Supports builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, and text. Text actions paste into the focused terminal and preserve newlines; submit: true presses Enter. Setting actions require global configuration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -4898,11 +4915,11 @@
       "metaDescription": "How cmux Cloud machines are isolated, where credentials live, and how to limit what a machine can reach with an outbound network policy.",
       "intro": "This page describes the security model of cmux Cloud machines: what isolates a machine, where credentials live, and how to limit what a machine can reach on the network.",
       "isolationTitle": "Isolation",
-      "isolationVm": "Each machine is a Freestyle microVM with its own Linux kernel. It is not a container on a shared kernel.",
+      "isolationVm": "Each machine is a microVM with its own Linux kernel. It is not a container on a shared kernel.",
       "isolationRoot": "You have passwordless root in the machine by design. The VM is the security boundary, not the user account in it. Every process in the machine, including an agent, can do what root can do there.",
       "isolationHome": "Recreating a machine resets its home directory. Recreate a machine to return it to a known state.",
       "credentialsTitle": "Credentials",
-      "credentialsModel": "Model credentials for CodeRouter never enter the machine. The Freestyle TLS edge adds them to requests after the requests leave the machine. The provider stores these header values write-only, so nobody can read them back after cmux sets them.",
+      "credentialsModel": "Model credentials for CodeRouter never enter the machine. The cmux Cloud TLS edge adds them to requests after the requests leave the machine. The provider stores these header values write-only, so nobody can read them back after cmux sets them.",
       "credentialsAttach": "Attach credentials, which let a client open a session on the machine, are short-lived and scoped to one machine and one session.",
       "previewsTitle": "Port previews",
       "previewsDesc": "Port previews go over your private WireGuard network. They have no public URL. Only devices on your private network can open them.",
@@ -7373,5 +7390,89 @@
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
     "errorGeneric": "Something went wrong. Try again."
+  },
+  "opsCloudVmHealth": {
+    "eyebrow": "Staff · Operations",
+    "title": "VM Health",
+    "description": "Whether any Cloud VM needs an operator. A read-only sweep of the provider account runs every five minutes; this page shows the latest one.",
+    "noSnapshotTitle": "No sweep yet",
+    "noSnapshotBody": "The health cron has not stored a sweep. It runs every five minutes once deployed and migrated.",
+    "attentionYes": "Needs attention: yes",
+    "attentionNo": "Needs attention: no",
+    "sweptAt": "Swept {age}, in {seconds, plural, one {# second} other {# seconds}}.",
+    "coverage": "Probed {probed} of {running} running VMs. Not probed: {skippedBudget} past the time budget, {skippedIdle} with an idle timeout. {probeErrors, plural, =0 {No probe errors.} one {# probe error.} other {# probe errors.}}",
+    "reason": {
+      "stale": "The latest sweep is from {age}; the health cron may be failing.",
+      "hung_vms": "{count, plural, one {# running VM does not answer its control path} other {# running VMs do not answer their control path}}",
+      "stuck_transitions": "{count, plural, one {# VM is stuck in a transition} other {# VMs are stuck in a transition}}",
+      "drift": "{count, plural, one {# VM differs between the database and the provider} other {# VMs differ between the database and the provider}}",
+      "tls_over_limit": "TLS rules are at or over the account limit: {count} of {limit}. Network policy domain additions fail.",
+      "tls_near_limit": "TLS rules are near the account limit: {count} of {limit}.",
+      "sweep_incomplete": "The sweep was incomplete: {unprobed, plural, one {# running VM was} other {# running VMs were}} not probed, or the VM list was partial.",
+      "sweep_errors": "{count, plural, one {# sweep stage failed} other {# sweep stages failed}}."
+    },
+    "hung": {
+      "title": "Hung VMs ({count})",
+      "body": "Provider state is running, but a 10-second file system probe timed out or the provider answered 409 or 5xx."
+    },
+    "stuck": {
+      "title": "Stuck transitions ({count})",
+      "body": "VMs starting or pausing at the provider, or provisioning in the database, for longer than 15 minutes."
+    },
+    "drift": {
+      "title": "Database and provider drift ({count})",
+      "body": "cmux Cloud VMs whose database status disagrees with the provider for longer than 10 minutes. The reconcile cron repairs drift; this page only reports it."
+    },
+    "tls": {
+      "title": "TLS rule budget",
+      "body": "Account-wide TLS rules count against one limit shared by every workload on the provider account.",
+      "unavailable": "The sweep could not read TLS rules.",
+      "usage": "{count} of {limit} rules in use.",
+      "over": "{over, plural, =0 {At the limit.} other {# over the limit.}}",
+      "partial": "Only {listed} rules were listed, so the breakdown is partial.",
+      "pausedTitle": "Held by VMs paused for more than {days} days: {rules, plural, one {# rule} other {# rules}} on {vms, plural, one {# VM} other {# VMs}}"
+    },
+    "tlsOwner": {
+      "account_level": "Account level (no VM)",
+      "vpc_unattributed": "Private network (no VM)",
+      "unknown_vm": "Deleted or unlisted VM",
+      "managed": "Provider managed"
+    },
+    "errors": {
+      "title": "Sweep errors",
+      "body": "Stages of the last sweep that failed. Sections that depend on them may be empty."
+    },
+    "driftKind": {
+      "provider_missing": "Missing at the provider",
+      "db_running_provider_paused": "Running in the database, paused at the provider",
+      "db_paused_provider_running": "Paused in the database, running at the provider",
+      "db_destroyed_provider_present": "Destroyed in the database, present at the provider",
+      "provider_untracked": "At the provider with no database row"
+    },
+    "source": {
+      "provider": "Provider",
+      "db": "Database"
+    },
+    "col": {
+      "vm": "VM",
+      "workload": "Workload",
+      "owner": "Owner",
+      "image": "Image and size",
+      "firstSeenHung": "First seen hung",
+      "updated": "Last updated",
+      "detail": "Probe result",
+      "state": "State",
+      "source": "Source",
+      "since": "Since",
+      "drift": "Drift",
+      "dbStatus": "Database",
+      "providerState": "Provider",
+      "pausedSince": "Paused since",
+      "rules": "Rules"
+    },
+    "size": "{cpu} vCPU · {memory} GiB · {disk} GB disk",
+    "dbUpdated": "Database: {time}",
+    "noOwner": "No cmux owner",
+    "none": "None."
   }
 }

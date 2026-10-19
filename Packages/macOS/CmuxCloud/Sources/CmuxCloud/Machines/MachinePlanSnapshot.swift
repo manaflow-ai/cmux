@@ -1,4 +1,5 @@
 import CmuxCloudResizeCore
+import CMUXMobileCore
 import Foundation
 
 /// The active plan: its machine ceiling, tier and free-access window.
@@ -45,14 +46,12 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// upgrade affordance after the server returns `vm_requires_pro`.
     public var isPaidPlan: Bool { Self.isPaidPlanID(planId) }
 
-    /// Whether a plan with more machines exists to upgrade to. Max, Team and
-    /// Founders are the top of the ladder; everything else (free, Go, Pro, an
-    /// unknown id) can move up.
+    /// Whether a plan with more machines exists to upgrade to. Every tier
+    /// from Pro up (Pro, Team, Founders, Max) sells the same machine count, so
+    /// only Free, Go and an unknown id can move up.
     public var hasHigherPlan: Bool {
-        switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "max", "team", "founders": return false
-        default: return true
-        }
+        guard let tier = CmuxPlanTier(planID: planId) else { return true }
+        return !tier.includesPro
     }
 
     /// Whether Max is a larger plan for shared vCPU and memory capacity.

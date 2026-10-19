@@ -585,6 +585,11 @@ export interface VMProvider {
 
   /** Optional provider volume inventory used by the report-only VM reaper. */
   listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
+  /**
+   * Optional account-wide, read-only inventory for the staff health sweep. It
+   * covers every VM and TLS rule on the provider account, not only cmux rows.
+   */
+  readonly healthInventory?: VmHealthInventory;
 
   getStatus?(vmId: string, options?: ProviderReadOptions): Promise<VMStatus>;
   /**
@@ -868,3 +873,14 @@ export class ProviderArtifactUnavailableError extends ProviderError {
     this.name = "ProviderArtifactUnavailableError";
   }
 }
+
+/**
+ * Read-only account inventory for the staff Cloud VM health sweep. No member
+ * may start, pause, update, or delete anything.
+ */
+export type VmHealthInventory = {
+  listAccountVms(options: { readonly deadlineAtMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").ProviderVmInventory>;
+  listAccountTlsRules(options: { readonly deadlineAtMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").ProviderTlsRuleInventory>;
+  /** One bounded control-path request against a running VM; never wakes a paused one on purpose. */
+  probeControl(vmId: string, options: { readonly timeoutMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").VmControlProbe>;
+};

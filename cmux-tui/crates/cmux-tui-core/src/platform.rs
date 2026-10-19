@@ -1292,6 +1292,9 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
 /// name a safe local spawn directory, so callers should fall back to the
 /// surface's original working directory when this returns `None`.
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    if let Some(path) = kitty_shell_cwd_to_local_path(value) {
+        return Some(path);
+    }
     // Hosted surfaces never trust hostless OSC 7 values. Their authenticated
     // spawn CWD is the only safe fallback when no local host is identified.
     let mut url = url::Url::parse(value).ok()?;
@@ -1323,6 +1326,9 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     let plain = Path::new(value);
     if terminal_pwd_path_is_safe(plain) {
         return Some(plain.to_owned());
+    }
+    if let Some(path) = kitty_shell_cwd_to_local_path(value) {
+        return Some(path);
     }
 
     let mut url = url::Url::parse(value).ok()?;
@@ -1385,6 +1391,31 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
         difference |= left ^ right;
     }
     difference == 0
+}
+
+/// Ghostty's shell integration follows a prompt's `file://` report with
+/// `kitty-shell-cwd://HOST/PATH`, so that is the value a terminal keeps. Its
+/// path is raw bytes, not percent-encoded, and it needs the same local-host
+/// check as a `file://` report.
+fn kitty_shell_cwd_to_local_path(value: &str) -> Option<PathBuf> {
+    const SCHEME: &str = "kitty-shell-cwd://";
+    let rest = value
+        .get(..SCHEME.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(SCHEME))
+        .map(|_| &value[SCHEME.len()..])?;
+    let (host, path) = rest.split_at(rest.find('/')?);
+    if host.is_empty() || !terminal_pwd_host_is_local(host) || path.contains('\0') {
+        return None;
+    }
+    // `kitty-shell-cwd://host/C:/Users/me` keeps the URI's slash before a
+    // Windows drive, which a rooted Windows path does not have.
+    #[cfg(windows)]
+    let path = path
+        .strip_prefix('/')
+        .filter(|rest| windows_path_is_rooted_local_drive(rest))
+        .unwrap_or(path);
+    let path = PathBuf::from(path);
+    terminal_pwd_path_is_safe(&path).then_some(path)
 }
 
 fn terminal_pwd_path_is_safe(path: &Path) -> bool {
@@ -2082,6 +2113,16 @@ mod tests {
         // remote shell can emit one and otherwise redirect a local spawn.
         assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), None);
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn terminal_pwd_accepts_windows_drive_kitty_shell_cwd_reports() {
+        assert_eq!(
+            terminal_pwd_to_local_path("kitty-shell-cwd://localhost/C:/Users/me"),
+            Some(PathBuf::from("C:/Users/me"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost/Users/me"), None);
     }
 
     /// Ghostty's bash integration reports `kitty-shell-cwd://$HOSTNAME$PWD`

@@ -114,6 +114,16 @@
       "shapeMessage": "Go prend en charge 2 vCPU, 4 Gio de RAM et 16 Gio de disque.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "Quota de calcul {plan} épuisé",
+      "computeMessage": "Votre forfait {plan} a utilisé ses {included} heures de calcul pour cette période de facturation. Une heure de calcul correspond à 1 vCPU avec 2 Go de mémoire pendant une heure. Vos machines pourront redémarrer le {resetDate}.",
+      "computeAction": "Les machines en pause conservent leurs fichiers. Contactez le support si vous avez besoin de plus de calcul avant le {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Quota de disque {plan} épuisé",
+      "storageMessage": "Votre forfait {plan} inclut {included} Go de disque pour l'ensemble des machines enregistrées. Les machines enregistrées utilisent {used} Go, et cette demande nécessite {requested} Go.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Ressources Cloud VM insuffisantes",
       "memoryMessage": "Vos VMs utilisent déjà {used} Go de RAM sur {pool}. Cette VM a besoin de {requested} Go.",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Reprenez votre forfait pour le modifier.",
           "granted": "Accordé par cmux. Il n'y a rien à modifier.",
+          "grantedNoCancel": "Accordé par cmux, il n'y a donc rien à résilier.",
+          "paymentFailed": "Mettez à jour votre moyen de paiement avant de changer de forfait.",
+          "foundersLifetime": "Founder's Edition inclut Pro à vie.",
           "adminOnly": "Seuls les administrateurs de l'équipe peuvent modifier le forfait."
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "Basculer vers {plan} ?",
         "upgradeBody": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par mois.",
+        "upgradeBodyYearly": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par an.",
         "downgradeBody": "{plan} démarre maintenant. La partie non utilisée de votre forfait actuel, {credit}, est créditée sur vos prochaines factures. Votre prochaine facture, le {date}, est de {amount}.",
         "confirm": "Basculer vers {plan}",
         "keep": "Garder le forfait actuel",
@@ -568,6 +582,8 @@
         "title": "Résilier {plan} ?",
         "body": "Vous gardez {plan} jusqu'au {date}. Ensuite, vous perdez :",
         "bodyNoDate": "Vous gardez {plan} jusqu'à la fin de cette période de facturation. Ensuite, vous perdez :",
+        "foundersBody": "Votre abonnement {plan} se termine le {date}. Ensuite, vous avez Pro, que Founder's Edition inclut à vie.",
+        "foundersBodyNoDate": "Votre abonnement {plan} se termine à la fin de cette période de facturation. Ensuite, vous avez Pro, que Founder's Edition inclut à vie.",
         "reasonLabel": "Pourquoi résiliez-vous ? (facultatif)",
         "otherPlaceholder": "Dites-nous-en plus (facultatif)",
         "confirm": "Résilier le forfait",
@@ -2242,6 +2258,7 @@
           "currentLineHighlight": "Colore la ligne qui contient le curseur de texte tant que rien n’est sélectionné.",
           "tabWidth": "Nombre de colonnes couvertes par une tabulation. Les guides d’indentation utilisent le même espacement."
         },
+        "actions": "Actions réutilisables pour la palette de commandes, les raccourcis, les boutons de la barre d’onglets et le menu du bouton plus. Prend en charge builtin, command, agent, workspaceCommand, workspace, setting, settingPreset et text. Les actions de texte collent dans le terminal actif en conservant les sauts de ligne ; submit: true appuie sur Enter. Les actions de réglage nécessitent une configuration globale.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

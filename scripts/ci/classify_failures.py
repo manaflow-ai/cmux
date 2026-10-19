@@ -44,9 +44,9 @@ cancels a stuck run before its own full re-run, and a re-run of failed jobs
 here would pre-empt it.
 
 A code or unknown job's failed steps also give its concrete failures
-(extract_failures: failed tests with file:line, compile errors, crashes,
-warning-budget overages, CLI help contract failures; system and cache `error:`
-noise dropped), and each gets an owner:
+(extract_failures: failed tests with file:line, bun's failed web tests with
+their file, compile errors, crashes, warning-budget overages, CLI help contract
+failures; system and cache `error:` noise dropped), and each gets an owner:
 
   yours             its file is one the pull request changes, or tests one
   also red on main  main's latest red full-suite run (the data main_full_suite.py
@@ -90,6 +90,8 @@ from guard_attribution import (  # noqa: E402
     upsert_comment,
 )
 import ui_tests_dispatch  # noqa: E402
+import web_test_failure_census  # noqa: E402
+from test_touches_diff import RUNNER_FILES  # noqa: E402
 from pr_runner_pool import LAST_OWNED_ATTEMPT  # noqa: E402
 
 MACHINE, CODE, DERIVED, UNKNOWN = "machine", "code", "derived", "unknown"
@@ -175,6 +177,7 @@ SIGNATURES = (
     sig("guard-failed", CODE, r"^\s*FAIL\s+[\d.]+s\s", "a guard step failed"),
     sig("static-check-failed", CODE, r"^FAILED \S+ \(\d", "a static check failed"),
     sig("unittest-failure", CODE, r"^(?:FAIL|ERROR): test\w* \(", "a Python test failed"),
+    sig("bun-test-failure", CODE, r"^\(fail\) ", "a web test failed"),
 )
 
 
@@ -254,7 +257,8 @@ def classify_jobs(jobs: Iterable[Mapping], texts: Mapping[int, tuple[str, list[s
         if result["verdict"] == DERIVED:
             continue
         # A machine job's test failures are not evidence about the code (SIGNATURES).
-        result["failures"] = extract_failures(*text) if result["verdict"] != MACHINE else []
+        result["failures"] = extract_failures(*text, web_root=web_root(job.get("name"))) \
+            if result["verdict"] != MACHINE else []
         step = next((s.get("name") for s in job.get("steps") or [] if s.get("conclusion") in RED), None)
         if result["verdict"] == UNKNOWN:
             result["why"] = ("timed out" if job.get("conclusion") == "timed_out" else "no known signature") + (
@@ -312,6 +316,12 @@ MAX_FAILURE_MESSAGE_CHARS = 160
 MAX_CLI_DETAILS = 3
 
 
+def web_root(job_name: object) -> str:
+    """Where a job's bun test paths start: `web/` for a `web / Web tests (N/4)` shard (ci-web.yml runs
+    it in web/), "" (as printed) for any other job."""
+    return "web/" if web_test_failure_census.shard_of(str(job_name or "")) is not None else ""
+
+
 def repo_path(path: str) -> str:
     """A log's absolute source path relative to the repository, or as printed."""
     found = REPO_ROOTS.search(path)
@@ -342,10 +352,14 @@ def where(item: Mapping) -> str:
     return f"{name}:{item['line']}" if name and item.get("line") else name
 
 
-def extract_failures(text: str, annotations: Iterable[str] = ()) -> list[dict]:
-    """The concrete failures in one job's failed steps, deduplicated, at most MAX_FAILURES_PER_JOB."""
-    lines = [line.replace("\u200b", "").strip()
-             for failed, step in log_steps(text) if failed for line in step]
+def extract_failures(text: str, annotations: Iterable[str] = (), web_root: str = "") -> list[dict]:
+    """The concrete failures in one job's failed steps, deduplicated, at most MAX_FAILURES_PER_JOB.
+
+    bun's `(fail) describe > test [ms]` lines are read by web_test_failure_census.parse_log, which
+    takes each test's file from the `##[group]tests/foo.test.ts:` header before it; `web_root` is
+    where those paths start (web_root()). A test bun names only in its closing summary keeps no file."""
+    failed_steps = [step for failed, step in log_steps(text) if failed]
+    lines = [line.replace("\u200b", "").strip() for step in failed_steps for line in step]
     lines += [a.strip() for note in annotations for a in str(note).splitlines()]
     found: list[dict] = []
     for index, line in enumerate(lines):
@@ -381,6 +395,9 @@ def extract_failures(text: str, annotations: Iterable[str] = ()) -> list[dict]:
                                          int(groups["line"]) if groups.get("line") else None,
                                          message=match["message"]))
                     break
+    for test in web_test_failure_census.parse_log("\n".join(line for step in failed_steps for line in step)):
+        found.append(failure("test", web_root + test["file"] if test["file"] else "", test=test["test"],
+                             message=test["message"] or "failed"))
     return dedupe(found)[:MAX_FAILURES_PER_JOB]
 
 
@@ -413,7 +430,9 @@ def owner(item: Mapping, changed: Iterable[str], main_keys: Iterable[str]) -> tu
     """(ownership, why) for one concrete failure.
 
     yours            its file is one the pull request changes, or it tests one
-                     (FooTests.swift and Foo.swift), or its suite is that file's
+                     (FooTests.swift and Foo.swift), or its suite is that file's; a
+                     web test's when the PR changes its runner (test_touches_diff's
+                     RUNNER_FILES: package.json, bun.lock, bunfig.toml, ...)
     also red on main main's latest completed full-suite run fails the same way
     new in this PR   otherwise: main does not show it, so it is most likely the PR's
     """
@@ -434,6 +453,10 @@ def owner(item: Mapping, changed: Iterable[str], main_keys: Iterable[str]) -> tu
             return YOURS, "a file this PR changes"
         if same:
             return YOURS, f"this PR changes {len(same)} files named {name}"
+    if item.get("kind") == "test" and path.startswith("web/"):
+        runner = sorted(RUNNER_FILES.intersection(changed))
+        if runner:
+            return YOURS, f"this PR changes the web test runner ({runner[0]})"
     if stem.endswith("Tests") and stem.removesuffix("Tests") in stems:
         return YOURS, f"tests {stem.removesuffix('Tests')}.swift, which this PR changes"
     if failure_key(item) in set(main_keys):

@@ -41,6 +41,7 @@ import Testing
         #expect(AgentRestoreLaunch(kind: "codex", sessionID: "not-a-session-id") == nil)
         #expect(AgentRestoreLaunch(kind: "amp", sessionID: sessionID) == nil)
         #expect(AgentRestoreLaunch(kind: "amp", sessionID: "not-an-amp-thread") == nil)
+        #expect(AgentRestoreLaunch(kind: "antigravity", sessionID: "contains spaces") == nil)
         #expect(AgentRestoreLaunch(kind: nil, sessionID: sessionID) == nil)
         #expect(AgentRestoreLaunch(kind: "claude", sessionID: nil) == nil)
     }
@@ -54,6 +55,16 @@ import Testing
         #expect(launch.customExecutablePathEnvironmentKey == "CMUX_CUSTOM_AMP_PATH")
         #expect(launch.authorizationEnvironmentValue == "amp:\(threadID)")
         #expect(launch.portableWrapperShellCommand(posixCommand: "amp threads continue").hasPrefix("/bin/sh -c "))
+    }
+
+    @Test func antigravityProviderOwnsOpaqueConversationAndWrapperConfiguration() throws {
+        let conversationID = "antigravity-conversation-123"
+        let launch = try #require(AgentRestoreLaunch(kind: " Antigravity ", sessionID: conversationID))
+
+        #expect(launch.executableName == "agy")
+        #expect(launch.wrapperShimEnvironmentKey == "CMUX_AGY_WRAPPER_SHIM")
+        #expect(launch.customExecutablePathEnvironmentKey == "CMUX_CUSTOM_ANTIGRAVITY_PATH")
+        #expect(launch.authorizationEnvironmentValue == "antigravity:\(conversationID)")
     }
 
     @Test func preflightInvocationRequiresExecutableArgument() throws {
@@ -660,6 +671,54 @@ import Testing
         )
     }
 
+    @Test func directCodexRestoreIgnoresInheritedSubrouterRoutingFromSpacedBundlePath() throws {
+        let bundleBin = "/Applications/cmux 2.app/Contents/Resources/bin"
+        let shim = "/Users/me/Library/Application Support/cmux/cmux-cli-shims/surface/codex"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [:]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { $0 == shim }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "PATH": "\(bundleBin):/usr/bin:/bin",
+                    "CMUX_CODEX_WRAPPER_SHIM": shim,
+                    "CMUX_CUSTOM_CODEX_PATH": "/Users/me/bin/sr",
+                    "SUBROUTER_CODEX_BIN": "/Users/me/bin/sr",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ]
+            )
+        )
+
+        #expect(invocation.arguments.first == shim)
+        #expect(invocation.arguments.dropFirst().starts(with: ["resume", sessionID]))
+        #expect(invocation.arguments.contains("model_provider=subrouter"))
+        #expect(invocation.arguments.contains("sr") == false)
+        #expect(invocation.codexResumeSessionID == sessionID)
+        #expect(invocation.environment["PATH"] == "\(bundleBin):/usr/bin:/bin")
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "codex:\(sessionID)")
+        #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == nil)
+        #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == nil)
+        #expect(invocation.environment[SubrouterCodexResumeRouting.environmentKey] == nil)
+        #expect(invocation.environment[SubrouterCodexResumeRouting.launchBoundEnvironmentKey] == nil)
+    }
+
     @Test func managedRestoreUsesCapturedExecutableWhenWrapperShimIsUnavailable() throws {
         let executable = "/opt/custom tools/codex"
         let request = AgentRestoreRequest(
@@ -686,6 +745,76 @@ import Testing
         #expect(invocation.arguments.first == executable)
         #expect(invocation.arguments.dropFirst().starts(with: ["resume", sessionID]))
         #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == executable)
+    }
+
+    @Test func antigravityRestoreUsesWrapperShimAndCapturedExecutable() throws {
+        let executable = "/opt/antigravity preview/bin/agy"
+        let conversationID = "antigravity-conversation-123"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "antigravity",
+            checkpointID: conversationID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                executablePath: executable,
+                arguments: [executable, "--sandbox", "danger-full-access"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == "/shim/agy" }
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_AGY_WRAPPER_SHIM": "/shim/agy",
+            ]
+        ))
+
+        #expect(invocation.arguments == [
+            "/shim/agy", "--conversation", conversationID,
+            "--sandbox", "danger-full-access",
+        ])
+        #expect(invocation.environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] == executable)
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "antigravity:\(conversationID)")
+    }
+
+    @Test func antigravityAliasRestoreUsesWrapperShimAndCapturedExecutable() throws {
+        let executable = "/opt/antigravity preview/bin/antigravity"
+        let conversationID = "antigravity-conversation-alias-123"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "antigravity",
+            checkpointID: conversationID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                executablePath: executable,
+                arguments: [executable, "--sandbox", "danger-full-access"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == "/shim/agy" }
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_AGY_WRAPPER_SHIM": "/shim/agy",
+            ]
+        ))
+
+        #expect(invocation.arguments == [
+            "/shim/agy", "--conversation", conversationID,
+            "--sandbox", "danger-full-access",
+        ])
+        #expect(invocation.environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] == executable)
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "antigravity:\(conversationID)")
     }
 
     @Test func preparedArgumentsOverrideSynthesisForAnEmptyCapture() throws {
