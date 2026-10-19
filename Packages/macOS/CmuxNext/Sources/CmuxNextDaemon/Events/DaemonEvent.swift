@@ -98,6 +98,8 @@ extension DaemonEvent {
         case .connected, .disconnected, .daemonShutdown, .sessionState: true
         // Transient questions to this connection; a snapshot never holds them.
         case .terminalClipboardRead, .terminalClipboardReadCancelled: true
+        // Terminal outcomes live outside list-workspaces, including background jobs.
+        case .terminalRegistryChanged: true
         // Agent state and presence are not in the tree snapshot (only `list-agents` at connect
         // and these events carry them). A blocked hook also posts a notification, whose tree
         // change resyncs; dropping its `agent-changed` behind that snapshot left the row on
