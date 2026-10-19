@@ -6,9 +6,10 @@ import Testing
 
 /// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
 /// (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default, cx-23e1f) on a tab; with one open, another
-/// tab takes it over at once; leaving the tab hides it at once, also onto the card's own area
-/// (nothing on the card takes the pointer); a tab reached within the reshow window (a gap
-/// between tabs) shows its card at once. The delays run on a manual clock the test moves.
+/// tab takes it over at once; leaving the tab hides it at once; a tab reached within the reshow
+/// window (a gap between tabs) shows its card at once. Lawrence 2026-10-19: the card touches its
+/// tab, and the pointer moving from the tab onto the card keeps it. The delays run on a manual
+/// clock the test moves.
 @MainActor @Suite(.serialized) struct TabHoverCardTimingTests {
     private struct Strip {
         let strip: TabStripView
@@ -112,14 +113,21 @@ import Testing
         #expect(s.shows("c"), "the open card did not swap to the next tab at once")
     }
 
-    @Test func leavingTheTabHidesTheCardAtOnceAlsoOntoTheCard() async throws {
+    @Test func theCardStaysWithThePointerOnItAndLeavingTheTabElsewhereHidesIt() async throws {
         let s = Self.strip()
         defer { s.tearDown() }
         try await Self.open("a", s)
         let card = try s.cardFrame()
-        // Straight down from the tab into the card: nothing on it takes the pointer.
+        // Straight down from the tab onto the card: it stays, also resting there past the grace.
         s.move(to: CGPoint(x: card.midX, y: card.midY))
-        #expect(!s.showsAny, "the card stayed with the pointer on it")
+        #expect(s.shows("a"), "the card hid as the pointer moved from its tab onto it")
+        try await s.clock.waitForSleeper()
+        s.clock.advance(by: HoverCardTiming.reshowWindow + .milliseconds(100))
+        try await Self.settle()
+        #expect(s.shows("a"), "the card hid with the pointer resting on it")
+        // Off the card, past its far edge (the strip is flipped: y grows down): it hides at once.
+        s.move(to: CGPoint(x: card.midX, y: card.maxY + 40))
+        #expect(!s.showsAny, "the card stayed after the pointer left it")
         // Back onto a tab within the grace: its card at once.
         s.move(to: try s.center("b"))
         #expect(s.shows("b"), "a tab reached within the grace waited for the delay")
