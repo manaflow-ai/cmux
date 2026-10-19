@@ -74,6 +74,24 @@ import Testing
         #expect((radii.min() ?? 0) > 0)
     }
 
+    /// The sidebar configures a new row before it lays it out: the turn starts on a zero frame and
+    /// must follow the slot once the row has one, not hold every dot at the corner.
+    @Test func dotsShownBeforeLayoutOrbitTheSlotOnceItHasAFrame() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let indicator = StatusIndicatorLayer()
+        indicator.apply(Self.plan(.working), config: StatusIndicatorConfig(iconSet: .orbit))
+        indicator.frame = CGRect(x: 0, y: 0, width: 10, height: 10)
+        let replicator = try #require(indicator.orbitLayer)
+        let dot = try #require(replicator.sublayers?.first)
+        let orbit = try #require(dot.animation(forKey: "orbit") as? CAKeyframeAnimation)
+        let center = CGPoint(x: replicator.bounds.midX, y: replicator.bounds.midY)
+        let radii = (orbit.values ?? []).compactMap { ($0 as? NSValue)?.pointValue }.map { hypot($0.x - center.x, $0.y - center.y) }
+        let (outer, _) = StatusIndicatorLayer.orbitRadii(side: replicator.bounds.width)
+        #expect(replicator.bounds.width > 0)
+        #expect(abs((radii.max() ?? 0) - outer) < 0.01, "the turn's widest radius \(radii.max() ?? 0), want \(outer)")
+    }
+
     @Test func aStoppedOrbitIsFourDotsOnTheAxes() throws {
         let indicator = StatusIndicatorLayer()
         indicator.frame = CGRect(x: 0, y: 0, width: 10, height: 10)

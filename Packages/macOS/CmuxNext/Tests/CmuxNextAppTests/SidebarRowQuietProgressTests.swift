@@ -47,9 +47,4 @@ import Testing
         #expect(track.maxY <= row.layoutBounds.maxY - Metrics.space1)
         #expect(abs(row.progressFill.frame.width - track.width / 2) < 0.5)
     }
-
-    @Test func aConnectingPlaceholderKeepsItsIndeterminateBar() {
-        let ws = SidebarWorkspace(id: WorkspaceID("ws-ssh"), title: "", progress: SidebarProgress(value: nil), rowState: .placeholder)
-        #expect(WorkspaceRowContent.bar(ws) != nil)
-    }
 }

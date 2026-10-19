@@ -13,6 +13,7 @@ import Testing
     private static let done = WorkspaceID("ws-mark-done")
     private static let quiet = WorkspaceID("ws-mark-quiet")
     private static let agent = WorkspaceID("ws-mark-agent")
+    private static let connecting = WorkspaceID("ws-mark-connecting")
     private static let runningTab = TabID("tab-running")
     private static let quietTab = TabID("tab-quiet")
 
@@ -82,6 +83,24 @@ import Testing
         }
     }
 
+    @Test func aConnectingRowKeepsTheSlotSoItsTitleLandsOnTheColumn() throws {
+        try Self.withSide(.left) {
+            let sidebar = Self.sidebar()
+            let connecting = try Self.row(sidebar, Self.connecting), quiet = try Self.row(sidebar, Self.quiet)
+            #expect(connecting.activity.state == .idle)
+            #expect(abs(connecting.title.frame.minX - quiet.title.frame.minX) < 0.5,
+                    "a connecting row's title at \(connecting.title.frame.minX), the others at \(quiet.title.frame.minX)")
+        }
+    }
+
+    @Test func aRowSpeaksTheStateItDraws() throws {
+        try Self.withSide(.left) {
+            let row = try Self.row(Self.sidebar(), Self.done)
+            let done = try #require(Strings.activity(.success))
+            #expect(row.accessibilityLabel()?.contains(done) == true, "\(row.accessibilityLabel() ?? "")")
+        }
+    }
+
     // MARK: Fixtures
 
     /// Runs `body` with the Status icon row badge on `side` (nil: the defaults). The store is
@@ -111,6 +130,7 @@ import Testing
             SidebarWorkspace(id: failing, title: "api", kind: .terminal, unread: .count(2), activity: .error),
             SidebarWorkspace(id: done, title: "web", kind: .terminal, unread: .count(1)),
             SidebarWorkspace(id: quiet, title: "docs", kind: .terminal),
+            SidebarWorkspace(id: connecting, title: "", progress: SidebarProgress(value: nil), rowState: .placeholder),
             SidebarWorkspace(id: agent, title: "cmux-next", agentWorking: true, kind: .harness, activity: .working, tabs: tabs),
         ]
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: rows.map { .workspace($0) })])
@@ -118,6 +138,8 @@ import Testing
         design.sidebarSections.showWorkspaceTabs = true
         let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        // The settings (showWorkspaceTabs) reach the list on an observation a turn later; draw them now.
+        sidebar.renderNow()
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
