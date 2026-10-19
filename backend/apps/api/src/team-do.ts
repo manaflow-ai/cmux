@@ -625,9 +625,12 @@ export class TeamDO extends OwnerDO<TeamState> {
     const authority_version = teamAuthorityVersion(entity, user, role, state.team.kind, currentPolicy(state).version, this.rows)
     return { role, display_name: state.team.display_name, kind: state.team.kind, ...reference, authority_version }
   }
-  /** The implicit personal owner before creation; a bound but missing/deleted membership never falls back. */
+  /** Read-only sign-in checks may bind empty storage; created or deleted membership never falls back. */
   async personalScopeAuthority(entity: string, user: string): Promise<string | null> {
-    return !this.isBound(entity) && entity === personalTeamIdFor(user) ? teamAuthorityVersion(entity, user, "owner", "personal", 0) : (await this.membership(entity, user))?.authority_version ?? null
+    if (entity !== personalTeamIdFor(user)) return null
+    const engine = this.isBound(entity) ? this.bind(entity) : undefined
+    if (!engine || (engine.currentSeq === 0 && !engine.currentState.team && currentPolicy(engine.currentState).version === 0)) return teamAuthorityVersion(entity, user, "owner", "personal", 0)
+    return (await this.membership(entity, user))?.authority_version ?? null
   }
   async memberRole(entity: string, user: string): Promise<string | null> { return (await this.membership(entity, user))?.role ?? null } // team selection (x-cmux-team)
   async noOwner(entity: string): Promise<boolean> { return this.isBound(entity) && noOwnerOf(this.bind(entity).currentState) } // RPC from TeamVmDO's team_vm.status (review P2-3)
