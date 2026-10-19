@@ -7,7 +7,7 @@ command before rerunning, de-flaking or holding the merge:
 python3 scripts/ci/web_test_verdict.py --pr 21651
 ```
 
-It's built not to run the PR's code (see [What runs](#what-runs)). It prints one line per failed test file, for example:
+On Linux it reads the PR's code only inside a sandbox (see [What runs](#what-runs)). It prints one line per failed test file, for example:
 
 > `tests/vm-route-deadlines.test.ts`: **also red on main**. 1 other failure in 7 days (1 on main, 0 other PR branches); vm-route-deadlines.test.ts imports 1 changed file(s); 2 of 2 failure(s) here passed on a re-run of the same SHA
 
@@ -41,18 +41,21 @@ Each part also runs on its own:
 
 ## What runs
 
-- bun runs `with { type: "macro" }` imports while bundling, and `--no-macros`
-  doesn't stop it. So the check fails closed: it refuses to bundle ("can't
-  analyse safely") when any file in the head's `web/` has an import attribute
-  clause, passes attributes to `import()`, or has a package.json that mentions
-  macros. The head's bunfig.toml is read as data and never handed to bun.
-- bun gets only `PATH`, `LANG`, `LC_ALL`, `TERM`, and a throwaway `HOME` and
-  `TMPDIR`. On Linux it runs in a user namespace (`unshare`) with no network
-  and your home directory hidden behind an empty tmpfs.
-- On macOS there's no such sandbox: bun runs as you and can read your files,
-  and the output says so. `--coverage` is then refused unless you pass
-  `--allow-unsandboxed`. For a PR you don't trust, run the check on a Linux
-  machine or a throwaway VM instead.
+- **The sandbox is the guarantee.** bun touches the PR head only in a Linux
+  user namespace (`unshare`): no network, your home directory hidden behind
+  an empty tmpfs, and an environment of just `PATH`, `LANG`, `LC_ALL`, `TERM`
+  and a throwaway `HOME` and `TMPDIR`.
+- **No sandbox, no bundle.** On macOS, or wherever user namespaces are off,
+  the import graph is skipped ("can't analyse safely"; the history still
+  prints) unless you pass `--allow-unsandboxed`. That runs bun as you, so use
+  it only for a PR you'd run anyway. It's refused for forks, as `--coverage` is.
+  For an untrusted PR, use a Linux machine or a throwaway VM.
+- **The scan is a second line of defence.** bun runs `with { type: "macro" }`
+  imports while bundling, and `--no-macros` doesn't stop it. So the check also
+  refuses heads with any import attribute clause, attributes passed to
+  `import()`, a package.json mentioning macros, or a symlink. JS line
+  terminators and whitespace are normalised first. The head's bunfig.toml is
+  read as data and never handed to bun.
 
 ## Cost and limits
 

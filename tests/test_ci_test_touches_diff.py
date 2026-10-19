@@ -136,6 +136,13 @@ class FailClosed(unittest.TestCase):
         "re-export": 'export { b } from "./m" with { type: "macro" };',
         "dynamic": 'const m = await import("./m", { with: { type: "macro" } });',
         "dynamic quoted": 'const m = await import("./m", { "assert": { type: "macro" } });',
+        # JS ends a // comment at CR, LS and PS too, and treats BOM and NBSP as whitespace.
+        "comment ended by CR": 'import { b } from "./m" //x\rwith { type: "macro" };',
+        "comment ended by LS": 'import { b } from "./m" //x\u2028with { type: "macro" };',
+        "comment ended by PS": 'import { b } from "./m" //x\u2029with { type: "macro" };',
+        "BOM as whitespace": 'import { b } from "./m"\ufeffwith\ufeff{ type: "macro" };',
+        "NBSP as whitespace": 'import { b } from "./m"\u00a0with {type:"macro"};',
+        "CRLF lines": 'import { b } from "./m"\r\nwith\r\n{ type: "macro" };',
     }
     SAFE = {
         "doc comment": "/** Rejects with {@link VmModelPlaneError}; the workflow fails. */\nexport const a = 1;",
@@ -161,6 +168,22 @@ class FailClosed(unittest.TestCase):
             with self.subTest(label):
                 self.assertEqual(self.reasons({"lib/a.ts": text}), [], label)
 
+    def test_symlinks_and_oversized_files_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "lib").mkdir()
+            (root / "lib" / "link.ts").symlink_to("/etc/hostname")
+            (root / "lib" / "big.ts").write_text("x" * (touches.MAX_SCAN_BYTES + 1))
+            reasons = touches.unsafe_reasons(root)
+        self.assertEqual(reasons, ["lib/big.ts is too large to scan", "lib/link.ts is a symlink"])
+
+    def test_a_crafted_file_cannot_make_the_scan_slow(self):
+        import time
+        crafted = '"' + "/*" + "*" * 200_000 + ' with x' * 20_000
+        started = time.monotonic()
+        self.reasons({"lib/a.ts": crafted})
+        self.assertLess(time.monotonic() - started, 5)
+
     def test_a_package_json_that_mentions_macros_is_refused(self):
         self.assertTrue(self.reasons({"package.json": '{"macros": {"x": "./m"}}'}))
         self.assertEqual(self.reasons({"package.json": '{"name": "web"}'}), [])
@@ -182,6 +205,11 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(touches.test_path("tests/a.test.ts"), "web/tests/a.test.ts")
         self.assertEqual(touches.test_path("./tests/a.test.ts"), "web/tests/a.test.ts")
         self.assertEqual(touches.test_path("web/tests/a.test.ts"), "web/tests/a.test.ts")
+
+
+# The fixture repositories below are this test's own, so it vouches for them where
+# there's no sandbox (macOS); on Linux they run sandboxed anyway.
+TRUSTED = True
 
 
 @unittest.skipUnless(shutil.which("bun") and shutil.which("git"), "needs bun and git")
@@ -221,7 +249,7 @@ class RealBundle(unittest.TestCase):
         target.write_text(text)
 
     def test_checked_out_head(self):
-        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", allow_unsandboxed=TRUSTED)
         files = by_file(report["files"])
         self.assertEqual(report["entries"], ["tests/a.test.ts", "tests/preload.ts"])
         self.assertEqual(files["web/lib/used.ts"]["verdict"], "imported")
@@ -230,7 +258,7 @@ class RealBundle(unittest.TestCase):
 
     def test_extracted_head_when_the_checkout_is_elsewhere(self):
         self.git("checkout", "-q", "HEAD~1")
-        report = touches.check(self.repo, "web/tests/a.test.ts", "main~1", "main")
+        report = touches.check(self.repo, "web/tests/a.test.ts", "main~1", "main", allow_unsandboxed=TRUSTED)
         self.assertEqual(by_file(report["files"])["web/lib/used.ts"]["verdict"], "imported")
 
     def test_a_macro_in_the_head_is_refused_and_never_run(self):
@@ -244,18 +272,31 @@ class RealBundle(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", "macro")
         with self.assertRaises(touches.UnsafeToAnalyse) as raised:
-            touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+            touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", allow_unsandboxed=TRUSTED)
         self.assertIn("tests/a.test.ts has an import attribute clause", str(raised.exception))
         self.assertFalse(canary.exists(), "bun build ran the head's macro")
+
+    def test_without_a_sandbox_bun_never_sees_the_head(self):
+        original = touches.can_sandbox
+        touches.can_sandbox = lambda: False
+        try:
+            with self.assertRaises(touches.UnsafeToAnalyse) as raised:
+                touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+            self.assertIn("no sandbox", str(raised.exception))
+            # A caller vouching for the commit gets the graph, unsandboxed.
+            report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", allow_unsandboxed=True)
+            self.assertFalse(report["sandboxed"])
+        finally:
+            touches.can_sandbox = original
 
     def test_deleted_files_are_listed(self):
         self.git("rm", "-q", "web/lib/other.ts")
         self.git("commit", "-qm", "delete")
-        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", allow_unsandboxed=TRUSTED)
         self.assertEqual(report["deleted"], ["web/lib/other.ts"])
 
     def test_coverage_sees_that_the_changed_function_never_runs(self):
-        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", coverage=True)
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", coverage=True, allow_unsandboxed=TRUSTED)
         used = by_file(report["files"])["web/lib/used.ts"]
         self.assertEqual(used["verdict"], "not executed", used)
         self.assertFalse(report["touches"])

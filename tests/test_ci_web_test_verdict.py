@@ -60,6 +60,9 @@ class Decide(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 verdict.refuse_fork_coverage({"number": 2, "head": head}, "manaflow-ai/cmux")
             self.assertIn("--coverage would run its code", str(raised.exception))
+        with self.assertRaises(SystemExit) as raised:
+            verdict.refuse_fork_coverage({"number": 2, "head": {"repo": None}}, "manaflow-ai/cmux", "--allow-unsandboxed")
+        self.assertIn("--allow-unsandboxed would run its code", str(raised.exception))
 
     def test_log_text_cannot_format_or_mention_in_the_comment(self):
         self.assertEqual(verdict.safe("a `b`\n@team [x](y)"), "`a 'b' @\u200bteam [x](y)`")

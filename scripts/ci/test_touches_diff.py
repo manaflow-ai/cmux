@@ -27,20 +27,22 @@ blaming the diff.
 The default check needs only git and bun, and is built not to run the head's
 code. The head's web/ is extracted with `git archive` (the commit must exist
 locally: `git fetch origin pull/N/head`). The check then refuses, as "can't
-analyse safely" (exit 2), any tree where bundling could run code: an import
+analyse safely" (exit 2), any tree where bundling might run code: a symlink, an import
 attribute clause anywhere (bun runs `with { type: "macro" }` imports while
 bundling), import() with attributes, or a package.json that mentions macros.
 The head's bunfig.toml is read as data and never handed to bun.
 
-bun always gets an allowlisted environment (PATH, LANG, LC_ALL, TERM, and a
-throwaway HOME and TMPDIR). On Linux it also runs in a user namespace with no
-network and your home directory hidden. Elsewhere (macOS) it runs as you and
-can read your files; the output says so.
+The sandbox is the guarantee. bun runs only in a Linux user namespace with
+no network and your home directory hidden, and with an allowlisted
+environment (PATH, LANG, LC_ALL, TERM, and a throwaway HOME and TMPDIR).
+Without user namespaces (macOS), the check refuses ("can't analyse safely")
+unless you pass --allow-unsandboxed, which means bun runs as you and can read
+your files: only for a commit you trust. The attribute scan above is a
+second line of defence, not the guarantee.
 
 --coverage RUNS THE HEAD'S TEST CODE, with this checkout's web/node_modules,
-under the same sandbox. It's refused without one unless you pass
---allow-unsandboxed, and web_test_verdict.py refuses it for fork pull
-requests. Use it only on commits you trust.
+under the same rules. web_test_verdict.py refuses it, and any unsandboxed
+run, for fork pull requests.
 
 What it cannot see, and says so in its output: a test that reads a file at
 run time (fs, fetch, spawn), import() of a computed path, `mock.module()`
@@ -145,35 +147,50 @@ class UnsafeToAnalyse(Exception):
 
 
 SOURCE = re.compile(r"\.(?:[cm]?[jt]sx?|json)$")
-# Comments bun allows between a module specifier and its attribute clause.
-_GAP = r"(?:\s|/\*.*?\*/|//[^\n]*\n)*"
+# A second line of defence: the sandbox (run_bun) is what keeps head code off the host.
+# Every JS line terminator becomes \n and every JS whitespace character a space before
+# matching, so a comment can't end where the pattern doesn't expect it.
+_TERMINATORS = re.compile("\r\n?|[\u2028\u2029]")
+_WHITESPACE = re.compile("[\ufeff\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\t\v\f]")
+# Whitespace and comments bun allows between tokens. The block-comment form is the unrolled,
+# linear one, so a crafted file can't make the scan quadratic.
+_GAP = r"(?:[ \n]|/\*[^*]*\*+(?:[^/*][^*]*\*+)*/|//[^\n]*(?:\n|$))*"
 # bun runs `import x from "./m" with { type: "macro" }` while bundling, and bun 1.3's
-# --no-macros does not stop it. Rather than recognise macros (a denylist), the check
-# refuses any attribute clause after a module specifier: nothing in web/ uses one, and
-# a spelling this misses must still be a specifier, the keyword and a brace.
-ATTRIBUTE_CLAUSE = re.compile(r"""["'`]""" + _GAP + r"(?:with|assert)" + _GAP + r"\{", re.DOTALL)
+# --no-macros does not stop it. Rather than recognise macros (a denylist), any attribute
+# clause after a module specifier is refused: nothing in web/ uses one.
+ATTRIBUTE_CLAUSE = re.compile(r"""["'`]""" + _GAP + r"(?:with|assert)" + _GAP + r"\{")
 # import(specifier, { with: {...} }) carries attributes too, so any options argument
 # naming with/assert counts.
-DYNAMIC_OPTIONS = re.compile(r"\bimport" + _GAP + r"\([^;]{0,400}?[\"']?\b(?:with|assert)\b[\"']?" + _GAP + r":",
-                             re.DOTALL)
+DYNAMIC_OPTIONS = re.compile(r"\bimport" + _GAP + r"\([^;]{0,400}?[\"'`]?\b(?:with|assert)\b[\"'`]?" + _GAP + r":")
+MAX_SCAN_BYTES = 2_000_000
 # bun's config files: withheld from bun, and package.json may remap imports to macros.
 BUN_CONFIG = ("bunfig.toml", ".bunfig.toml")
 
 
+def normalized(text: str) -> str:
+    return _WHITESPACE.sub(" ", _TERMINATORS.sub("\n", text))
+
+
 def unsafe_reasons(web_root: Path) -> list[str]:
-    """Why bundling this tree could run its code, or [] when it can't (fail closed)."""
+    """Why bundling this tree could run its code, or [] when nothing was found (fail closed)."""
     reasons = []
     for path in sorted(web_root.rglob("*")):
+        rel = str(path.relative_to(web_root))
+        if path.is_symlink():
+            reasons.append(f"{rel} is a symlink")
+            continue
         if not path.is_file():
             continue
-        rel = str(path.relative_to(web_root))
         if path.name == "package.json":
             if "macro" in path.read_text(errors="replace").lower():
                 reasons.append(f"{rel} mentions macros")
             continue
         if not SOURCE.search(path.name) or path.suffix == ".json":
             continue
-        text = path.read_text(errors="replace")
+        if path.stat().st_size > MAX_SCAN_BYTES:
+            reasons.append(f"{rel} is too large to scan")
+            continue
+        text = normalized(path.read_text(errors="replace"))
         if ATTRIBUTE_CLAUSE.search(text):
             reasons.append(f"{rel} has an import attribute clause")
         elif DYNAMIC_OPTIONS.search(text):
@@ -414,9 +431,11 @@ def check(repo: Path, test: str, base: str | None, head: str, *, changed: list[s
     head_sha = str(git(repo, "rev-parse", f"{head}^{{commit}}")).strip()
     deleted = deleted_files(repo, base, head) if base else []
     sandbox = can_sandbox()
-    if coverage and not sandbox and not allow_unsandboxed:
-        raise SystemExit("--coverage runs the head's code and this machine can't sandbox it (needs Linux user "
-                         "namespaces); pass --allow-unsandboxed to run it with your file access anyway")
+    # The sandbox is the guarantee: without one, bun never touches the head unless the caller
+    # vouches for the commit (web_test_verdict.py never does for a fork).
+    if not sandbox and not allow_unsandboxed:
+        raise UnsafeToAnalyse("can't analyse safely: no sandbox here (needs Linux user namespaces), and bun "
+                              "could run the head's code; pass --allow-unsandboxed only for a commit you trust")
     # Outside the home directory, so the sandbox can hide all of it.
     tmp_root = "/tmp" if Path("/tmp").is_dir() else None
     with tempfile.TemporaryDirectory(prefix="test-touches-diff-", dir=tmp_root) as tmp:
@@ -523,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--coverage", action="store_true",
                         help="also RUN the head's test (trusted commits only) to see whether changed lines execute")
     parser.add_argument("--allow-unsandboxed", action="store_true",
-                        help="let --coverage run without a sandbox (macOS); the test can read your files")
+                        help="run bun on the head without a sandbox (macOS): only for commits you trust")
     parser.add_argument("--repo", type=Path, default=None)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
