@@ -53,12 +53,18 @@ pub fn serve_with<R: BufRead + Send + 'static, W: Write>(
     server.request_link_details();
     send_events(&mut server, &waker)?;
     while let Some(next) = server.control_plane_mut().next_step()? {
+        let invalidated =
+            matches!(&next, Next::Message(message) if message["type"] == "scope.invalidate");
         if let Next::Message(message) = next
             && let Some(answer) = answer(&mut server, message)
         {
             server.control_plane_mut().send(&answer)?;
         }
         send_events(&mut server, &waker)?;
+        // The parent retires this process, rather than reusing its queued events in a new scope.
+        if invalidated {
+            break;
+        }
     }
     Ok(())
 }

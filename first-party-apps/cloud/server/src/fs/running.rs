@@ -238,6 +238,11 @@ impl Transfers {
         let spawned =
             std::thread::Builder::new().name("cmux-cloud-transfer".into()).spawn(move || {
                 let result = transfer.run(&job, &cancel);
+                // The loop can already have forgotten this scope. Remove a pull's
+                // landing after its last possible write, even when nobody keeps the job.
+                if cancel.is_cancelled() && job.direction == Direction::Pull {
+                    let _ = std::fs::remove_file(&job.local);
+                }
                 // A closed channel means the server is gone: nothing waits.
                 if done.send(Done { id: worker_id, result }).is_ok()
                     && let Some(wake) = wake
