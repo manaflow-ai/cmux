@@ -1,8 +1,8 @@
-import Foundation
+public import Foundation
 
 /// Runs one encoded sidecar request (a `DiffRequest` JSON object) and returns
 /// its encoded `DiffResponse`. Tests use a fake that speaks the same JSON.
-nonisolated protocol DiffSidecarRunning: Sendable {
+public nonisolated protocol DiffSidecarRunning: Sendable {
     func run(_ request: Data) async throws -> Data
 }
 
