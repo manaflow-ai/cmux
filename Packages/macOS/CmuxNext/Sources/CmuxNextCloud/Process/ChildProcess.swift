@@ -30,11 +30,21 @@ package final class ChildProcess: Sendable {
 
     package func start(input: Data? = nil) throws {
         let input = try input.map(ChildProcessInput.init)
+        try launch(standardInput: input?.pipe.fileHandleForReading ?? FileHandle.nullDevice)
+        do { try input?.send() } catch { terminateProcessOnly(); throw error }
+    }
+
+    /// A private socket inherited as stdin, for the owned Native link only.
+    package func start(inheritedInput: FileHandle) throws {
+        try launch(standardInput: inheritedInput)
+    }
+
+    private func launch(standardInput: FileHandle) throws {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
         process.environment = environment
-        process.standardInput = input?.pipe.fileHandleForReading ?? FileHandle.nullDevice
+        process.standardInput = standardInput
         let stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
@@ -71,7 +81,6 @@ package final class ChildProcess: Sendable {
         state.withLock { $0.process = process }
         do {
             try process.run()
-            try input?.send()
         } catch {
             if process.isRunning { process.terminate() }
             throw error
