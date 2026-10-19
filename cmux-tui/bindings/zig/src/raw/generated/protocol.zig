@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "48f33aa2909576637e8d9a259edda9b748fcc72d4ec96bb4358d6e4cb95e47ef";
+pub const ir_sha256 = "62ecd44ada0321c09a7339298b0ac3b81cd5819da4c863f5d32c9061979d1171";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8080,7 +8080,7 @@ pub fn reportFrontendBrowserTabRemoved(client: anytype, request: ReportFrontendB
 }
 
 pub const RequestFrontendBrowserTabCloseRequest = struct {
-    /// How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline.
+    /// How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline. After a closing answer the owner has 30000 ms more to report the removal.
     deadline_ms: ?u64 = null,
     reason: wire.Field(CloseReason) = .absent,
     surface: Id,

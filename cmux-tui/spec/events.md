@@ -1395,7 +1395,7 @@ object{event:"frontend-browser-tab-close-settled", request_id:string, surface:Id
        outcome:"removed"|"cancelled"|"owner_gone"|"timed_out"}
 ```
 
-Meaning: The close request is over. It goes once to each connection that requested it. `removed`: the owner reported the tab removed and the daemon deleted it, or the tab left the store by another path (`close-surface`, `close-tabs`, `close-pane`, a workspace close). `cancelled`: the page vetoed the close. `owner_gone`: the owner's connection ended first; the tab stays. `timed_out`: the owner did not answer by the request's `deadline_ms`; this event then also goes to the owner connection, which must close the tab without a beforeunload veto and report the removal (a slow or dead browser never blocks a close).
+Meaning: The close request is over. It goes once to each connection that requested it. `removed`: the owner reported the tab removed and the daemon deleted it, or the tab left the store by another path (`close-surface`, `close-tabs`, `close-pane`, a workspace close; settled at the next request, removal report or deadline). `cancelled`: the page vetoed the close. `owner_gone`: the owner's connection ended first; the tab stays. `timed_out`: the owner did not answer by the request's `deadline_ms`, or did not report the removal within 30000 ms of its `closing` answer; this event then also goes to the owner connection, which must close the tab without a beforeunload veto and report the removal (a slow or dead browser never blocks a close).
 
 Example:
 

@@ -40,7 +40,8 @@ const MAX_RECENT_INPUT: usize = 16;
 
 /// Real clock zones are UTC-12:00 to UTC+14:00; one day either way is the
 /// sanity bound.
-const MAX_UTC_OFFSET_MINUTES: i32 = 24 * 60;
+/// The range hq-6d accepted (UTC-14:00 to UTC+14:00).
+const MAX_UTC_OFFSET_MINUTES: i32 = 14 * 60;
 
 /// One tab the user typed in, and how long ago.
 #[derive(Deserialize)]
@@ -221,7 +222,10 @@ pub(super) fn report(mux: &Mux, client: u64, params: ReportParams) -> anyhow::Re
     if recent_input.len() > MAX_RECENT_INPUT {
         anyhow::bail!("bad request: recent_input has more than {MAX_RECENT_INPUT} entries");
     }
-    if utc_offset_minutes.is_some_and(|offset| offset.abs() > MAX_UTC_OFFSET_MINUTES) {
+    // Not abs(): i32::MIN has no absolute value.
+    if utc_offset_minutes
+        .is_some_and(|offset| !(-MAX_UTC_OFFSET_MINUTES..=MAX_UTC_OFFSET_MINUTES).contains(&offset))
+    {
         anyhow::bail!("bad request: utc_offset_minutes out of range");
     }
     if let Some(pane) = pane

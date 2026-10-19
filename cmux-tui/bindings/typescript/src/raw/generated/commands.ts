@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 48f33aa2909576637e8d9a259edda9b748fcc72d4ec96bb4358d6e4cb95e47ef. */
+/* cmux-tui mux protocol 12, IR 62ecd44ada0321c09a7339298b0ac3b81cd5819da4c863f5d32c9061979d1171. */
 
 
 import type * as T from "./types.js";
@@ -2152,7 +2152,7 @@ export type ReportFrontendBrowserTabRemovedResult = {
 /** Protocol v12; authority: control. */
 export interface RequestFrontendBrowserTabCloseRequest extends CmuxRequestBase {
   cmd: "request-frontend-browser-tab-close";
-  /** How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline. */
+  /** How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline. After a closing answer the owner has 30000 ms more to report the removal. */
   "deadline_ms"?: bigint;
   "reason"?: (T.CloseReason) | null;
   "surface": T.Id;

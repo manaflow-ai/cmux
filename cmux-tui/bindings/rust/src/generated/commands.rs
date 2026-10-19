@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 48f33aa2909576637e8d9a259edda9b748fcc72d4ec96bb4358d6e4cb95e47ef.
+// cmux-tui mux protocol 12, IR 62ecd44ada0321c09a7339298b0ac3b81cd5819da4c863f5d32c9061979d1171.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3093,7 +3093,7 @@ pub struct ReportFrontendBrowserTabRemovedResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestFrontendBrowserTabCloseRequest {
-    /// How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline.
+    /// How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline. After a closing answer the owner has 30000 ms more to report the removal.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub deadline_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

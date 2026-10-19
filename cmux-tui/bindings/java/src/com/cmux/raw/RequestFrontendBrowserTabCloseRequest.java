@@ -12,7 +12,7 @@ import java.util.Objects;
 
 /** Immutable request-frontend-browser-tab-close request. Protocol v12; authority: control. */
 public final class RequestFrontendBrowserTabCloseRequest implements WireValue {
-    /** How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline. */
+    /** How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline. After a closing answer the owner has 30000 ms more to report the removal. */
     private final Field<UInt64> deadlineMs;
     private final Field<CloseReason> reason;
     private final UInt64 surface;

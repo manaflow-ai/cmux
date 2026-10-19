@@ -232,7 +232,9 @@ fn client_attention_keeps_typing_per_tab_and_ends_with_its_connection() {
         serde_json::json!({"client_id": "browser-window-1", "key_window": false,
             "app_active": false, "recent_input": too_many}),
         serde_json::json!({"client_id": "browser-window-1", "key_window": false,
-            "app_active": false, "utc_offset_minutes": 2_000}),
+            "app_active": false, "utc_offset_minutes": 841}),
+        serde_json::json!({"client_id": "browser-window-1", "key_window": false,
+            "app_active": false, "utc_offset_minutes": i32::MIN}),
     ] {
         let mut request = refused.clone();
         request["cmd"] = serde_json::json!("report-client-attention");
@@ -300,6 +302,9 @@ fn frontend_browser_tab_close_goes_through_its_owner_and_its_veto() {
     assert_eq!(event["surface"], surface, "{event}");
     assert_eq!(event["owner"], OWNER, "{event}");
     assert_eq!(event["tab_resource_id"], created["tab_resource_id"], "{event}");
+    // The owner's event arrived first (above), so a stranger event sent
+    // with it would be read by now.
+    let _ = stranger.call(serde_json::json!({"cmd": "identify"}));
     assert!(!stranger.has_event("frontend-browser-tab-close-requested"));
     // A second request for the same tab joins the open one.
     let joined = stranger.call(close.clone());

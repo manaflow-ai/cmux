@@ -106,8 +106,9 @@ base::Value WriteInteger(T value) {
     return base::Value(static_cast<int>(value));
   }
   const double number = static_cast<double>(value);
-  // At or above 2^53 the wire value is not exact. Protocol ids stay below it.
-  DCHECK_LT(std::fabs(number), kMaxExactInteger);
+  // At or above 2^53 the wire value is not exact. Protocol ids stay below
+  // it; a larger value is a bug, never a rounded id on the wire.
+  CHECK_LT(std::fabs(number), kMaxExactInteger);
   return base::Value(number);
 }
 

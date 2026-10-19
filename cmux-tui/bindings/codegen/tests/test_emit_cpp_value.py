@@ -198,10 +198,13 @@ class EnumAndNumberRuleTests(unittest.TestCase):
             '  out = SplitDirection::kUnknown;\n  return true;\n}', self.source
         )
 
-    def test_integers_accept_only_exact_doubles_at_or_below_2_pow_53(self) -> None:
+    def test_integers_accept_only_exact_doubles_below_2_pow_53(self) -> None:
         self.assertIn("constexpr double kMaxExactInteger = 9007199254740992.0;", self.source)
         self.assertIn("std::trunc(number) != number", self.source)
-        self.assertIn("std::fabs(number) > kMaxExactInteger", self.source)
+        # 2^53 + 1 reads as 2^53, so 2^53 itself is refused on decode, and
+        # an encode at or above it is a CHECK failure, never a rounded id.
+        self.assertIn("std::fabs(number) >= kMaxExactInteger", self.source)
+        self.assertIn("CHECK_LT(std::fabs(number), kMaxExactInteger);", self.source)
         self.assertIn("base::IsValueInRangeForNumericType<T>(wide)", self.source)
 
     def test_missing_required_fields_fail_with_their_path(self) -> None:

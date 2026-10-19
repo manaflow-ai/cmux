@@ -32,15 +32,18 @@
 //! ended; the tab stays, and the owner restores it when it comes back), or
 //! `timed_out`. A slow or dead browser never blocks a close: when the owner
 //! does not answer by the request's `deadline_ms` (default 5 s, at most
-//! 30 s), the request settles `timed_out`, the owner gets the same settled
-//! event, and the owner must then close the tab without a beforeunload veto
-//! and report its removal. A late answer gets `accepted: false`. Crash and
+//! 30 s), or does not report the removal within 30 s of a `closing` answer,
+//! the request settles `timed_out`, the owner gets the same settled event,
+//! and the owner must then close the tab without a beforeunload veto and
+//! report its removal. A late answer gets `accepted: false`. A request whose
+//! tab left the store by another path settles `removed` at the next request,
+//! removal report or deadline, whichever comes first. Crash and
 //! discard are not removals; the owner reports them through
 //! `update-frontend-browser-tab`. Requests are transient: they are never
 //! journaled or replayed across a daemon restart.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -59,6 +62,8 @@ const MAX_WAITERS_PER_REQUEST: usize = 16;
 /// The owner's time to answer a close request.
 const DEFAULT_DEADLINE_MS: u64 = 5_000;
 const MAX_DEADLINE_MS: u64 = 30_000;
+/// The owner's time to report the removal after it answered `closing`.
+const CLOSING_DEADLINE: Duration = Duration::from_millis(MAX_DEADLINE_MS);
 
 /// `frontend-browser-tab-close-subscribe`.
 #[derive(Deserialize)]
@@ -128,7 +133,8 @@ struct OpenClose {
     /// The owner connection, told when the request times out.
     owner_writer: MessageWriter,
     phase: Phase,
-    /// The owner must answer by then; only an `Asked` request times out.
+    /// The owner must answer (`Asked`) or report the removal (`Closing`)
+    /// by then.
     deadline: Instant,
     waiters: Vec<Waiter>,
 }
@@ -155,9 +161,9 @@ impl State {
         self.open.iter().find(|(_, open)| open.surface == surface).map(|(id, _)| id.clone())
     }
 
-    /// The first deadline of a request that the owner has not answered.
+    /// The first deadline of an open request.
     fn next_deadline(&self) -> Option<Instant> {
-        self.open.values().filter(|open| open.phase == Phase::Asked).map(|open| open.deadline).min()
+        self.open.values().map(|open| open.deadline).min()
     }
 
     /// Removes the requests `matches` selects and returns them, to be
@@ -239,17 +245,26 @@ struct Shared {
 
 /// One thread per broker settles the requests whose deadline passed. It
 /// sleeps until the first deadline and exits when the broker is dropped.
-fn run_deadlines(shared: &Shared) {
+/// It holds the mux only weakly, and only to tell a tab that left the store
+/// by another path (`removed`) from an owner that did not act (`timed_out`).
+fn run_deadlines(shared: &Shared, mux: &Weak<Mux>) {
     let mut state = lock(&shared.state);
     loop {
         if state.shut_down {
             return;
         }
         let now = Instant::now();
-        let expired = state.take(|open| open.phase == Phase::Asked && open.deadline <= now);
+        let expired = state.take(|open| open.deadline <= now);
         if !expired.is_empty() {
             drop(state);
-            settle_timed_out(expired);
+            let (gone, timed_out): (Vec<_>, Vec<_>) = match mux.upgrade() {
+                Some(mux) => expired.into_iter().partition(|(_, open)| {
+                    mux.surface(open.surface).is_none_or(|live| live.is_dead())
+                }),
+                None => (Vec::new(), expired),
+            };
+            settle(gone, "removed");
+            settle_timed_out(timed_out);
             state = lock(&shared.state);
             continue;
         }
@@ -269,7 +284,9 @@ fn run_deadlines(shared: &Shared) {
 #[derive(Default)]
 pub(crate) struct FrontendTabCloses {
     shared: Arc<Shared>,
-    deadline_thread: OnceLock<()>,
+    /// True once the deadline thread runs. A failed start is tried again at
+    /// the next request.
+    deadline_thread: Mutex<bool>,
 }
 
 impl Drop for FrontendTabCloses {
@@ -286,20 +303,24 @@ impl FrontendTabCloses {
 
     /// Starts the deadline thread on the first delegated request, then
     /// wakes it for the new deadline.
-    fn watch_deadlines(&self) {
-        self.deadline_thread.get_or_init(|| {
+    fn watch_deadlines(&self, mux: &Arc<Mux>) {
+        let mut running = self.deadline_thread.lock().unwrap_or_else(PoisonError::into_inner);
+        if !*running {
             let shared = Arc::clone(&self.shared);
-            let started = std::thread::Builder::new()
+            let mux = Arc::downgrade(mux);
+            match std::thread::Builder::new()
                 .name("frontend-tab-close-deadlines".into())
-                .spawn(move || run_deadlines(&shared));
-            if let Err(error) = started {
-                // Without the thread no request times out; the other
+                .spawn(move || run_deadlines(&shared, &mux))
+            {
+                Ok(_) => *running = true,
+                // Until a start succeeds no request times out; the other
                 // outcomes still settle.
-                eprintln!(
+                Err(error) => eprintln!(
                     "cmux-tui: frontend tab close: cannot start the deadline thread: {error}"
-                );
+                ),
             }
-        });
+        }
+        drop(running);
         self.shared.wake.notify_all();
     }
 
@@ -398,7 +419,7 @@ pub(super) fn subscribe(
 }
 
 pub(super) fn request(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     client: u64,
     params: RequestParams,
     writer: &MessageWriter,
@@ -463,7 +484,7 @@ pub(super) fn request(
         },
     );
     drop(state);
-    closes.watch_deadlines();
+    closes.watch_deadlines(mux);
     Ok(json!({"delegated": true, "request_id": request_id}))
 }
 
@@ -490,6 +511,7 @@ pub(super) fn answer(mux: &Mux, client: u64, params: AnswerParams) -> anyhow::Re
             (Phase::Asked, false) => {
                 if let Some(open) = state.open.get_mut(&request_id) {
                     open.phase = Phase::Closing;
+                    open.deadline = Instant::now() + CLOSING_DEADLINE;
                 }
                 None
             }

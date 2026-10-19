@@ -4901,7 +4901,7 @@ Params:
 | `pane` | `Id` | default null | Must be a live pane |
 | `tab` | `usize` | default null | Tab index within `pane`; needs `pane`; null means the pane's active tab |
 | `recent_input` | `array<{surface: Id, ms_ago: u64}>` | default `[]` | At most 16; ages capped at one day; a repeated surface keeps its newest input; surfaces are not checked against the tree |
-| `utc_offset_minutes` | `i32` | default null | Minutes east of UTC, -1440..1440 |
+| `utc_offset_minutes` | `i32` | default null | Minutes east of UTC, -840..840 |
 
 Result:
 
@@ -4917,7 +4917,7 @@ Errors:
 | `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
 | `bad request: tab needs pane` | `tab` without `pane` |
 | `bad request: recent_input has more than 16 entries` | Too many entries |
-| `bad request: utc_offset_minutes out of range` | Outside -1440..1440 |
+| `bad request: utc_offset_minutes out of range` | Outside -840..840 |
 | `unknown pane ...` | Pane is not alive |
 
 ### client-attention
@@ -9589,7 +9589,7 @@ Capability `frontend-tab-close-request-v1`. The app that renders a frontend brow
 
 ### request-frontend-browser-tab-close
 
-`{surface, reason?: CloseReason|null, deadline_ms?: uint64 (1-30000, default 5000)}` asks the owner to close a frontend browser tab. A page relay connection gets `origin.forbidden`. With a live subscriber for the tab's owner, the daemon sends it `frontend-browser-tab-close-requested` (with the tab's `owner`) and an unguessable `request_id` and answers `{delegated:true, request_id}`; the tab stays. A second request for the same tab joins the open one (same `request_id`). With no owner, or no live subscriber, it answers `{delegated:false, request_id:null}` and nothing changes; the caller may still `close-surface`. Every requesting connection receives `frontend-browser-tab-close-settled` once. If the owner does not answer by `deadline_ms`, the request settles `timed_out`, the owner gets the same event, and the owner must close the tab without a beforeunload veto and report the removal; a later answer is `{accepted:false}`. A request that joins an open one keeps that request's deadline. A request whose tab left the store by another path (`close-surface`, `close-tabs`, `close-pane`, a workspace close) settles `removed` at the next request or removal report. At most 64 open requests per owner connection and 16 requesters per request. Errors: `unknown surface ...`, `surface ... is not a frontend browser tab`, `bad request: deadline_ms must be 1-30000`.
+`{surface, reason?: CloseReason|null, deadline_ms?: uint64 (1-30000, default 5000)}` asks the owner to close a frontend browser tab. A page relay connection gets `origin.forbidden`. With a live subscriber for the tab's owner, the daemon sends it `frontend-browser-tab-close-requested` (with the tab's `owner`) and an unguessable `request_id` and answers `{delegated:true, request_id}`; the tab stays. A second request for the same tab joins the open one (same `request_id`). With no owner, or no live subscriber, it answers `{delegated:false, request_id:null}` and nothing changes; the caller may still `close-surface`. Every requesting connection receives `frontend-browser-tab-close-settled` once. If the owner does not answer by `deadline_ms`, or does not report the removal within 30000 ms of a `closing` answer, the request settles `timed_out`, the owner gets the same event, and the owner must close the tab without a beforeunload veto and report the removal; a later answer is `{accepted:false}`. A request that joins an open one keeps that request's deadline. A request whose tab left the store by another path (`close-surface`, `close-tabs`, `close-pane`, a workspace close) settles `removed` at the next request, removal report or deadline, whichever comes first (the daemon does not watch other close paths). The `owner` is the install id that `new-frontend-browser-tab {owner}` recorded; the daemon does not authenticate it, so any trusted local control connection that is not a page relay may subscribe for it (the newest wins). At most 64 open requests per owner connection and 16 requesters per request. Errors: `unknown surface ...`, `surface ... is not a frontend browser tab`, `bad request: deadline_ms must be 1-30000`.
 
 ### answer-frontend-browser-tab-close
 

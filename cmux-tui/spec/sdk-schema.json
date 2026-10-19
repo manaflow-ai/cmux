@@ -24902,8 +24902,8 @@
       "description": "Minutes east of UTC of the client's clock zone, for quiet hours.",
       "constraints": [
        {
-        "minimum": -1440,
-        "maximum": 1440
+        "minimum": -840,
+        "maximum": 840
        }
       ]
      }
@@ -25062,7 +25062,13 @@
       "presence": "optional",
       "nullable": false,
       "default": 5000,
-      "description": "How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline."
+      "description": "How long the owner may take to answer, 1-30000 ms. With no answer by then the request settles timed_out and the owner must close the tab without a beforeunload veto. A request that joins an open one keeps that request's deadline. After a closing answer the owner has 30000 ms more to report the removal.",
+      "constraints": [
+       {
+        "minimum": 1,
+        "maximum": 30000
+       }
+      ]
      }
     },
     "additional_properties": false
