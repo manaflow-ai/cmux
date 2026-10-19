@@ -245,6 +245,23 @@ async fn an_agent_starts_reads_lists_and_messages_another_session() {
     assert_eq!(remote["isError"], true, "{remote}");
     let empty = mcp.call("start_session", json!({"prompt": "  "})).await;
     assert_eq!(empty["isError"], true, "{empty}");
+    // A checkout filter the agent could set in its own repository's config: a worktree
+    // checkout would run it outside the agent's sandbox, so no worktree is made there.
+    std::fs::write(repo.join(".gitattributes"), "*.txt filter=agent\n").unwrap();
+    std::fs::write(repo.join("a.txt"), "a\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "attributes"]);
+    let filtered = scratch.join("filter-ran");
+    let smudge = format!("sh -c 'touch \"{}\"; cat'", filtered.display());
+    git(&repo, &["config", "filter.agent.smudge", &smudge]);
+    let refused = mcp
+        .call(
+            "start_session",
+            json!({"prompt": "x", "title": "Filtered", "worktree": true, "cwd": repo_path}),
+        )
+        .await;
+    assert!(!filtered.exists(), "the repository's smudge filter ran outside the agent's sandbox");
+    assert_eq!(refused["isError"], true, "{refused}");
     let before = hub.all_session_summaries().len();
     assert_eq!(before, 3, "a refused start or send made no session");
     assert!(
