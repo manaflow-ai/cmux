@@ -460,3 +460,7 @@ It rebuilt the terminal package and passed **23 tests in 2 suites**, including
 the twelve-surface burst cadence, duplicate-readiness coalescing, deferred
 agent admission, and input-demand promotion cases. Compiler deprecation and
 unused-import warnings were pre-existing and did not fail the run.
+
+A bounded `timeout 75 sr claude proxy` review was attempted against this exact
+head with the protected process and backup explicitly excluded. It produced no
+output before timeout, so Claude remains **unavailable**, not a review verdict.
