@@ -301,6 +301,15 @@ fast=0
 gate_mode=full
 [ "$fast" -eq 1 ] && gate_mode=fast
 [ "$fix" -eq 1 ] && gate_mode=main-fix
+# The full gate refuses an untrusted fork in merged_head_checks; the fast gate
+# may skip those, so it refuses the fork here, before it reads or waits for
+# anything (#21587). The freeze check still runs after the gate for a trusted fork.
+if [ "$fast" -eq 1 ] && jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1 &&
+   [ "$fork_trusted" -ne 1 ] && [ -z "$trust_fork_head" ]; then
+  refuse \
+    "not merged: $ref is from an untrusted fork; the fast gate does not merge unreviewed fork code" \
+    "review that code, then rerun with --trust-fork-head $sha; only teamleaderleo/cmux is owner-trusted"
+fi
 if [ "$fix" -eq 1 ]; then
   validator="$script_dir/ci/main_fix_evidence.py"
   if [ ! -f "$validator" ]; then
@@ -848,8 +857,17 @@ fast_gate() {
     fi
     printf '%s\n' "$workflow" >"$workflow_dir/$workflow_file"
   done
-  # An unparsable paths filter counts as covered, so the gate waits for routing.
-  covered=$(next_paths_covered "$(cat "$workflow_dir/cmux-next.yml")" "$files" 2>/dev/null) || covered=x
+  # The paths filter that decides the routing wait is the base's: a PR that drops
+  # its own files from the head's filter still waits for routing. An unreadable or
+  # unparsable filter counts as covered, so the gate waits for routing.
+  local base_next_workflow
+  if base_next_workflow=$(gh api "repos/$repo/contents/.github/workflows/cmux-next.yml?ref=$base" \
+      -H 'Accept: application/vnd.github.raw' 2>/dev/null) && [ -n "$base_next_workflow" ]; then
+    covered=$(next_paths_covered "$base_next_workflow" "$files" 2>/dev/null) || covered=x
+  else
+    echo "note: cannot read the $base paths filter of cmux-next.yml; waiting for path routing" >&2
+    covered=x
+  fi
   [ -n "$covered" ] && covered_flag=(--next-covered)
   gate_err=$(mktemp)
   tmp_files+=("$gate_err")
@@ -900,14 +918,6 @@ fast_gate() {
   printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 }
 
-# The full gate refuses an untrusted fork in merged_head_checks; the fast gate
-# skips those, so it refuses the fork here, before the wait (#21587).
-if [ "$fast" -eq 1 ] && jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1 &&
-   [ "$fork_trusted" -ne 1 ] && [ -z "$trust_fork_head" ]; then
-  refuse \
-    "not merged: $ref is from an untrusted fork; the fast gate does not merge unreviewed fork code" \
-    "review that code, then rerun with --trust-fork-head $sha; only teamleaderleo/cmux is owner-trusted"
-fi
 if [ "$fast" -eq 1 ]; then
   fast_gate
 else
@@ -979,6 +989,10 @@ web_shared_paths() {
   return 0
 }
 merged_head_checks() {
+  # $1=force: run the merged-tree checks (merge cleanliness, fork trust) even when
+  # no CmuxNext Swift or webviews file changed; the fast gate passes it for a PR
+  # touching a protected gate path.
+  local force="${1:-0}"
   local repo_dir tmp merged base_sha head_sha merged_tree status=0 output bun changed_path
   local swift_changed=0 web_changed=0
   local -a swift_file_args=()
@@ -992,7 +1006,7 @@ merged_head_checks() {
     swift_file_args+=(--file "$changed_path")
   done <<<"$changed"
   grep -q '^webviews/' <<<"$changed" && web_changed=1
-  [ "$swift_changed" -eq 1 ] || [ "$web_changed" -eq 1 ] || return 0
+  [ "$swift_changed" -eq 1 ] || [ "$web_changed" -eq 1 ] || [ "$force" -eq 1 ] || return 0
   # Trust concerns the reviewed source, not whether its branch is in our repo.
   # Pin explicit trust to this exact head; CI and all merged-tree checks still run.
   if jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1 &&
@@ -1096,10 +1110,47 @@ merged_head_checks() {
     exit 1
   fi
 }
-# The full gate only: the fast gate leaves vp check and the god-file check to
-# the post-merge suites (they take minutes on a cold install).
+# The changed files under a protected gate path: workflows, shared CI scripts,
+# gh-merge-green itself and gate config. The list is read from the base, so a PR
+# cannot shrink it; before the base carries the file, the helper checkout's copy
+# (origin/main) applies, and with neither every file counts as protected.
+protected_gate_paths() {
+  local list_file="scripts/ci/merge-fast-gate-protected-paths.txt" list
+  if ! list=$(gh api "repos/$repo/contents/$list_file?ref=$base" -H 'Accept: application/vnd.github.raw' 2>/dev/null) ||
+     [ -z "$list" ]; then
+    if [ -f "$script_dir/ci/merge-fast-gate-protected-paths.txt" ]; then
+      echo "note: $base has no readable $list_file; using the helper checkout's copy" >&2
+      list=$(cat "$script_dir/ci/merge-fast-gate-protected-paths.txt")
+    else
+      echo "note: no readable $list_file; every changed file counts as protected" >&2
+      printf '%s\n' "$changed"
+      return 0
+    fi
+  fi
+  python3 -c '
+import sys
+prefixes = [line.strip() for line in open(sys.argv[1]) if line.strip() and not line.lstrip().startswith("#")]
+for name in open(sys.argv[2]).read().split():
+    if any(name == p or (p.endswith("/") and name.startswith(p)) for p in prefixes):
+        print(name)
+' <(printf '%s\n' "$list") <(printf '%s\n' "$changed")
+}
+# The full gate runs the merged-tree checks on every feat-cmux-next PR. The fast gate
+# leaves vp check and the god-file check to the post-merge suites (they take minutes
+# on a cold install), except for a PR touching a protected gate path (leoli-f6,
+# 2026-10-19): that one gets every merged-tree check back.
 if [ "$base" = feat-cmux-next ] && [ "$fast" -eq 0 ]; then
   merged_head_checks
+elif [ "$fast" -eq 1 ]; then
+  if ! protected=$(protected_gate_paths); then
+    refuse "not merged: cannot match $ref against the protected gate paths" 'retry; python3 is required'
+  fi
+  if [ -n "$protected" ]; then
+    printf 'note: %s touches protected gate paths (%s); running the merged-tree checks\n' "$ref" \
+      "$(paste -sd ';' - <<<"$protected" | sed 's/;/; /g')" >&2
+    gate_checked="$gate_checked, merged-tree checks"
+    merged_head_checks 1
+  fi
 fi
 if [ -n "$trust_fork_head" ]; then
   trust_scope='local merged-tree checks; normal CI, freeze, and merged-tree gates apply'
