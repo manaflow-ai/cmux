@@ -2736,7 +2736,7 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     workspaces["registry_id"] = json!(registry_id);
     workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
+    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
     Ok(workspaces)
 }
 
