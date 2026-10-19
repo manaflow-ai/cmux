@@ -50,6 +50,7 @@ actor FakeOwner: InstallAuthTransport {
     var deniedTeams: Set<String> = []
     var tokenTeamOverride: String?
     var replyTeamOverride: String?
+    var claimOverrides: [String: String] = [:]
 
     func revoke(_ install: String) { revoked.insert(install) }
     func setFailNextChallenge() { failNextChallenge = true }
@@ -60,12 +61,14 @@ actor FakeOwner: InstallAuthTransport {
     func denyTeam(_ value: String) { deniedTeams.insert(value) }
     func setTokenTeamOverride(_ value: String) { tokenTeamOverride = value }
     func setReplyTeamOverride(_ value: String) { replyTeamOverride = value }
+    func setClaim(_ name: String, _ value: String) { claimOverrides[name] = value }
 
     /// An unsigned JWT-shaped token whose payload names the issuer (the client
     /// only reads `iss`; the owner verifies signatures).
     private func token(_ n: Int, team: String? = nil, install: String = "") -> String {
         var claims: [String: Any] = ["iss": "https://cmux-api/\(issuerOverride ?? environment)", "n": n]
         if let team { claims.merge(["team": tokenTeamOverride ?? team, "sub": "user_1", "inst": install, "grant": "grant_1", "aud": "api"]) { _, new in new } }
+        for (name, value) in claimOverrides { claims[name] = value }
         let payload = try! JSONSerialization.data(withJSONObject: claims, options: [.sortedKeys])
         return "eyJhbGciOiJFUzI1NiJ9.\(payload.base64URLEncoded).c2ln"
     }

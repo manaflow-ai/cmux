@@ -958,6 +958,7 @@ let package = Package(
                            "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                           .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                            // GhosttyGlassMinimumContrastTests builds a Ghostty config.
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")],
             swiftSettings: uiSwiftSettings,
