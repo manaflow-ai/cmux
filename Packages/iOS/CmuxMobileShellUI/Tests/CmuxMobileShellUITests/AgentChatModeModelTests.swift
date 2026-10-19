@@ -112,6 +112,39 @@ import Testing
         #expect(model.selectedSessionID == "replacement")
     }
 
+    @Test func staleLaunchCompletionCannotClearReplacementLaunchInFlightState() async {
+        let oldSource = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex, title: "Old")],
+            pages: [:]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(oldSource)
+        await settle()
+
+        let oldLaunchGate = await oldSource.holdLaunches()
+        let oldLaunch = Task { await model.forkSelectedSession() }
+        await oldSource.waitForLaunchStart()
+
+        let replacementSource = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .claude, title: "Replacement")],
+            pages: [:]
+        )
+        model.updateSource(replacementSource)
+        await settle()
+        let replacementLaunchGate = await replacementSource.holdLaunches()
+        let replacementLaunch = Task { await model.forkSelectedSession() }
+        await replacementSource.waitForLaunchStart()
+        #expect(model.isLaunchingSelectedSession)
+
+        await oldLaunchGate.open()
+        await oldLaunch.value
+        await settle()
+        #expect(model.isLaunchingSelectedSession)
+
+        await replacementLaunchGate.open()
+        await replacementLaunch.value
+    }
+
     @Test func staleControlsFetchCannotMutateAReplacementSource() async {
         let old = descriptor(
             id: "session",
