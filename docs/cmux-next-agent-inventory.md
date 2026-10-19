@@ -212,7 +212,8 @@ IDs. `agent-cli-intents-record` commits the whole batch atomically;
 `agent-cli-intents-list` reads it, `agent-cli-intents-attach` saves the matching
 public terminal receipt, and `agent-cli-intents-settle` deletes settled intents.
 Records cannot be retargeted. Recording also drops rows older than seven days and
-keeps the newest 256 per actor, so the ledger cannot fill up. The additive
+keeps the newest 256 per actor, so the ledger cannot fill up; reads never return
+a row older than seven days, so one nothing settles stops blocking. The additive
 `agent_cli_intents` table is created when an existing registry opens; older
 binaries can ignore it without a schema-version change.
 
@@ -232,11 +233,15 @@ never prepares a plan or starts an updater.
 Settings Refresh restores intents only through an already admitted original
 machine/session, then observes any retained terminal. It cannot fall back to
 the focused or local machine. An unsettled intent blocks a fresh update of the
-same CLI on that machine. Only a new user gesture or native confirmation may
+same CLI on that machine when it belongs to the same session, or recovery
+reattached its session; a row no route can reach waits out the age bound. Only a new user gesture or native confirmation may
 resume an unstarted (`not_found` or `prepared`) intent, preserving its original
 key and family. Pending execution stays fenced; a created receipt only
 reattaches. An intent settles, and stops blocking, when its terminal exits (with
-any outcome), when the owner refuses its start before journaling (`agent_cli_job.*`)
-or when the creation state is `failed`. A person may dismiss an unstarted or
-`indeterminate` intent; dismissing stops nothing. App execution and remote
+any outcome) or is closed (`terminal.closed`, or `selector.not_found` for the
+terminal), when the owner refuses its start before journaling (`agent_cli_job.*`
+other than `busy`, which may be this key running) or when the creation state is
+`failed`. A failed record leaves no job behind. A person may dismiss an
+unstarted or `indeterminate` intent, or one still `pending` ten minutes after a
+recovery first saw it; dismissing stops nothing. App execution and remote
 execution admission remain unsupported.

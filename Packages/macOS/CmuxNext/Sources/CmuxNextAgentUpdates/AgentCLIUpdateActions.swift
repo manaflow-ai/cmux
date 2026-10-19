@@ -57,6 +57,11 @@ public final class AgentCLIUpdateActions {
     var retained: [AgentCLIStoredIntent] = []
     /// Keys with a terminal outcome. Their ledger rows are deleted, retried on the next recovery.
     var settled: Set<String> = []
+    /// When recovery first saw each key still pending; a long-pending creation may be dismissed.
+    var pendingSince: [String: Date] = [:]
+    var now: @MainActor () -> Date = { Date() }
+    /// How long a creation may stay pending across recoveries before a person may dismiss it.
+    static var pendingDismissAfter: TimeInterval { 10 * 60 }
 
     @Observable final class Intent {
         var route: Route
@@ -202,6 +207,12 @@ public final class AgentCLIUpdateActions {
                     if status.state == .exited, let key = job["intent_key"]?.stringValue, !settled.contains(key) {
                         await settle(key, in: nil)
                     }
+                } catch where Self.terminalGone(error) {
+                    // The person closed the kept tab: the process ended, so the job settles.
+                    guard let index = intent.jobs.firstIndex(where: { $0["terminal"]?.stringValue == receipt.path.terminalID.rawValue }),
+                          var job = intent.jobs[index].objectValue, let key = job["intent_key"]?.stringValue else { continue }
+                    job["state"] = "exited"; intent.jobs[index] = .object(job)
+                    if !settled.contains(key) { await settle(key, in: nil) }
                 } catch {
                     // Keep the receipt and original route; a failed observation is no completion.
                 }
@@ -239,8 +250,12 @@ public final class AgentCLIUpdateActions {
         var inputs: [AgentCLIUpdateIntent] = []
         for family in families {
             guard intent.route.isCurrent(), let cli = AgentCLIFamily(rawValue: family) else { throw DaemonError.notConnected }
+            // A row blocks when it is this session's, or recovery reattached its own session;
+            // one no route can reach (a reinstalled server) stays in the ledger until it ages out.
             guard !retained.contains(where: { row in
                 row.intent.machine == intent.route.machine && row.intent.cli == family && !settled.contains(row.intent.key)
+                    && (row.intent.session == intent.route.session
+                        || intents.values.contains { $0.route.isCurrent() && $0.inputs.contains { $0.key == row.intent.key } })
             }), !intents.values.contains(where: { other in
                 other !== intent && other.jobs.contains { job in
                     job["machine"]?.stringValue == intent.route.machine.rawValue && job["cli"]?.stringValue == family
@@ -259,7 +274,13 @@ public final class AgentCLIUpdateActions {
         intent.inputs = inputs
         intent.jobs = inputs.map(Self.job)
         // Commit the entire batch before the first request can start an updater.
-        if !inputs.isEmpty { try await persistence.record(inputs) }
+        if !inputs.isEmpty {
+            do { try await persistence.record(inputs) } catch {
+                // Nothing started; no unrecorded job may block a later update.
+                intent.inputs = []; intent.jobs = []
+                throw error
+            }
+        }
         for input in inputs {
             guard intent.route.isCurrent() else { throw DaemonError.notConnected }
             let receipt: AgentCLIJobReceipt
@@ -302,6 +323,14 @@ public final class AgentCLIUpdateActions {
     /// terminal exists for the key. Any other failure may follow a creation.
     static func refusedBeforeCreation(_ error: any Error) -> Bool {
         guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
-        return code.hasPrefix("agent_cli_job.")
+        // Busy: the owner may be running this very key, so it stays tracked.
+        return code.hasPrefix("agent_cli_job.") && code != "agent_cli_job.busy"
+    }
+
+    /// `terminal.wait_exit` on a closed terminal: `terminal.closed`, or `selector.not_found`
+    /// for the terminal once tombstoned. A missing session or connection is not this.
+    static func terminalGone(_ error: any Error) -> Bool {
+        guard case DaemonError.command(_, _, let code?, let details, _) = error else { return false }
+        return code == "terminal.closed" || (code == "selector.not_found" && details?["scope"]?.stringValue == "terminal")
     }
 }
