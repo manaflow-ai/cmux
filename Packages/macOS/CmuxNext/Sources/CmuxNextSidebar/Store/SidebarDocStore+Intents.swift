@@ -11,14 +11,7 @@ extension SidebarDocStore {
         let title = Self.moveTitle
         // A workspace the document does not place yet moves with its adopt in the same `sidebar.apply`.
         var adopt: [[String: Any]] = []
-        func items(_ ids: [WorkspaceID]) -> [String] {
-            ids.compactMap { id in
-                if let item = drag.item(.workspace(id)) { return item }
-                guard let ref = drag.adoptRef(id) else { return nil }
-                adopt.append(["op": "adopt", "refs": [ref]])
-                return Self.adoptedID(SidebarDocWorkspaceRef(sessionID: ref["session_id"] as? String ?? "", workspaceID: ref["workspace_id"] as? String ?? ""))
-            }
-        }
+        func items(_ ids: [WorkspaceID]) -> [String] { Self.items(ids, drag: drag, adopt: &adopt) }
         func move(_ moving: [String], to target: SidebarDocTarget, title: String) {
             // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
             guard !adopt.isEmpty, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else {
@@ -61,5 +54,39 @@ extension SidebarDocStore {
             return false
         }
         return true
+    }
+
+    /// Places workspaces `ids` at list `position` (counted without them) as
+    /// part of their create (`workspaces.newPlacement`, New Workspace Above
+    /// or Below) or of a drop from another window: one `sidebar.apply` with
+    /// the adopt of each one the document does not place yet, and no undo
+    /// step (a placement, not a move the person made here). The mirror has it
+    /// at once; the caller rebuilds `shown` (`reshow`). False: no target.
+    public func place(_ ids: [WorkspaceID], at position: DropPosition, model: SidebarModel, drag: SidebarDocDrag) -> Bool {
+        var adopt: [[String: Any]] = []
+        let moving = Self.items(ids, drag: drag, adopt: &adopt)
+        // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
+        guard !moving.isEmpty, let target = drag.target(position, moving: moving, model: model),
+              let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else { return false }
+        send(ops: adopt + [["op": "move", "items": moving, "to": to]], title: Self.moveTitle, undoable: false)
+        return true
+    }
+
+    /// Rebuilds `shown` over `live` now, with the machines connected at the
+    /// last `show`: a change the caller just sent shows in the sidebar's next
+    /// rebuild, not one observation turn later.
+    public func reshow(live: [SidebarDocWorkspaceRef]) {
+        show(live: live, connectedRemotes: lastConnectedRemotes)
+    }
+
+    /// The document items of `ids`; a workspace the document does not place
+    /// yet gets its adopt op in `adopt` and the id that adopt gives it.
+    private static func items(_ ids: [WorkspaceID], drag: SidebarDocDrag, adopt: inout [[String: Any]]) -> [String] {
+        ids.compactMap { id in
+            if let item = drag.item(.workspace(id)) { return item }
+            guard let ref = drag.adoptRef(id) else { return nil }
+            adopt.append(["op": "adopt", "refs": [ref]])
+            return adoptedID(SidebarDocWorkspaceRef(sessionID: ref["session_id"] as? String ?? "", workspaceID: ref["workspace_id"] as? String ?? ""))
+        }
     }
 }
