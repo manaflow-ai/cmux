@@ -29,12 +29,12 @@ node scripts/gen-key.mjs | npx wrangler secret put TICKET_KEY --env dev
 
 # 3. Paid-plan relay credentials (Cloudflare Realtime TURN), from the
 #    1Password item "Cloudflare TURN Server API Key" in the Shared vault.
-op read "op://Shared/Cloudflare TURN Server API Key/credential" \
+op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/credential" \
   | npx wrangler secret put TURN_KEY_API_TOKEN --env dev
 # The key id is in the item's notes. Check that exactly one 32-hex id is found
 # (prints a count, not the id), then store it.
-op read "op://Shared/Cloudflare TURN Server API Key/notesPlain" | grep -oE '[0-9a-f]{32}' | sort -u | wc -l
-op read "op://Shared/Cloudflare TURN Server API Key/notesPlain" | grep -oE '[0-9a-f]{32}' | head -1 \
+op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/notesPlain" | grep -oE '[0-9a-f]{32}' | sort -u | wc -l
+op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/notesPlain" | grep -oE '[0-9a-f]{32}' | head -1 \
   | npx wrangler secret put TURN_KEY_ID --env dev
 
 # 4. Health check.
