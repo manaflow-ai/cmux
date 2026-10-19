@@ -355,9 +355,10 @@ fn uniichat_agent_sends_images_before_the_text() {
     assert_eq!(done.pointer("/result/stopReason"), Some(&json!("end_turn")), "{done}");
     let seen = server.seen.lock().unwrap();
     let (query, body) = &seen.says[0];
-    assert!(query.contains("sizes=5"), "{query}");
-    assert_eq!(&body[..5], b"\x89PNG\r");
-    assert_eq!(&body[5..], b"see");
+    // "iVBORw==" is the 4 bytes of a PNG signature's start.
+    assert!(query.contains("sizes=4"), "{query}");
+    assert_eq!(&body[..4], b"\x89PNG");
+    assert_eq!(&body[4..], b"see");
 }
 
 #[test]
