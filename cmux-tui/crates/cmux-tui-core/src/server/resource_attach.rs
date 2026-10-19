@@ -352,7 +352,7 @@ fn terminal_resource_scroll(terminal_id: &TerminalPublicId, offset: u64, at_bott
     })
 }
 
-fn send_resource_uncursored_stream_item(
+pub(super) fn send_resource_uncursored_stream_item(
     writer: &MessageWriter,
     outbound: &OutboundStream,
     stream_id: &StreamPublicId,

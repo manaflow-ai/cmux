@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "28e07ca23592d5220fec4a815f9f4f7891d72c45fc3696a6ddae35ca29470090",
+  "catalog_sha256": "62c76d28b6a2352ebfb4b2b699e82f446f0ea128779338321fd886240229e5f2",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -744,6 +744,18 @@
     },
     "tab_group.update": {
       "class": "mutation"
+    },
+    "tailnet.forward": {
+      "class": "mutation"
+    },
+    "tailnet.login.start": {
+      "class": "mutation"
+    },
+    "tailnet.logout": {
+      "class": "mutation"
+    },
+    "tailnet.state": {
+      "class": "stream_open"
     },
     "terminal.attach": {
       "class": "stream_open"

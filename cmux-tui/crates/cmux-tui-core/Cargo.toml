@@ -62,12 +62,22 @@ cmux-tui-util = { workspace = true, features = ["test-support"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 
+# `tailnet` (off by default): this install as its own device on the user's
+# tailnet (embedded Tailscale, cmux-screen/crates/cmux-tailnet), the daemon's
+# `tailnet.*` operations. Its build script builds libtailscale with Go 1.27
+# (or links LIBTAILSCALE_A), so the default build and CI never need Go.
+# Without it the operations answer operation.failed reason not_built.
+[features]
+default = []
+tailnet = ["dep:cmux-tailnet"]
+
 # The app supervisor's net.fetch egress (same versions the cmux-tui binary
 # already links).
 [target.'cfg(unix)'.dependencies]
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+cmux-tailnet = { path = "../../../cmux-screen/crates/cmux-tailnet", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

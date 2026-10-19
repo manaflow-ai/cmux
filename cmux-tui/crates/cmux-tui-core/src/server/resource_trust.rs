@@ -81,4 +81,5 @@ pub(super) const fn handles_resource_connection_operation(operation: ResourceOpe
         || super::chief_control::handles(operation)
         || super::chief_registry_resource::handles(operation)
         || super::participant_avatars::handles(operation)
+        || super::tailnet::handles(operation)
 }

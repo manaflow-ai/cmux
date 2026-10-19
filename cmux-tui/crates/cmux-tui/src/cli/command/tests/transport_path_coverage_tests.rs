@@ -236,6 +236,12 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // CLI's `cmux chief` only reads them.
                         | "conversation.typing"
                         | "conversation.draft"
+                        // The app's tailnet node (tailnet-v1): frontend only,
+                        // never a CLI verb.
+                        | "tailnet.login.start"
+                        | "tailnet.logout"
+                        | "tailnet.forward"
+                        | "tailnet.state"
                         // `cmux chief engine|stop` and the chat's /model,
                         // /effort and Ctrl+C send these (cli/chief), outside
                         // the noun grammar.

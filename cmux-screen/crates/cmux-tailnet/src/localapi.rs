@@ -45,6 +45,35 @@ impl LocalApi {
         Ok(response)
     }
 
+    /// A POST with no body (LocalAPI actions such as logout).
+    fn post(&self, path: &str) -> Result<()> {
+        let response = self
+            .agent
+            .post(format!("{}{path}", self.base))
+            .header("Sec-Tailscale", "localapi")
+            .header("Authorization", &self.authorization)
+            .send_empty()
+            .map_err(|error| Error(format!("LocalAPI {path}: {error}")))?;
+        let status = response.status();
+        if !status.is_success() {
+            let mut body = String::new();
+            let _ = response.into_body().into_reader().take(512).read_to_string(&mut body);
+            return Err(Error(format!("LocalAPI {path}: HTTP {status}: {}", body.trim())));
+        }
+        Ok(())
+    }
+
+    /// Signs the node out: the control plane forgets the device, the node
+    /// goes to NeedsLogin and keeps no login on disk.
+    pub(crate) fn logout(&self) -> Result<()> {
+        self.post("/localapi/v0/logout")
+    }
+
+    /// Asks the control plane for a new sign-in link (it arrives on the IPN bus).
+    pub(crate) fn login_interactive(&self) -> Result<()> {
+        self.post("/localapi/v0/login-interactive")
+    }
+
     pub(crate) fn whois(&self, addr: &str) -> Result<WhoIs> {
         let path = format!("/localapi/v0/whois?addr={}", encode_query(addr));
         let response = self.get(&path)?;

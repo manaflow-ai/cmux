@@ -29,8 +29,9 @@ interface Op {
 
 /** Op families that share one scope family. */
 const SCOPE_FAMILY: Record<string, string> = { tab: "workspace", pane: "workspace", screen: "workspace", window: "workspace", session: "session", frontend_projection: "client" }
-/** Families apps never reach in phase 1 (grants, installs, accounts, pairing, raw client plumbing, origin confirmations, launch credentials, browser page history). */
-const NEVER_FAMILIES = new Set(["install", "grant", "host", "pairing_request", "client", "request", "stream", "frontend_projection", "user", "app", "origin", "credential", "history"])
+/** Families apps never reach in phase 1 (grants, installs, accounts, pairing, raw client plumbing, origin confirmations, launch credentials, browser page history, the tailnet device). */
+// tailnet (tailnet-v1): the install's tailnet device; its sign-in link is a credential and a forward acts as the device. The cmux app only.
+const NEVER_FAMILIES = new Set(["install", "grant", "host", "pairing_request", "client", "request", "stream", "frontend_projection", "user", "app", "origin", "credential", "history", "tailnet"])
 const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attach|project)$|^browser\.input\.|^session\.journal\.hook\.put$)/
 // team_vm.retired.export (cx-lyvg) hands out the whole team's files: a person's session only, never an app.
 // team.audit.list and team.members.remove (cx-3bi.4): the audit chain and member removal are a person's session only.

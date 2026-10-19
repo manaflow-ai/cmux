@@ -274,6 +274,7 @@ mod chief_inspect;
 mod chief_manage;
 mod chief_registry_resource;
 mod participant_avatars;
+mod tailnet;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]

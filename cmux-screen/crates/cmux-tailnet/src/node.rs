@@ -97,6 +97,19 @@ impl Node {
         self.local_api()?.watch()
     }
 
+    /// Signs this node out of the tailnet (the device leaves the user's
+    /// tailnet; a new sign-in link follows on [`Node::watch`] after
+    /// [`Node::login_interactive`]).
+    pub fn logout(&self) -> Result<()> {
+        self.local_api()?.logout()
+    }
+
+    /// Asks for a new sign-in link, for a node in NeedsLogin that has none
+    /// (after [`Node::logout`]). The link arrives on [`Node::watch`].
+    pub fn login_interactive(&self) -> Result<()> {
+        self.local_api()?.login_interactive()
+    }
+
     /// Who is at a tailnet IP (or IP:port), from the node's control plane.
     /// Takes the bracketed IPv6 form libtailscale reports (`[fd7a::1]`) too.
     pub fn whois(&self, addr: &str) -> Result<WhoIs> {

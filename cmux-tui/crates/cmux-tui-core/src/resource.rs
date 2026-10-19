@@ -538,6 +538,14 @@ pub enum ResourceOperation {
     StashDelete,
     #[serde(rename = "stash.import")]
     StashImport,
+    #[serde(rename = "tailnet.login.start")]
+    TailnetLoginStart,
+    #[serde(rename = "tailnet.logout")]
+    TailnetLogout,
+    #[serde(rename = "tailnet.forward")]
+    TailnetForward,
+    #[serde(rename = "tailnet.state")]
+    TailnetState,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]

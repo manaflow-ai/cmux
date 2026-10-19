@@ -13,6 +13,9 @@ workspace = true
 [features]
 default = []
 iroh-transport = ["cmux-remote/iroh-transport"]
+# The daemon's tailnet node and `tailnet.*` operations (needs Go 1.27 or
+# LIBTAILSCALE_A at build time; see cmux-tui-core's `tailnet` feature).
+tailnet = ["cmux-tui-core/tailnet"]
 # Windows only (cx-w0uha): build cmux-tui.exe as a thin launcher that loads
 # the whole program from cmux_tui.dll beside it. The DLL is the library
 # target built with `cargo rustc -p cmux-tui --lib --crate-type cdylib`.

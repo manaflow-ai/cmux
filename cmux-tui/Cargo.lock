@@ -7,7 +7,7 @@ name = "acpmux"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.22.1",
  "clap",
  "cmux-agent-pane-policy",
  "cmux-chat-index",
@@ -337,7 +337,7 @@ version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16e2cdb6d5ed835199484bb92bb8b3edd526effe995c61732580439c1a67e2e9"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "http",
  "log",
  "url",
@@ -357,7 +357,7 @@ checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
  "axum-macros",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "form_urlencoded",
  "futures-util",
@@ -438,6 +438,12 @@ name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "base64ct"
@@ -591,7 +597,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15dd6a8a89cbe8997f37ca0cf035e6ea4d64cd2ecea4aed83ffb9f99f7126939"
 dependencies = [
  "aead",
- "base64",
+ "base64 0.22.1",
  "blake2",
  "chacha20poly1305",
  "hex",
@@ -797,7 +803,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "cmux-pty",
  "futures-util",
@@ -992,7 +998,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "cmux-link",
  "cmux-local-auth",
@@ -1033,7 +1039,7 @@ dependencies = [
 name = "cmux-config"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "core-foundation 0.10.1",
  "core-foundation-sys",
  "jsonschema",
@@ -1057,7 +1063,7 @@ dependencies = [
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "cmux-local-auth",
  "cmux-sdk",
  "getrandom 0.3.4",
@@ -1143,7 +1149,7 @@ dependencies = [
 name = "cmux-link"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "cmux-unix-socket",
  "libc",
  "serde",
@@ -1210,7 +1216,7 @@ name = "cmux-pane-protocol"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "cmux-local-auth",
  "futures-util",
@@ -1270,7 +1276,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "cmux-remote-protocol",
  "futures-util",
@@ -1290,7 +1296,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "cmux-build-identity",
  "cmux-link",
@@ -1342,7 +1348,7 @@ dependencies = [
 name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "serde",
  "serde_json",
  "uuid",
@@ -1352,7 +1358,7 @@ dependencies = [
 name = "cmux-remote-transcript"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "flate2",
  "serde",
  "serde_json",
@@ -1363,7 +1369,7 @@ dependencies = [
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "getrandom 0.3.4",
  "libc",
  "serde",
@@ -1395,7 +1401,7 @@ dependencies = [
 name = "cmux-server-core"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "hmac",
  "proptest",
  "ring",
@@ -1408,11 +1414,22 @@ dependencies = [
 name = "cmux-sidebar"
 version = "1.0.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "cmux-sdk",
  "crossterm",
  "ratatui",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "serde",
+ "serde_json",
+ "ureq",
 ]
 
 [[package]]
@@ -1443,7 +1460,7 @@ name = "cmux-terminal-client"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1492,7 +1509,7 @@ dependencies = [
  "acpmux",
  "anyhow",
  "async-trait",
- "base64",
+ "base64 0.22.1",
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-build-identity",
@@ -1550,7 +1567,7 @@ name = "cmux-tui-cdp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.22.1",
  "serde_json",
  "tungstenite",
 ]
@@ -1559,7 +1576,7 @@ dependencies = [
 name = "cmux-tui-cloud-conversations"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "cmux-cloud-wire",
  "serde",
  "serde_json",
@@ -1572,7 +1589,7 @@ name = "cmux-tui-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.22.1",
  "cmux-agent-pane-policy",
  "cmux-app-host",
  "cmux-app-manifest",
@@ -1587,6 +1604,7 @@ dependencies = [
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
+ "cmux-tailnet",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-tui-cdp",
@@ -1644,7 +1662,7 @@ name = "cmux-tui-image-paste"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.22.1",
  "getrandom 0.3.4",
  "libc",
  "serde",
@@ -1655,7 +1673,7 @@ dependencies = [
 name = "cmux-tui-machine-agent-protocol"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "serde",
  "serde_json",
  "subtle",
@@ -1694,7 +1712,7 @@ name = "cmux-tui-remote-access"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.22.1",
  "cmux-link",
  "getrandom 0.3.4",
 ]
@@ -1726,7 +1744,7 @@ dependencies = [
 name = "cmux-wg"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "boringtun",
  "bytes",
  "cmux-transport",
@@ -2748,7 +2766,7 @@ dependencies = [
 name = "ghostty-vt"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "ghostty-vt-sys",
  "png",
 ]
@@ -3057,7 +3075,7 @@ version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-channel",
  "futures-util",
@@ -3654,7 +3672,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd0ed8b751461fbfdedb74cc37d44732fa6e59573c317ab5c81f5fd25f6b7d2e"
 dependencies = [
  "ahash",
- "base64",
+ "base64 0.22.1",
  "bytecount",
  "email_address",
  "fancy-regex 0.16.2",
@@ -4760,7 +4778,7 @@ version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "serde_core",
 ]
 
@@ -4937,7 +4955,7 @@ version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da1d65da6dd5d1e44199ac0f58712d241c0f439f80adea8924d832384087f85"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "indexmap",
  "quick-xml",
  "serde",
@@ -5016,7 +5034,7 @@ version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb3713e4977408279158444a18c1a01ac9bf2e7eaf1fbfd1a19ac9cd18d90721"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "derive_more",
  "hyper-util",
@@ -5477,7 +5495,7 @@ version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-channel",
  "futures-core",
@@ -6434,7 +6452,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4676b37242ccbd1aabf56edb093a4827dc49086c0ffd764a5705899e0f35f8f7"
 dependencies = [
  "anyhow",
- "base64",
+ "base64 0.22.1",
  "bitflags 2.13.1",
  "fancy-regex 0.11.0",
  "filedescriptor",
@@ -6673,7 +6691,7 @@ version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d52efb639344a7c6adb8e62c6f3d2c19c001ff1b79a5041ba1c6ed42e19c6aa5"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-core",
  "futures-sink",
@@ -7118,6 +7136,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
+name = "ureq"
+version = "3.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
+dependencies = [
+ "base64 0.23.1",
+ "flate2",
+ "log",
+ "percent-encoding",
+ "rustls",
+ "rustls-pki-types",
+ "ureq-proto",
+ "utf8-zero",
+ "webpki-roots 1.0.9",
+]
+
+[[package]]
+name = "ureq-proto"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "841583fc36089d7d59419568ae157f43a5a03a2e5a81ba87c77d1596ef46e922"
+dependencies = [
+ "base64 0.23.1",
+ "http",
+ "httparse",
+ "log",
+]
+
+[[package]]
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7129,6 +7176,12 @@ dependencies = [
  "serde",
  "serde_derive",
 ]
+
+[[package]]
+name = "utf8-zero"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8c0a043c9540bae7c578c88f91dda8bd82e59ae27c21baca69c8b191aaf5a6e"
 
 [[package]]
 name = "utf8_iter"

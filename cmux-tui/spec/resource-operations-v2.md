@@ -14,8 +14,8 @@ session aggregation and provider lifecycle require a later broker protocol.
 | Class | Count | Semantics |
 | --- | ---: | --- |
 | `read` | 88 | Reads state and forbids an idempotency key |
-| `mutation` | 197 | Requires an idempotency key and returns a mutation result |
-| `stream_open` | 6 | Opens a connection-owned typed stream |
+| `mutation` | 200 | Requires an idempotency key and returns a mutation result |
+| `stream_open` | 7 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
 The 41 mutations with an external effect may return the non-retryable
@@ -61,6 +61,7 @@ correlation, and idempotency metadata.
 | `stream` | 1 | `stream.cancel` |
 | `tab` | 15 | `browser.profile.open`, `browser.tab.emulate`, `browser.tab.emulate.clear`, `browser.tab.set_profile`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update` |
 | `tab_group` | 9 | `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.get`, `tab_group.list`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update` |
+| `tailnet` | 4 | `tailnet.forward`, `tailnet.login.start`, `tailnet.logout`, `tailnet.state` |
 | `terminal` | 23 | `terminal.attach`, `terminal.close`, `terminal.copy`, `terminal.get`, `terminal.history.clear`, `terminal.history.read`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.list`, `terminal.move`, `terminal.output_read`, `terminal.process.get`, `terminal.project`, `terminal.renderer_grant.create`, `terminal.screen.read`, `terminal.state.read`, `terminal.viewer.release`, `terminal.viewer.resize`, `terminal.viewport.scroll`, `terminal.wait`, `terminal.wait_exit` |
 | `window_record` | 3 | `window_record.delete`, `window_record.list`, `window_record.put` |
 | `workspace` | 24 | `workspace.agent_folder.set`, `workspace.agent_start.get`, `workspace.close`, `workspace.create`, `workspace.ensure_app`, `workspace.ensure_home`, `workspace.focus`, `workspace.get`, `workspace.layout.apply`, `workspace.list`, `workspace.move`, `workspace.open_url`, `workspace.place`, `workspace.placement.list`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_log.list`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |

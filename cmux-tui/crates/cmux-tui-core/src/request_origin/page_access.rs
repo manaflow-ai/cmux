@@ -349,6 +349,12 @@ const fn access(operation: Op) -> Access {
         | Op::CredentialVerify
         | Op::CredentialMint
         | Op::CredentialRotate
+        // A page never reaches the tailnet node (its sign-in link is a
+        // credential; a forward is this device's tailnet identity).
+        | Op::TailnetLoginStart
+        | Op::TailnetLogout
+        | Op::TailnetForward
+        | Op::TailnetState
         // A page never controls the Chief.
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet

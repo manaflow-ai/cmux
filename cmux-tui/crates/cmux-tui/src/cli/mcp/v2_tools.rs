@@ -175,6 +175,10 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("stash.restore", STASH_REASON),
     ("stash.delete", STASH_REASON),
     ("stash.import", STASH_REASON),
+    ("tailnet.login.start", TAILNET_REASON),
+    ("tailnet.logout", TAILNET_REASON),
+    ("tailnet.forward", TAILNET_REASON),
+    ("tailnet.state", TAILNET_REASON),
     ("workspace.ensure_home", HOME_REASON),
     ("workspace.ensure_app", APP_WORKSPACE_REASON),
     ("workspace.agent_folder.set", AGENT_FOLDER_REASON),
@@ -236,6 +240,9 @@ const SIDEBAR_LAYOUT_REASON: &str = "The Mac app's sidebar layout: agents edit i
      app's sidebar actions (action tools), which keep the app's intent log.";
 const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the app's palette \
      records and reads it; agents rank rows through palette.query, never read or write usage.";
+const TAILNET_REASON: &str = "This install's tailnet device (tailnet-v1): its sign-in link is a \
+     credential and a forward acts as the device, so only the cmux app's own connection reaches it.";
+
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";

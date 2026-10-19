@@ -390,6 +390,10 @@ declare namespace Cmux {
   type TabGroupReleaseResult = { tab_group_id: Cmux.StateId; tab_ids: Array<string /* tab_… */> }
   type TabGroupSnapshot = { id: Cmux.StateId; pane_id: string /* pane_… */; name: string; color: Cmux.GroupColor; collapsed: boolean; tab_ids: Array<string /* tab_… */>; saved_tab_group_id: Cmux.StateId | null; icon?: string | null }
   type TabSnapshot = { id: string /* tab_… */; pane_id: string /* pane_… */; name: string | null; index: number; focused: boolean; content_kind: "terminal" | "browser" | "conversation"; content_id: unknown; extra?: Record<string, Cmux.JsonValue> }
+  type TailnetEndpoint = { transport: "unix" | "tcp"; path?: string; host?: string; port?: number }
+  type TailnetForward = { forward_id: string; target: string; endpoint: Cmux.TailnetEndpoint }
+  type TailnetOwner = { login_name: string; display_name: string }
+  type TailnetState = { state: "not_started" | "no_state" | "starting" | "needs_login" | "needs_machine_auth" | "running" | "stopped" | "in_use_other_user" | "unknown" | "error"; browse_to_url?: string; dns_name?: string; owner?: Cmux.TailnetOwner; ips?: Array<string>; error?: string }
   type TargetPolicy = unknown
   type TeamAiLimitMember = { user: Cmux.UserId; display_name: string; role: string; limit_usd: unknown; source: "personal" | "team" | "default"; spent_usd: unknown }
   type TeamAiUsageLine = { billed: boolean; included_usd: unknown | null; per_seat: boolean; seats: number; spent_usd: unknown; period_start: number | null; period_end: number; stop_applies: boolean; stopped: boolean }

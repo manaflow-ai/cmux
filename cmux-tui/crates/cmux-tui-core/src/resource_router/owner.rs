@@ -304,6 +304,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefEngineGet
         | ResourceOperation::ChiefEngineSet
         | ResourceOperation::ChiefStop
+        | ResourceOperation::TailnetLoginStart
+        | ResourceOperation::TailnetLogout
+        | ResourceOperation::TailnetForward
+        | ResourceOperation::TailnetState
         | ResourceOperation::ChiefProfileList
         | ResourceOperation::ChiefProfileGet
         | ResourceOperation::ChiefProfileCreate

@@ -13,6 +13,7 @@ impl ResourceOperation {
                 | Self::TerminalAttach
                 | Self::BrowserAttach
                 | Self::SidebarViewAttach
+                | Self::TailnetState
         ) {
             OperationClass::StreamOpen
         } else if matches!(

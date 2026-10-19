@@ -13001,6 +13001,163 @@
         }
       },
       "extra": false
+    },
+    "TailnetOwner": {
+      "kind": "object",
+      "fields": {
+        "login_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "TailnetState": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "not_started",
+              "no_state",
+              "starting",
+              "needs_login",
+              "needs_machine_auth",
+              "running",
+              "stopped",
+              "in_use_other_user",
+              "unknown",
+              "error"
+            ]
+          },
+          "description": "The node's state (ipn.State), not_started before the first start, error when the node could not start or be watched."
+        },
+        "browse_to_url": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The sign-in link, only in needs_login. A credential: open it, never log it."
+        },
+        "dns_name": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The MagicDNS name, without the trailing dot, while running."
+        },
+        "owner": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "TailnetOwner"
+          },
+          "description": "The signed-in user that owns the device while running; absent for a tagged device."
+        },
+        "ips": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The device's tailnet addresses while running."
+        },
+        "error": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The last error the node reported."
+        }
+      },
+      "extra": false
+    },
+    "TailnetForward": {
+      "kind": "object",
+      "fields": {
+        "forward_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 32
+          }
+        },
+        "target": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "endpoint": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TailnetEndpoint"
+          }
+        }
+      },
+      "extra": false
+    },
+    "TailnetEndpoint": {
+      "kind": "object",
+      "fields": {
+        "transport": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "unix",
+              "tcp"
+            ]
+          }
+        },
+        "path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The socket path (transport unix)."
+        },
+        "host": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "127.0.0.1 (transport tcp)."
+        },
+        "port": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint16"
+          },
+          "description": "The loopback port (transport tcp)."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -29537,6 +29694,209 @@
         "selector.invalid",
         "selector.not_found",
         "validation.invalid"
+      ]
+    },
+    "tailnet.forward": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "target": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 3,
+              "max_length": 260
+            },
+            "description": "host:port on the tailnet: a MagicDNS name, a tailnet host name or an IP literal ([v6]:port for IPv6), port 1-65535. No scheme, path or command."
+          },
+          "transport": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "unix",
+                "tcp"
+              ]
+            },
+            "default": "unix",
+            "description": "unix (default): a mode 0600 socket in a 0700 folder of this user's runtime directory. tcp: a 127.0.0.1 port, for a client that cannot dial a Unix socket (libwebrtc TURN over TCP)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TailnetForward"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Frontend only: the verified cmux app (actor frontend) on a local Unix connection of this machine with no link peer record. An agent, a terminal process, the CLI, a page, a link peer, a WebSocket or relayed connection gets origin.forbidden before the node is touched; the remote relay never admits it. Not an MCP tool and not a CLI verb.",
+        "A daemon built without the tailnet cargo feature (the default; libtailscale needs Go) answers operation.failed details.reason not_built after the same actor check, and does not advertise tailnet-v1.",
+        "Opens a local listener; each accepted connection is carried over the tailnet to target (a new tailnet TCP stream per connection). The node must be running (else operation.failed details.reason not_running). The forward closes when the connection that opened it closes. At most 8 forwards per connection and 32 per daemon (details.reason limit).",
+        "Local trust: any process that can connect to the endpoint reaches target as this tailnet device, the exposure a system Tailscale gives every local process. The unix endpoint limits that to this OS user; the tcp endpoint is open to every local process on loopback.",
+        "replayed is always false and revision 0: the forward is connection state, not session registry state."
+      ]
+    },
+    "tailnet.login.start": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TailnetState"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Frontend only: the verified cmux app (actor frontend) on a local Unix connection of this machine with no link peer record. An agent, a terminal process, the CLI, a page, a link peer, a WebSocket or relayed connection gets origin.forbidden before the node is touched; the remote relay never admits it. Not an MCP tool and not a CLI verb.",
+        "A daemon built without the tailnet cargo feature (the default; libtailscale needs Go) answers operation.failed details.reason not_built after the same actor check, and does not advertise tailnet-v1.",
+        "Starts the install's one tailnet node when it does not run (state in the daemon state root's tailnet folder, 0700; device name cmux-<computer name>) and answers its state once the control plane answers (a sign-in link, running or needs_machine_auth), at most about 20 s; tailnet.state reports later changes.",
+        "In needs_login the result carries browse_to_url, the sign-in link. The link is a credential until it is used (whoever opens it first owns the device): the daemon returns it only to the frontend actor and never logs it. A running node that needs a login and has no link (after tailnet.logout) asks for a new one.",
+        "replayed is always false and revision 0: the node's state is not session registry state."
+      ]
+    },
+    "tailnet.logout": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TailnetState"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Frontend only: the verified cmux app (actor frontend) on a local Unix connection of this machine with no link peer record. An agent, a terminal process, the CLI, a page, a link peer, a WebSocket or relayed connection gets origin.forbidden before the node is touched; the remote relay never admits it. Not an MCP tool and not a CLI verb.",
+        "A daemon built without the tailnet cargo feature (the default; libtailscale needs Go) answers operation.failed details.reason not_built after the same actor check, and does not advertise tailnet-v1.",
+        "Signs the node out: the device leaves the user's tailnet and the node keeps no login. Answers the state once the node left running (at most about 10 s). A node that does not run answers its state unchanged. Open forwards stop carrying new connections.",
+        "replayed is always false and revision 0."
+      ]
+    },
+    "tailnet.state": {
+      "class": "stream_open",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "stream_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "stream"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "StreamOpened"
+      },
+      "stream": {
+        "item": {
+          "kind": "ref",
+          "name": "TailnetState"
+        },
+        "end": {
+          "kind": "ref",
+          "name": "StreamEnd"
+        },
+        "cursor": false,
+        "initial_snapshot": true
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "transport.closed",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Frontend only: the verified cmux app (actor frontend) on a local Unix connection of this machine with no link peer record. An agent, a terminal process, the CLI, a page, a link peer, a WebSocket or relayed connection gets origin.forbidden before the node is touched; the remote relay never admits it. Not an MCP tool and not a CLI verb.",
+        "A daemon built without the tailnet cargo feature (the default; libtailscale needs Go) answers operation.failed details.reason not_built after the same actor check, and does not advertise tailnet-v1.",
+        "The first item is the current state; then one item per change the node's IPN bus reports (event driven, no polling). Items carry browse_to_url in needs_login (frontend actor only, never logged).",
+        "Opening it starts a node that already has a saved login, so a signed-in install is back on its tailnet with no click; a node with no login starts only with tailnet.login.start."
       ]
     },
     "terminal.attach": {
