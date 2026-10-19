@@ -1057,13 +1057,14 @@ enum RowBuilder {
         // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
         let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
             || (tail && s.ui.streams.contains { $0.parts.isEmpty && $0.sender != me })
-        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
-            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-        }
-        // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
-        // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
+        // cmux: the host's status line (ask 9) goes above the typing indicator, not under it (upstream: last,
+        // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
+        // draws it at the bubble's left edge). Same gap and height as upstream's.
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
             rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
+        }
+        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
+            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows
