@@ -51,6 +51,11 @@ final class RowBadgeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The ring and chip layers behind item `index` (test hook).
+    func backdrops(at index: Int) -> [CALayer] { [rings[index], chips[index]] }
+    /// The glyphs' frames, in order (test hook).
+    var glyphFrames: [CGRect] { glyphs.prefix(states.count).map(\.frame) }
+
     /// The width the badges take: one cell, then each further one's step.
     var preferredWidth: CGFloat {
         states.isEmpty ? 0 : cellSide + CGFloat(states.count - 1) * step
