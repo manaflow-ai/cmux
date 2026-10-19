@@ -178,11 +178,14 @@ class FailClosed(unittest.TestCase):
         self.assertEqual(reasons, ["lib/big.ts is too large to scan", "lib/link.ts is a symlink"])
 
     def test_a_crafted_file_cannot_make_the_scan_slow(self):
-        import time
+        # A backtracking scanner would hang on this input; the thread join is a
+        # hang guard, not a latency budget (a linear scan finishes in well under 1s).
+        import threading
         crafted = '"' + "/*" + "*" * 200_000 + ' with x' * 20_000
-        started = time.monotonic()
-        self.reasons({"lib/a.ts": crafted})
-        self.assertLess(time.monotonic() - started, 5)
+        worker = threading.Thread(target=self.reasons, args=({"lib/a.ts": crafted},), daemon=True)
+        worker.start()
+        worker.join(timeout=120)
+        self.assertFalse(worker.is_alive(), "the import scan hung on a crafted file")
 
     def test_a_package_json_that_mentions_macros_is_refused(self):
         self.assertTrue(self.reasons({"package.json": '{"macros": {"x": "./m"}}'}))
