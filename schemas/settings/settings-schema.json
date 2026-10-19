@@ -466,6 +466,24 @@
               "key" : "settings.group.surfaces",
               "text" : "Surfaces"
             }
+          },
+          {
+            "key" : "settings.group.markdownViewer",
+            "rows" : [
+              "markdown.layout.width",
+              "markdown.layout.fullWidth",
+              "markdown.font.size",
+              "markdown.font.preset",
+              "markdown.font.lineHeight",
+              "markdown.spacing.paragraph",
+              "markdown.code.blockSize",
+              "markdown.tables",
+              "markdown.theme"
+            ],
+            "title" : {
+              "key" : "settings.group.markdownViewer",
+              "text" : "Markdown Viewer"
+            }
           }
         ],
         "id" : "appearance",
@@ -949,6 +967,16 @@
             "title" : {
               "key" : "settings.group.phone",
               "text" : "Phone Access"
+            }
+          },
+          {
+            "key" : "settings.group.remoteHosting",
+            "rows" : [
+              "remoteHosting.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.remoteHosting",
+              "text" : "Remote Hosting"
             }
           }
         ],
@@ -4006,6 +4034,56 @@
       "title" : {
         "key" : "settings.phone.keepAwake",
         "text" : "Keep Mac Awake for Your Phone"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.remoteHosting",
+        "text" : "Remote Hosting"
+      },
+      "help" : {
+        "key" : "settings.remoteHosting.enabled.help",
+        "text" : "Your other computers on your private network can open this Mac's workspaces and terminals while cmux is running. Only devices signed in as you can connect."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "remoteHosting.enabled",
+      "keywords" : [
+        "remote",
+        "host",
+        "hosting",
+        "network",
+        "devices",
+        "share",
+        "server"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "remoteHosting",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.remoteHosting.enabled",
+        "text" : "Let Your Other Devices Use This Mac"
       },
       "validation" : "portable"
     },
@@ -26209,7 +26287,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "82e7fc86acae24094870fdca226d1c99bc81b5cd8223da6de359aebcc4e77e68",
+  "schema_hash" : "5ec24abeb2481e3961a38216feb7276a586fb4576d4642706084b753d6e4c837",
   "sections" : [
     {
       "id" : "general",
