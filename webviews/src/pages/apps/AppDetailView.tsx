@@ -25,7 +25,7 @@ export function AppDetailView({
       ‹ {t("store.tab.discover")}
     </button>
   );
-  const backAction = back ?? (
+  const backAction = back || (
     <button type="button" className="apps-back" onClick={() => void store.select(undefined)}>
       ‹ {t("store.tab.discover")}
     </button>

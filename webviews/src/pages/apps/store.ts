@@ -103,7 +103,7 @@ export class AppsStore {
       updatesStale: false,
       selection: route.app && listedInStore({ id: route.app }) ? route.app : undefined,
       catalogStatus: client ? "loading" : "ready",
-      detailStatus: route.app && listedInStore({ id: route.app }) ? "loading" : "idle",
+      detailStatus: client && route.app && listedInStore({ id: route.app }) ? "loading" : "idle",
       grants: {},
       logs: {},
       loading: client !== null,
@@ -242,6 +242,8 @@ export class AppsStore {
         updatesLoading: false,
         catalogStatus: "error",
         catalogError: failed.error,
+        // A deep-linked detail waits on the catalog; the banner's Reload retries both.
+        ...(this.snapshot.detailStatus === "loading" ? { detailStatus: "error", detailError: failed.error } : {}),
         ...failed,
         error: undefined,
       });

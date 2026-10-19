@@ -111,7 +111,7 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
       </div>
       {snap.loading && snap.visible.length === 0 ? (
         <LoadingGrid strings={strings} />
-      ) : snap.visible.length === 0 ? (
+      ) : snap.visible.length === 0 && snap.catalogStatus === "error" ? null : snap.visible.length === 0 ? (
         <output className="apps-state apps-state-empty">
           <span className="apps-state-mark" aria-hidden="true">
             ⌕
