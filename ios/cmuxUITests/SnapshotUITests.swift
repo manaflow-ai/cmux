@@ -341,9 +341,13 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(codex.waitForExistence(timeout: 8))
         codex.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
-        let composer = app.otherElements["MobileAgentComposer"].textFields.firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 8))
-        XCTAssertTrue(composer.isHittable, "The composer should remain reachable in right-to-left layout")
+        // The field is nested inside a `.contain` accessibility element. In
+        // RTL, XCTest can report that child as non-hittable even while the
+        // composer container is visible and tappable. Assert the real hit
+        // target and retain a child-field existence check.
+        let composer = app.otherElements["MobileAgentComposer"]
+        XCTAssertTrue(reveal(composer, in: app), "The composer should remain reachable in right-to-left layout")
+        XCTAssertTrue(composer.textFields.firstMatch.waitForExistence(timeout: 8))
         keepScreenshot(app, named: "agent-codex-arabic")
     }
 
