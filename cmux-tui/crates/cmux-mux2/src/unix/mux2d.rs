@@ -28,6 +28,8 @@ use ghostty_vt::{Callbacks, Terminal};
 mod os;
 #[path = "mux2d_parse.rs"]
 mod parse;
+#[path = "mux2d_poll.rs"]
+mod poll;
 #[path = "mux2d_scan.rs"]
 mod scan;
 #[path = "mux2d_state.rs"]
@@ -35,6 +37,7 @@ mod state;
 
 use os::*;
 use parse::*;
+use poll::{Event, Interest, Poller, Waker};
 use scan::{incomplete_tail_start, needs_immediate_parse};
 use state::{STATE_MAGIC, parse_state};
 
@@ -50,8 +53,15 @@ const PARSE_BATCH: usize = 256 << 10;
 const INFLIGHT_MAX: usize = 2;
 /// Reads retried after EAGAIN while output is flowing (MUX2_READ_SPINS).
 /// The macOS PTY buffer is small: a writer that refills it within a few
-/// microseconds is read without a kevent round trip and a context switch.
+/// microseconds is read without a kevent round trip and a context switch
+/// (one flood: 422 MB/s spinning, 250 MB/s not).
+#[cfg(target_os = "macos")]
 const READ_SPINS: u32 = 32;
+/// Linux moves PTY output through a kernel worker, and an empty read takes
+/// the locks that worker needs: spinning slows the writer (8 floods:
+/// 108 MB/s spinning, 183 MB/s not).
+#[cfg(not(target_os = "macos"))]
+const READ_SPINS: u32 = 0;
 
 fn tunable(name: &str, default: usize) -> usize {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
@@ -66,8 +76,6 @@ const TOKEN_LISTEN: u64 = 0;
 const KIND_CONN: u64 = 1 << 32;
 const KIND_PTY: u64 = 2 << 32;
 const KIND_PROC: u64 = 3 << 32;
-/// EVFILT_USER, ident = terminal id: a worker finished one of its batches.
-const KIND_WAKE: u64 = 4 << 32;
 const INDEX_MASK: u64 = 0xffff_ffff;
 
 struct Term {
@@ -134,7 +142,9 @@ impl Conn {
 }
 
 struct Server {
-    kq: RawFd,
+    poll: Poller,
+    /// Handed to parse workers so a finished batch wakes the loop.
+    waker: Waker,
     listen: RawFd,
     terms: HashMap<u32, Term>,
     conns: HashMap<u32, Conn>,
@@ -144,6 +154,8 @@ struct Server {
     shutdown: bool,
     parse_batch: usize,
     read_spins: u32,
+    /// The last wait returned one event: read_pty may spin (READ_SPINS).
+    spin_ok: bool,
     /// Children of killed terminals not reaped yet; kept across upgrades.
     orphans: Vec<libc::pid_t>,
     /// Batches one terminal may have at its worker (MUX2_INFLIGHT_MAX).
@@ -153,65 +165,34 @@ struct Server {
 }
 
 impl Server {
-    fn kev(
-        &self,
-        ident: usize,
-        filter: i16,
-        flags: u16,
-        fflags: u32,
-        udata: u64,
-    ) -> io::Result<()> {
-        // SAFETY: zeroed kevent is a valid value; fields are set below.
-        let mut ev: libc::kevent = unsafe { std::mem::zeroed() };
-        ev.ident = ident;
-        ev.filter = filter;
-        ev.flags = flags;
-        ev.fflags = fflags;
-        ev.udata = udata as usize as *mut libc::c_void;
-        // SAFETY: one valid changelist entry, no event list.
-        cvt(unsafe { libc::kevent(self.kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) })?;
-        Ok(())
-    }
-
     fn run(&mut self) -> io::Result<()> {
-        // SAFETY: zeroed kevents are valid out-buffers.
-        let mut events: Vec<libc::kevent> = vec![unsafe { std::mem::zeroed() }; 256];
+        let mut events = Vec::with_capacity(256);
         while !self.shutdown {
-            // SAFETY: events has the capacity passed.
-            let n = unsafe {
-                libc::kevent(
-                    self.kq,
-                    std::ptr::null(),
-                    0,
-                    events.as_mut_ptr(),
-                    events.len() as i32,
-                    std::ptr::null(),
-                )
-            };
-            if n < 0 {
-                let err = io::Error::last_os_error();
-                if err.kind() == io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(err);
-            }
-            for ev in &events[..n as usize] {
-                let token = ev.udata as usize as u64;
+            self.poll.wait(&mut events)?;
+            // Spinning on one PTY only pays when nothing else is ready:
+            // with several busy terminals it delays reading the others
+            // (8 floods on Linux: 83 MB/s spinning, 183 MB/s not).
+            self.spin_ok = events.len() == 1;
+            for ev in events.drain(..) {
+                let (token, writable) = match ev {
+                    Event::Read(token) => (token, false),
+                    Event::Write(token) => (token, true),
+                    Event::Exit { token, pid } => {
+                        self.child_exited((token & INDEX_MASK) as u32, pid);
+                        continue;
+                    }
+                    Event::Wake(t) => {
+                        self.batch_done(t);
+                        continue;
+                    }
+                };
                 let index = (token & INDEX_MASK) as u32;
-                let writable = ev.filter == libc::EVFILT_WRITE;
-                if ev.filter == libc::EVFILT_USER {
-                    // Routed by filter and ident, not by udata.
-                    self.batch_done(ev.ident as u32);
-                    continue;
-                }
                 match token & !INDEX_MASK {
                     _ if token == TOKEN_LISTEN => self.accept(),
                     KIND_CONN if writable => self.flush_conn(index),
                     KIND_CONN => self.conn_readable(index),
                     KIND_PTY if writable => self.flush_input(index),
                     KIND_PTY => self.pty_readable(index),
-                    KIND_PROC => self.child_exited(index, ev.ident as libc::pid_t),
-                    KIND_WAKE => self.batch_done(index),
                     _ => {}
                 }
             }
@@ -234,7 +215,10 @@ impl Server {
             }
             let id = self.next_conn;
             self.next_conn = self.next_conn.wrapping_add(1).max(1);
+            // SIGPIPE is ignored server-wide; macOS also takes it per socket.
+            #[cfg(target_os = "macos")]
             let nosig: libc::c_int = 1;
+            #[cfg(target_os = "macos")]
             // SAFETY: setting SO_NOSIGPIPE with a valid option value.
             unsafe {
                 libc::setsockopt(
@@ -259,13 +243,7 @@ impl Server {
                     closing: false,
                 },
             );
-            let _ = self.kev(
-                fd as usize,
-                libc::EVFILT_READ,
-                libc::EV_ADD,
-                0,
-                KIND_CONN | u64::from(id),
-            );
+            let _ = self.poll.add(fd, Interest::Read, KIND_CONN | u64::from(id));
         }
     }
 
@@ -305,7 +283,7 @@ impl Server {
             if conn.read_armed {
                 conn.read_armed = false;
                 let fd = conn.fd;
-                let _ = self.kev(fd as usize, libc::EVFILT_READ, libc::EV_DELETE, 0, 0);
+                self.poll.delete(fd, Interest::Read);
             }
             if self.conns.get(&id).is_some_and(|c| c.out.is_empty()) {
                 self.drop_conn(id);
@@ -357,8 +335,11 @@ impl Server {
         let done = conn.closing && !want;
         if want != armed {
             conn.write_armed = want;
-            let flags = if want { libc::EV_ADD } else { libc::EV_DELETE };
-            let _ = self.kev(fd as usize, libc::EVFILT_WRITE, flags, 0, KIND_CONN | u64::from(id));
+            if want {
+                let _ = self.poll.add(fd, Interest::Write, KIND_CONN | u64::from(id));
+            } else {
+                self.poll.delete(fd, Interest::Write);
+            }
         }
         if done {
             self.drop_conn(id);
@@ -489,7 +470,7 @@ impl Server {
                     }
                     // SAFETY: closing the master hangs up the slave side.
                     unsafe { libc::close(term.master) };
-                    let _ = self.kev(t as usize, libc::EVFILT_USER, libc::EV_DELETE, 0, 0);
+                    self.poll.delete_wake(t);
                     for c in &term.attached {
                         if let Some(conn) = self.conns.get_mut(c) {
                             conn.attached = None;
@@ -598,9 +579,7 @@ impl Server {
             argv.push(CString::new(r.bytes().ok_or_else(bad)?).map_err(|_| bad())?);
         }
         if argv.is_empty() {
-            let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
-            argv.push(CString::new(shell.as_bytes()).map_err(|_| bad())?);
-            argv.push(CString::new("-l").expect("static"));
+            argv = default_login_argv().map_err(|_| bad())?;
         }
         let cwd = if cwd.is_empty() { None } else { Some(CString::new(cwd).map_err(|_| bad())?) };
 
@@ -641,28 +620,9 @@ impl Server {
                 bytes_in: 0,
             },
         );
-        self.kev(master as usize, libc::EVFILT_READ, libc::EV_ADD, 0, KIND_PTY | u64::from(t))?;
-        self.kev(
-            t as usize,
-            libc::EVFILT_USER,
-            libc::EV_ADD | libc::EV_CLEAR,
-            0,
-            KIND_WAKE | u64::from(t),
-        )?;
-        if let Err(e) = self.kev(
-            pid as usize,
-            libc::EVFILT_PROC,
-            libc::EV_ADD | libc::EV_ONESHOT,
-            libc::NOTE_EXIT,
-            KIND_PROC | u64::from(t),
-        ) {
-            // The child exited before the filter was added: reap it now.
-            if e.raw_os_error() == Some(libc::ESRCH) {
-                self.child_exited(t, pid);
-            } else {
-                return Err(e);
-            }
-        }
+        self.poll.add(master, Interest::Read, KIND_PTY | u64::from(t))?;
+        self.poll.add_wake(t)?;
+        self.watch_child(t, pid)?;
         Ok(t)
     }
 
@@ -698,8 +658,12 @@ impl Server {
         let want = !term.input.is_empty() && term.pty_open;
         if want != term.input_armed {
             term.input_armed = want;
-            let (fd, flags) = (term.master, if want { libc::EV_ADD } else { libc::EV_DELETE });
-            let _ = self.kev(fd as usize, libc::EVFILT_WRITE, flags, 0, KIND_PTY | u64::from(t));
+            let fd = term.master;
+            if want {
+                let _ = self.poll.add(fd, Interest::Write, KIND_PTY | u64::from(t));
+            } else {
+                self.poll.delete(fd, Interest::Write);
+            }
         }
     }
 
@@ -717,8 +681,8 @@ impl Server {
         // the answer, not writing, so spinning for more output only delays.
         let mut asked = false;
         let mut pause = false;
-        let (parse_batch, read_spins, inflight_max) =
-            (self.parse_batch, self.read_spins, self.inflight_max);
+        let (parse_batch, inflight_max) = (self.parse_batch, self.inflight_max);
+        let read_spins = if self.spin_ok { self.read_spins } else { 0 };
         while total < budget {
             // SAFETY: buf is valid for its length.
             let n =
@@ -766,7 +730,7 @@ impl Server {
                     if term.pending.len() >= parse_batch {
                         let worker = (!self.workers.is_empty())
                             .then(|| &self.workers[t as usize % self.workers.len()]);
-                        offload_parse(term, worker, self.kq, t);
+                        offload_parse(term, worker, &self.waker, t);
                         if may_pause
                             && *term.inflight.count.lock().expect("inflight") >= inflight_max
                         {
@@ -801,10 +765,9 @@ impl Server {
         }
         self.flush_replies(t);
         if close {
-            let _ = self.kev(master as usize, libc::EVFILT_READ, libc::EV_DELETE, 0, 0);
+            self.poll.delete(master, Interest::Read);
         } else if pause {
-            let token = KIND_PTY | u64::from(t);
-            let _ = self.kev(master as usize, libc::EVFILT_READ, libc::EV_DISABLE, 0, token);
+            self.poll.set_read_enabled(master, KIND_PTY | u64::from(t), false);
         }
         if !clients.is_empty() {
             self.fanout(t, &clients, &forwarded);
@@ -825,8 +788,7 @@ impl Server {
         if term.read_paused && below && term.pty_open {
             term.read_paused = false;
             let master = term.master;
-            let token = KIND_PTY | u64::from(t);
-            let _ = self.kev(master as usize, libc::EVFILT_READ, libc::EV_ENABLE, 0, token);
+            self.poll.set_read_enabled(master, KIND_PTY | u64::from(t), true);
         }
     }
 
@@ -927,19 +889,34 @@ pub fn main() {
             std::process::exit(1);
         }
         None => match listen_socket(&path) {
-            Ok(fd) => fd,
+            Ok(Some(fd)) => fd,
+            Ok(None) => {
+                // Another server won the start race: report ready so our
+                // client connects to it.
+                if let Some(fd) = ready_fd {
+                    // SAFETY: one byte to the inherited pipe, then close.
+                    unsafe {
+                        libc::write(fd, b"r".as_ptr().cast(), 1);
+                        libc::close(fd);
+                    }
+                }
+                std::process::exit(0);
+            }
             Err(e) => {
                 eprintln!("mux2d: cannot listen on {}: {e}", path.display());
                 std::process::exit(1);
             }
         },
     };
-    // SAFETY: kqueue has no preconditions.
-    let kq = unsafe { libc::kqueue() };
-    // SAFETY: marking our kqueue close-on-exec, so an upgrade starts clean.
-    unsafe { libc::fcntl(kq, libc::F_SETFD, libc::FD_CLOEXEC) };
+    let sock_id = socket_id(&path);
+    let poll = Poller::new().unwrap_or_else(|e| {
+        eprintln!("mux2d: event loop: {e}");
+        std::process::exit(1);
+    });
+    let waker = poll.waker();
     let mut server = Server {
-        kq,
+        poll,
+        waker,
         listen,
         terms: HashMap::new(),
         conns: HashMap::new(),
@@ -949,13 +926,12 @@ pub fn main() {
         shutdown: false,
         parse_batch: tunable("MUX2_PARSE_BATCH", PARSE_BATCH),
         read_spins: tunable("MUX2_READ_SPINS", READ_SPINS as usize) as u32,
+        spin_ok: false,
         orphans: Vec::new(),
         workers: spawn_parse_workers(),
         inflight_max: tunable("MUX2_INFLIGHT_MAX", INFLIGHT_MAX).max(1),
     };
-    server
-        .kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN)
-        .expect("register listener");
+    server.poll.add(listen, Interest::Read, TOKEN_LISTEN).expect("register listener");
     if let Some(state) = &resume_state
         && let Err(e) = server.resume(state)
     {
@@ -979,5 +955,5 @@ pub fn main() {
             unsafe { libc::kill(term.pid, libc::SIGHUP) };
         }
     }
-    let _ = std::fs::remove_file(&path);
+    remove_socket_if_ours(&path, sock_id);
 }
