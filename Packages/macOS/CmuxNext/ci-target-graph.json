@@ -109,6 +109,7 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
+        "CmuxNextErrorJournal",
         "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextWakeups"
@@ -180,6 +181,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDiff",
+        "CmuxNextErrorJournal",
         "CmuxNextFeed",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -573,6 +575,21 @@
       ],
       "packages": []
     },
+    "CmuxNextErrorJournal": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextErrorJournalTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextErrorJournalTests",
+      "targets": [
+        "CmuxNextErrorJournal"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextFeed": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
@@ -746,6 +763,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextErrorJournal",
         "CmuxNextSettings"
       ],
       "packages": []
