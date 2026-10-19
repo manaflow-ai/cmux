@@ -121,7 +121,7 @@ final class ChatsOpenCoordinator {
             createWorkspace(WorkspaceSpawn(cwd: cwd, name: name, command: command, env: env), seed: seed)
         case .readOnly(let path):
             guard let pane = services.windows.active?.focusedPane else { return }
-            _ = services.viewers.markdownPages.open(URL(fileURLWithPath: path), in: pane, focus: true, userChose: false)
+            _ = services.viewers.markdownPages.open(URL(fileURLWithPath: path), in: pane, focus: true, userChose: false, readOnly: true)
         }
     }
 
