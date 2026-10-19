@@ -100,7 +100,7 @@ jobs:
     # alone took 35 min to reach its web bundles (job 115856352658). Later
     # tours of the PR reuse its per-tag DerivedData while it is among the
     # most recently used on that Mac (scripts/ci/prune_media_derived_data.py).
-    timeout-minutes: 120
+    timeout-minutes: 200
     permissions:
       contents: read
     # is_ui tells the publish job a UI tour ran, so a capture that died before
@@ -258,6 +258,41 @@ jobs:
           }
           build_one "$RUNNER_TEMP/cmux-next-base" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-base.out" base_app
           build_one "$GITHUB_WORKSPACE" "${TOUR_TAG}-head" "$RUNNER_TEMP/reload-head.out" head_app
+
+      # PROOF ONLY (never merged): the warm head tag, just built with
+      # GhosttyNextKit ced99dcde, is rebuilt after the pin moves to a19c884fa.
+      # The control skips the stamp check; the second build runs it.
+      - name: "Proof: rebuild the warm head tag after a GhosttyNextKit pin change"
+        if: steps.scope.outputs.is_ui == 'true'
+        run: |
+          set -euo pipefail
+          tag="${TOUR_TAG}-head"
+          derived="$HOME/Library/Developer/Xcode/DerivedData/cmux-$tag"
+          stamp="$GITHUB_WORKSPACE/scripts/ci/media_module_cache_stamp.py"
+          echo "stamp before: $(cat "$derived/cmux-binary-pins.stamp")"
+          find "$derived/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" -name 'GhosttyNextKit*' -print || true
+          sed -i '' \
+            -e 's/ced99dcde2f11df0e9f9e4a3d768c2a8ff62d903/a19c884fa8d132378ae838dcba95654b177b6723/' \
+            -e 's/1b63ad807de22b8c51489c3bf1640dbc2b8582beca9f74a516471f59ac0e63ed/94ff3178e862b6bb86f126f9e14f92359f8182f48726e46d4870d2cddf2a10a4/' \
+            Packages/Shared/CmuxGhosttyKit/Package.swift
+          # a19c884fa's ghostty.h has no full_swap or full_resize.
+          sed -i '' -e 's/fullSwap: counters.full_swap, fullResize: counters.full_resize/fullSwap: 0, fullResize: 0/' \
+            Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+Diagnostics.swift
+          git diff --stat
+          echo "::group::control: rebuild without the stamp check"
+          control=built
+          ./scripts/reload.sh --tag "$tag" --no-global-cli-links > "$RUNNER_TEMP/proof-control.out" 2>&1 || control=failed
+          grep -c "has been modified since the module file" "$RUNNER_TEMP/proof-control.out" || true
+          grep -m2 "has been modified since the module file" "$RUNNER_TEMP/proof-control.out" || true
+          grep -E "BUILD (FAILED|SUCCEEDED)|reload FAILED" "$RUNNER_TEMP/proof-control.out" || true
+          echo "::endgroup::"
+          echo "PROOF control (no stamp check) after the pin change: $control"
+          python3 "$stamp" clear --source "$GITHUB_WORKSPACE" --derived-data "$derived"
+          ./scripts/reload.sh --tag "$tag" --no-global-cli-links > "$RUNNER_TEMP/proof-fixed.out" 2>&1 || {
+            tail -80 "$RUNNER_TEMP/proof-fixed.out"; echo "PROOF with the stamp check: failed"; exit 1; }
+          grep -E "BUILD (FAILED|SUCCEEDED)" "$RUNNER_TEMP/proof-fixed.out" || true
+          python3 "$stamp" record --source "$GITHUB_WORKSPACE" --derived-data "$derived"
+          echo "PROOF with the stamp check after the pin change: built"
 
       - name: Capture before and after interactions
         id: capture

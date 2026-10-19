@@ -4,6 +4,7 @@ import GhosttyNextKit
 
 /// A point-in-time view of one terminal surface's on-screen state, for the
 /// App's `debug.surfaces` report and its blank-pane invariant.
+// Proof-only touch so the media tour runs (never merged).
 public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     /// Ghostty created the surface (`ghostty_surface_new` succeeded).
     public var hasSurface: Bool
