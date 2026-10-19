@@ -16,7 +16,8 @@ type Sessions = AcpmuxSnapshot["sessions"];
 
 const KEY = "cmux.acpmux.newTab.sessions.v1";
 /// The chats a New Tab lists come from the newest few; the rest only keep their transcripts from
-/// coming back as device chats (recentChatCards), so each keeps just the fields that needs.
+/// coming back as device chats (recentChatCards) and their folders in the project picker, so each
+/// keeps just the fields those need.
 const FULL = 60;
 
 type Stored = { at: number; sessions: AcpmuxSessionEntry[] };
@@ -98,6 +99,10 @@ function kept(sessions: Sessions): AcpmuxSessionEntry[] {
           sessionId: session.sessionId,
           ...(session.agentSessionId ? { agentSessionId: session.agentSessionId } : {}),
           ...(session.updatedAt !== undefined ? { updatedAt: session.updatedAt } : {}),
+          ...(session.cwd ? { cwd: session.cwd } : {}),
+          ...(session.host ? { host: session.host } : {}),
+          ...(session.hostKind ? { hostKind: session.hostKind } : {}),
+          ...(session.peer ? { peer: session.peer } : {}),
           archived: true,
         } as AcpmuxSessionEntry),
   );
@@ -114,12 +119,13 @@ function sameEntries(a: Sessions, b: Sessions | undefined): boolean {
   return true;
 }
 
-/// Whether `snapshot` is a live list of this Mac's daemon: a page still connecting or cut off, a
-/// gallery or a debug page lists nothing real, and a chat on another machine (`remote`, `peer`)
-/// lists only its own chat.
-function publishable(snapshot: Pick<AcpmuxSnapshot, "connection" | "origin">): boolean {
+/// Whether `snapshot` is a live list of this Mac's daemon: one the client has read (a connection's
+/// first emits list nothing yet), on a connection acpmux calls local (a chat on another machine
+/// lists only its own chat; an older acpmux names no origin), and not connecting, cut off, a
+/// gallery or a debug page.
+function publishable(snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "listedSessions">): boolean {
   const connection = snapshot.connection;
-  if (snapshot.origin === "remote" || snapshot.origin === "peer") return false;
+  if (snapshot.listedSessions !== true || snapshot.origin !== "local") return false;
   if (connection === "disconnected" || connection === "debug" || connection === "gallery") return false;
   return !connection.startsWith("connecting") && !connection.startsWith("reconnecting");
 }
@@ -127,7 +133,7 @@ function publishable(snapshot: Pick<AcpmuxSnapshot, "connection" | "origin">): b
 /// Takes a page's daemon snapshot into the store, when it is publishable and its list changed.
 /// `connection` is why the client emitted ("connected", "session changed", an event's kind).
 export function publishSessions(
-  snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "sessions">,
+  snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "listedSessions" | "sessions">,
   at = Date.now(),
 ): void {
   if (!publishable(snapshot)) return;

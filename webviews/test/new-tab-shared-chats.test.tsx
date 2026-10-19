@@ -60,7 +60,12 @@ function chat(n: number): AcpmuxSessionEntry {
   };
 }
 
-const connected = (sessions: AcpmuxSessionEntry[]) => ({ connection: "connected", sessions });
+const connected = (sessions: AcpmuxSessionEntry[]) => ({
+  connection: "connected",
+  origin: "local" as const,
+  listedSessions: true as const,
+  sessions,
+});
 
 async function titles(sessions: AcpmuxSessionEntry[]): Promise<string[]> {
   const { recentChatCards } = await import("../src/agent-session/acpmux/newtab/screenModel");
@@ -153,20 +158,41 @@ test("a connected page keeps publishing on later emits, whatever their reason", 
   const store = await import("../src/agent-session/acpmux/newtab/chatStore");
   // The direct client names why it emitted, not whether it is linked: after `connected` come
   // "session changed", "attached", an event's kind.
-  store.publishSessions({ connection: "connected", origin: "local", sessions: [chat(1)] }, T0 + 1);
-  store.publishSessions({ connection: "session changed", origin: "local", sessions: [chat(2), chat(1)] }, T0 + 2);
-  store.publishSessions({ connection: "permission", origin: "unknown", sessions: [chat(3), chat(2), chat(1)] }, T0 + 3);
-  store.publishSessions({ connection: "disconnected", origin: "local", sessions: [] }, T0 + 4);
-  store.publishSessions({ connection: "reconnecting (2)", origin: "local", sessions: [] }, T0 + 5);
+  store.publishSessions(
+    { connection: "connected", origin: "local", listedSessions: true, sessions: [chat(1)] },
+    T0 + 1,
+  );
+  store.publishSessions(
+    { connection: "session changed", origin: "local", listedSessions: true, sessions: [chat(2), chat(1)] },
+    T0 + 2,
+  );
+  store.publishSessions(
+    { connection: "permission", origin: "local", listedSessions: true, sessions: [chat(3), chat(2), chat(1)] },
+    T0 + 3,
+  );
+  store.publishSessions({ connection: "disconnected", origin: "local", listedSessions: true, sessions: [] }, T0 + 4);
+  store.publishSessions(
+    { connection: "reconnecting (2)", origin: "local", listedSessions: true, sessions: [] },
+    T0 + 5,
+  );
   store.reloadChatStoreForTests();
   expect(store.sharedSessions([]).map((session) => session.sessionId)).toEqual(["s-02", "s-03", "s-01"]);
 });
 
 test("a chat on another machine never writes its one chat into this Mac's store", async () => {
   const store = await import("../src/agent-session/acpmux/newtab/chatStore");
-  store.publishSessions({ connection: "connected", origin: "local", sessions: [chat(2), chat(1)] }, T0 + 1);
-  store.publishSessions({ connection: "connected", origin: "remote", sessions: [chat(7)] }, T0 + 2);
-  store.publishSessions({ connection: "session changed", origin: "peer", sessions: [chat(8)] }, T0 + 3);
+  store.publishSessions(
+    { connection: "connected", origin: "local", listedSessions: true, sessions: [chat(2), chat(1)] },
+    T0 + 1,
+  );
+  store.publishSessions(
+    { connection: "connected", origin: "remote", listedSessions: true, sessions: [chat(7)] },
+    T0 + 2,
+  );
+  store.publishSessions(
+    { connection: "session changed", origin: "peer", listedSessions: true, sessions: [chat(8)] },
+    T0 + 3,
+  );
   store.reloadChatStoreForTests();
   expect(store.sharedSessions([]).map((session) => session.sessionId)).toEqual(["s-02", "s-01"]);
 });
@@ -178,4 +204,28 @@ test("a page that lists what the store holds writes nothing", async () => {
   // Another page's emit, new entries with the same fields.
   store.publishSessions(connected([chat(2), chat(1)]), T0 + 2);
   expect(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)).toBe(written);
+});
+
+test("a connection's emits before it reads the daemon's list, or on an older acpmux, never write", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  store.publishSessions(connected([chat(2), chat(1)]), T0 + 1);
+  // A new page's client emits "connected" (its permission rules) before its first list page.
+  store.publishSessions({ connection: "connected", origin: "local", sessions: [] }, T0 + 2);
+  // An acpmux that names no origin may be another machine's.
+  store.publishSessions(
+    { connection: "connected", origin: "unknown", listedSessions: true, sessions: [chat(9)] },
+    T0 + 3,
+  );
+  store.reloadChatStoreForTests();
+  expect(store.sharedSessions([]).map((session) => session.sessionId)).toEqual(["s-02", "s-01"]);
+});
+
+test("a chat past the newest 60 keeps its folder for the project picker", async () => {
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const many = Array.from({ length: 70 }, (_, index) => ({ ...chat(index + 1), cwd: `/Users/you/src/p${index + 1}` }));
+  store.publishSessions(connected(many), T0 + 1);
+  store.reloadChatStoreForTests();
+  const oldest = store.sharedSessions([]).find((session) => session.sessionId === "s-01");
+  expect(oldest?.archived).toBe(true);
+  expect(oldest?.cwd).toBe("/Users/you/src/p1");
 });

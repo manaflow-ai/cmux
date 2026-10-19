@@ -3743,8 +3743,6 @@ function AcpmuxPane() {
         } catch {
           // Painting remains live when storage is unavailable or full.
         }
-        // Every page's New Tab lists one chat store (newtab/chatStore.ts).
-        publishSessions(next);
         setSnapshot(next);
       },
       applyTheme(theme) {
