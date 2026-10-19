@@ -42,6 +42,14 @@ extension AgentCLIUpdateActions {
                     // A completed batch no longer subscribes to unrelated terminal changes.
                     intent.following?.cancel()
                 }
+            } catch where Self.terminalGone(error) {
+                // The person closed the kept tab: the process ended, so the job settles.
+                guard route.isCurrent(), let key, !settled.contains(key),
+                      let index = intent.jobs.firstIndex(where: { $0["terminal"]?.stringValue == receipt.path.terminalID.rawValue }),
+                      var job = intent.jobs[index].objectValue else { continue }
+                job["state"] = "exited"; intent.jobs[index] = .object(job)
+                await settle(key, in: nil)
+                if intent.inputs.allSatisfy({ settled.contains($0.key) }) { intent.following?.cancel() }
             } catch {
                 // Keep the original receipt; a failed observation establishes no completion.
             }

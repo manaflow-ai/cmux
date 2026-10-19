@@ -118,6 +118,23 @@ struct AgentCLIUpdateObservationTests {
         #expect(count == (acceptCurrent ? 1 : 0))
     }
 
+    /// A live follow whose kept tab the person closes settles instead of blocking the CLI.
+    @Test(arguments: ["terminal.closed", "selector.not_found"])
+    func aFollowedTerminalThatClosesSettles(code: String) async throws {
+        let h = Harness(); let (actions, registry) = h.make()
+        _ = try await actions.runSettings(id: "work-profile",
+            context: .init(page: "cmux.settings", opid: "original", userGesture: true, gestureEvent: 1), registry: registry)
+        h.owner.observeError = .command(cmd: "terminal.wait_exit", message: "gone", code: code,
+            details: CmuxNextDaemon.JSONValue.object(["scope": .string("terminal")]))
+        await h.finish(actions)
+        #expect(actions.settled == ["original"])
+        #expect(h.ledger.rows.isEmpty)
+        #expect(actions.state.arrayValue?.first?["state"] == "exited")
+        _ = try await actions.runSettings(id: "work-profile",
+            context: .init(page: "cmux.settings", opid: "after-close", userGesture: true, gestureEvent: 2), registry: registry)
+        #expect(h.owner.starts.map(\.1) == ["original", "after-close"])
+    }
+
     @Test(arguments: ["before", "during", "failed-read"])
     func withdrawnRoutesAndFailedReadsNeverInventCompletion(mode: String) async throws {
         let h = Harness(); let (actions, registry) = h.make()
