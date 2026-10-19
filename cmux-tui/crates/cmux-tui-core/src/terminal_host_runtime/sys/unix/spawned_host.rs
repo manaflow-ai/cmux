@@ -8,9 +8,21 @@ use std::time::{Duration, Instant};
 
 pub(crate) struct SpawnedHostProcess {
     pub(crate) child: Option<std::process::Child>,
+    /// A terminal slot on a shared host (`unix/shared_host.rs`) instead of
+    /// a host process of its own.
+    pub(crate) slot: Option<super::super::super::unix::SharedHostSlot>,
 }
 
 impl SpawnedHostProcess {
+    /// False once the host is gone (killed, or crashed before use).
+    pub(crate) fn is_alive(&mut self) -> bool {
+        match (self.slot.as_ref(), self.child.as_mut()) {
+            (Some(slot), _) => slot.is_open(),
+            (None, Some(child)) => matches!(child.try_wait(), Ok(None)),
+            (None, None) => false,
+        }
+    }
+
     pub(crate) fn child_mut(&mut self) -> &mut std::process::Child {
         self.child.as_mut().expect("terminal-host child is present")
     }
@@ -23,7 +35,11 @@ impl SpawnedHostProcess {
     /// housekeeping after the ownership handoff. Failure to create this
     /// helper cannot turn a committed live Surface into an error; dropping
     /// Child leaves the independent host running.
-    pub(crate) fn commit(self) {
+    pub(crate) fn commit(mut self) {
+        if let Some(slot) = self.slot.take() {
+            slot.commit();
+            return;
+        }
         let mut child = self.into_child();
         let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
             let _ = child.wait();
@@ -36,6 +52,11 @@ impl SpawnedHostProcess {
     }
 
     pub(crate) fn wait_timeout(&mut self, timeout: Duration) -> bool {
+        if let Some(slot) = self.slot.as_ref() {
+            // A shared host ends only this terminal; it closes the slot
+            // when the terminal is gone.
+            return slot.closed_within(timeout);
+        }
         let deadline = Instant::now() + timeout;
         loop {
             let Some(child) = self.child.as_mut() else { return true };

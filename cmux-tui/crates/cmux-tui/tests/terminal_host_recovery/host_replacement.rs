@@ -35,7 +35,7 @@ fn start_shell(harness: &RecoveryHarness, name: &str) -> Shell {
 
 /// The shell's PID, printed by `echo <tag>-$$` (the echoed command line
 /// shows `$$`, the output the number).
-fn shell_pid(socket: &Path, surface: u64, tag: &str) -> u32 {
+pub(super) fn shell_pid(socket: &Path, surface: u64, tag: &str) -> u32 {
     send_line(socket, surface, &format!("echo {tag}-$$"));
     let needle = format!("{tag}-");
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
@@ -59,7 +59,7 @@ fn shell_pid(socket: &Path, surface: u64, tag: &str) -> u32 {
 }
 
 /// PTY masters the daemon holds (Linux: from `/proc`); `None` elsewhere.
-fn daemon_pty_masters(harness: &RecoveryHarness) -> Option<usize> {
+pub(super) fn daemon_pty_masters(harness: &RecoveryHarness) -> Option<usize> {
     #[cfg(target_os = "linux")]
     {
         let pid = harness.child.as_ref()?.id();

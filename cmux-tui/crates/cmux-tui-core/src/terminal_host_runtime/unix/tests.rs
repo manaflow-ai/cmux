@@ -179,6 +179,7 @@ fn exited_host_fixture_with_parser_at(
         group_escalation_failed: AtomicBool::new(false),
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
+        lifetime: HostLifetime::default(),
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();

@@ -11,6 +11,7 @@
 
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::super::sys::{self, PrivateOpen};
@@ -26,60 +27,123 @@ const MAX_BACKTRACE_BYTES: usize = 64 * 1024;
 #[cfg(debug_assertions)]
 const ABORT_ONCE_TEST_ENV: &str = "CMUX_TUI_TEST_HOST_ABORT_ONCE";
 
+/// Where one terminal's crash sidecar goes.
+pub(crate) struct CrashTarget {
+    path: PathBuf,
+    terminal_id: String,
+    incarnation: String,
+}
+
+thread_local! {
+    /// The terminal this thread works for, in a shared host
+    /// (`unix/shared_host.rs`), whose panic hook writes only that
+    /// terminal's sidecar.
+    static THREAD_TERMINAL: std::cell::RefCell<Option<Arc<CrashTarget>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Install the crash hook for this host process (once its terminal is known).
 pub(crate) fn install(path: PathBuf, terminal_id: &str, incarnation: &str) {
-    let terminal_id = terminal_id.to_string();
-    let incarnation = incarnation.to_string();
+    let target = Arc::new(CrashTarget {
+        path,
+        terminal_id: terminal_id.to_string(),
+        incarnation: incarnation.to_string(),
+    });
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let message = info
-            .payload()
-            .downcast_ref::<&str>()
-            .map(|text| (*text).to_string())
-            .or_else(|| info.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "non-text panic payload".to_string());
-        let location = info.location().map(ToString::to_string).unwrap_or_default();
-        let mut backtrace = std::backtrace::Backtrace::force_capture().to_string();
-        if backtrace.len() > MAX_BACKTRACE_BYTES {
-            let mut end = MAX_BACKTRACE_BYTES;
-            while !backtrace.is_char_boundary(end) {
-                end -= 1;
-            }
-            backtrace.truncate(end);
-        }
-        let at_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_millis())
-            .unwrap_or_default();
-        let record = serde_json::json!({
-            "terminal_id": terminal_id,
-            "incarnation": incarnation,
-            "message": message,
-            "location": location,
-            "thread": std::thread::current().name().unwrap_or("unnamed"),
-            "host_pid": std::process::id(),
-            "at_ms": at_ms,
-            "backtrace": backtrace,
-        });
-        // Concurrent panics each write their own file and rename it over the
-        // sidecar, so the sidecar is always one whole record.
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let temporary = path.with_extension(format!(
-            "crash.tmp-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        if let Ok(mut file) = sys::open_private(&temporary, PrivateOpen::CreateNewNoFollow) {
-            if file.write_all(record.to_string().as_bytes()).is_ok() {
-                let _ = std::fs::rename(&temporary, &path);
-            } else {
-                let _ = std::fs::remove_file(&temporary);
-            }
-        }
+        write_sidecar(&target, info);
         previous(info);
     }));
     #[cfg(debug_assertions)]
     abort_once_for_test();
+}
+
+/// Install the shared host's crash hook (once): a panic writes the sidecar
+/// of the terminal its thread works for ([`enter_terminal`]); a panic on a
+/// thread that serves no terminal writes none.
+pub(crate) fn install_shared() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(target) = THREAD_TERMINAL.with(|current| current.borrow().clone()) {
+            write_sidecar(&target, info);
+        }
+        previous(info);
+    }));
+}
+
+/// Name the terminal the calling thread (and every host thread it starts
+/// through [`spawn`]) works for, in a shared host.
+pub(crate) fn enter_terminal(path: PathBuf, terminal_id: &str, incarnation: &str) {
+    let target = Arc::new(CrashTarget {
+        path,
+        terminal_id: terminal_id.to_string(),
+        incarnation: incarnation.to_string(),
+    });
+    THREAD_TERMINAL.with(|current| *current.borrow_mut() = Some(target));
+    #[cfg(debug_assertions)]
+    abort_once_for_test();
+}
+
+/// Start a named host thread that works for the same terminal as the
+/// calling thread, so a shared host attributes its panic.
+pub(crate) fn spawn<T: Send + 'static>(
+    name: &str,
+    body: impl FnOnce() -> T + Send + 'static,
+) -> std::io::Result<std::thread::JoinHandle<T>> {
+    let target = THREAD_TERMINAL.with(|current| current.borrow().clone());
+    std::thread::Builder::new().name(name.into()).spawn(move || {
+        if target.is_some() {
+            THREAD_TERMINAL.with(|current| *current.borrow_mut() = target);
+        }
+        body()
+    })
+}
+
+fn write_sidecar(target: &CrashTarget, info: &std::panic::PanicHookInfo<'_>) {
+    let message = info
+        .payload()
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_string())
+        .or_else(|| info.payload().downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "non-text panic payload".to_string());
+    let location = info.location().map(ToString::to_string).unwrap_or_default();
+    let mut backtrace = std::backtrace::Backtrace::force_capture().to_string();
+    if backtrace.len() > MAX_BACKTRACE_BYTES {
+        let mut end = MAX_BACKTRACE_BYTES;
+        while !backtrace.is_char_boundary(end) {
+            end -= 1;
+        }
+        backtrace.truncate(end);
+    }
+    let at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis())
+        .unwrap_or_default();
+    let record = serde_json::json!({
+        "terminal_id": target.terminal_id,
+        "incarnation": target.incarnation,
+        "message": message,
+        "location": location,
+        "thread": std::thread::current().name().unwrap_or("unnamed"),
+        "host_pid": std::process::id(),
+        "at_ms": at_ms,
+        "backtrace": backtrace,
+    });
+    // Concurrent panics each write their own file and rename it over the
+    // sidecar, so the sidecar is always one whole record.
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let temporary = target.path.with_extension(format!(
+        "crash.tmp-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    if let Ok(mut file) = sys::open_private(&temporary, PrivateOpen::CreateNewNoFollow) {
+        if file.write_all(record.to_string().as_bytes()).is_ok() {
+            let _ = std::fs::rename(&temporary, &target.path);
+        } else {
+            let _ = std::fs::remove_file(&temporary);
+        }
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -92,7 +156,7 @@ fn abort_once_for_test() {
     }
     let mut trigger = marker;
     trigger.push(".trigger");
-    let _ = std::thread::Builder::new().name("terminal-host-test-crash".into()).spawn(move || {
+    let _ = spawn("terminal-host-test-crash", move || {
         // Opening a FIFO for reading blocks until the test opens it for
         // writing: the crash happens at the moment the test chose.
         let _ = std::fs::File::open(&trigger);

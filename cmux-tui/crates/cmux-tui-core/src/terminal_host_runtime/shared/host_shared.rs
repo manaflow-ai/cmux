@@ -88,6 +88,8 @@ pub(crate) struct HostShared {
     pub(crate) session_cleanup: unix::session_cleanup::SessionCleanup,
     /// Session of an adopted, non-child process (`adopted_child.rs`).
     pub(crate) adopted_session: Option<sys::SessionId>,
+    /// This terminal's orphan clock and owner-gone mark.
+    pub(crate) lifetime: HostLifetime,
     #[cfg(test)]
     pub(crate) fail_next_resize_publication: AtomicBool,
 }

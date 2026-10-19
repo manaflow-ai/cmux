@@ -84,10 +84,10 @@ impl HostShared {
             return;
         }
         let worker = self.clone();
-        if thread::Builder::new()
-            .name("terminal-host-terminate".into())
-            .spawn(move || worker.terminate_and_wait())
-            .is_err()
+        if super::super::host_crash::spawn("terminal-host-terminate", move || {
+            worker.terminate_and_wait();
+        })
+        .is_err()
         {
             // Bounded fallback: even thread exhaustion cannot turn an
             // accepted Terminate into an unbounded or ignored request.
@@ -112,10 +112,10 @@ impl HostShared {
         requests: Receiver<()>,
     ) -> std::io::Result<()> {
         let host = Arc::downgrade(host);
-        thread::Builder::new()
-            .name("terminal-host-exit".into())
-            .spawn(move || Self::run_exit_publisher(host, requests))
-            .map(|_| ())
+        super::super::host_crash::spawn("terminal-host-exit", move || {
+            Self::run_exit_publisher(host, requests);
+        })
+        .map(|_| ())
     }
 
     pub(crate) fn run_exit_publisher(weak_host: Weak<Self>, requests: Receiver<()>) {
@@ -182,12 +182,12 @@ impl HostShared {
                             terminal_id: self.terminal_id.to_hex(),
                             incarnation: self.incarnation.to_hex(),
                         },
-                        owner_gone_exit(exit.clone()),
+                        self.lifetime.owner_gone_exit(exit.clone()),
                     ),
                 )
             },
         )?;
-        if let Some(exit) = exit.map(owner_gone_exit) {
+        if let Some(exit) = exit.map(|exit| self.lifetime.owner_gone_exit(exit)) {
             let _source_order = self.source_order_lock.lock().unwrap();
             // Snapshot capture keeps `term` held from the dead check
             // through smart subscription. Publish Exit under that same

@@ -207,7 +207,7 @@ impl HostAttachment {
 #[repr(C, align(8))]
 struct ControlBuffer([u8; 64]);
 
-fn send_with_descriptor(
+pub(super) fn send_with_descriptor(
     stream: &UnixStream,
     bytes: &[u8],
     descriptor: RawFd,
@@ -264,7 +264,7 @@ fn send_with_descriptor(
     writer.write_all(&bytes[sent.min(bytes.len())..])
 }
 
-fn receive_with_descriptor(
+pub(super) fn receive_with_descriptor(
     stream: &UnixStream,
     length: usize,
 ) -> anyhow::Result<(Vec<u8>, Option<OwnedFd>)> {
