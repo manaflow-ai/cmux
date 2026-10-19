@@ -39,7 +39,7 @@ public final class TasksHostView: NSView {
         self.init(model: model, layout: { layout })
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {
         resolveColors()

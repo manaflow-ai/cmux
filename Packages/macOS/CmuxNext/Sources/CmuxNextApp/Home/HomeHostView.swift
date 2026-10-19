@@ -218,7 +218,7 @@ final class HomeHostView: NSView {
         }
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {

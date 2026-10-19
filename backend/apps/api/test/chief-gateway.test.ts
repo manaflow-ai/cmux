@@ -20,7 +20,7 @@ import { DAILY_CAP_NOTICE, TURN_FAILED_NOTICE } from "../src/chief-brain/brain-g
  */
 const testEnv = env as unknown as Record<string, any>
 const KEY = "chatmux_sk_test-not-a-real-key"
-const SAVED = ["CHIEF_BRAIN_CLAUDE_AUTH", "CHIEF_BRAIN_CLAUDE_SERVICE_KEY", "CHIEF_BRAIN_CLAUDE_MODELS", "CHIEF_BRAIN_FALLBACK_MODEL", "CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA"].map((k) => [k, testEnv[k]] as const)
+const SAVED = ["CHIEF_BRAIN_CLAUDE_AUTH", "CHIEF_BRAIN_CLAUDE_SERVICE_KEY", "CHIEF_BRAIN_CLAUDE_MODELS", "CHIEF_BRAIN_FALLBACK_MODEL", "CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA", "CHIEF_BRAIN_COMPACTOR_MODEL", "CHIEF_BRAIN_VIEW_BUDGET"].map((k) => [k, testEnv[k]] as const)
 afterAll(() => {
   for (const [k, v] of SAVED) v === undefined ? delete testEnv[k] : (testEnv[k] = v)
 })
@@ -360,5 +360,48 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     expect(res.status).toBe(402)
     expect(((await res.json()) as any).error.message).toContain("out of Cloud credits")
     expect(seen).toHaveLength(0)
+  })
+})
+
+describe("Model gateway: the compactor on the service-key route", { timeout: 120_000 }, () => {
+  const compacting = () => {
+    // Haiku served and the default compactor; a small view budget (test only) makes every turn's view fold.
+    Object.assign(testEnv, { CHIEF_BRAIN_CLAUDE_MODELS: "claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5", CHIEF_BRAIN_COMPACTOR_MODEL: "claude-haiku-5-5", CHIEF_BRAIN_VIEW_BUDGET: "400" })
+  }
+  afterEach(() => {
+    for (const [k, v] of SAVED.filter(([k]) => k === "CHIEF_BRAIN_COMPACTOR_MODEL" || k === "CHIEF_BRAIN_VIEW_BUDGET")) v === undefined ? delete testEnv[k] : (testEnv[k] = v)
+    testEnv.CHIEF_BRAIN_CLAUDE_MODELS = "claude-opus-5-5,claude-sonnet-5-5"
+  })
+  const notes = ["first long team note about the harbor crew ".repeat(30), "second long team note about the quarry crew ".repeat(30), "third question"]
+
+  it("sends the Haiku compactor's call with the service key, payer team, chief and request id, at effort high", async () => {
+    compacting()
+    const seen = fakeRoute()
+    const { token, chief, team } = await owner("brain-compact-route", 5, "claude-opus-5-5", "low", "user")
+    for (const [n, text] of notes.entries()) {
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: `cp-${n}`, parts: [{ type: "text", text }] }, `cp-${n}`)).ok).toBe(true)
+      await drive(chief.main_conversation, chief.id, async () => (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length > n, `reply ${n}`)
+    }
+    const haiku = () => seen.filter((s) => s.body?.model === "global.anthropic.claude-haiku-5-5")
+    await drive(chief.main_conversation, chief.id, async () => haiku().length > 0, "a compactor call on the route")
+    const c = haiku()[0]!
+    // Before: the call failed in the route's fetch (no x-cmux-team-id), so it never reached the route.
+    expect(c.headers["x-api-key"]).toBe(KEY)
+    expect(c.headers["x-cmux-team-id"]).toBe(team)
+    expect(c.headers["x-cmux-chief-id"]).toBe(chief.id)
+    expect(c.headers["x-request-id"]).toMatch(/^[A-Za-z0-9._:-]{1,128}$/)
+    expect(c.body).toMatchObject({ output_config: { effort: "high" } })
+  })
+
+  it("never runs a paid compactor for an owner off the paid allow-list", async () => {
+    compacting()
+    const seen = fakeRoute()
+    const { token, chief } = await owner("brain-compact-unpaid", 5, "fake")
+    for (const [n, text] of notes.entries()) {
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: `cu-${n}`, parts: [{ type: "text", text }] }, `cu-${n}`)).ok).toBe(true)
+      await drive(chief.main_conversation, chief.id, async () => (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length > n, `reply ${n}`)
+    }
+    // Before: the default compactor (Haiku) ran for this owner and charged the team.
+    expect(seen.filter((s) => s.body?.model === "global.anthropic.claude-haiku-5-5")).toHaveLength(0)
   })
 })

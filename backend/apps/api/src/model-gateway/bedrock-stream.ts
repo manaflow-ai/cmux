@@ -71,8 +71,9 @@ export const bedrockBody = (raw: string, opts: BedrockBodyOptions = {}): string 
     const messages = Array.isArray(body.messages) ? (body.messages as Array<Msg>) : []
     const system: Array<Block> = typeof body.system === "string" ? [{ type: "text", text: body.system }] : Array.isArray(body.system) ? (body.system as Array<Block>) : []
     for (const m of messages.filter((x) => x.role === "system")) system.push(...(typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content.filter((b) => b.type === "text")))
-    // The active effort is the last system message's output_config (pi-ai's mid-conversation effort).
-    const effort = [...messages].reverse().find((m) => m.role === "system" && m.output_config !== undefined)?.output_config as { effort?: unknown } | undefined
+    // The active effort is the last system message's output_config (pi-ai's mid-conversation effort), else the
+    // body's own output_config (a call with no system messages, as the compactor's completeSimple).
+    const effort = ([...messages].reverse().find((m) => m.role === "system" && m.output_config !== undefined)?.output_config ?? body.output_config) as { effort?: unknown } | undefined
     const plain = messages.filter((x) => x.role !== "system").map(({ output_config: _drop, ...m }) => m)
     out.messages = plain
     if (system.length > 0) out.system = system
