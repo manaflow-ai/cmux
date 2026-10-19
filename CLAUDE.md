@@ -110,8 +110,9 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   first; a second model is not a review gate. Wait for checks relevant to the
   change; disclose skipped verification on the PR. `main` is nightly: fix forward,
   do not revert.
-- App/runtime/UI merges require the user’s explicit approval after dogfood **or a direct merge directive**
-  (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Follow
+- Into `main`, app/runtime/UI merges require the user’s explicit approval after dogfood **or a direct merge directive**
+  (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Into `feat-cmux-next`, the
+  `ready-to-land` label after your review is the hand-off (below). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
 - Classify each non-green check on the current head before changing source: a changed-file
@@ -120,9 +121,15 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   cancelled or infrastructure run (rerun the same SHA). A push supersedes earlier CI and review
   results. Gallery captures and full webview sweeps are advisory
   ([check progression](docs/contributor-verification.md#pr-check-progression)).
-- The normal merge path is `gh-merge-green`. It refuses a PR that touches a path an open
-  `merge-freeze` issue freezes, or when the freeze state can't be read; only the freeze owner's
-  `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
+- **Into `feat-cmux-next`, a PR lands when it is reviewed and causes no red of its own.** Reds the
+  base also has (red at the tip, or on many unrelated PRs at once), flakes and pending checks never
+  hold it; fixes found later go in follow-ups. When your review subagent passes, label the PR
+  `ready-to-land`, and label it again after any later push: `next-autoland` on Huge Blue merges it
+  at that exact head (leo-workspace `tools/next_autoland.py`). Don't wait for, rerun or fix base
+  reds in your PR; a red it causes keeps it out until you fix it. Do not use `gh-merge-green` here.
+- **Into `main`, the normal merge path is `gh-merge-green`** and main's rulesets. It refuses a PR
+  that touches a path an open `merge-freeze` issue freezes, or when the freeze state can't be read;
+  only the freeze owner's `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
 
 ## Implementation rules by task
 
