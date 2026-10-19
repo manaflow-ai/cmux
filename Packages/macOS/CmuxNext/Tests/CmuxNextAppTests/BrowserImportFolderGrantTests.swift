@@ -151,6 +151,48 @@ import Testing
         #expect(services.plans.isEmpty)
     }
 
+    @Test func skipImportingWhileTouchIDIsUpReadsNothing() async {
+        let services = MockOnboardingServices()
+        services.passwordStore = true
+        services.holdsAuthorization = true
+        services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [Self.profile(.chrome, passwords: .available)])]
+        let onboarding = OnboardingModel(services: services, step: .importData)
+        let step = onboarding.importer
+        step.detect()
+        await Self.until { step.phase == .ready }
+
+        onboarding.next()
+        onboarding.next()
+        await Self.until { services.authorizationReasons.count == 1 }
+        // Skip Importing (or Escape) while the Touch ID sheet is up, then Touch ID succeeds.
+        onboarding.skipStep()
+        services.answerAuthorizations()
+        await Self.until({ !services.plans.isEmpty }, within: .milliseconds(300))
+        #expect(services.plans.isEmpty)
+        #expect(!step.isConfirmingPasswords)
+    }
+
+    @Test func cancellingAllowAccessAfterAnImportKeepsItsSummary() async {
+        let services = MockOnboardingServices()
+        services.awaitingAccess = [.firefox]
+        services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [Self.profile(.chrome, passwords: .absent)])]
+        let step = OnboardingModel(services: services, step: .importData).importer
+        step.detect()
+        await Self.until { step.phase == .ready }
+        step.start()
+        await Self.until { if case .finished = step.phase { true } else { false } }
+        let finished = step.phase
+        guard case .finished = finished else {
+            Issue.record("the import did not finish: \(finished)")
+            return
+        }
+
+        step.askAccess(.firefox)
+        #expect(step.phase == .explainingAccess(.firefox))
+        step.cancelAccess()
+        #expect(step.phase == finished)
+    }
+
     @Test func aRefusedKeychainKeyOffersTheCSVImport() async {
         let services = MockOnboardingServices()
         services.passwordStore = true
