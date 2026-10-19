@@ -226,10 +226,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         for (const button of buttons) {
           const rest = await look(page, stage, button.index);
           if (rest.background !== TRANSPARENT || rest.edge !== "none") wrong.push(`${button.label}: a pill at rest`);
-          const box = (await page
-            .locator(`${stage.row} ${CONTROLS} >> visible=true`)
-            .nth(button.index)
-            .boundingBox())!;
+          const box = (await page.locator(`${stage.row} ${CONTROLS} >> visible=true`).nth(button.index).boundingBox())!;
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
           await page.waitForTimeout(300);
           const hovered = await look(page, stage, button.index);
@@ -255,10 +252,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         for (const button of await controls(page, stage)) {
           // A key first, so a script focus counts as keyboard focus (:focus-visible) in both engines.
           await page.keyboard.press("Shift");
-          await page
-            .locator(`${stage.row} ${CONTROLS} >> visible=true`)
-            .nth(button.index)
-            .focus();
+          await page.locator(`${stage.row} ${CONTROLS} >> visible=true`).nth(button.index).focus();
           await page.waitForTimeout(250);
           const focused = await look(page, stage, button.index);
           if (focused.background !== tone) wrong.push(`${button.label}: focus ${focused.background}, not ${tone}`);
@@ -346,8 +340,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         const page = await open(engine, stage);
         await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
         await page.waitForTimeout(100);
-        const rim = () =>
-          page.evaluate((box) => getComputedStyle(document.querySelector(box)!).boxShadow, stage.box);
+        const rim = () => page.evaluate((box) => getComputedStyle(document.querySelector(box)!).boxShadow, stage.box);
         const rest = await rim();
         await page.locator(stage.field).first().click();
         await page.waitForTimeout(200);
