@@ -4,6 +4,7 @@ tour of that tag waits until the holder's job ends, and other tags never wait.""
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,7 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/media_tag_lock.py"
+WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/cmux-next-media.yml"
 
 
 class MediaTagLockTests(unittest.TestCase):
@@ -47,6 +49,18 @@ class MediaTagLockTests(unittest.TestCase):
         self.assertEqual(later.returncode, 0, later.stdout)
         self.assertIn("waiting for", later.stdout)
         self.assertLess(time.monotonic() - started, 25)
+
+    def test_the_workflow_waits_as_long_as_a_holding_tour_can_run(self) -> None:
+        # A merge tour holds the feat-cmux-next tag for its whole job (54 min seen, cold builds longer), and a
+        # dispatch of that tag waits behind it. The holder lets go by its job's timeout at the latest, so a
+        # shorter wait fails a tour that would have got the tag.
+        text = WORKFLOW.read_text()
+        tour = text[text.index("\n  tour:\n"):text.index("\n  publish:\n")]
+        timeout = re.search(r"^    timeout-minutes: (\d+)$", tour, re.M)
+        wait = re.search(r"media_tag_lock\.py\b.*?\"\$lock\" hold --tag \"\$TOUR_TAG\" --wait (\d+)", tour, re.S)
+        self.assertIsNotNone(timeout, "the tour job has a timeout-minutes")
+        self.assertIsNotNone(wait, "the tour holds its tag with an explicit --wait")
+        self.assertGreaterEqual(int(wait.group(1)), int(timeout.group(1)) * 60)
 
     def test_a_tag_that_is_not_a_name_is_refused(self) -> None:
         self.assertEqual(self.hold("../x", wait=0).returncode, 2)
