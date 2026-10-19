@@ -14,9 +14,9 @@
 //   draws as "Received message from <title>", not as the person's bubble.
 // - Off (no Debug toggle, no experiment) nothing draws; the `agent.suggestedTasks` Debug toggle
 //   (`applySuggestedTasks`) alone draws the card; `applyPreview` does not.
-// - Another agent's message (`agent_message` provenance, a Claude Code `<cross-session-message>`)
-//   draws as a message card from that agent, toggle or not; Claude Code's task notifications and
-//   reminders in a prompt draw no raw XML.
+// - Another agent's message (`agent_message` provenance, a Claude Code `<cross-session-message>`
+//   in an adopted chat's history) draws as a message card from that agent, toggle or not; Claude
+//   Code's task notifications and reminders there draw no raw XML.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -522,7 +522,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         experiment: "off",
         extra: () => [
           record("turn_result", { status: "completed", stopReason: "end_turn" }),
-          record("user_message", { text }),
+          record("user_message", { text, client: "adopt" }),
         ],
       });
       const card = incoming(page);
@@ -539,7 +539,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.close();
     });
 
-    test("task notifications and reminders in a prompt draw no raw XML", async () => {
+    test("an adopted chat's task notifications and reminders draw no raw XML", async () => {
       const page = await openChat({
         offered: [],
         experiment: "off",
@@ -547,9 +547,19 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
           record("turn_result", { status: "completed", stopReason: "end_turn" }),
           record("user_message", {
             text: "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Build finished</summary>\n</task-notification>",
+            client: "adopt",
           }),
           record("turn_result", { status: "completed", stopReason: "end_turn" }),
-          record("user_message", { text: "<system-reminder>\nThe date changed.\n</system-reminder>" }),
+          record("user_message", {
+            text: "<system-reminder>\nThe date changed.\n</system-reminder>",
+            client: "adopt",
+          }),
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          // A typed prompt behind a reminder draws without it.
+          record("user_message", {
+            text: "<system-reminder>\nThe branch moved.\n</system-reminder>\nShip the grid fix",
+            client: "adopt",
+          }),
         ],
       });
       await page.getByText("Build finished").first().waitFor({ timeout: 10_000 });
@@ -557,7 +567,11 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(body).not.toContain("<task-notification>");
       expect(body).not.toContain("<system-reminder>");
       expect(body).not.toContain("The date changed.");
-      expect(await page.locator(".cv-user__bubble").count()).toBe(1);
+      expect(body).not.toContain("The branch moved.");
+      await page.locator(".cv-user__bubble").filter({ hasText: "Ship the grid fix" }).waitFor({ timeout: 5_000 });
+      // The reminder alone gets no row: the first prompt, the notice's and the typed prompt's.
+      expect(await page.locator(".cv-user__bubble").count()).toBe(2);
+      expect(await page.locator(".acpmux-row.acpmux-user").count()).toBe(3);
       await page.close();
     });
   });

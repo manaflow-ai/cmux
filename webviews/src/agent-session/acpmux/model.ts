@@ -50,7 +50,7 @@ export type AcpmuxRow = {
   received?: AcpmuxOfferResult;
   /// A prompt that is not the person's: another agent's message, or harness bookkeeping
   /// (conversation/incomingMessage.ts).
-  incoming?: IncomingPrompt;
+  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" }>;
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -608,10 +608,9 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
   // Another agent's message: its route line over two lines of the message; a notice is a tool
-  // row's line; bookkeeping draws nothing (conversation/IncomingMessageCard.tsx).
+  // row's line (conversation/IncomingMessageCard.tsx).
   if (row.incoming?.kind === "message") return 32 + 2 * 19 + 7 + 8 + (row.incoming.message.text.length > 140 ? 12 : 0);
   if (row.incoming?.kind === "notice") return 26 + 8;
-  if (row.incoming?.kind === "hidden") return 0;
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {

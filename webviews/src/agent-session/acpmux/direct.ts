@@ -1790,7 +1790,16 @@ export class AcpmuxDirectClient {
         }
         this.streamingActivity = undefined;
         const received = offersShown() ? offerResult(msg) : undefined;
-        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg._meta);
+        // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
+        // keeps the sender's words, or the typed prompt without the bookkeeping; bookkeeping alone
+        // gets no row.
+        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
+        const shown =
+          incoming?.kind === "message"
+            ? { text: incoming.message.text, incoming }
+            : incoming?.kind === "notice"
+              ? { text: incoming.text, incoming }
+              : { text: incoming?.kind === "prompt" ? incoming.text : String(msg.text ?? "") };
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
@@ -1798,20 +1807,20 @@ export class AcpmuxDirectClient {
         if (msg.steer !== true) this.landSteer();
         const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
-        this.rows.set(`user-${event.seq}`, {
-          id: `user-${event.seq}`,
-          version: 1,
-          at: event.at,
-          kind: "user",
-          text: String(msg.text ?? ""),
-          ...(received ? { received } : {}),
-          ...(incoming ? { incoming } : {}),
-          ...(steer ? { steer } : {}),
-          ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
-          ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
-            ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
-            : {}),
-        });
+        if (incoming?.kind !== "hidden")
+          this.rows.set(`user-${event.seq}`, {
+            id: `user-${event.seq}`,
+            version: 1,
+            at: event.at,
+            kind: "user",
+            ...shown,
+            ...(received ? { received } : {}),
+            ...(steer ? { steer } : {}),
+            ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
+            ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
+              ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
+              : {}),
+          });
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(`user-${event.seq}`, attachments);

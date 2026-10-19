@@ -536,9 +536,8 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as a card from it; a task notification as one quiet line; Claude
-    // Code's bookkeeping not at all (conversation/incomingMessage.ts).
-    if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
+    // Another agent's message as a card from it; a task notification as one quiet line
+    // (conversation/incomingMessage.ts).
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
       return <IncomingMessageCard message={row.incoming.message} onOpen={openOfferChat} />;
