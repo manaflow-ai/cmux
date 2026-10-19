@@ -113,7 +113,7 @@ async fn wait(api: &str, begun: &Begun, remaining: Duration) -> Result<Waited> {
     .await
     {
         Ok(Ok(value)) => value,
-        Ok(Err(_)) => return Err(unavailable()),
+        Ok(Err(error)) => return handshake_refused(error),
         Err(_) => return Ok(Waited::Expired),
     };
     if response.headers().get("Sec-WebSocket-Protocol").and_then(|v| v.to_str().ok())
@@ -122,6 +122,21 @@ async fn wait(api: &str, begun: &Begun, remaining: Duration) -> Result<Waited> {
         return Err(invalid());
     }
     read_wait(socket, deadline).await
+}
+
+/// A failed wait upgrade. The backend deletes a code when it expires and answers its upgrade 404;
+/// the code and collect secret are ours and well formed, so a 404 only means the code is gone.
+/// That ends the attempt like close 4408, including inside the clock-skew window, where a rerun
+/// would otherwise report the API unreachable until the window closed.
+fn handshake_refused(error: tokio_tungstenite::tungstenite::Error) -> Result<Waited> {
+    match error {
+        tokio_tungstenite::tungstenite::Error::Http(response)
+            if response.status() == tokio_tungstenite::tungstenite::http::StatusCode::NOT_FOUND =>
+        {
+            Ok(Waited::Expired)
+        }
+        _ => Err(unavailable()),
+    }
 }
 
 fn request(
