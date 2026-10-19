@@ -79,6 +79,24 @@ class TestProductHandoff(unittest.TestCase):
         shutil.copytree(self.producer / "Build/Products", self.consumer / "Build/Products")
         shutil.rmtree(self.producer)
 
+    def test_invalid_manifest_does_not_rewrite_products(self):
+        # main's version breaks the second of two scheme manifests; this
+        # profile has one test scheme, so its only manifest is the invalid one.
+        self.transfer()
+        products = self.consumer / "Build/Products"
+        manifest = products / f"{FIXTURE_SCHEME}_macosx26.5-arm64.xctestrun"
+        invalid = plistlib.loads(manifest.read_bytes())
+        target = list(module.targets(invalid))[0]
+        target["TestBundlePath"] = "__TESTROOT__/missing.xctest"
+        manifest.write_bytes(plistlib.dumps(invalid))
+        before = {path: path.read_bytes() for path in products.glob("*.xctestrun")}
+        current = {**self.identity, "checkout": "/consumer/work/cmux"}
+
+        with self.assertRaisesRegex(ValueError, "missing or unscoped test bundle"):
+            module.restore(self.consumer, current)
+
+        self.assertEqual({path: path.read_bytes() for path in before}, before)
+
     def test_relocation_preserves_nested_bundles_and_publishes_all_manifests(self):
         self.transfer()
         current = {**self.identity, "checkout": "/consumer/work/cmux", "developer": "/consumer/Xcode.app/Contents/Developer"}

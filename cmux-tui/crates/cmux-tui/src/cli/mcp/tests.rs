@@ -1287,3 +1287,179 @@ mod agent_wait;
 
 mod catalog;
 mod machine_catalog;
+
+fn code_mode_server(fake: Fake) -> Server<Fake> {
+    let mut server = Server::new(fake, None);
+    server.code_mode = true;
+    server
+}
+
+#[test]
+fn code_mode_lists_two_tools_and_a_script_reaches_every_tool() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let initialize =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
+    assert!(initialize["result"]["instructions"].as_str().unwrap().contains("cmux_exec"));
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
+    assert_eq!(names, ["cmux_docs", "cmux_exec"]);
+    let bytes = serde_json::to_vec(&tools).unwrap().len();
+    assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
+    let all = server.list();
+    assert!(all.len() > 100, "the full list stays the API");
+    assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
+
+    // Docs returns a matching tool's schema, best match first.
+    let found = call(&mut server, "cmux_docs", json!({"query": "workspace rename"}));
+    let first = &found["structuredContent"]["tools"][0];
+    assert_eq!(first["name"], "app_workspace_rename", "{found}");
+    assert_eq!(first["inputSchema"]["required"], json!(["name"]));
+    let index = call(&mut server, "cmux_docs", json!({}));
+    assert!(index["structuredContent"]["families"]["workspace"].is_array(), "{index}");
+    let exact = call(&mut server, "cmux_docs", json!({"names": ["window_list", "nope"]}));
+    assert_eq!(exact["structuredContent"]["unknown"], json!(["nope"]));
+
+    // One script calls a daemon tool and an app action through `call`: the
+    // app sees the same MCP-origin action run as a direct tool call.
+    let script = r#"
+        const workspaces = await cmux.workspace_list({});
+        console.log("workspaces", workspaces.items.length);
+        const run = await cmux.call("app_workspace_rename", {target: "ws_1a", name: "Build"});
+        return {run, found: cmux.docs("new window").tools[0].name};
+    "#;
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    assert_eq!(ran["isError"], false, "{ran}");
+    let content = &ran["structuredContent"];
+    assert_eq!(content["calls"], 2);
+    assert_eq!(content["logs"], json!(["workspaces 0"]));
+    assert_eq!(content["result"]["run"]["ran"], true);
+    assert_eq!(content["result"]["found"], "app_new_window");
+    // `cmux.docs` reads `action.list` after the run, so find the run itself.
+    let runs = sent_of(&server, "app");
+    let sent = runs.iter().rev().find(|sent| sent["method"] == "action.run").expect("a run");
+    assert_eq!(sent["params"]["origin"], "mcp");
+    assert_eq!(sent["params"]["action"], "workspace rename");
+}
+
+#[test]
+fn code_mode_scripts_see_failed_calls_and_report_partial_runs() {
+    let mut server = code_mode_server(Fake { fail_resources: true, ..Fake::with_actions() });
+    // A failed call throws with the owner's error, state and key.
+    let caught = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "try { await cmux.workspace_list({}); } catch (e) { return e.cmux.state; }"}),
+    );
+    assert_eq!(caught["structuredContent"]["result"], "in_progress", "{caught}");
+
+    // An uncaught one fails the script and says calls already ran.
+    let failed = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "await cmux.app_new_window({}); await cmux.workspace_list({});"}),
+    );
+    assert_eq!(failed["isError"], true);
+    let content = &failed["structuredContent"];
+    assert_eq!(content["state"], "partial");
+    assert_eq!(content["calls"], 2);
+    assert_eq!(content["error"]["cmux"]["state"], "in_progress", "{failed}");
+
+    // No nested scripts, unknown tools throw, syntax errors run nothing.
+    let nested = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "return await cmux.cmux_exec({script: 'return 1'});"}),
+    );
+    assert_eq!(nested["isError"], true);
+    let unknown = call(&mut server, "cmux_exec", json!({"script": "await cmux.no_such_tool({});"}));
+    assert!(
+        unknown["structuredContent"]["error"]["message"].as_str().unwrap().contains("unknown tool"),
+        "{unknown}"
+    );
+    let syntax = call(&mut server, "cmux_exec", json!({"script": "return (;"}));
+    assert_eq!(syntax["structuredContent"]["state"], "not_run");
+    // The engine has no file, network or process access.
+    let sandboxed = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "return [typeof require, typeof fetch, typeof process, typeof setTimeout];"}),
+    );
+    assert_eq!(
+        sandboxed["structuredContent"]["result"],
+        json!(["undefined", "undefined", "undefined", "undefined"])
+    );
+}
+
+#[test]
+fn code_mode_stops_a_script_that_loops_or_allocates_without_end() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.script_limits = code_mode::Limits {
+        memory: 16 << 20,
+        compute: Duration::from_millis(300),
+        ..code_mode::Limits::default()
+    };
+    let started = Instant::now();
+    let looped = call(&mut server, "cmux_exec", json!({"script": "while (true) {}"}));
+    assert_eq!(looped["isError"], true);
+    assert_eq!(looped["structuredContent"]["error"]["code"], "script.timeout", "{looped}");
+    assert!(started.elapsed() < Duration::from_secs(10), "the loop was stopped");
+
+    let grew = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "const kept = []; while (true) kept.push('x'.repeat(1 << 20) + kept.length);"}),
+    );
+    assert_eq!(grew["isError"], true);
+    let code = grew["structuredContent"]["error"]["code"].as_str().unwrap_or_default().to_owned();
+    assert!(matches!(code.as_str(), "script.memory" | "script.timeout"), "{grew}");
+    assert_eq!(grew["structuredContent"]["state"], "not_run");
+
+    // The server still answers after both.
+    let after = call(&mut server, "cmux_exec", json!({"script": "return 2 + 2;"}));
+    assert_eq!(after["structuredContent"]["result"], 4, "{after}");
+}
+
+#[test]
+fn an_allowlist_lists_only_its_tools_and_refuses_every_other_call() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.allowed = allowed_tools(Some("agents_snapshot, window_list,app_new_window".into()));
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let names = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        names,
+        BTreeSet::from(["agents_snapshot", "window_list", "app_new_window"].map(str::to_owned))
+    );
+    let allowed = call(&mut server, "window_list", json!({}));
+    assert_eq!(allowed["isError"], false, "{allowed}");
+    for refused in ["cmux_exec", "cmux_docs", "workspace_list", "app_workspace_rename"] {
+        let arguments =
+            if refused == "cmux_exec" { json!({"script": "return 1"}) } else { json!({}) };
+        let result = call(&mut server, refused, arguments);
+        assert_eq!(result["structuredContent"]["error"]["code"], "tool.not_allowed", "{refused}");
+    }
+    // Inside a script too (`cmux_exec` is refused before a script starts;
+    // the check is in `call`, which every script call goes through).
+    server.allowed.as_mut().unwrap().insert("cmux_exec".into());
+    let script =
+        call(&mut server, "cmux_exec", json!({"script": "await cmux.workspace_list({});"}));
+    assert_eq!(
+        script["structuredContent"]["error"]["cmux"]["error"]["code"], "tool.not_allowed",
+        "{script}"
+    );
+
+    // Fail closed: an empty value allows nothing; no env is code mode.
+    let mut empty = code_mode_server(Fake::with_actions());
+    empty.allowed = allowed_tools(Some(" , ".into()));
+    let listed =
+        empty.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    assert_eq!(listed["result"]["tools"], json!([]));
+    assert_eq!(allowed_tools(None), None);
+}
