@@ -19,13 +19,14 @@
 # not compiled; they are outside this proof.
 #
 # Legs (each a separate DerivedData; "cas-X" is a compilation cache directory):
-#   clean1   HEAD, fresh cache cas-1                       (reference)
+#   clean1   HEAD, fresh cache cas-1                       (reference, kept as ref-clean1)
 #   clean2   HEAD, fresh cache cas-2                       (is clean deterministic?)
 #   base-w   BASE, fresh cache cas-w                       (fills cas-w like the previous nightly)
 #   warm     HEAD, empty DerivedData, cache cas-w          (the shipped nightly-next model)
 #   hit      HEAD, empty DerivedData, cache cas-w again    (no-change floor: every job a hit)
 #   base-i   BASE, fresh cache cas-i, DerivedData dd-i
 #   incr     HEAD in dd-i (kept DerivedData + cas-i)        (Xcode incremental, for contrast)
+# All legs use one DerivedData path (moved aside or deleted between legs).
 # Each of warm, hit, incr, clean2 is compared file by file with clean1 over
 # Build/Products/Release (every regular file and symlink; the executable,
 # each object, module and resource bundle).
@@ -50,10 +51,15 @@ cd "$root"
 work="$root/.build/nightly-cas-identity"
 src="$work/src"
 rm -rf "$work"
+git worktree prune
 mkdir -p "$work"
+# Every leg builds in this one DerivedData path, as the nightly builds in
+# build-universal: the linked executable's debug map and the binary modules
+# keep DerivedData paths, so another path per leg would differ by path alone.
+D="$work/dd"
 cleanup() {
   git -C "$root" worktree remove --force "$src" >/dev/null 2>&1 || rm -rf "$src"
-  rm -rf "$work"/dd-* "$work"/cas-* "$work/spm" "$work/app-exe"
+  rm -rf "$D" "$work"/ref-* "$work"/cas-* "$work/spm" "$work/app-exe"
 }
 trap cleanup EXIT
 free_gb=$(( $(df -k "$root" | awk 'NR==2 {print $4}') / 1048576 ))
@@ -149,7 +155,7 @@ print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxN
     echo "nightly-cas-identity.sh: build $label failed" >&2
     exit 1
   fi
-  local compiles hits
+  local compiles
   compiles=$(grep -c -E '^SwiftCompile normal' "$work/$label.log" || true)
   hits=$(grep -c -E '^Cache hit' "$work/$label.log" || true)
   result "$label build_seconds=$(( SECONDS - t0 )) swift_compile_tasks=$compiles cache_hit_lines=$hits"
@@ -157,9 +163,10 @@ print(next((n for n in ("cmux-next-exe", "CmuxNextAppExecutable-Package", "CmuxN
 }
 
 fails=0
-compare() {   # LABEL OTHER_DD REQUIRED(yes|no)
+hits=0
+compare() {   # LABEL REQUIRED(yes|no): the build in $D against ref-clean1
   local rc=0
-  python3 -I - "$work/dd-clean1/Build/Products/Release" "$2/Build/Products/Release" "$1" "$3" <<'PY' || rc=$?
+  python3 -I - "$work/ref-clean1/Build/Products/Release" "$D/Build/Products/Release" "$1" "$2" <<'PY' || rc=$?
 import hashlib, os, sys
 ref, other, label, required = sys.argv[1:5]
 def walk(top):
@@ -189,34 +196,43 @@ for k in only_ref[:10]:
     print(f"  only clean1: {k}")
 for k in only_other[:10]:
     print(f"  only {label}: {k}")
-sys.exit(1 if (diff or only_ref or only_other) else 0)
+if not a or exe not in a:
+    print(f"RESULT compare {label}: clean1 has no {exe}; nothing was compared")
+sys.exit(0 if a and exe in a and a.get(exe) == b.get(exe) and not (diff or only_ref or only_other) else 1)
 PY
-  if (( rc != 0 )) && [[ "$3" == yes ]]; then fails=$((fails + 1)); fi
+  if (( rc != 0 )) && [[ "$2" == yes ]]; then fails=$((fails + 1)); fi
   return 0
 }
 
 at "$head"
-xcb clean1 "$work/dd-clean1" "$work/cas-1"
-xcb clean2 "$work/dd-clean2" "$work/cas-2"
-compare clean2 "$work/dd-clean2" yes
-rm -rf "$work/dd-clean2" "$work/cas-2"
+xcb clean1 "$D" "$work/cas-1"
+mv "$D" "$work/ref-clean1"
+rm -rf "$work/cas-1"
+xcb clean2 "$D" "$work/cas-2"
+compare clean2 yes
+rm -rf "$D" "$work/cas-2"
 
 at "$base"
-xcb base-w "$work/dd-base-w" "$work/cas-w"
-rm -rf "$work/dd-base-w"
-xcb base-i "$work/dd-i" "$work/cas-i"
+xcb base-w "$D" "$work/cas-w"
+rm -rf "$D"
 
 at "$head"
-xcb warm "$work/dd-warm" "$work/cas-w"
-compare warm "$work/dd-warm" yes
-rm -rf "$work/dd-warm"
-xcb hit "$work/dd-hit" "$work/cas-w"
-compare hit "$work/dd-hit" yes
-rm -rf "$work/dd-hit"
-xcb incr "$work/dd-i" "$work/cas-i" keep
-compare incr "$work/dd-i" no
+xcb warm "$D" "$work/cas-w"
+(( hits > 0 )) || { result "warm read no compilation cache entry (cache_hit_lines=0): the cache was not used"; fails=$((fails + 1)); }
+compare warm yes
+rm -rf "$D"
+xcb hit "$D" "$work/cas-w"
+(( hits > 0 )) || { result "hit read no compilation cache entry (cache_hit_lines=0): the cache was not used"; fails=$((fails + 1)); }
+compare hit yes
+echo "==> warm cache size: $(du -sh "$work/cas-w" | awk '{print $1}')"
+rm -rf "$D" "$work/cas-w"
 
-du -sh "$work/cas-w" 2>/dev/null | sed 's/^/==> warm cache size: /' || true
+at "$base"
+xcb base-i "$D" "$work/cas-i"
+at "$head"
+xcb incr "$D" "$work/cas-i" keep
+compare incr no
+
 if (( fails )); then
   result "FAIL: $fails required comparison(s) differ from clean1"
   exit 1
