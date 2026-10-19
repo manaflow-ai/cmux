@@ -836,6 +836,7 @@ final class AgentChatModeModel {
               !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingAttachments = attachments
+        reconcilePendingPrompts(sessionID: selectedSessionID)
         if pendingAttachments.isEmpty,
            case .needsInput = selectedSession?.state,
            let pendingQuestion = selectedMessages.last(where: { message in
@@ -871,6 +872,7 @@ final class AgentChatModeModel {
               !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingAttachments = attachments
+        reconcilePendingPrompts(sessionID: selectedSessionID)
         draft = ""
         attachments = []
         // Steer starts a new effective turn after interrupting the current
@@ -1112,6 +1114,7 @@ final class AgentChatModeModel {
             pendingSendsBySession[selectedSessionID] = pending.isEmpty ? nil : pending
         }
         guard !Task.isCancelled else { return }
+        reconcilePendingPrompts(sessionID: selectedSessionID)
         do {
             inFlightSendsBySession[selectedSessionID] = queued
             awaitingTranscriptSendsBySession[selectedSessionID, default: []].append(queued)
