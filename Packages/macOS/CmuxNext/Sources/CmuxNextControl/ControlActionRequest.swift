@@ -15,6 +15,9 @@ public struct ControlActionRequest: Sendable, Hashable {
     /// chat (`caller.agent_session`, beside_caller in ControlCaller).
     /// `caller.agent_session`: the agent that sent the run (ControlCaller).
     public var callerAgentSession: String?
+    /// `caller.terminal_id`: the terminal whose cmux CLI sent the run (an agent that runs in a
+    /// terminal, not in an agent chat), nil for any other run.
+    public var callerTerminal: String?
     public var besideCaller = false
     /// That column does not exist: the target is the chat itself, and the
     /// handler moves the new tab into a new column right of it.

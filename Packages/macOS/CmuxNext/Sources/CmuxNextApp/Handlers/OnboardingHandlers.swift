@@ -19,6 +19,9 @@ enum OnboardingHandlers {
         registry.bind("browser.importFromFiles", run: { invocation in
             BrowserFileImport(services: services).run(profile: BookmarkResolver(services: services).profile(invocation))
         })
+        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first.
+        let cookieImports = CookieImportService(services: services)
+        registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
         // A toast, never a sheet: the person can keep working while it runs.
         registry.bind("workspace.importClassic", run: { _ in
             let window = NSApp.keyWindow ?? NSApp.mainWindow
