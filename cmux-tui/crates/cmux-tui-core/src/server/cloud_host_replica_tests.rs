@@ -487,3 +487,40 @@ fn a_purge_whose_token_is_refused_waits_for_a_new_one_instead_of_reconnecting_at
     assert!(attempts <= 3, "{attempts} connects while the token is refused");
     assert_eq!(status(&mux, client)["purge_pending"], true);
 }
+
+/// A Mac clock ahead of the cloud's (every new token reads as expiring) and
+/// a cloud that refuses every token: each new lease asks `expiring` and then
+/// `unauthenticated`. Each reason keeps its own `reask` pace, so the asks do
+/// not drive a loop of token mints.
+#[test]
+fn expiring_and_refused_asks_keep_their_pace_across_leases() {
+    let (mux, client, backend) = replica_mux_with(HostReplicaOptions {
+        reask: Duration::from_secs(60),
+        ..HostReplicaOptions::default()
+    });
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    let events = mux.subscribe();
+    let mut seen = Vec::new();
+    let now = u64::try_from(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+    )
+    .unwrap();
+    let count = |events: &crate::MuxEventReceiver, seen: &mut Vec<Value>, reason: &str| {
+        needed(events, seen).iter().filter(|e| e["reason"] == reason).count()
+    };
+
+    backend.reply("/v1/ops", 200, json!({"ok":true,"value":{"id":HOST,"name":"studio"}}));
+    backend.refuse(ConnectError::Unauthenticated);
+    lease_until(&mux, client, INSTALL_TOKEN, now + 30_000);
+    wait_until("the refused ask", || count(&events, &mut seen, "unauthenticated") == 1);
+    assert_eq!(count(&events, &mut seen, "expiring"), 1);
+
+    // The app's answer: a new token that also reads as expiring, also refused.
+    backend.refuse(ConnectError::Unauthenticated);
+    lease_until(&mux, client, &INSTALL_TOKEN.replace(".sig", ".sig2"), now + 31_000);
+    wait_until("the second connect", || backend.connected().len() == 2);
+    wait_until("refused again", || status(&mux, client)["state"] == "unauthenticated");
+    assert_eq!(count(&events, &mut seen, "expiring"), 1, "{seen:?}");
+    assert_eq!(count(&events, &mut seen, "unauthenticated"), 1, "{seen:?}");
+}
