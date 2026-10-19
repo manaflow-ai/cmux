@@ -18,6 +18,7 @@ struct AgentChatModeView: View {
     @Bindable var store: CMUXMobileShellStore
     private let injectedSource: (any AgentChatSessionSource)?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dismiss) private var dismiss
     @State private var model = AgentChatModeModel()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     /// Compact iPhone navigation is an explicit path. ``NavigationSplitView``
@@ -176,6 +177,15 @@ struct AgentChatModeView: View {
         )
         .navigationTitle("Agents")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel("Close")
+                .accessibilityIdentifier("MobileAgentCloseMode")
+            }
+        }
     }
 
     private var detailView: some View {
@@ -185,6 +195,7 @@ struct AgentChatModeView: View {
             isLoading: isLoading,
             isConnected: isConnected,
             showSidebar: showSidebar,
+            closeMode: { dismiss() },
             refresh: { await refresh() }
         )
     }
@@ -365,10 +376,10 @@ private struct AgentSidebarHeader: View {
 private struct AgentChatDetail: View {
     let store: CMUXMobileShellStore
     @Bindable var model: AgentChatModeModel
-    @Environment(\.dismiss) private var dismiss
     let isLoading: Bool
     let isConnected: Bool
     let showSidebar: () -> Void
+    let closeMode: () -> Void
     let refresh: () async -> Void
     @State private var isRenaming = false
     @State private var renameText = ""
@@ -465,7 +476,7 @@ private struct AgentChatDetail: View {
                             Label("Delete session", systemImage: "trash")
                         }
                     }
-                    Button { dismiss() } label: {
+                    Button(action: closeMode) {
                         Label("Close", systemImage: "xmark")
                     }
                 } label: {
@@ -905,10 +916,12 @@ private struct AgentChatTranscriptView: View {
                                 )
                                 .id(message.id)
                             }
-                            ForEach(Array(model.selectedPendingPrompts.enumerated()), id: \.offset) { index, prompt in
+                            let pendingPrompts = model.selectedPendingPrompts
+                            let sendingPromptCount = pendingPrompts.count - model.queuedSendCount
+                            ForEach(Array(pendingPrompts.enumerated()), id: \.offset) { index, prompt in
                                 AgentPendingPromptBubble(
                                     text: prompt,
-                                    isQueued: index > 0
+                                    isQueued: index >= sendingPromptCount
                                 )
                                 .id("pending-\(index)-\(prompt)")
                             }
@@ -1090,97 +1103,106 @@ private struct AgentExecutionContextBar: View {
 private struct AgentSessionControlsMenu: View {
     @Bindable var model: AgentChatModeModel
 
+    private var hasControls: Bool {
+        let controls = model.selectedControls
+        return controls.supportsPlanMode || !controls.modelOptions.isEmpty
+            || !controls.reasoningEffortOptions.isEmpty || !controls.permissionOptions.isEmpty
+            || !controls.sandboxOptions.isEmpty
+    }
+
     var body: some View {
-        Menu {
-            let controls = model.selectedControls
-            if !controls.modelOptions.isEmpty {
-                Menu("Model") {
-                    ForEach(controls.modelOptions) { option in
-                        Button {
-                            var next = model.selectedControls
-                            next.modelID = option.id
-                            next.reasoningEffortID = nil
-                            Task { await model.updateSelectedControls(next) }
-                        } label: {
-                            Label(option.displayName, systemImage: controls.modelID == option.id ? "checkmark" : "")
+        if hasControls {
+            Menu {
+                let controls = model.selectedControls
+                if !controls.modelOptions.isEmpty {
+                    Menu("Model") {
+                        ForEach(controls.modelOptions) { option in
+                            Button {
+                                var next = model.selectedControls
+                                next.modelID = option.id
+                                next.reasoningEffortID = nil
+                                Task { await model.updateSelectedControls(next) }
+                            } label: {
+                                Label(option.displayName, systemImage: controls.modelID == option.id ? "checkmark" : "")
+                            }
                         }
                     }
                 }
-            }
-            if !controls.reasoningEffortOptions.isEmpty {
-                Menu("Reasoning effort") {
-                    ForEach(controls.reasoningEffortOptions) { option in
-                        Button {
-                            var next = model.selectedControls
-                            next.reasoningEffortID = option.id
-                            Task { await model.updateSelectedControls(next) }
-                        } label: {
-                            Label(option.displayName, systemImage: controls.reasoningEffortID == option.id ? "checkmark" : "")
+                if !controls.reasoningEffortOptions.isEmpty {
+                    Menu("Reasoning effort") {
+                        ForEach(controls.reasoningEffortOptions) { option in
+                            Button {
+                                var next = model.selectedControls
+                                next.reasoningEffortID = option.id
+                                Task { await model.updateSelectedControls(next) }
+                            } label: {
+                                Label(option.displayName, systemImage: controls.reasoningEffortID == option.id ? "checkmark" : "")
+                            }
                         }
                     }
                 }
-            }
-            if !controls.permissionOptions.isEmpty {
-                Menu("Permission mode") {
-                    ForEach(controls.permissionOptions) { option in
-                        Button {
-                            var next = model.selectedControls
-                            next.permissionMode = option.id
-                            Task { await model.updateSelectedControls(next) }
-                        } label: {
-                            Label(option.displayName, systemImage: controls.permissionMode == option.id ? "checkmark" : "")
+                if !controls.permissionOptions.isEmpty {
+                    Menu("Permission mode") {
+                        ForEach(controls.permissionOptions) { option in
+                            Button {
+                                var next = model.selectedControls
+                                next.permissionMode = option.id
+                                Task { await model.updateSelectedControls(next) }
+                            } label: {
+                                Label(option.displayName, systemImage: controls.permissionMode == option.id ? "checkmark" : "")
+                            }
                         }
                     }
                 }
-            }
-            if !controls.sandboxOptions.isEmpty {
-                Menu("Sandbox") {
-                    ForEach(controls.sandboxOptions) { option in
-                        Button {
-                            var next = model.selectedControls
-                            next.sandboxMode = option.id
-                            Task { await model.updateSelectedControls(next) }
-                        } label: {
-                            Label(option.displayName, systemImage: controls.sandboxMode == option.id ? "checkmark" : "")
+                if !controls.sandboxOptions.isEmpty {
+                    Menu("Sandbox") {
+                        ForEach(controls.sandboxOptions) { option in
+                            Button {
+                                var next = model.selectedControls
+                                next.sandboxMode = option.id
+                                Task { await model.updateSelectedControls(next) }
+                            } label: {
+                                Label(option.displayName, systemImage: controls.sandboxMode == option.id ? "checkmark" : "")
+                            }
                         }
                     }
                 }
-            }
-            if controls.supportsPlanMode {
-                Toggle(isOn: Binding(
-                    get: { model.selectedControls.planMode },
-                    set: { value in
-                        var next = model.selectedControls
-                        next.planMode = value
-                        Task { await model.updateSelectedControls(next) }
+                if controls.supportsPlanMode {
+                    Toggle(isOn: Binding(
+                        get: { model.selectedControls.planMode },
+                        set: { value in
+                            var next = model.selectedControls
+                            next.planMode = value
+                            Task { await model.updateSelectedControls(next) }
+                        }
+                    )) {
+                        Label("Plan mode", systemImage: "list.bullet.clipboard")
                     }
-                )) {
-                    Label("Plan mode", systemImage: "list.bullet.clipboard")
                 }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                if let option = model.selectedControls.modelOptions.first(where: {
-                    $0.id == model.selectedControls.modelID
-                }) {
-                    Text(option.displayName)
-                    if let effort = model.selectedControls.reasoningEffortOptions.first(where: {
-                        $0.id == model.selectedControls.reasoningEffortID
+            } label: {
+                HStack(spacing: 4) {
+                    if let option = model.selectedControls.modelOptions.first(where: {
+                        $0.id == model.selectedControls.modelID
                     }) {
-                        Text(effort.displayName).foregroundStyle(.secondary)
+                        Text(option.displayName)
+                        if let effort = model.selectedControls.reasoningEffortOptions.first(where: {
+                            $0.id == model.selectedControls.reasoningEffortID
+                        }) {
+                            Text(effort.displayName).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Label("Controls", systemImage: "slider.horizontal.3")
                     }
-                } else {
-                    Label("Controls", systemImage: "slider.horizontal.3")
                 }
+                .font(.subheadline)
+                .lineLimit(1)
+                .frame(minHeight: 44)
             }
-            .font(.subheadline)
-            .lineLimit(1)
-            .frame(minHeight: 44)
+            .buttonStyle(.plain)
+            .disabled(model.selectedSession == nil || model.selectedSession?.state == .ended
+                || model.updatingControlsSessionIDs.contains(model.selectedSessionID ?? ""))
+            .accessibilityIdentifier("MobileAgentSessionControls")
         }
-        .buttonStyle(.plain)
-        .disabled(model.selectedSession == nil || model.selectedSession?.state == .ended
-            || model.updatingControlsSessionIDs.contains(model.selectedSessionID ?? ""))
-        .accessibilityIdentifier("MobileAgentSessionControls")
     }
 }
 

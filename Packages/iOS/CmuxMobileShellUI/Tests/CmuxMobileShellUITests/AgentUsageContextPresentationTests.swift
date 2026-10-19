@@ -12,8 +12,8 @@ import Testing
             contextTokens: 80_000,
             contextWindowTokens: 200_000,
             rateLimit: ChatUsageRateLimit(
-                primary: .init(usedPercent: 42, resetsAt: reset),
-                secondary: .init(usedPercent: 91)
+                primary: .init(usedPercent: 42, resetsAt: reset.addingTimeInterval(3_600)),
+                secondary: .init(usedPercent: 91, resetsAt: reset)
             )
         )
 
@@ -25,6 +25,20 @@ import Testing
         #expect(presentation.labels == ["40% context", "12.3K tokens", "91% allowance", "Resets in 2h"])
         #expect(presentation.isNearLimit)
         #expect(presentation.systemImage == "exclamationmark.triangle.fill")
+    }
+
+    @Test func missingTightestWindowResetDoesNotBorrowAnotherWindowsReset() {
+        let totals = ChatUsageTotals(rateLimit: ChatUsageRateLimit(
+            primary: .init(usedPercent: 42, resetsAt: Date(timeIntervalSince1970: 20_000)),
+            secondary: .init(usedPercent: 91)
+        ))
+
+        let presentation = AgentUsageContextPresentation(
+            totals: totals,
+            now: Date(timeIntervalSince1970: 10_000)
+        )
+
+        #expect(presentation.labels == ["91% allowance"])
     }
 
     @Test func missingProviderValuesStayHonest() {

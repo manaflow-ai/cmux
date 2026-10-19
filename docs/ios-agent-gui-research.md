@@ -29,6 +29,32 @@ Official Codex captures inspected during research:
 - [Populated composer](https://developers.openai.com/images/blog/mastering-codex-remote-skills-plugins.jpg)
 - [Inline review](https://developers.openai.com/images/blog/mastering-codex-remote-inline-review.jpg)
 
+## Layout and rendering
+
+The execution-context reference places the text input above the attachment,
+model/effort, microphone and send controls. Agent Chat uses that two-row
+arrangement so a long instruction retains the full composer width. The current
+session has one compact context row; transport identifiers are not presented as
+workspace or computer names. Prompt bubbles use an adaptive neutral fill, while
+agent prose is unboxed. Markdown presentation intents produce separate native
+headings, paragraphs, lists, quotes, code blocks and tables, preserving inline
+links and emphasis. Code and tables scroll horizontally within the transcript.
+
+Apple HIG references consulted for the October 19 iteration:
+
+- [Color](https://developer.apple.com/design/human-interface-guidelines/color):
+  adaptive system colors and a visible icon/text for usage warnings.
+- [Text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields):
+  a multiline input with a persistent accessibility identity and placeholder.
+- [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars):
+  compact navigation and less frequent session actions in the More menu.
+- [Typography](https://developer.apple.com/design/human-interface-guidelines/typography):
+  system text styles, Dynamic Type, and a clear heading hierarchy.
+
+The supplied first-party captures are references, not proof of pixel parity.
+Simulator captures must establish the rendered layout, keyboard behavior, light
+and dark appearance, and scrolling states before visual equivalence is claimed.
+
 ## Behavior matrix
 
 The mobile shell must preserve these distinct states rather than reducing them
