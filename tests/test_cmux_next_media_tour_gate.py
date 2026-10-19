@@ -123,6 +123,13 @@ def push_event():
                        "event": {"before": "f" * 40}}, "vars": {}}
 
 
+def dispatch_event(base_sha=""):
+    """The batch queue's tour of a group branch (docs/ci/cmux-next-batch.md#groups)."""
+    return {"github": {"event_name": "workflow_dispatch", "repository": REPO, "repository_owner": "manaflow-ai",
+                       "ref": "refs/heads/next-batch/1-1", "sha": "c" * 40, "run_id": 9002, "event": {}},
+            "inputs": {"base_sha": base_sha}, "vars": {}}
+
+
 def main():
     workflow = yaml.safe_load(open(WORKFLOW, encoding="utf-8"))
     triggers = workflow.get(True) or workflow.get("on")
@@ -147,6 +154,8 @@ def main():
          pr_event("labeled", [LABEL, "dev-build"], label="dev-build"), False),
         ("a fork pull request never tours", pr_event("synchronize", [LABEL], fork=True), False),
         ("a merge to feat-cmux-next tours", push_event(), True),
+        ("a batch dispatch with a base tours", dispatch_event("d" * 40), True),
+        ("a dispatch without a base tours nothing", dispatch_event(""), False),
     ]
     for why, context, want in cases:
         got = bool(expression(route_if, context))
@@ -171,6 +180,11 @@ def main():
     _check(expression(tour_env["TOUR_TAG"], pr_event("synchronize", [LABEL])) == "ci-media-pr-42",
            "a pull request keeps its own tag")
     _check(expression(tour_env["TOUR_TAG"], push_event()) == "ci-media-feat-cmux-next", "merges share one warm tag")
+    _check(expression(tour_env["BASE_SHA"], dispatch_event("d" * 40)) == "d" * 40,
+           "a batch tour compares against the stack's base, so it maps the union of the group's tours")
+    _check(expression(tour_env["HEAD_SHA"], dispatch_event("d" * 40)) == "c" * 40, "a batch tour tours the group branch")
+    _check(expression(tour_env["TOUR_TAG"], dispatch_event("d" * 40)) == "ci-media-batch",
+           "batch tours keep their own tag, apart from the merge tours' DerivedData")
 
     # The publish job comments on the merged pull request for a merge tour.
     publish = jobs["publish"]
