@@ -9,14 +9,14 @@ import Testing
 /// a workspace row's badge is Working (the one spinner) or Ready (the blue dot); a question, a
 /// permission request, an error and a finished run are all Ready, so no chat bubble or shield draws.
 @MainActor @Suite(.serialized) struct SidebarStatusSimpleTests {
-    struct Case: Sendable, CustomTestStringConvertible {
+    nonisolated struct Case: Sendable, CustomTestStringConvertible {
         var activity: StatusIndicatorState
         var unread: UnreadState = .none
         var simple: [StatusIndicatorState]
         var testDescription: String { "\(activity) unread \(unread)" }
     }
 
-    static let cases: [Case] = [
+    nonisolated static let cases: [Case] = [
         Case(activity: .idle, simple: []),
         Case(activity: .working, simple: [.working]),
         Case(activity: .working(progress: 0.4), simple: [.working(progress: 0.4)]),
