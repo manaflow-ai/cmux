@@ -89,6 +89,7 @@ from guard_attribution import (  # noqa: E402
     pr_number,
     upsert_comment,
 )
+import pr_status  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 from pr_runner_pool import LAST_OWNED_ATTEMPT  # noqa: E402
 
@@ -981,11 +982,12 @@ def mark_pending(writer: Writer, repo: str, pr: int, existing: list[dict], head:
     current = next((c for c in existing if MARKER in str(c.get("body") or "")), None)
     if current is None:
         return False
-    body = str(current.get("body") or "")
+    body = pr_status.own_text(str(current.get("body") or ""), "attribution")
     old_head, _ = comment_head(body)
     if same_head(old_head, head):
         return False
-    upsert_comment(writer, repo, pr, MARKER, render_pending(head, run_url, old_head, body), existing)
+    upsert_comment(writer, repo, pr, MARKER, render_pending(head, run_url, old_head, body), existing,
+                   section="attribution")
     return True
 
 
@@ -1129,7 +1131,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     # failure that is being re-run asks nothing of the author, so it posts no new comment either.
     quiet = report.get("conclusion") == "success" and not report.get("macos_skipped") or rerun
     if current is not None or not quiet:
-        upsert_comment(writer, gh.repo, pr, MARKER, body, existing)
+        upsert_comment(writer, gh.repo, pr, MARKER, body, existing, section="attribution")
     return {"pr": pr, "rerun": rerun, "line": line}
 
 
