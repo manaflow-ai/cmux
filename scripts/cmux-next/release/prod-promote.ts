@@ -24,7 +24,9 @@
  *       (backend.yml target=chief-off). Without --execute it prints the command and changes nothing.
  *       Refuses when production already serves a rollback (a re-run would redeploy what the first
  *       one removed) unless --force. From the Chief off switch it steps back past every off-switch
- *       deployment (re-runs stack), so the brain comes back on. After a rollback or the off switch,
+ *       deployment (re-runs stack), so the brain comes back on; it refuses unless that lands on the
+ *       same source commit. `wrangler rollback` restores the target version's secrets too, so a
+ *       secret set after the target is undone. After a rollback or the off switch,
  *       `gates` holds every automatic promote; only an exact-SHA promote (--candidate) moves
  *       production forward.
  *   bun prod-promote.ts stale [--issue]
@@ -183,7 +185,7 @@ export const rollbackPlan = async (script: string, force = false): Promise<{ fro
   if (!fromVersion) return { refused: `${script}: no single version at 100%` }
   const codeAt = deps.findIndex((d) => d.annotations?.["workers/triggered_by"] !== "secret")
   // A second rollback would step onto the version the first one left (a re-run must not redeploy the bad code).
-  if (!force && deps[codeAt]?.annotations?.["workers/triggered_by"] === "rollback") return { refused: `${script} already serves a rollback; roll forward with an exact-SHA promote, or pass --force to step back once more` }
+  if (!force && deps[codeAt]?.annotations?.["workers/triggered_by"] === "rollback") return { refused: `${script} already serves a rollback; roll forward with an exact-SHA promote, or pass --force to roll back onto the deployment that rollback replaced` }
   if (codeAt < 0 || codeAt + 1 >= deps.length) return { refused: `${script}: no deployment before the current code` }
   const versionOf = (version: string) => cf(`/workers/scripts/${script}/versions/${version}`)
   const chiefOff = async (d: any): Promise<boolean> => {
@@ -194,7 +196,8 @@ export const rollbackPlan = async (script: string, force = false): Promise<{ fro
   let target = codeAt + 1
   // From the off switch, step back past every off-switch deployment (a re-run of target=chief-off stacks
   // another one), so the brain comes back on: the contract of target=rollback after target=chief-off.
-  if (await chiefOff(deps[codeAt])) {
+  const fromOff = await chiefOff(deps[codeAt])
+  if (fromOff) {
     for (let c = codeFrom(target); c >= 0 && (await chiefOff(deps[c])); c = codeFrom(target)) target = c + 1
     if (target >= deps.length) return { refused: `${script}: no deployment before the current code` }
   }
@@ -209,6 +212,10 @@ export const rollbackPlan = async (script: string, force = false): Promise<{ fro
   const toCode = deps[codeFrom(target)]
   const fromSha = await tagOf(single(deps[codeAt]))
   const toSha = await tagOf(single(toCode))
+  // The off switch redeploys the serving commit, so undoing it is the same code with the brain on. Anything
+  // else (the walk crossed a rollback onto code that was rolled back) is refused.
+  if (fromOff && (!fromSha || toSha !== fromSha))
+    return { refused: `${script}: the version before the off switch (${toVersion}, ${toSha?.slice(0, 12) ?? "untagged"}) is not the code the off switch serves (${fromSha?.slice(0, 12) ?? "untagged"}); turn the brain on with an exact-SHA promote (target=promote, candidate=<sha>)` }
   return { fromVersion, toVersion, ...(fromSha ? { fromSha } : {}), ...(toSha ? { toSha } : {}) }
 }
 

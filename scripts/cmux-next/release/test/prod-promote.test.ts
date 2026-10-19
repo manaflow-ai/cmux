@@ -229,7 +229,7 @@ describe("rollbackPlan", () => {
     versions = { v3: code(repo.C), v2: code(repo.B), v1: code(repo.A) }
     setDeployments([{ version: "v2", trigger: "rollback" }, { version: "v3", trigger: "deployment" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
     const plan = await rollbackPlan("cmux-api")
-    expect(plan).toEqual({ refused: "cmux-api already serves a rollback; roll forward with an exact-SHA promote, or pass --force to step back once more" })
+    expect(plan).toEqual({ refused: "cmux-api already serves a rollback; roll forward with an exact-SHA promote, or pass --force to roll back onto the deployment that rollback replaced" })
     // A secret-only deployment on top of the rollback does not hide it.
     versions.v4 = {}
     setDeployments([{ version: "v4", trigger: "secret" }, { version: "v2", trigger: "rollback" }, { version: "v3", trigger: "deployment" }, { version: "v2", trigger: "deployment" }, { version: "v1", trigger: "deployment" }])
