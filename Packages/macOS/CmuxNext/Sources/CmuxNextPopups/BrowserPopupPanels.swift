@@ -1,5 +1,5 @@
-import AppKit
-import CmuxNextBrowser
+public import AppKit
+public import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -10,16 +10,16 @@ import CmuxNextWakeups
 /// `window.close()`, on an Escape the page did not use, on Cmd-W while it
 /// has the keyboard, with its close button, and when its opener's window
 /// closes; closing it closes the page.
-final class BrowserPopupPanels {
+public final class BrowserPopupPanels {
     private let contextMenus: BrowserContextMenuBuilder
     /// Where the opener windows' close notices arrive (a private center in
     /// tests that post one off main).
     private let center: NotificationCenter
     /// The link, image and selection rows for a right-click, by the
     /// opener's tab (`BrowserPageRequests.hitItems`).
-    var hitItems: ((BrowserContextMenuTarget, String) -> [NSMenuItem])?
+    public var hitItems: ((BrowserContextMenuTarget, String) -> [NSMenuItem])?
 
-    init(contextMenus: BrowserContextMenuBuilder = .shared, center: NotificationCenter = .default) {
+    public init(contextMenus: BrowserContextMenuBuilder = .shared, center: NotificationCenter = .default) {
         self.contextMenus = contextMenus
         self.center = center
     }
@@ -33,26 +33,26 @@ final class BrowserPopupPanels {
     }
 
     /// False in tests: panels are created but never ordered on screen.
-    var ordersPanelsIn = true
+    public var ordersPanelsIn = true
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var parentObservers: [ObjectIdentifier: any NSObjectProtocol] = [:]
 
     // MARK: Queries
 
-    func owns(_ page: any BrowserTab) -> Bool { entries[ObjectIdentifier(page)] != nil }
+    public func owns(_ page: any BrowserTab) -> Bool { entries[ObjectIdentifier(page)] != nil }
 
-    func panel(for page: any BrowserTab) -> NSPanel? { entries[ObjectIdentifier(page)]?.panel }
+    public func panel(for page: any BrowserTab) -> NSPanel? { entries[ObjectIdentifier(page)]?.panel }
 
-    func openerKey(of page: any BrowserTab) -> String? { entries[ObjectIdentifier(page)]?.openerKey }
+    public func openerKey(of page: any BrowserTab) -> String? { entries[ObjectIdentifier(page)]?.openerKey }
 
     /// The popup pages tab `key` opened, at any depth (a popup's popups keep its opener key).
-    func pages(openedBy key: String) -> [any BrowserTab] { entries.values.filter { $0.openerKey == key }.map(\.panel.page) }
+    public func pages(openedBy key: String) -> [any BrowserTab] { entries.values.filter { $0.openerKey == key }.map(\.panel.page) }
 
-    var panels: [BrowserPopupPanel] { entries.values.map(\.panel) }
+    public var panels: [BrowserPopupPanel] { entries.values.map(\.panel) }
 
     /// The panel that is `window` or holds it (a Chromium page window is a
     /// child of its panel).
-    func panel(containing window: NSWindow?) -> BrowserPopupPanel? {
+    public func panel(containing window: NSWindow?) -> BrowserPopupPanel? {
         guard let window else { return nil }
         return panels.first { $0 === window || window.parent === $0 }
     }
@@ -62,7 +62,7 @@ final class BrowserPopupPanels {
     /// Shows `page` in a new panel over `parent`, sized and placed from
     /// `request` on `parent`'s screen. Under `CMUX_NEXT_NO_ACTIVATE=1` it is
     /// ordered front without the keyboard; otherwise it becomes key.
-    func open(_ page: any BrowserTab, request: BrowserPopupRequest, over parent: NSWindow, openerKey: String) {
+    public func open(_ page: any BrowserTab, request: BrowserPopupRequest, over parent: NSWindow, openerKey: String) {
         let screen = parent.screen ?? NSScreen.main
         let visible = screen?.visibleFrame ?? parent.frame
         let primaryHeight = NSScreen.screens.first?.frame.maxY ?? visible.maxY
@@ -84,11 +84,11 @@ final class BrowserPopupPanels {
     }
 
     /// Closes `page`'s panel and the page.
-    func close(_ page: any BrowserTab) {
+    public func close(_ page: any BrowserTab) {
         entries[ObjectIdentifier(page)]?.panel.close()
     }
 
-    func closeAll() {
+    public func closeAll() {
         for panel in panels { panel.close() }
     }
 
@@ -123,7 +123,7 @@ final class BrowserPopupPanels {
     /// Handles an intent of a panel page; returns false for other pages
     /// and for the intents the caller routes through the opener's tab
     /// (links opened in a new tab, downloads).
-    func handle(_ page: any BrowserTab, _ intent: BrowserTabIntent) -> Bool {
+    public func handle(_ page: any BrowserTab, _ intent: BrowserTabIntent) -> Bool {
         guard let entry = entries[ObjectIdentifier(page)] else { return false }
         switch intent {
         case .close, .unhandledEscape:
