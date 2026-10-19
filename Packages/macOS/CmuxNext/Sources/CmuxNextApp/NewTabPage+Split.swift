@@ -57,6 +57,9 @@ extension NewTabPage {
             input.flushAll() // the page shows in its pane: a field that reported ready may take the keys now
         }
         if !started { input.endIncoming(keys, pageMade: false) }
+        // The split's provisional pane is in the store: the window lays it out and mounts it in
+        // this turn, so the page's pane draws in the key's frame (instant-new-surfaces).
+        if started, split != nil { BenchSpans.measure("split.layout") { source.workspace?.applyCurrent() } }
     }
 
     /// The workspace's tabs as the Open Tabs list shows them, but New Tab pages.

@@ -92,6 +92,12 @@ final class FilePageService: InternalPageProvider {
 
     func provider(_ key: String) -> FilePageProvider? { tabs[key]?.provider }
 
+    /// Whether the tab showing `page` waits for the second key of a key sequence
+    /// (``FilePageProvider/keySequencePending``).
+    func keySequencePending(on page: PageWebView) -> Bool {
+        tabs.values.contains { $0.page === page && $0.provider?.keySequencePending == true }
+    }
+
     /// The file tab `key` shows, nil for the empty state or another tab.
     func file(_ key: String) -> URL? { tabs[key]?.provider?.file ?? tabs[key]?.file }
 
