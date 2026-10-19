@@ -1916,7 +1916,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>both</string>
+			<string>tabs</string>
 			<key>pfm_description</key>
 			<string>How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.</string>
 			<key>pfm_name</key>
@@ -3119,7 +3119,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>300</integer>
+			<integer>250</integer>
 			<key>pfm_description</key>
 			<string>How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.</string>
 			<key>pfm_name</key>
