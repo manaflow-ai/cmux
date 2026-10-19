@@ -1,17 +1,22 @@
 /* A session reference's hover card (SessionHoverCard.tsx), as a row of Claude Code's PR list reads:
-   the title in the body step on one line, then the status line (SessionStatusLine, styled in
-   startedSessions.css). The whole card is one button that opens the session. Sizes are the type
-   scale's steps (desktop.css). */
+   the title in the body step (two lines at most), then the status line (SessionStatusLine, styled
+   in startedSessions.css). It is as wide as its title, 240px to 420px, on a raised surface with a
+   shadow so it reads as a layer over the transcript. The whole card is one button that opens the
+   session. Sizes are the type scale's steps (desktop.css). */
 .acpmux-session-hover-card.ui-card {
   padding: 0;
+  border-color: color-mix(in srgb, var(--agent-text) 16%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 6%, var(--agent-surface-elevated, var(--agent-page-bg)));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
 }
 .acpmux-session-hover {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  width: 300px;
-  max-width: calc(100vw - 32px);
+  width: max-content;
+  min-width: 240px;
+  max-width: min(420px, calc(100vw - 32px));
   padding: 8px 12px;
   border: 0;
   border-radius: inherit;
@@ -31,10 +36,11 @@
   outline-offset: -2px;
 }
 .acpmux-session-hover-title {
-  min-width: 0;
+  display: -webkit-box;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-session-hover {
