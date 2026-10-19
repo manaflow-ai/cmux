@@ -8797,7 +8797,10 @@ an agent or an MCP server, and every unknown param is
 `agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
 flight per attachment), `agent_session.timeout` (5 s), `agent_session.refused`
 (acpmux refused), `agent_session.unknown_permission`,
-`agent_session.read_only` (a mutation sent to an observation attachment).
+`agent_session.read_only` (a mutation sent to an observation attachment),
+`agent_session.mode_conflict` (an `agent-session-attach` or
+`agent-session-observe` for a surface this connection already has attached in
+the other mode; detach first to switch modes).
 
 ### agent-session-attach
 
@@ -8830,7 +8833,10 @@ same `agent-session-record`, `agent-session-changed`, and
 `agent-session-closed` events, and clients resume from the newest received
 `seq` after a `lagged`, `overflow`, `acpmux_closed`, `too_large`, or `detached`
 close. `agent-session-prompt`, `agent-session-cancel`, and
-`agent-session-permission` are refused before acpmux is called.
+`agent-session-permission` are refused before acpmux is called. An observe on a
+surface this connection already attached with `agent-session-attach`, or an
+attach on one it observes, answers `agent_session.mode_conflict` and keeps the
+existing attachment unchanged; the same mode again only pages.
 
 ### agent-session-events
 
