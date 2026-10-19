@@ -28987,6 +28987,60 @@
     "additional_properties": false
    }
   },
+  "cloud-conversation-typing": {
+   "since": 12,
+   "capability": "cloud-conversation-typing-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-conversation-typing"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "on": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "cloud-inbox-changed": {
    "since": 12,
    "capability": "cloud-conversations-v1",

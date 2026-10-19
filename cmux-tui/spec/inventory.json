@@ -715,6 +715,12 @@
       ]
     },
     {
+      "name": "cloud-conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "conversation-draft",
       "streams": [
         "subscribe"

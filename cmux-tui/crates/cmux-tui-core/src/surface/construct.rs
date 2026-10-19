@@ -251,7 +251,7 @@ impl Surface {
             cell_width: cell_pixels.0,
             cell_height: cell_pixels.1,
         };
-        let pty = cmux_pty::open(initial_geometry.pty_size()?)?;
+        let pty = cmux_pty::open(initial_geometry.pty_size())?;
 
         let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
             Some(argv) => {
