@@ -1038,6 +1038,13 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, target.push_branch or MAIN_BRANCH), sleep, log)
         if newer:
             return f"a newer nightly run on {target.push_branch or MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
+        # nightly-next runs are never pending at the workflow level (a run-scoped
+        # group); their builds share one job-level slot instead, where a rerun of
+        # this older run would replace the newest push's waiting build.
+        if target.push_branch == "nightly-next":
+            head = read(lambda: api.branch_head("nightly-next"), sleep, log)
+            if head != target.head_sha:
+                return "nightly-next has moved on, and the newer push's run builds it"
         return ""
     if target.push_branch:
         # Not the branch head: a head commit outside the workflow's paths has no
