@@ -464,7 +464,7 @@
     "setting.sidebar.detailedStatusIcons": false,
     "setting.sidebar.groupBy": "none",
     "setting.sidebar.groupByComputer": false,
-    "setting.sidebar.hoverCards.delay": 1300,
+    "setting.sidebar.hoverCards.delay": 300,
     "setting.sidebar.hoverCards.enabled": true,
     "setting.sidebar.minimal": false,
     "setting.sidebar.minimalMode": "off",

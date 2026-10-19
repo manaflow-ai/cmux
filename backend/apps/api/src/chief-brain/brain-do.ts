@@ -58,6 +58,11 @@ export const HOST = "cloud-chief"
  * unsummarized messages whole (Memory.turnInput, not fresh).
  */
 export const SETTLE_MS = 5_000
+/** The Claude compactor's effort: CHIEF_BRAIN_COMPACT_EFFORT (staging A/B knob) when it names a level, else "high" (the reference client's). */
+const compactEffort = (v: string | undefined): "low" | "medium" | "high" => (v === "low" || v === "medium" ? v : "high")
+/** One line per compaction call (stage timing: how long it waited for a prefix another call wrote, then the model call). */
+const logCompactCall = (c: CallRecord): void =>
+  console.log(JSON.stringify({ msg: "chief_brain.compact_call", node: c.ref, model: c.model, wait_ms: c.waitMs ?? 0, ms: c.latencyMs, stop: c.stop, in: c.usage?.input ?? 0, out: c.usage?.output ?? 0, cr: c.usage?.cacheRead ?? 0, cw: c.usage?.cacheWrite ?? 0, ...(c.error ? { error: c.error.slice(0, 160) } : {}) }))
 /** A millisecond setting (CHIEF_BRAIN_SETTLE_MS, CHIEF_BRAIN_PREFIX_WAIT_MS), else `d`. */
 export const msOr = (v: string | undefined, d: number): number => (v !== undefined && /^\d{1,9}$/.test(v.trim()) ? Number(v.trim()) : d)
 /** A turn that runs longer is stopped and recorded failed. */
@@ -177,7 +182,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
         {
           models: this.models.models,
           registry: this.registry,
-          settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000 }, compaction: { enabled: false, backgroundTokens: 0 } },
+          // steeringMode "all": every message steered in during a model call joins the next call (the reference
+          // client reads all waiting messages at once); pi's default takes one per call, so a burst of 8 notes made 4-7 calls.
+          settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000 }, compaction: { enabled: false, backgroundTokens: 0 }, steeringMode: "all" },
           onReport: (error) => console.warn(JSON.stringify({ msg: "chief_brain.pi_report", error: String(error).slice(0, 300) }))
         },
         context
@@ -198,7 +205,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       deps: () => {
         const name = this.compactorName()
         if (name === undefined) throw new Error("compactor: this owner may not use the paid compactor, and this deployment has no free one")
-        return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : isClaude(name) ? "high" : "medium", prompt: "cmux", agent: AGENT, cache: compactCache, record: (_c: CallRecord) => undefined }
+        return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : isClaude(name) ? compactEffort(env.CHIEF_BRAIN_COMPACT_EFFORT) : "medium", prompt: "cmux", agent: AGENT, cache: compactCache, record: logCompactCall }
       },
       onBuilt: () => undefined,
       off: () => (importing(this.sql) ? "a memory copy is under way" : this.compactorName() === undefined ? "no compactor model this owner may use" : undefined),
