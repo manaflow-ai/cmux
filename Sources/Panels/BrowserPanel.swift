@@ -2237,6 +2237,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
     private var suppressOmnibarAutofocusUntil: Date?
 
+    /// Set for a pane opened to show a sidebar resource (a Cloud browser, display or
+    /// port). It is blank while it connects, but it is not a new tab to type into,
+    /// so focusing it never auto-focuses the address bar.
+    var opensLinkedContent = false
+
     /// Prevent forcing web-view focus when another UI path requested omnibar focus.
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
     private var suppressWebViewFocusUntil: Date?
@@ -2258,6 +2263,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var currentURL: URL? {
         didSet {
             guard oldValue != currentURL else { return }
+            SurfaceCatalog.shared.cloudBrowserDocumentDidChange(self)
             applyConfiguredWebViewBackground()
             mobileBrowserStreamStateDidChange(markDirty: true)
         }
@@ -2333,6 +2339,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var pageTitle: String = "" {
         didSet {
             guard oldValue != pageTitle else { return }
+            SurfaceCatalog.shared.cloudBrowserDocumentDidChange(self)
             mobileBrowserStreamStateDidChange(markDirty: true)
         }
     }
@@ -8062,6 +8069,7 @@ extension BrowserPanel {
     }
 
     func shouldSuppressOmnibarAutofocus() -> Bool {
+        if opensLinkedContent { return true }
         if let until = suppressOmnibarAutofocusUntil {
             return Date() < until
         }
