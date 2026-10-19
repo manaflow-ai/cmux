@@ -69,7 +69,7 @@ struct LinkExportTests {
         let hinted = try #require(kinds.first { $0["kind"] as? String == "agent" }?["example_with_hints"] as? String)
         let agent = try #require(DeepLink.parse(try #require(URL(string: hinted)), scheme: "cmux"))
         #expect(agent.target == .agent(harness: "claude", session: "0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d"))
-        #expect(agent.hostHint == "big-red" && agent.nameHint == "Rivetmoss")
+        #expect(agent.hostHint == "build-mac" && agent.nameHint == "Lanternfish")
         // The id rules the file states hold in the code: 32 lowercase hex digits only.
         #expect(DeepLink(.tab("tab_" + String(repeating: "a", count: 31))).url(scheme: "cmux") == nil)
         #expect(DeepLink(.tab("tab_" + String(repeating: "A", count: 32))).url(scheme: "cmux") == nil)

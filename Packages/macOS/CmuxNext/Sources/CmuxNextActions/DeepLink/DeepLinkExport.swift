@@ -72,7 +72,7 @@ public nonisolated struct DeepLinkExport: Sendable {
                 + "running it); it never starts, resumes or connects to anything",
              "example": example(.agent(harness: "claude", session: Self.exampleAgentSession)),
              "example_with_hints": DeepLink(.agent(harness: "claude", session: Self.exampleAgentSession),
-                                            hostHint: "big-red", nameHint: "Rivetmoss").url(scheme: scheme)?.absoluteString ?? ""],
+                                            hostHint: "build-mac", nameHint: "Lanternfish").url(scheme: scheme)?.absoluteString ?? ""],
         ]
         let root: [String: Any] = [
             "description": "cmux-next object links (Copy Workspace/Pane/Tab Link, agent chat sessions, outside agent sessions), generated from "

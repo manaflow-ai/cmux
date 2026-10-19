@@ -19,19 +19,19 @@ struct DeepLinkAgentTests {
     }
 
     @Test func hintsAreKeptAndFormattedBack() throws {
-        let text = "cmux://agent/codex/019a-thread_7?host=big-red&name=Rivetmoss"
+        let text = "cmux://agent/codex/019a-thread_7?host=build-mac&name=Lanternfish"
         let link = try #require(parse(text))
         #expect(link.target == .agent(harness: "codex", session: "019a-thread_7"))
-        #expect(link.hostHint == "big-red")
-        #expect(link.nameHint == "Rivetmoss")
+        #expect(link.hostHint == "build-mac")
+        #expect(link.nameHint == "Lanternfish")
         #expect(link.url(scheme: "cmux")?.absoluteString == text)
     }
 
     @Test(arguments: [
         DeepLink(.agent(harness: "claude", session: "s1")),
         DeepLink(.agent(harness: "opencode", session: "ses_01.a-b")),
-        DeepLink(.agent(harness: "gemini", session: "x"), hostHint: "big-red"),
-        DeepLink(.agent(harness: "pi", session: "x"), nameHint: "Rivetmoss"),
+        DeepLink(.agent(harness: "gemini", session: "x"), hostHint: "build-mac"),
+        DeepLink(.agent(harness: "pi", session: "x"), nameHint: "Lanternfish"),
         DeepLink(.agent(harness: "amp", session: "x"), machine: "machine_0123456789abcdef0123456789abcdef",
                  hostHint: "h", nameHint: "n"),
     ])
@@ -68,7 +68,7 @@ struct DeepLinkAgentTests {
     }
 
     @Test(arguments: [
-        "cmux://agent/claude/s1?host=big%20red&name=Rivetmoss",
+        "cmux://agent/claude/s1?host=build%20mac&name=Lanternfish",
         "cmux://agent/claude/s1?host=&name=",
         "cmux://agent/claude/s1?host=" + String(repeating: "h", count: 65),
         "cmux://agent/claude/s1?host=a/b",
@@ -80,16 +80,16 @@ struct DeepLinkAgentTests {
         #expect(link.target == .agent(harness: "claude", session: "s1"))
         #expect(link.hostHint == nil)
         // A well-formed hint beside a malformed one is kept.
-        #expect(link.nameHint == (text.contains("name=Rivetmoss") ? "Rivetmoss" : nil))
+        #expect(link.nameHint == (text.contains("name=Lanternfish") ? "Lanternfish" : nil))
     }
 
     @Test func hintsNeverRideOnOtherLinks() throws {
         let tab = "tab_0123456789abcdef0123456789abcdef"
-        let link = try #require(parse("cmux://tab/\(tab)?host=big-red&name=Rivetmoss"))
+        let link = try #require(parse("cmux://tab/\(tab)?host=build-mac&name=Lanternfish"))
         #expect(link == DeepLink(.tab(tab)))
         #expect(link.url(scheme: "cmux")?.absoluteString == "cmux://tab/\(tab)")
         // A hint on a link that has none is not well formed: it would not parse back.
-        #expect(DeepLink(.tab(tab), hostHint: "big-red").url(scheme: "cmux") == nil)
+        #expect(DeepLink(.tab(tab), hostHint: "build-mac").url(scheme: "cmux") == nil)
     }
 
     @Test(arguments: [

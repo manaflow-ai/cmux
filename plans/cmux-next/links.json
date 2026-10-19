@@ -31,7 +31,7 @@
     },
     {
       "example" : "cmux://agent/claude/0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d",
-      "example_with_hints" : "cmux://agent/claude/0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d?host=big-red&name=Rivetmoss",
+      "example_with_hints" : "cmux://agent/claude/0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d?host=build-mac&name=Lanternfish",
       "hints" : "optional ?host=<machine name>&name=<agent name>, for display only: 1 to 64 characters of the session id rule; a malformed hint is dropped",
       "id_rule" : "harness: an acpmux harness name, 1 to 64 lowercase ASCII letters, digits or '-'; session: the harness's own session id, 1 to 200 ASCII letters, digits, '-', '_' or '.'",
       "kind" : "agent",

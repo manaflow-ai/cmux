@@ -17,7 +17,7 @@ const APP_LINKS = [
   "cmux://chief/2e448bc2/session/01a12408-f0a2-79a0-8c59-cb472f5bb9aa",
   "cmux-dev-mytag://workspace/ws_0123456789abcdef0123456789abcdef",
   "cmux://agent/claude/0cfd5322-a913-4e01-b71c-aaf0edfb4de8",
-  "cmux://agent/codex/019a-thread?host=big-red&name=Rivetmoss",
+  "cmux://agent/codex/019a-thread?host=build-mac&name=Lanternfish",
 ];
 const UNSAFE = [
   "javascript:alert(1)",
