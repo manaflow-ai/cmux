@@ -105,14 +105,6 @@ struct PaneArrival: Equatable {
         })
     }
 
-    /// Where an arriving pane's host sits while its frame springs from the
-    /// seed: at its target size (one terminal resize, not one per frame),
-    /// moved with the edge that moves, so its content slides in from there.
-    static func presentation(shown: CGRect, target: CGRect) -> CGRect {
-        target.offsetBy(dx: (shown.minX - target.minX) + (shown.maxX - target.maxX),
-                        dy: (shown.minY - target.minY) + (shown.maxY - target.maxY))
-    }
-
     /// The range strip panes show in beside docked columns (nil without
     /// any), moved with docks still growing in from their edge (`docks`, the
     /// arriving frames), so the strip is never cut short of a dock that has

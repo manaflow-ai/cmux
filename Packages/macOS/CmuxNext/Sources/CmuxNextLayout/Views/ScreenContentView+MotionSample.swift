@@ -14,7 +14,7 @@ extension ScreenContentView {
 
     /// `debug.motion` `trace_*` sampler (registered by `LayoutRootView`): per display frame, each
     /// shown pane host as `[pane, x, y, width, height, alpha, z]`, where the rect is what shows of
-    /// it (its frame cut by its reveal rect and its strip clip) in window points with a top-left
+    /// it (its frame cut by its strip clip) in window points with a top-left
     /// origin and `z` its index among this screen's subviews (higher draws in front); each divider
     /// as `[id, x, y, width, height, alpha, z]`; and `zoom`, the pane a zoom or unzoom moves (or "").
     /// Covered panes (a zoom's leaving ones) are listed too. Hidden screens report nothing.
@@ -33,7 +33,7 @@ extension ScreenContentView {
         var panes: [Any] = [], dividers: [Any] = []
         for (index, subview) in screen.subviews.enumerated() {
             if let host = subview as? PaneHostView {
-                var visible = host.revealRect.map(host.frame.intersection) ?? host.frame
+                var visible = host.frame
                 if let mask = host.layer?.mask { visible = visible.intersection(mask.frame.offsetBy(dx: host.frame.minX, dy: host.frame.minY)) }
                 let rect = visible.isNull ? CGRect.zero : visible
                 let header = CGRect(x: host.frame.minX + host.contentRect.minX, y: host.frame.minY + host.contentRect.minY,
