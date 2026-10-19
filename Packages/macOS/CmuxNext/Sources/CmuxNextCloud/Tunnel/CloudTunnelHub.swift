@@ -111,15 +111,14 @@ public actor CloudTunnelHub {
         )
         let enrollment = try await api.enrollTunnel(request)
         guard generation == self.generation else { throw CancellationError() }
-        try paths.writeSecret(WireGuardConfig.shared.completed(enrollment, privateKey: key.rawRepresentation.base64EncodedString()),
-                              to: paths.wireGuardConfig)
+        let config = WireGuardConfig.shared.completed(enrollment, privateKey: key.rawRepresentation.base64EncodedString())
         let socketPath = paths.hubSocket
         unlink(socketPath)
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { throw ChildProcessError.missingBinary(binary.path) }
         let child = ChildProcess(executable: binary, arguments: [
-            "wg", "hub", "--config", paths.wireGuardConfig.path, "--socket", socketPath, "--exit-with-parent",
+            "wg", "hub", "--config", "-", "--socket", socketPath, "--exit-with-parent",
         ])
-        try child.start()
+        try child.start(input: Data(config.utf8))
         self.child = child
         let ready: String
         do {
