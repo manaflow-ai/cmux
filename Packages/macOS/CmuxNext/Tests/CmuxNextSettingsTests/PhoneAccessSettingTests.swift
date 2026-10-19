@@ -40,7 +40,7 @@ struct PhoneAccessSettingTests {
     @Test func theRowsShowUnderAccountsWithTheDisclosure() throws {
         let accounts = try #require(SettingsPageLayout().categories().first { $0.spec.id == "accounts" })
         let rows = accounts.groups.flatMap(\.rows)
-        #expect(rows == ["phone.allowConnections", "phone.startSessions", "phone.keepAwake"])
+        #expect(rows == ["phone.allowConnections", "phone.newDevices", "phone.startSessions", "phone.keepAwake"])
         let toggle = try #require(SettingsSchema.descriptor(for: ["phone", "allowConnections"]))
         #expect(toggle.defaultValue == .bool(false))
         #expect(toggle.help?.contains("is sent to cmux servers") == true)

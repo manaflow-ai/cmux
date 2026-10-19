@@ -1,0 +1,530 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "phoneAccess.allow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow “%@” to use this Mac?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تسمح لـ ”%@“ باستخدام هذا الـ Mac؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoliti uređaju „%@“ da koristi ovaj Mac?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du lade “%@” bruge denne Mac?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ erlauben, diesen Mac zu verwenden?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Permitir que “%@” use este Mac?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser « %@ » à utiliser ce Mac ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consentire a “%@” di usare questo Mac?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」にこの Mac の使用を許可しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យ “%@” ប្រើ Mac នេះឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”에서 이 Mac을 사용하도록 허용하시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du la «%@» bruke denne Macen?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwolić urządzeniu „%@” na korzystanie z tego Maca?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que “%@” use este Mac?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить «%@» использовать этот Mac?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้ “%@” ใช้ Mac เครื่องนี้หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” bu Mac'i kullanabilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити «%@» використовувати цей Mac?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép “%@” dùng máy Mac này?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许“%@”使用这台 Mac 吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許「%@」使用這台 Mac 嗎？"
+          }
+        }
+      }
+    },
+    "phoneAccess.allow.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It can see your workspaces and terminals, type into them and, unless you turned it off, start new ones. You can remove it in Settings > Accounts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكنه رؤية مساحات العمل والطرفيات والكتابة فيها، وبدء مساحات جديدة ما لم توقف ذلك. يمكنك إزالته من الإعدادات > الحسابات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Može vidjeti vaše radne prostore i terminale, kucati u njih i, osim ako to niste isključili, pokretati nove. Možete ga ukloniti u Postavke > Računi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den kan se dine arbejdsområder og terminaler, skrive i dem og starte nye, medmindre du har slået det fra. Du kan fjerne den under Indstillinger > Konti."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es kann deine Workspaces und Terminals sehen, darin tippen und, sofern du das nicht ausgeschaltet hast, neue starten. Du kannst es unter Einstellungen > Accounts entfernen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podrá ver tus espacios de trabajo y terminales, escribir en ellos y, salvo que lo hayas desactivado, iniciar otros nuevos. Puedes quitarlo en Ajustes > Cuentas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il pourra voir vos espaces de travail et terminaux, y saisir du texte et, sauf si vous l’avez désactivé, en créer de nouveaux. Vous pouvez le retirer dans Réglages > Comptes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrà vedere spazi di lavoro e terminali, scriverci e, a meno che tu non l’abbia disattivato, avviarne di nuovi. Puoi rimuoverlo in Impostazioni > Account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースやターミナルを表示して入力できるほか、オフにしていなければ新しいものも開始できます。設定 > アカウントで削除できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាអាចមើលកន្លែងធ្វើការ និងស្ថានីយរបស់អ្នក វាយបញ្ចូលក្នុងវា ហើយចាប់ផ្ដើមថ្មីបាន លុះត្រាតែអ្នកបានបិទ។ អ្នកអាចដកវាចេញក្នុងការកំណត់ > គណនី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간과 터미널을 보고 입력할 수 있으며, 끄지 않았다면 새로 시작할 수도 있습니다. 설정 > 계정에서 제거할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den kan se arbeidsområdene og terminalene dine, skrive i dem og, med mindre du har slått det av, starte nye. Du kan fjerne den under Innstillinger > Kontoer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Będzie widzieć Twoje obszary robocze i terminale, pisać w nich oraz, o ile tego nie wyłączysz, tworzyć nowe. Możesz je usunąć w Ustawienia > Konta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ele poderá ver seus espaços de trabalho e terminais, digitar neles e, a menos que você tenha desativado, iniciar novos. Você pode removê-lo em Ajustes > Contas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устройство сможет видеть ваши рабочие пространства и терминалы, вводить в них текст и, если вы это не выключили, создавать новые. Удалить его можно в разделе «Настройки» > «Учётные записи»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อุปกรณ์นี้จะเห็นพื้นที่ทำงานและเทอร์มินัลของคุณ พิมพ์ในนั้นได้ และเริ่มรายการใหม่ได้ เว้นแต่คุณปิดไว้ คุณลบได้ที่การตั้งค่า > บัญชี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanlarınızı ve terminallerinizi görebilir, onlara yazabilir ve kapatmadıysanız yenilerini başlatabilir. Ayarlar > Hesaplar'dan kaldırabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пристрій зможе бачити ваші робочі простори й термінали, вводити в них текст і, якщо ви це не вимкнули, створювати нові. Вилучити його можна в «Налаштування» > «Облікові записи»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thiết bị này có thể xem không gian làm việc và terminal của bạn, gõ vào đó và, trừ khi bạn đã tắt, mở cái mới. Bạn có thể gỡ nó trong Cài đặt > Tài khoản."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它可以查看你的工作区和终端、在其中输入，并且除非你已关闭，还能新建工作区。你可以在“设置”>“账户”中移除它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它可以查看你的工作區和終端機、在其中輸入，而且除非你已關閉，還能建立新的工作區。你可以在「設定」>「帳號」中移除它。"
+          }
+        }
+      }
+    },
+    "phoneAccess.allow.allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سماح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許"
+          }
+        }
+      }
+    },
+    "phoneAccess.allow.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odbij"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afvis"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ablehnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denegar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refuser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rifiuta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បដិសេធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거부"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odmów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Negar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запретить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปฏิเสธ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reddet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заборонити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Từ chối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒绝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒絕"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

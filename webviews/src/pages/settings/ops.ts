@@ -82,6 +82,8 @@ export type BrowserProfile = {
 export type HostLists = {
   rooms: HostListRow[] | null;
   machines: HostListRow[];
+  /** The phones allowed to use this Mac (Settings > Accounts > Phone Access); absent on an older host. */
+  phones?: HostListRow[];
   browser_profiles: BrowserProfile[];
   profile_colors: Array<{ name: string; swatch: string; fill: string }>;
   /**
@@ -321,6 +323,8 @@ export type SettingsOps = {
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** Native: removes an allowed phone; its open sessions close and its next connection asks again. */
+  "cmux.settings.phones.remove": [{ id: string }, Record<string, never>];
   /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
   "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
   /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */

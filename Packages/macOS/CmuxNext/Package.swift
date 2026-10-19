@@ -547,13 +547,14 @@ let package = Package(
         // migration. The App supplies the account and the Mac's name.
         .target(
             name: "CmuxNextPhoneAccess",
-            dependencies: ["CmuxNextCompat", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextKeepAwake",
-                           "CmuxNextMobile", "CmuxNextSettings"],
+            dependencies: ["CmuxNextCompat", "CmuxNextControl", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign",
+                           "CmuxNextKeepAwake", "CmuxNextMobile", "CmuxNextSettings", "CmuxNextSettingsWindow"],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextPhoneAccessTests",
-            dependencies: ["CmuxNextPhoneAccess"],
+            dependencies: ["CmuxNextMobile", "CmuxNextPhoneAccess"],
             swiftSettings: uiSwiftSettings
         ),
         // Browser popup panels: sized `window.open` popups (OAuth, payment) and

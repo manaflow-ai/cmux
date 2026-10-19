@@ -791,9 +791,11 @@
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
+        "CmuxNextDesign",
         "CmuxNextKeepAwake",
         "CmuxNextMobile",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextSettingsWindow"
       ],
       "packages": []
     },
@@ -801,6 +803,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneAccessTests",
       "targets": [
+        "CmuxNextMobile",
         "CmuxNextPhoneAccess"
       ],
       "packages": [],

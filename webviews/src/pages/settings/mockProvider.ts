@@ -190,6 +190,11 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
+      "cmux.settings.phones.remove": (params) => {
+        const id = String((params as { id: string }).id);
+        this.host = { ...this.host, phones: (this.host.phones ?? []).filter((phone) => phone.id !== id) };
+        return {};
+      },
       "cmux.settings.folders.add": (params) => {
         const key = String((params as { key: string }).key);
         const current = Array.isArray(this.values.get(key)) ? (this.values.get(key) as string[]) : [];
@@ -257,6 +262,7 @@ export class MockSettingsProvider {
       "cmux.settings.theme.accepts",
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
+      "cmux.settings.phones.remove",
       "cmux.settings.backdrop.choose_image",
       "cmux.settings.backdrop.wallpaper_settings",
       "cmux.settings.backdrop.workspace",
@@ -345,6 +351,7 @@ export class MockSettingsProvider {
       { id: "work", title: "Work", subtitle: null, active: false },
     ],
     machines: [{ id: "ssh:build", title: "build-mac", subtitle: "cmux@build-mac", active: true }],
+    phones: [{ id: "phone-1", title: "Leo's iPhone", subtitle: "2 hours ago", active: false }],
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
       { id: "p-work", name: "Work", color: "green", icon: null, is_default: false, source: "Google Chrome · Work" },

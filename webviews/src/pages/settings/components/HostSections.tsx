@@ -85,6 +85,45 @@ export function MachinesSection({ title }: { title: string }) {
   );
 }
 
+/** Phone Access (Accounts): the phones allowed to use this Mac, each with Remove. */
+export function PhonesSection() {
+  const { host } = useSettingsState();
+  const store = useStore();
+  if (!host) return null;
+  const phones = host.phones ?? [];
+  return (
+    <section className="group" data-card="phones">
+      <h3 className="group-title">{t("settingsWindow.phonesTitle")}</h3>
+      <div className="rows">
+        {phones.length === 0 ? (
+          <div className="row">
+            <div className="empty">{t("settingsWindow.phonesEmpty")}</div>
+          </div>
+        ) : (
+          phones.map((phone) => (
+            <div className="row" key={phone.id} data-host-row={phone.id}>
+              <div className="row-main">
+                <div className="row-label">
+                  <div className="row-title">{phone.title}</div>
+                  {phone.subtitle && <div className="row-help">{phone.subtitle}</div>}
+                </div>
+                <button
+                  type="button"
+                  className="button danger"
+                  data-remove-phone={phone.id}
+                  onClick={() => void store.removePhone(phone.id)}
+                >
+                  {t("settingsWindow.removePhone")}
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 function BrowserProfilesSection({ host }: { host: HostLists }) {
   const store = useStore();
   const [expanded, setExpanded] = useState<string | null>(null);
