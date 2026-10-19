@@ -1,13 +1,17 @@
 import type { Event } from "@sentry/nextjs";
 
 const SECRET_KEY_MARKER =
-  /(?:^|_)(?:auth|authorization|body|completion|content|cookie|credentials?|email|handoff|lease|output|password|passwd|prompt|provider_account|pwd|response|secret|session|token)(?:_|$)/;
+  /(?:^|_)(?:cookie|credentials?|email|password|passwd|pwd|secret|session|token)(?:_|$)/;
+const SECRET_KEY_EXACT =
+  /^(?:auth|authorization|body|completion|content|handoff|lease|output|prompt|provider_account|response)$/;
 const SECRET_KEY_SHAPE =
   /(?:^|_)(?:(?:api|access|private|client)_?key|ciphertext|encrypted_data_key)(?:_|$)/;
 const SAFE_METRIC_KEY = /^(?:completion|prompt)_tokens$/;
 const SECRET_QUERY_KEY =
   /^(?:access_token|refresh_token|token|key|api_key|apikey|sig|signature|code|auth|authorization|password|passwd|pwd|secret)$/i;
-const QUERY_ASSIGNMENT = /(^|[?&;])([^=?&#;\s]+)=([^&#;\s]*)/g;
+const SECRET_QUERY_COMPONENT =
+  /(?:^|_)(?:auth|authorization|code|credentials?|key|password|passwd|pwd|secret|sig|signature|token)(?:_|$)/;
+const QUERY_ASSIGNMENT = /(^|[?&#;])([^=?&#;\s]+)=([^&#;\s]*)/g;
 const ROUTE_TOKEN = /\b(?:crt|crk)_[A-Za-z0-9_-]{32,}\b/g;
 const HANDOFF_LEASE = /\bcrh_[A-Za-z0-9_-]{32,}\b/g;
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
@@ -19,7 +23,7 @@ const EMAIL = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
 const CREDENTIAL_HEADER =
   /\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+/gi;
 const SECRET_ASSIGNMENT =
-  /\b([A-Za-z_][A-Za-z0-9_-]*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s&,;}]+)/g;
+  /\b([A-Za-z_][A-Za-z0-9_-]*)((?:(?:\\+)?["'])?\s*[:=]\s*)((?:\\+)?"[^"\r\n]*(?:\\+)?"|(?:\\+)?'[^'\r\n]*(?:\\+)?'|[^\s&,;}]+)/g;
 
 /**
  * Defense in depth for telemetry. Product code must still avoid attaching
@@ -94,7 +98,11 @@ function scrubValue(value: unknown): void {
 function isSensitiveKey(key: string): boolean {
   const normalized = normalizedKey(key);
   if (SAFE_METRIC_KEY.test(normalized)) return false;
-  return SECRET_KEY_MARKER.test(normalized) || SECRET_KEY_SHAPE.test(normalized);
+  return (
+    SECRET_KEY_EXACT.test(normalized) ||
+    SECRET_KEY_MARKER.test(normalized) ||
+    SECRET_KEY_SHAPE.test(normalized)
+  );
 }
 
 function normalizedKey(key: string): string {
@@ -154,9 +162,15 @@ function scrubQueryString(value: unknown): unknown {
 }
 
 function isSensitiveQueryKey(key: string): boolean {
+  let decoded = key;
   try {
-    return SECRET_QUERY_KEY.test(decodeURIComponent(key.replace(/\+/g, " ")));
+    decoded = decodeURIComponent(key.replace(/\+/g, " "));
   } catch {
-    return SECRET_QUERY_KEY.test(key);
+    // Keep the undecoded key. It may still contain a recognizable credential
+    // component, and malformed telemetry must not bypass the scrubber.
   }
+  return (
+    SECRET_QUERY_KEY.test(decoded) ||
+    SECRET_QUERY_COMPONENT.test(normalizedKey(decoded))
+  );
 }
