@@ -99,3 +99,57 @@ fn remote_doctor_probes_the_address_an_ssh_config_alias_points_at() {
     assert_eq!(report["tcp"], "refused", "{report}");
     assert_eq!(report["diagnosis"], "ssh-off", "{report}");
 }
+
+#[test]
+fn remote_doctor_ssh_probe_overrides_config_that_could_change_state() {
+    let tools = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+    let argv = tools.path().join("argv");
+    write_tool(
+        tools.path(),
+        "ssh",
+        &format!("[ \"$1\" = \"-G\" ] && exit 1\nprintf '%s\\n' \"$@\" > '{}'\nexit 0", argv.display()),
+    );
+
+    let output = doctor(tools.path(), &["127.0.0.1", "--port", &port, "--json"]);
+
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["diagnosis"], "ok", "{report}");
+    let argv = fs::read_to_string(argv).unwrap();
+    for option in [
+        "BatchMode=yes",
+        "StrictHostKeyChecking=yes",
+        "UpdateHostKeys=no",
+        "ControlMaster=no",
+        "ControlPath=none",
+        "RemoteCommand=none",
+        "PermitLocalCommand=no",
+        "ForwardAgent=no",
+        "ClearAllForwardings=yes",
+    ] {
+        assert!(argv.lines().any(|line| line == option), "missing {option} in {argv}");
+    }
+}
+
+#[test]
+fn remote_doctor_hands_a_proxied_host_straight_to_ssh() {
+    let tools = tempfile::tempdir().unwrap();
+    let port = closed_port();
+    write_tool(
+        tools.path(),
+        "ssh",
+        &format!(
+            "if [ \"$1\" = \"-G\" ]; then printf 'hostname 127.0.0.1\\nport {port}\\nproxyjump bastion\\n'; exit 0; fi\nexit 0"
+        ),
+    );
+    write_tool(tools.path(), "tailscale", "echo 'tailscale must not run for a proxied host' >&2; exit 1");
+
+    let output = doctor(tools.path(), &["behind-bastion", "--json"]);
+
+    assert!(output.status.success(), "{output:?}");
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["tcp"], "proxied", "{report}");
+    assert_eq!(report["tailnet"], "not-tried", "{report}");
+    assert_eq!(report["diagnosis"], "ok", "{report}");
+}

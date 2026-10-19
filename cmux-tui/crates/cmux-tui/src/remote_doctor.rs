@@ -423,6 +423,10 @@ mod tests {
             SshProbe::HostKeyUnknown
         );
         assert_eq!(
+            classify_ssh_failure(b"@@@@@@@@@@@@\r\n@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\r\nHost key verification failed.\r\n"),
+            SshProbe::HostKeyChanged
+        );
+        assert_eq!(
             classify_ssh_failure(b"kex_exchange_identification: read: Connection reset"),
             SshProbe::Failed
         );
