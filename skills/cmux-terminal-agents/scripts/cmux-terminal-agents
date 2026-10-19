@@ -1,0 +1,564 @@
+#!/usr/bin/env python3
+"""cmux-terminal-agents: run Claude Code or Codex agents in cmux terminals.
+
+The Chief (or any agent) starts each agent as the real `claude` / `codex`
+TUI in its own background cmux workspace, in the "Chief agents" sidebar
+group, sends it prompts, waits for its turn to end, reads its last answer
+and sends follow-ups. There is no fixed limit on how many run at once.
+
+Turn-end signals, first one that fires wins (`wait` reports which):
+  hook      the cmux agent hook state of the terminal left `running`
+            (Claude Code and Codex hooks: `cmux agent hook install`)
+  osc7501   the agent's OSC 7501 program-status record left `working`
+            (`cmux terminal <t> status`; Codex emits app=codex)
+  transcript Claude Code wrote a `turn_duration` record to its transcript
+  exit      the agent process exited
+  screen    the screen did not change for --idle-seconds and shows no
+            "esc to interrupt" spinner (last resort)
+
+Only workspaces this tool started (recorded in its state directory) are
+ever closed. Nothing here focuses a workspace or raises a window.
+"""
+
+import argparse
+import base64
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+
+STATE_DIR = os.path.expanduser(
+    os.environ.get("CMUX_TERMINAL_AGENTS_DIR", "~/.cmux/terminal-agents")
+)
+GROUP = os.environ.get("CMUX_TERMINAL_AGENTS_GROUP", "Chief agents")
+BUSY_MARKERS = ("esc to interrupt", "esc to cancel")
+# Transient daemon/app answers under load; retried with the printed idempotency key.
+TRANSIENT = (
+    "does not speak cmux.protocol",
+    "Broken pipe",
+    "did not finish within",
+    "Connection reset",
+    "transport error",
+)
+
+
+def cmux_bin():
+    explicit = os.environ.get("CMUX_TERMINAL_AGENTS_CMUX") or os.environ.get("CMUX_BUNDLED_CLI_PATH")
+    if explicit and os.path.exists(explicit):
+        return explicit
+    return "cmux"
+
+
+def now_ms():
+    return int(time.time() * 1000)
+
+
+class CmuxError(Exception):
+    pass
+
+
+def cmux(*args, json_out=True, retries=6, timeout=30):
+    """Runs the cmux CLI; retries transient failures, reusing the idempotency key."""
+    base = [cmux_bin()] + (["--json"] if json_out else [])
+    key = None
+    last = ""
+    for attempt in range(retries):
+        cmd = base + (["--idempotency-key", key] if key else []) + list(args)
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            last = "cmux timed out"
+            time.sleep(min(0.5 * (attempt + 1), 3))
+            continue
+        if p.returncode == 0:
+            out = p.stdout.strip()
+            if not json_out:
+                return out
+            # Mutations may print a receipt before the JSON on some builds.
+            for chunk in (out, out[out.find("{"):] if "{" in out else "", out[out.find("["):] if "[" in out else ""):
+                try:
+                    return json.loads(chunk)
+                except ValueError:
+                    continue
+            return out
+        last = (p.stderr or p.stdout).strip()
+        m = re.search(r"mutation_[0-9a-f]+", last)
+        if m:
+            key = m.group(0)
+        if not any(t in last for t in TRANSIENT):
+            break
+        time.sleep(min(0.5 * (attempt + 1), 3))
+    raise CmuxError(f"cmux {' '.join(args)}: {last}")
+
+
+# ---------------------------------------------------------------- state
+
+
+def state_path(name):
+    return os.path.join(STATE_DIR, "agents", f"{name}.json")
+
+
+def load(name):
+    try:
+        with open(state_path(name)) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise SystemExit(f"cmux-terminal-agents: no agent {name} started by this tool")
+
+
+def save(rec):
+    os.makedirs(os.path.join(STATE_DIR, "agents"), exist_ok=True)
+    tmp = state_path(rec["name"]) + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(rec, f, indent=2)
+    os.replace(tmp, state_path(rec["name"]))
+
+
+def all_agents():
+    out = []
+    for p in sorted(glob.glob(os.path.join(STATE_DIR, "agents", "*.json"))):
+        with open(p) as f:
+            out.append(json.load(f))
+    return out
+
+
+# ---------------------------------------------------------------- probes
+
+
+def agent_hook_state(terminal):
+    """The cmux agent record (hook-reported) of `terminal`, or None."""
+    try:
+        items = cmux("agent", "list", retries=2, timeout=8)
+    except CmuxError:
+        return None
+    if isinstance(items, dict):
+        items = items.get("agents", [])
+    best = None
+    for a in items or []:
+        if isinstance(a, dict) and a.get("terminal_id") == terminal:
+            if best is None or int(a.get("updated_at_ms") or 0) > int(best.get("updated_at_ms") or 0):
+                best = a
+    return best
+
+
+def program_status(terminal):
+    try:
+        recs = cmux("terminal", terminal, "status", retries=2, timeout=8)
+    except CmuxError:
+        return None
+    return recs if isinstance(recs, list) else None
+
+
+def screen(terminal):
+    try:
+        s = cmux("terminal", terminal, "screen", "read", retries=2, timeout=8)
+    except CmuxError:
+        return None
+    return s if isinstance(s, dict) else None
+
+
+def process(terminal):
+    try:
+        p = cmux("terminal", terminal, "process", "show", retries=2, timeout=8)
+    except CmuxError as e:
+        if "exited" in str(e) or "not found" in str(e) or "no terminal" in str(e):
+            return {"exited": True}
+        return None
+    return p if isinstance(p, dict) else None
+
+
+def claude_transcript(session_id):
+    if not session_id:
+        return None
+    hits = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{session_id}.jsonl"))
+    return hits[0] if hits else None
+
+
+def transcript_turns(path):
+    """(turn_duration count, last assistant text) of a Claude Code transcript."""
+    turns, last = 0, None
+    try:
+        with open(path) as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get("type") == "system" and d.get("subtype") == "turn_duration":
+                    turns += 1
+                m = d.get("message") or {}
+                if d.get("type") == "assistant" and m.get("role") == "assistant":
+                    texts = [c.get("text", "") for c in m.get("content") or [] if isinstance(c, dict) and c.get("type") == "text"]
+                    if any(t.strip() for t in texts):
+                        last = "\n".join(t for t in texts if t.strip())
+    except OSError:
+        pass
+    return turns, last
+
+
+def busy_on_screen(text):
+    tail = "\n".join(text.splitlines()[-12:]).lower()
+    return any(m in tail for m in BUSY_MARKERS)
+
+
+def screen_answer(text, harness):
+    """The text after the last submitted prompt, minus the input box and status lines."""
+    lines = text.splitlines()
+    if harness == "claude":
+        # Claude's input box sits between the last two rule lines.
+        rules = [i for i, l in enumerate(lines) if l.startswith("────")]
+        if len(rules) >= 2:
+            lines = lines[: rules[-2]]
+        mark = "❯ "
+    else:
+        mark = "› "
+    starts = [i for i, l in enumerate(lines) if l.startswith(mark) and l.strip() != mark.strip()]
+    if harness != "claude" and len(starts) >= 2:
+        # Codex's composer is the last `› ` line; the answer ends there.
+        lines = lines[: starts[-1]]
+        starts = starts[:-1]
+    body = lines[starts[-1] + 1 :] if starts else lines
+    status = re.compile(r"^\s*([✻✽✶✳·*]\s.*(for \d|done)|Worked for \d)")
+    keep = [l for l in body if not status.match(l)]
+    return "\n".join(keep).strip()
+
+
+# ---------------------------------------------------------------- group
+
+
+def ensure_group():
+    try:
+        groups = cmux("workspace", "group", "list")
+    except CmuxError:
+        return None
+    for g in groups or []:
+        if g.get("name") == GROUP:
+            return g["id"]
+    try:
+        g = cmux("workspace", "group", "create", "--name", GROUP, "--color", "purple")
+    except CmuxError as e:
+        print(f"cmux-terminal-agents: no sidebar group ({e})", file=sys.stderr)
+        return None
+    val = g.get("value", g) if isinstance(g, dict) else {}
+    return val.get("id") or GROUP
+
+
+# ---------------------------------------------------------------- verbs
+
+
+def harness_argv(harness, prompt, extra):
+    if harness == "claude":
+        return ["claude"] + extra + ([prompt] if prompt else [])
+    if harness == "codex":
+        return ["codex"] + extra + ([prompt] if prompt else [])
+    raise SystemExit(f"unknown harness {harness}; use claude or codex")
+
+
+def cmd_start(a):
+    if os.path.exists(state_path(a.name)):
+        raise SystemExit(f"agent {a.name} exists; close it or pick another name")
+    cwd = os.path.abspath(os.path.expanduser(a.cwd or os.getcwd()))
+    prompt = read_text(a.prompt)
+    t0 = time.time()
+    created = cmux(
+        "workspace", "create", "--name", a.name, "--cwd", cwd,
+        "--", *harness_argv(a.harness, prompt, a.extra or []),
+    )
+    val = created.get("value", created)
+    t_created = time.time()
+    rec = {
+        "name": a.name,
+        "harness": a.harness,
+        "cwd": cwd,
+        "workspace_id": val["workspace_id"],
+        "terminal_id": val["terminal_id"],
+        "tab_id": val.get("tab_id"),
+        "created_ms": int(t0 * 1000),
+        "turns": [{"sent_ms": int(t0 * 1000), "prompt": prompt}] if prompt else [],
+    }
+    save(rec)
+    group = None if a.no_group else ensure_group()
+    if group:
+        try:
+            cmux("workspace", "group", group, "add", "--workspace", rec["workspace_id"])
+            rec["group"] = group
+        except CmuxError as e:
+            print(f"cmux-terminal-agents: group add failed ({e})", file=sys.stderr)
+    save(rec)
+    result = {"agent": rec, "create_seconds": round(t_created - t0, 3)}
+    if a.wait and prompt:
+        result["wait"] = wait_turn(rec, a.timeout, a.idle_seconds)
+    print(json.dumps(result, indent=2))
+
+
+def read_text(words):
+    text = " ".join(words) if words else ""
+    if text == "-":
+        text = sys.stdin.read()
+    return text.strip()
+
+
+def send_text(rec, text):
+    # One write: a bracketed paste keeps a multi-line prompt as one message,
+    # and the CR after the paste end submits it (one cmux mutation, not two:
+    # under load each mutation costs seconds).
+    data = b"\x1b[200~" + text.encode() + b"\x1b[201~\r"
+    cmux("terminal", rec["terminal_id"], "write", "--bytes-base64", base64.b64encode(data).decode())
+
+
+def cmd_send(a, text=None):
+    rec = load(a.name)
+    text = text if text is not None else read_text(a.text)
+    if not text:
+        raise SystemExit("nothing to send")
+    before = turn_marks(rec)
+    sent = now_ms()
+    send_text(rec, text)
+    rec.setdefault("turns", []).append({"sent_ms": sent, "prompt": text, "before": before})
+    save(rec)
+    result = {"sent": True, "agent": rec["name"]}
+    if a.wait:
+        result["wait"] = wait_turn(rec, a.timeout, a.idle_seconds)
+    print(json.dumps(result, indent=2))
+
+
+def session_transcript(rec):
+    """Claude Code's transcript of this agent (cached in the record), or None."""
+    if rec["harness"] != "claude":
+        return None
+    sid = rec.get("session_id")
+    if not sid:
+        hook = agent_hook_state(rec["terminal_id"])
+        sid = ((hook or {}).get("extra") or {}).get("agent_session_id")
+    if not sid:
+        # No hook: the newest transcript of the agent's directory since it started.
+        slug = re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(rec["cwd"]))
+        files = [f for f in glob.glob(os.path.expanduser(f"~/.claude/projects/{slug}/*.jsonl"))
+                 if os.path.getmtime(f) * 1000 >= rec.get("created_ms", 0)]
+        if not files:
+            return None
+        sid = os.path.basename(max(files, key=os.path.getmtime))[:-6]
+    if sid != rec.get("session_id"):
+        rec["session_id"] = sid
+        save(rec)
+    return claude_transcript(sid)
+
+
+def turn_marks(rec):
+    """Counters a later wait compares against: transcript turns."""
+    path = session_transcript(rec)
+    return {"transcript_turns": transcript_turns(path)[0] if path else None}
+
+
+class Probes:
+    """Reads the cmux-side signals (hook, OSC 7501, process, screen) in the
+    background, one thread per signal: under load one cmux call takes
+    seconds, and neither the local transcript check nor the other signals
+    may wait behind a slow one."""
+
+    def __init__(self, term):
+        self.latest = {}
+        self.stop = False
+        readers = {
+            "hook": lambda: agent_hook_state(term),
+            "status": lambda: program_status(term),
+            "proc": lambda: process(term),
+            "screen": lambda: screen(term),
+        }
+        for key, read in readers.items():
+            threading.Thread(target=self._loop, args=(key, read), daemon=True).start()
+
+    def _loop(self, key, read):
+        while not self.stop:
+            value = read()
+            if value is not None or key == "hook":
+                self.latest = {**self.latest, key: value, "at": time.time(), "changed": key}
+            time.sleep(0.25)
+
+
+def wait_turn(rec, timeout, idle_seconds):
+    """Blocks until the agent's current turn ends; returns how it was seen."""
+    term = rec["terminal_id"]
+    turn = (rec.get("turns") or [{}])[-1]
+    sent = turn.get("sent_ms", 0)
+    before = turn.get("before") or {}
+    start = time.time()
+    seen_running = False
+    last_text, last_change = None, time.time()
+    probes = Probes(term)
+    path, seen_at = None, None
+    try:
+        while True:
+            elapsed = time.time() - start
+            if timeout and elapsed > timeout:
+                return {"ended": False, "via": "timeout", "waited_seconds": round(elapsed, 2)}
+            if rec["harness"] == "claude":
+                path = path or session_transcript(rec)
+                base = before.get("transcript_turns")
+                if path and base is None:
+                    base = 0  # a fresh session: its first turn ends the wait
+                if path and transcript_turns(path)[0] > base:
+                    return ended("transcript", start, sent)
+            got = probes.latest
+            if got.get("at") != seen_at:
+                seen_at = got.get("at")
+                hook = got.get("hook")
+                if hook:
+                    st = hook.get("state")
+                    upd = int(hook.get("updated_at_ms") or 0)
+                    if st == "running":
+                        seen_running = True
+                    elif upd > sent and seen_running and st in ("idle", "done", "needs_input", "blocked", "waiting"):
+                        return ended("hook", start, sent, state=st, signal_ms=upd)
+                app = [r for r in got.get("status") or [] if r.get("app") in ("claude-code", "codex")]
+                if any(r.get("state") == "working" for r in app):
+                    seen_running = True
+                elif seen_running and app and all(r.get("state") in ("idle", "done", "blocked", "error") for r in app):
+                    return ended("osc7501", start, sent, state=app[0].get("state"), signal_ms=max(int(r.get("updated_at_ms") or 0) for r in app))
+                if (got.get("proc") or {}).get("exited"):
+                    return ended("exit", start, sent)
+                s = got.get("screen")
+                if s is not None:
+                    text = s.get("text", "")
+                    if text != last_text:
+                        last_text, last_change = text, time.time()
+                    if busy_on_screen(text):
+                        seen_running = True
+                        last_change = time.time()
+                    elif idle_seconds and time.time() - last_change >= idle_seconds and elapsed > idle_seconds:
+                        return ended("screen", start, sent)
+            time.sleep(0.1)
+    finally:
+        probes.stop = True
+
+
+def ended(via, start, sent, **extra):
+    t = time.time()
+    out = {"ended": True, "via": via, "waited_seconds": round(t - start, 2), "since_send_seconds": round(t - sent / 1000, 2)}
+    if "signal_ms" in extra:
+        out["detect_lag_seconds"] = round(t - extra.pop("signal_ms") / 1000, 2)
+    out.update(extra)
+    return out
+
+
+def cmd_wait(a):
+    print(json.dumps(wait_turn(load(a.name), a.timeout, a.idle_seconds), indent=2))
+
+
+def last_answer(rec):
+    if rec["harness"] == "claude":
+        path = session_transcript(rec)
+        if path:
+            text = transcript_turns(path)[1]
+            if text:
+                return {"source": "transcript", "text": text}
+    s = screen(rec["terminal_id"]) or {}
+    return {"source": "screen", "text": screen_answer(s.get("text", ""), rec["harness"])}
+
+
+def cmd_read(a):
+    rec = load(a.name)
+    ans = last_answer(rec)
+    if a.json:
+        print(json.dumps(ans, indent=2))
+    else:
+        print(ans["text"])
+
+
+def cmd_continue(a):
+    cmd_send(a, text=a.message or "continue")
+
+
+def cmd_list(a):
+    out = []
+    for rec in all_agents():
+        hook = agent_hook_state(rec["terminal_id"]) if not a.fast else None
+        out.append({
+            "name": rec["name"],
+            "harness": rec["harness"],
+            "workspace_id": rec["workspace_id"],
+            "terminal_id": rec["terminal_id"],
+            "turns": len(rec.get("turns") or []),
+            "state": (hook or {}).get("state"),
+        })
+    print(json.dumps(out, indent=2))
+
+
+def cmd_close(a):
+    names = [r["name"] for r in all_agents()] if a.all else a.names
+    for name in names:
+        rec = load(name)
+        try:
+            cmux("workspace", rec["workspace_id"], "close")
+        except CmuxError as e:
+            if "not found" not in str(e) and "no workspace" not in str(e):
+                print(f"{name}: {e}", file=sys.stderr)
+                continue
+        os.remove(state_path(name))
+        print(json.dumps({"closed": name, "workspace_id": rec["workspace_id"]}))
+
+
+def main():
+    p = argparse.ArgumentParser(prog="cmux-terminal-agents", description=__doc__.split("\n")[0])
+    sub = p.add_subparsers(dest="verb", required=True)
+
+    def waits(sp):
+        sp.add_argument("--wait", action="store_true", help="wait for the turn to end")
+        sp.add_argument("--timeout", type=float, default=1800, help="seconds; 0 waits forever")
+        sp.add_argument("--idle-seconds", type=float, default=20, help="screen-unchanged fallback; 0 turns it off")
+
+    s = sub.add_parser("start", help="start an agent in a new background workspace")
+    s.add_argument("name")
+    s.add_argument("--harness", default="claude", choices=["claude", "codex"])
+    s.add_argument("--cwd")
+    s.add_argument("--no-group", action="store_true")
+    s.add_argument("--extra", action="append", help="one more harness argument (repeat)")
+    s.add_argument("prompt", nargs="*", help="first prompt ('-' reads stdin)")
+    waits(s)
+    s.set_defaults(fn=cmd_start)
+
+    s = sub.add_parser("send", help="send a prompt (bracketed paste + Enter)")
+    s.add_argument("name")
+    s.add_argument("text", nargs="*", help="'-' reads stdin")
+    waits(s)
+    s.set_defaults(fn=cmd_send)
+
+    s = sub.add_parser("wait", help="wait until the current turn ends")
+    s.add_argument("name")
+    s.add_argument("--timeout", type=float, default=1800)
+    s.add_argument("--idle-seconds", type=float, default=20)
+    s.set_defaults(fn=cmd_wait)
+
+    s = sub.add_parser("read", help="print the last answer")
+    s.add_argument("name")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_read)
+
+    s = sub.add_parser("continue", help="send 'continue' (or --message)")
+    s.add_argument("name")
+    s.add_argument("--message")
+    waits(s)
+    s.set_defaults(fn=cmd_continue)
+
+    s = sub.add_parser("list", help="agents this tool started")
+    s.add_argument("--fast", action="store_true", help="skip live state")
+    s.set_defaults(fn=cmd_list)
+
+    s = sub.add_parser("close", help="close agents this tool started (never others)")
+    s.add_argument("names", nargs="*")
+    s.add_argument("--all", action="store_true")
+    s.set_defaults(fn=cmd_close)
+
+    a = p.parse_args()
+    try:
+        a.fn(a)
+    except CmuxError as e:
+        raise SystemExit(f"cmux-terminal-agents: {e}")
+
+
+if __name__ == "__main__":
+    main()

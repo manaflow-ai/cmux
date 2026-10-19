@@ -559,3 +559,116 @@ fn a_cloud_chiefs_live_frames_pass_through_and_a_subscriber_asks_for_the_snapsho
     let get = sent.iter().position(|frame| frame.contains("run.live.get")).unwrap();
     assert!(subscribe < get, "{sent:?}");
 }
+
+/// One `message.send` event of the conversation stream at `seq`.
+fn message_event(seq: u64) -> String {
+    json!({"t":"event","stream":format!("conv:{CONV}"),"seq":seq,"tx":format!("tx-{seq}"),
+           "op":"message.send","params":{},"actor":{"user":ME},"origin":"user","at":seq,
+           "effects":{"state":{"id":CONV,"title":"Launch","kind":"group","participants":[],
+                               "last_seq":seq,"rev":seq,"read_cursors":{},
+                               "created_at":"2026-10-03T00:00:00.000Z",
+                               "updated_at":"2026-10-03T00:00:00.000Z"},
+                      "writes":[{"table":"msg","op":"upsert","key":format!("m{seq}"),"n":seq,
+                                 "row":{"id":format!("m{seq}"),"seq":seq,"text":format!("hi {seq}")}}]}})
+    .to_string()
+}
+
+fn conversation_snapshot(seq: u64) -> String {
+    json!({"t":"snapshot","stream":format!("conv:{CONV}"),"seq":seq,"decided":[],
+           "state":{"id":CONV,"title":"Launch","kind":"group","participants":[],"last_seq":seq,
+                    "rev":seq,"created_at":"2026-10-03T00:00:00.000Z",
+                    "updated_at":"2026-10-03T00:00:00.000Z","read_cursors":{}},
+           "rows":{"table":"msg","rows":[]}})
+    .to_string()
+}
+
+/// The stream seqs of the conversation events seen, in order, with their kind.
+fn stream_seqs(seen: &[Value]) -> Vec<(String, u64)> {
+    seen.iter()
+        .filter(|event| {
+            matches!(
+                event["event"].as_str(),
+                Some("cloud-conversation-changed" | "cloud-conversation-resynced")
+            )
+        })
+        .map(|event| (event["event"].as_str().unwrap().to_string(), event["seq"].as_u64().unwrap()))
+        .collect()
+}
+
+#[test]
+fn a_gap_resyncs_replays_the_buffered_events_and_a_reconnect_resumes_after_them() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let events = mux.subscribe();
+    let first = backend.wire();
+    first.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    first.push_text(conversation_snapshot(2));
+    first.push_text(message_event(3));
+    // 4 is lost upstream: 5 and 6 arrive after a gap.
+    first.push_text(message_event(5));
+    first.push_text(message_event(6));
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    wait_until("the snapshot request", || {
+        first.sent().iter().any(|frame| frame.contains("snapshot.request"))
+    });
+    // The owner answers the gap with its snapshot at 4; the buffered 5 and 6
+    // then reach clients in order instead of being dropped.
+    first.push_text(conversation_snapshot(4));
+    let mut seen = Vec::new();
+    wait_until("the buffered events", || {
+        seen.extend(cloud_events(&events));
+        stream_seqs(&seen).iter().any(|(_, seq)| *seq == 6)
+    });
+    let changed = |seq| ("cloud-conversation-changed".to_string(), seq);
+    let resynced = |seq| ("cloud-conversation-resynced".to_string(), seq);
+    assert_eq!(
+        stream_seqs(&seen),
+        vec![resynced(2), changed(3), resynced(4), changed(5), changed(6)],
+        "{seen:#?}"
+    );
+    let requests: Vec<String> =
+        first.sent().into_iter().filter(|frame| frame.contains("snapshot.request")).collect();
+    assert_eq!(requests.len(), 1, "one request per gap: {:?}", first.sent());
+
+    // The socket drops; the next connection resumes after the last event.
+    let second = backend.wire();
+    first.push_close(None);
+    second.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    second.push_text(message_event(6));
+    second.push_text(message_event(7));
+    wait_until("the event after the resume", || {
+        seen.extend(cloud_events(&events));
+        stream_seqs(&seen).iter().any(|(_, seq)| *seq == 7)
+    });
+    let subscribe: Value = second
+        .sent()
+        .iter()
+        .map(|frame| serde_json::from_str::<Value>(frame).unwrap())
+        .find(|frame| frame["t"] == "subscribe")
+        .expect("a subscribe on the second connection");
+    assert_eq!(subscribe["after_seq"], 6, "{subscribe}");
+    // The replayed 6 is a duplicate: 7 follows 6 exactly once.
+    assert_eq!(stream_seqs(&seen)[5..], [changed(7)], "{seen:#?}");
+
+    // The owner lost its tail (a recreated owner): it answers the resume
+    // with a snapshot behind the position, which replaces it.
+    let third = backend.wire();
+    second.push_close(None);
+    third.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    third.push_text(conversation_snapshot(1));
+    third.push_text(message_event(2));
+    wait_until("the events of the recreated owner", || {
+        seen.extend(cloud_events(&events));
+        stream_seqs(&seen).len() >= 8
+    });
+    assert_eq!(stream_seqs(&seen)[6..], [resynced(1), changed(2)], "{seen:#?}");
+}
