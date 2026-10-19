@@ -10,8 +10,9 @@
 //!   claude-stdio adapter) gets one `--mcp-config` (not strict, so the
 //!   user's own servers stay).
 //! - Skills: Claude Code gets a session-only plugin named `cmux`
-//!   (`--plugin-dir`) whose skills are `cmux:cmux-browser` and
-//!   `cmux:cmux-cua`. The skill text is compiled in from `skills/` and
+//!   (`--plugin-dir`) whose skills are `cmux:cmux-browser`,
+//!   `cmux:cmux-cua` and `cmux:acpmux` (the acpmux CLI guide, for driving
+//!   sessions from a shell). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
 //!   Only the skill descriptions reach the prompt (progressive disclosure);
 //!   `cmux-cua` keeps `disable-model-invocation`, so only the user starts it.
@@ -129,6 +130,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-browser/templates/form-automation.sh"),
     ),
     ("cmux-cua/SKILL.md", include_str!("../../../../skills/cmux-cua/SKILL.md")),
+    ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
 ];
 
 /// One stdio MCP server.
