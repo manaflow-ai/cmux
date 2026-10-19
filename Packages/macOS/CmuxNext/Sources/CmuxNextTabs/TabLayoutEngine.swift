@@ -65,8 +65,7 @@ public struct TabLayoutEngine {
             slots: slots,
             contentWidth: x,
             standardWidth: flexibleWidths.standard,
-            availableWidth: available,
-            dependsOnSelection: flexibleWidths.dependsOnSelection
+            availableWidth: available
         )
     }
 
@@ -75,40 +74,30 @@ public struct TabLayoutEngine {
         available: CGFloat,
         style: TabStripStyle,
         metrics: TabStripMetrics
-    ) -> (widths: [CGFloat], standard: CGFloat, dependsOnSelection: Bool) {
+    ) -> (widths: [CGFloat], standard: CGFloat) {
         let count = tabs.count
-        guard count > 0 else { return ([], 0, false) }
+        guard count > 0 else { return ([], 0) }
         if style == .compact {
-            return (Array(repeating: metrics.compactTabWidth, count: count), metrics.compactTabWidth, false)
+            return (Array(repeating: metrics.compactTabWidth, count: count), metrics.compactTabWidth)
         }
 
         let ideal = available / CGFloat(count)
         if ideal >= metrics.maxTabWidth {
-            return (Array(repeating: metrics.maxTabWidth, count: count), metrics.maxTabWidth, false)
+            return (Array(repeating: metrics.maxTabWidth, count: count), metrics.maxTabWidth)
         }
-        if ideal >= metrics.minActiveTabWidth {
+        // Crowded: every tab shrinks evenly down to the inactive minimum, then the strip scrolls.
+        // The selected tab gets no larger share (Chrome's active minimum): a selection never
+        // moves or resizes a tab (Lawrence 2026-10-19). A narrow selected tab shows its x and
+        // drops its title, then its icon (`TabChromeVisibility`).
+        if count == 1 {
+            let width = max(ideal.rounded(.down), metrics.minActiveTabWidth)
+            return ([width], width)
+        }
+        if ideal >= metrics.minInactiveTabWidth {
             let widths = distribute(available, count: count)
-            return (widths, widths.last ?? 0, false)
+            return (widths, widths.last ?? 0)
         }
-
-        // Too narrow for everyone: the selected tab keeps its minimum and the
-        // rest share what is left, down to the inactive minimum (then scroll).
-        guard let selectedIndex = tabs.firstIndex(where: \.isSelected), count > 1 else {
-            let width = max(ideal.rounded(.down), metrics.minInactiveTabWidth)
-            let clamped = count == 1 ? max(width, metrics.minActiveTabWidth) : width
-            return (Array(repeating: clamped, count: count), clamped, count > 1)
-        }
-        let othersAvailable = available - metrics.minActiveTabWidth
-        let perOther = othersAvailable / CGFloat(count - 1)
-        var others: [CGFloat]
-        if perOther >= metrics.minInactiveTabWidth {
-            others = distribute(othersAvailable, count: count - 1)
-        } else {
-            others = Array(repeating: metrics.minInactiveTabWidth, count: count - 1)
-        }
-        let standard = others.last ?? metrics.minInactiveTabWidth
-        others.insert(metrics.minActiveTabWidth, at: selectedIndex)
-        return (others, standard, true)
+        return (Array(repeating: metrics.minInactiveTabWidth, count: count), metrics.minInactiveTabWidth)
     }
 
     /// Splits `total` into `count` whole-point widths. Leftover points go to

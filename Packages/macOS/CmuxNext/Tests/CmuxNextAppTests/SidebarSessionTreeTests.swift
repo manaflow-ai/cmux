@@ -60,6 +60,7 @@ import Testing
         #expect(SidebarPullRequestBadge.combining([]) == nil)
         #expect(SidebarPullRequestBadge.combining([.merged, .passing]) == SidebarPullRequestBadge(count: 2, status: .passing))
         #expect(SidebarPullRequestBadge.combining([.passing, .attention, .merged])?.status == .attention)
+        #expect(SidebarPullRequestBadge.combining([.attention, .failing, .passing])?.status == .failing)
         #expect(SidebarPullRequestBadge.combining([.merged])?.status == .merged)
     }
 
@@ -70,7 +71,7 @@ import Testing
         }
         #expect(SidebarSessionTreeFeed.status(pr("open")) == .passing)
         #expect(SidebarSessionTreeFeed.status(pr("open", checks: "pending")) == .passing)
-        #expect(SidebarSessionTreeFeed.status(pr("open", checks: "failing")) == .attention)
+        #expect(SidebarSessionTreeFeed.status(pr("open", checks: "failing")) == .failing)
         #expect(SidebarSessionTreeFeed.status(pr("open", mergeable: "conflicting")) == .attention)
         #expect(SidebarSessionTreeFeed.status(pr("draft")) == .attention)
         #expect(SidebarSessionTreeFeed.status(pr("merged")) == .merged)
@@ -87,6 +88,43 @@ import Testing
         let bare = try #require(AgentActivityLane.of(summary: ["sessionId": "x", "spawnedBy": "", "lane": ["state": "idle"]]))
         #expect(bare.spawnedBy == nil)
         #expect(bare.cwd == nil)
+        #expect(bare.pullRequests.isEmpty)
+    }
+
+    @Test func aLaneKeepsThePullRequestsItsSessionOpened() throws {
+        let lane = try #require(AgentActivityLane.of(summary: [
+            "sessionId": "op", "lane": ["state": "idle"],
+            "pullRequests": ["https://github.com/o/r/pull/1", "", 3, "https://github.com/o/s/pull/2"],
+        ]))
+        #expect(lane.pullRequests == ["https://github.com/o/r/pull/1", "https://github.com/o/s/pull/2"])
+    }
+
+    /// A session that opened pull requests from several branches counts each, once: its folder's
+    /// branch's pull request may be one it opened, and two sessions may name the same one.
+    @Test func aBadgeCountsEveryPullRequestItsSessionsOpenedOnce() {
+        func lane(_ id: String, cwd: String?, opened: [String]) -> AgentActivityLane {
+            AgentActivityLane(id: id, name: id, title: id, peer: nil, parent: nil, state: .idle, since: nil, error: nil,
+                              cwd: cwd, pullRequests: opened)
+        }
+        func pr(_ number: Int, _ state: String) -> AgentPanePullRequest {
+            AgentPanePullRequest(url: "https://github.com/o/r/pull/\(number)", number: number, state: state, mergeable: "mergeable",
+                                 checks: .init(state: "passing", passed: 1, total: 1))
+        }
+        let lanes = [
+            lane("a", cwd: "/src/app", opened: ["https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"]),
+            lane("b", cwd: "/src/app", opened: ["https://github.com/o/r/pull/2", "https://github.com/o/r/pull/3"]),
+        ]
+        let asks = SidebarSessionTreeFeed.asks(lanes)
+        #expect(asks == ["/src/app", "https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2",
+                         "https://github.com/o/r/pull/3"])
+        // The folder's branch is pull/2; pull/3 has no answer yet.
+        let answers = ["/src/app": pr(2, "open"), "https://github.com/o/r/pull/1": pr(1, "merged"),
+                       "https://github.com/o/r/pull/2": pr(2, "open")]
+        let badge = SidebarSessionTreeFeed.badge(asks, answers: answers)
+        #expect(badge?.count == 2)
+        #expect(badge?.status == .passing)
+        #expect(badge?.items.map(\.number) == [2, 1])
+        #expect(SidebarSessionTreeFeed.badge(asks, answers: [:]) == nil)
     }
 
     @Test func rowsDrawTheLineTheBadgeAndTheKeycaps() throws {

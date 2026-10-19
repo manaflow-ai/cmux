@@ -204,14 +204,10 @@ def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
 def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -> None:
     artifacts = workflow("cmux-tui-artifacts.yml")
     triggers = workflow_triggers(artifacts)
-    assert "pull_request_target" in triggers
-    pr_trigger = triggers["pull_request_target"]
-    assert pr_trigger.get("branches") == ["feat-cmux-next"]
-    # The filter is the tree key's input list (checked item by item in
-    # test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths); here only
-    # that it starts with the cmux-tui sources.
-    paths = pr_trigger.get("paths")
-    assert paths and paths[0] == "cmux-tui/**"
+    # Pull request trees publish through the cmux-tui-pin-<merge sha> push
+    # (main's cmux-next-pr-merge-tree.yml). pull_request_target reads the
+    # default branch's workflow file, so a trigger here never ran.
+    assert "pull_request_target" not in triggers
     push_trigger = triggers["push"]
     # Every branch of this repository (forks never push here); tree-preflight
     # is the filter: a push whose tree is published builds nothing.
@@ -334,20 +330,6 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
     assert "replaces an older pending job" in artifacts
-
-
-def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
-    input_file = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
-    key_paths = []
-    for line in input_file.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        kind, path = line.split(maxsplit=1)
-        key_paths.append(f"{path}/**" if kind == "tree" else path)
-    triggers = workflow_triggers(workflow("cmux-tui-artifacts.yml"))
-    assert triggers["pull_request_target"]["paths"] == key_paths
-    assert "cmux_tui_tree_key.py" in workflow("cmux-tui-artifacts.yml")
 
 
 def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
@@ -2270,8 +2252,7 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     # not install cmux-tui on an SSH host. Each feat-cmux-next push now has its
     # own group; a run whose tree is published stops at tree-preflight.
     # Other branches (cmux-tui-pin-*) keep one group per ref, main keeps one
-    # group, a new push to a PR cancels that PR's previous pull_request_target
-    # run, and push and dispatch runs are never cancelled once started.
+    # group, and push and dispatch runs are never cancelled once started.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     concurrency = document["concurrency"]
     group = concurrency["group"]
@@ -2288,7 +2269,6 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     cancel = concurrency["cancel-in-progress"]
     for event_name in ("push", "workflow_dispatch"):
         assert render(cancel, event_name, "refs/heads/feat-cmux-next", "a" * 40).lower() == "false", event_name
-    assert render(cancel, "pull_request_target", "refs/heads/feat-cmux-next", "a" * 40, pr=7).lower() == "true"
 
     feat = "refs/heads/feat-cmux-next"
     assert evaluate("push", feat, "a" * 40) != evaluate("push", feat, "b" * 40)
@@ -2298,8 +2278,6 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     assert pin_a != evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)
     assert evaluate("push", feat, "a" * 40) != pin_a
     assert evaluate("push", "refs/heads/main", "a" * 40) == "cmux-tui-artifacts-main"
-    assert evaluate("pull_request_target", feat, "a" * 40, pr=7) == "cmux-tui-artifacts-pr-7"
-    assert evaluate("pull_request_target", feat, "a" * 40, pr=7) != evaluate("pull_request_target", feat, "a" * 40, pr=8)
     # A manual republish of one commit never shares a group with a branch push.
     dispatched = evaluate("workflow_dispatch", feat, "c" * 40)
     assert dispatched != evaluate("push", feat, "c" * 40)

@@ -127,8 +127,8 @@ impl HostShared {
             let master = self.master.lock().unwrap();
             let resize_sizes = if requested_change {
                 Some((
-                    pty_size(previous.0, previous.1, cell_pixels)?,
-                    pty_size(cols, rows, cell_pixels)?,
+                    pty_size(previous.0, previous.1, cell_pixels),
+                    pty_size(cols, rows, cell_pixels),
                 ))
             } else {
                 None
