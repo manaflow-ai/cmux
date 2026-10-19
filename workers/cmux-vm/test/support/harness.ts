@@ -125,7 +125,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const { publicKey, privateKey } = await generateKeyPair("ES256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256" };
   const getKey = createLocalJWKSet({ keys: [jwk] });
-  const { publicKey: accessPublicKey, privateKey: accessPrivateKey } = await generateKeyPair("Ed25519");
+  const { publicKey: accessPublicKey, privateKey: accessPrivateKey } = await generateKeyPair("Ed25519", { extractable: true });
   const accessPublicJwk = { ...(await exportJWK(accessPublicKey)), alg: "EdDSA", kid: "access-test" };
   const accessPrivateJwk = { ...(await exportJWK(accessPrivateKey)), alg: "EdDSA", kid: "access-test" };
 

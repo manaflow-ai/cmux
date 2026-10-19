@@ -10,9 +10,10 @@ export const sweepExpiredAccessTokenIdentities = (tenantId: TenantId) =>
     const upstream = yield* UpstreamAccessTokens;
     const now = new Date(yield* Clock.currentTimeMillis);
     const records = yield* store.list(tenantId, 1000);
+    const expired = records.flatMap((record) => record.expiresAt <= now && record.providerIdentityId !== null ? [{ identityId: record.providerIdentityId }] : []);
     yield* Effect.forEach(
-      records.filter((record) => record.expiresAt <= now && record.providerIdentityId !== null),
-      (record) => upstream.revokeIdentity(record.providerIdentityId as string).pipe(Effect.ignore),
+      expired,
+      (record) => upstream.revokeIdentity(record.identityId).pipe(Effect.ignore),
       { concurrency: 8 },
     );
   });

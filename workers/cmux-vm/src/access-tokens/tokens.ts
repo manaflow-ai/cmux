@@ -1,10 +1,10 @@
 import { Context, Data, Effect, Redacted, Schema } from "effect";
-import { name, type Named } from "@gdp-ts/core";
+import type { Named } from "@gdp-ts/core";
 import { compactVerify, CompactSign, importJWK, type JWK } from "jose";
 import { TenantId, UserId, VmId, type TenantId as TenantIdType, type UserId as UserIdType, type VmId as VmIdType } from "../lib/ids.ts";
 import type { Principal } from "../domain/principal.ts";
-import { TenantLimits, type TenantLimitsService } from "../limits/service.ts";
-import { mintAccessTokenAllows, type AccessTokenAllows } from "../proofs/access-token-allows.ts";
+import { type TenantLimitsService } from "../limits/service.ts";
+import { accessTokenAllowsForPrincipal, mintAccessTokenAllows, type AccessTokenAllows } from "../proofs/access-token-allows.ts";
 
 export const ACCESS_TOKEN_PREFIX = "cmux_at_";
 const TOKEN_ID_PATTERN = /^at_[0-9A-HJKMNP-TV-Z]{26}$/u;
@@ -62,7 +62,7 @@ export const parseAccessTokenKeys = (raw: string | undefined): ReadonlyArray<Acc
   try {
     const parsed: unknown = JSON.parse(raw);
     const values = Schema.decodeUnknownSync(Schema.Array(KeyConfig))(parsed);
-    return values.map((value) => ({ kid: value.kid, privateJwk: value.privateJwk as JWK, publicJwk: value.publicJwk as JWK, active: value.active }));
+    return values.flatMap((value) => (isJwk(value.privateJwk) && isJwk(value.publicJwk) ? [{ kid: value.kid, privateJwk: value.privateJwk, publicJwk: value.publicJwk, active: value.active }] : []));
   } catch {
     return [];
   }
@@ -103,6 +103,8 @@ const Claims = Schema.Struct({
   exp: Schema.Number,
   jti: AccessTokenId,
 });
+
+const isJwk = (value: unknown): value is JWK => typeof value === "object" && value !== null;
 
 const base32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const newTokenId = (): AccessTokenId => {
@@ -190,7 +192,7 @@ export const makeAccessTokenService = (keys: ReadonlyArray<AccessTokenKeys>, lim
         const payload = yield* Effect.tryPromise({
           try: async () => {
             const result = await compactVerify(compact, key, { algorithms: ["EdDSA"] });
-            return JSON.parse(new TextDecoder().decode(result.payload)) as unknown;
+            return JSON.parse(new TextDecoder().decode(result.payload));
           },
           catch: () => new AccessTokenRejected({ reason: "signature" }),
         });
@@ -210,7 +212,7 @@ export const makeAccessTokenService = (keys: ReadonlyArray<AccessTokenKeys>, lim
           accessTokenScopes: claims.scopes,
           accessTokenLinuxUser: claims.linuxUser,
         };
-        const proof = yield* (name(principal, (caller) => Effect.succeed(mintAccessTokenAllows(caller, claims.jti, claims.tenant, claims.principal, claims.vmIds))) as unknown as Effect.Effect<AccessTokenAllows<Principal>, never>);
+        const proof = yield* accessTokenAllowsForPrincipal(principal, claims.jti, claims.tenant, claims.principal, claims.vmIds);
         return { id: claims.jti, tenantId: claims.tenant, principal: claims.principal, vmIds: claims.vmIds, scopes: claims.scopes, linuxUser: claims.linuxUser, issuedAt: new Date(claims.iat * 1000), expiresAt, proof };
       }),
     proofFor: (caller, record) => mintAccessTokenAllows(caller, record.id, record.tenantId, record.principal, record.vmIds),

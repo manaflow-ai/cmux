@@ -94,8 +94,7 @@ export interface WebHandlerOptions {
   readonly stackWebhookSecret?: Redacted.Redacted<string>;
 }
 
-export const makeWebHandler = <A, E, R>(services: Layer.Layer<A, E, R>, options: WebHandlerOptions = {}) => {
-  const providedServices = services as unknown as Layer.Layer<Services>;
+export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHandlerOptions = {}) => {
   const authenticated = <A, E, R>(group: Layer.Layer<A, E, R>) => group.pipe(Layer.provide(authenticationLayer));
   const api = HttpApiBuilder.api(CmuxVmApi).pipe(
     Layer.provide(healthHandlers),
@@ -111,14 +110,14 @@ export const makeWebHandler = <A, E, R>(services: Layer.Layer<A, E, R>, options:
     Layer.provide(meshEnrollHandlers),
     // The device's install-key signature is the credential (mesh M3, cx-0op.5).
     Layer.provide(meshDeviceHandlers),
-    Layer.provide(providedServices),
+    Layer.provide(services),
   );
   const perRequest = options.perRequest;
   const web = HttpApiBuilder.toWebHandler(
     Layer.mergeAll(api, HttpServer.layerContext),
     perRequest === undefined ? {} : { middleware: (app) => perRequest(app) },
   );
-  const runtime = ManagedRuntime.make(providedServices);
+  const runtime = ManagedRuntime.make(services);
   const perWebhook = options.perWebhook ?? (<A, E, R>(effect: Effect.Effect<A, E, R>) => effect);
   const webhook = (request: Request): Promise<Response> =>
     runtime.runPromise(perWebhook(handleStackWebhook(request, options.stackWebhookSecret))).catch(() =>

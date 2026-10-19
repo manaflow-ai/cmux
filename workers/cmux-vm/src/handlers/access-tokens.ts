@@ -2,13 +2,14 @@ import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { name } from "@gdp-ts/core";
 import { Clock, Effect, Option } from "effect";
 import { CreatedAccessToken, AccessTokenList, SshAccess, type CreateAccessTokenRequest } from "../access-tokens/api.ts";
-import { AccessTokenStore, type AccessTokenRecord, AccessTokens, type AccessTokenScope } from "../access-tokens/tokens.ts";
+import { AccessTokenStore, AccessTokens, type AccessTokenRecord, type AccessTokenScope } from "../access-tokens/tokens.ts";
 import { AccessTokenId } from "../access-tokens/tokens.ts";
 import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import { badRequest, Forbidden, NotFound, unavailable, missingScope } from "../errors.ts";
 import { parseVmId, type VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { tenantOwnsVm } from "../proofs/tenant-owns-resource.ts";
+import { mintAccessTokenAllows } from "../proofs/access-token-allows.ts";
 import { UpstreamAccessTokens } from "../upstream/access-tokens.ts";
 import { CmuxVmApi } from "../api.ts";
 import { audited } from "./common.ts";
@@ -47,8 +48,7 @@ const recordFor = (tenantId: Principal["tenantId"], raw: string) => {
 };
 
 const tokenVmProof = (record: AccessTokenRecord) =>
-  Effect.gen(function* () {
-    const service = yield* AccessTokens;
+  Effect.sync(() => {
     const synthetic: Principal = {
       tenantId: record.tenantId,
       actor: { kind: "access-token", tokenId: record.id, principal: record.principal },
@@ -58,8 +58,7 @@ const tokenVmProof = (record: AccessTokenRecord) =>
       accessTokenScopes: record.scopes,
       accessTokenLinuxUser: record.linuxUser,
     };
-    const allows = yield* (name(synthetic, (caller) => Effect.succeed(service.proofFor(caller, record))) as unknown as Effect.Effect<import("../proofs/access-token-allows.ts").AccessTokenAllows<Principal>, never>);
-    return { synthetic, allows };
+    return { synthetic };
   });
 
 const create = (payload: CreateAccessTokenRequest) =>
@@ -73,18 +72,15 @@ const create = (payload: CreateAccessTokenRequest) =>
     const expiresAt = new Date(now.getTime() + (payload.ttlSeconds ?? 3600) * 1000);
     const vmIds = [...new Set(payload.vmIds)];
     if (vmIds.length !== payload.vmIds.length) return yield* Effect.fail(badRequest("vmIds must not contain duplicates"));
-    const parsedVmIds: VmId[] = [];
-    const valid = yield* Effect.forEach(vmIds, (raw) => {
-      const parsed = parseVm(raw);
-      if (parsed === null) return Effect.succeed(false);
-      parsedVmIds.push(parsed);
-      return name(principal, (caller) => name(parsed, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.map((proof) => proof !== null)))) as Effect.Effect<boolean, never>;
-    });
+    const parsedVmIds = vmIds.map(parseVm);
+    if (parsedVmIds.some((value) => value === null)) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
+    const ownedVmIds = parsedVmIds.filter((value): value is VmId => value !== null);
+    const valid = yield* name(principal, (caller) => Effect.forEach(ownedVmIds, (vmId) => name(vmId, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.map((proof) => proof !== null), Effect.mapError(() => unavailable())))));
     if (valid.some((ok) => !ok)) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
     const created = yield* signer.mint({
       tenantId: principal.tenantId,
       principal: payload.principal,
-      vmIds: parsedVmIds,
+      vmIds: ownedVmIds,
       scopes: payload.scopes,
       linuxUser: payload.linuxUser ?? "cmux",
       expiresAt,
@@ -93,7 +89,7 @@ const create = (payload: CreateAccessTokenRequest) =>
       id: created.id,
       tenantId: principal.tenantId,
       principal: payload.principal,
-      vmIds: parsedVmIds,
+      vmIds: ownedVmIds,
       scopes: payload.scopes,
       linuxUser: payload.linuxUser ?? "cmux",
       expiresAt,
@@ -156,11 +152,17 @@ const ssh = (rawId: string) =>
       if (vmRaw === undefined) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
       const parsed = parseVm(vmRaw);
       if (parsed === null) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
-      const { synthetic, allows } = yield* tokenVmProof(record);
+      const { synthetic } = yield* tokenVmProof(record);
       const upstream = yield* UpstreamAccessTokens;
-      const delegated = yield* (name(synthetic, (caller) => name(parsed, (vm) =>
-        Effect.flatMap(tenantOwnsVm(caller, vm), (owns): Effect.Effect<import("../upstream/access-tokens.ts").DelegatedSsh, NotFound | import("../upstream/client.ts").UpstreamError> => owns === null ? Effect.fail(new NotFound({ message: "VM not found" })) : upstream.mintSsh(vm, { owns, allows }, record.linuxUser)),
-      )) as unknown as Effect.Effect<import("../upstream/access-tokens.ts").DelegatedSsh, NotFound | import("../upstream/client.ts").UpstreamError>).pipe(Effect.mapError((error) => error instanceof NotFound ? error : unavailable()));
+      const delegated = yield* name(synthetic, <C>(caller: import("@gdp-ts/core").Named<C, Principal>) =>
+        name(parsed, <V>(vm: import("@gdp-ts/core").Named<V, import("../lib/ids.ts").VmId>) =>
+          Effect.flatMap(tenantOwnsVm(caller, vm), (owns): Effect.Effect<import("../upstream/access-tokens.ts").DelegatedSsh, NotFound | import("../upstream/client.ts").UpstreamError> =>
+            owns === null
+              ? Effect.fail(new NotFound({ message: "VM not found" }))
+              : upstream.mintSsh(vm, { owns, allows: mintAccessTokenAllows(caller, record.id, record.tenantId, record.principal, record.vmIds) }, record.linuxUser),
+          ),
+        ),
+      ).pipe(Effect.mapError((error) => error instanceof NotFound ? error : unavailable()));
       yield* (yield* AccessTokenStore).setProviderIdentity(principal.tenantId, record.id, delegated.identityId).pipe(Effect.mapError(() => unavailable()));
       return new SshAccess({ host: delegated.host, user: delegated.user, password: delegated.password });
     }),
