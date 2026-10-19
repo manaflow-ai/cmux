@@ -3,7 +3,7 @@
   "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests, the cmux-terminal-sizing and cmux-mobile-core Rust tests, and the cmux-mobile-ffi Swift and Kotlin binding tests. Steps run in order; 'clear_viewport' is a viewer that hid the terminal (iOS: app in background, terminal off screen) and stops counting until its next report; 'expect' checks the published state. 'expect.priority_keys' checks each named participant's published priority_key.",
   "cases": [
     {
-      "name": "default policy is fit everyone",
+      "name": "default policy is last active: a phone's attach does not take the grid",
       "initial": {
         "cols": 80,
         "rows": 24
@@ -36,17 +36,42 @@
         },
         {
           "op": "expect",
-          "cols": 54,
+          "cols": 150,
           "rows": 42,
           "owners": [
-            "mac",
-            "phone"
+            "mac"
           ],
-          "reason": "smallest",
+          "reason": "latest",
           "counts": {
             "mac": true,
             "phone": true
           }
+        },
+        {
+          "op": "activity",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 44,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "activity",
+          "id": "mac"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "mac"
+          ],
+          "reason": "latest"
         }
       ]
     },
@@ -247,7 +272,7 @@
       ]
     },
     {
-      "name": "phone does not count while same user's mac is attached",
+      "name": "latest: my phone takes the grid from my mac by input, never by attach",
       "initial": {
         "cols": 80,
         "rows": 24
@@ -285,10 +310,6 @@
           }
         },
         {
-          "op": "activity",
-          "id": "phone"
-        },
-        {
           "op": "expect",
           "cols": 150,
           "rows": 42,
@@ -298,7 +319,24 @@
           "reason": "latest",
           "counts": {
             "mac": true,
-            "phone": false
+            "phone": true
+          }
+        },
+        {
+          "op": "activity",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 26,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest",
+          "counts": {
+            "mac": true,
+            "phone": true
           }
         },
         {
@@ -320,7 +358,7 @@
       ]
     },
     {
-      "name": "another user's mac does not silence my phone",
+      "name": "latest: a phone that only attaches leaves another user's grid alone",
       "initial": {
         "cols": 80,
         "rows": 24
@@ -358,6 +396,22 @@
         },
         {
           "op": "expect",
+          "cols": 118,
+          "rows": 38,
+          "owners": [
+            "maya"
+          ],
+          "reason": "latest",
+          "counts": {
+            "phone": true
+          }
+        },
+        {
+          "op": "activity",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
           "cols": 54,
           "rows": 26,
           "owners": [
@@ -371,7 +425,7 @@
       ]
     },
     {
-      "name": "counts override beats the phone default",
+      "name": "counts override true lets a phone take the grid by input",
       "initial": {
         "cols": 80,
         "rows": 24
@@ -407,6 +461,19 @@
             },
             "counts_override": true
           }
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "mac"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "activity",
+          "id": "phone"
         },
         {
           "op": "expect",
@@ -916,7 +983,7 @@
           ],
           "reason": "latest",
           "counts": {
-            "phone": false
+            "phone": true
           }
         },
         {
@@ -965,6 +1032,12 @@
         "rows": 24
       },
       "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
         {
           "op": "attach",
           "participant": {
@@ -1172,7 +1245,7 @@
       ]
     },
     {
-      "name": "phone defers only while a counting mac of the same user is attached",
+      "name": "priority: a phone defers only while a counting mac of the same user is attached",
       "initial": {
         "cols": 80,
         "rows": 24
@@ -1181,7 +1254,8 @@
         {
           "op": "set_policy",
           "policy": {
-            "mode": "latest"
+            "mode": "priority",
+            "priority": []
           }
         },
         {
@@ -1219,7 +1293,7 @@
           "owners": [
             "phone"
           ],
-          "reason": "latest",
+          "reason": "priority-fallback",
           "counts": {
             "mbp": false,
             "phone": true
@@ -1253,7 +1327,8 @@
             "mbp": false,
             "studio": true,
             "phone": false
-          }
+          },
+          "reason": "priority-fallback"
         },
         {
           "op": "detach",
@@ -1268,7 +1343,8 @@
           ],
           "counts": {
             "phone": true
-          }
+          },
+          "reason": "priority-fallback"
         }
       ]
     },
@@ -1370,7 +1446,7 @@
           ],
           "counts": {
             "c1": true,
-            "c1/mobile:p1": false
+            "c1/mobile:p1": true
           }
         },
         {
@@ -1398,6 +1474,12 @@
         "rows": 24
       },
       "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
         {
           "op": "attach",
           "participant": {
@@ -1446,6 +1528,12 @@
         "rows": 24
       },
       "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
         {
           "op": "attach",
           "participant": {
@@ -1570,6 +1658,12 @@
       },
       "steps": [
         {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
+        {
           "op": "attach",
           "participant": {
             "id": "mac",
@@ -1619,6 +1713,12 @@
         "rows": 24
       },
       "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
         {
           "op": "attach",
           "participant": {
@@ -1688,7 +1788,7 @@
       ]
     },
     {
-      "name": "phone defers to a counting linux or windows desktop of the same user",
+      "name": "priority: a phone defers to a counting linux or windows desktop of the same user",
       "initial": {
         "cols": 80,
         "rows": 24
@@ -1697,7 +1797,8 @@
         {
           "op": "set_policy",
           "policy": {
-            "mode": "latest"
+            "mode": "priority",
+            "priority": []
           }
         },
         {
@@ -1733,7 +1834,7 @@
           "owners": [
             "lnx"
           ],
-          "reason": "latest",
+          "reason": "priority-fallback",
           "counts": {
             "lnx": true,
             "phone": false
