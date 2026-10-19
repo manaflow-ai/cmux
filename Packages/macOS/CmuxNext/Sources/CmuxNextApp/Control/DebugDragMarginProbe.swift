@@ -39,6 +39,12 @@ enum DragMarginProbe {
             let block: @convention(block) (AnyObject) -> Void = { _ in }
             method_setImplementation(method, imp_implementationWithBlock(block)) // crash-allow: probe only, never landed
         }
+        // Variant c: no view lets a mouse-down move the window (mouseDownCanMoveWindow false everywhere).
+        if env["CMUX_NEXT_PROBE_VARIANT"] == "c",
+           let method = class_getInstanceMethod(NSView.self, #selector(getter: NSView.mouseDownCanMoveWindow)) { // crash-allow: probe only, never landed
+            let block: @convention(block) (AnyObject) -> Bool = { _ in false }
+            method_setImplementation(method, imp_implementationWithBlock(block)) // crash-allow: probe only, never landed
+        }
         guard env["CMUX_NEXT_PROBE_DRAGMARGINS"] == "1" else { return }
         if let method = class_getInstanceMethod(NSWindow.self, NSSelectorFromString("_setNeedsToResetDragMargins:")) { // crash-allow: probe only, never landed
             originalNeeds = method_getImplementation(method)

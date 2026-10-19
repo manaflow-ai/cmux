@@ -120,7 +120,7 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1280,760"}
-for probe in ("CMUX_NEXT_PROBE_DRAGMARGINS", "CMUX_NEXT_PROBE_NODRAGMARGINS"):  # PROBE ONLY
+for probe in ("CMUX_NEXT_PROBE_DRAGMARGINS", "CMUX_NEXT_PROBE_NODRAGMARGINS", "CMUX_NEXT_PROBE_VARIANT"):  # PROBE ONLY
     if os.environ.get(probe):
         env[probe] = os.environ[probe]
 teardown = TagTeardown(APP)
@@ -179,6 +179,16 @@ try:
     report["record"] = rpc("debug.window_record", {"dir": frames_dir, "seconds": 10})
     drag(sample=True)
     report["after"] = terminals()
+    # PROBE ONLY: pass C, 160 tab switches between two tabs of the left pane (nextSurface), one per 60 Hz frame.
+    if os.environ.get("CMUX_NEXT_PROBE_TABS"):
+        rpc("action.run", {"action": "newSurface", "args": {}, "focus": True, "origin": "script"})
+        time.sleep(1.0)
+        rpc("debug.frames", {"action": "start"})
+        for _ in range(160):
+            rpc("action.run", {"action": "nextSurface", "args": {}, "focus": True, "origin": "script", "wait": False})
+            time.sleep(1 / 60)
+        time.sleep(0.5)
+        report["tabs_frames"] = rpc("debug.frames", {"action": "stop"})
     # Pass rule, per terminal: the drawn columns equal what its frame fits at the same step (the text
     # fits the pane on the same frame); the owner's grid equals a fit of that step or one of the --lag
     # steps before it (one grid in flight and its echo) and changes during the drag; after the drag
@@ -231,6 +241,9 @@ print(json.dumps({k: report.get(k) for k in ("write", "before", "after", "misses
 print("frames idle:", json.dumps(report.get("frames_idle"))[:600])
 print("frames drag:", json.dumps({k: v for k, v in (report.get("frames") or {}).items() if k != "dragmargins"})[:600])
 print("dragmargins:", json.dumps(((report.get("frames") or {}).get("dragmargins") or {}))[:12000])
+tf = report.get("tabs_frames") or {}
+print("tabs:", json.dumps({k: v for k, v in tf.items() if k != "dragmargins"})[:400], "resets", (tf.get("dragmargins") or {}).get("resets"), "needs", (tf.get("dragmargins") or {}).get("needs"))
+print("drag resets:", ((report.get("frames") or {}).get("dragmargins") or {}).get("resets"), "needs", ((report.get("frames") or {}).get("dragmargins") or {}).get("needs"))
 print("steps:", json.dumps(report["steps"][:4]), "...", json.dumps(report["steps"][-3:]))
 print("PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)

@@ -65,14 +65,18 @@ final class WindowController: NSWindowController, NSWindowDelegate {
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            // PROBE ONLY (perf-drag cx-8w027.19): variant a = no content view under the titlebar band.
+            styleMask: ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_VARIANT"] == "a"
+                ? [.titled, .closable, .miniaturizable, .resizable]
+                : [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.keyRouter = services.keyRouter
         window.title = Strings.appName
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        // PROBE ONLY: variant b = an opaque titlebar.
+        window.titlebarAppearsTransparent = ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_VARIANT"] != "b"
         window.isMovableByWindowBackground = false
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
