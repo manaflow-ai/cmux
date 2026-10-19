@@ -179,7 +179,7 @@ export function buildForest(options: ForestOptions): AgentNode[] {
       name,
       startedBy: parent ? parent.name : "you",
       depth,
-      harness: parent ? HARNESS_CYCLE[(seed >> 3) % HARNESS_CYCLE.length]! : root.harness,
+      harness: parent ? HARNESS_CYCLE[(seed >>> 3) % HARNESS_CYCLE.length]! : root.harness,
       state,
       kind: pick?.kind ?? "plan",
       task: parent ? `${pick!.name} for “${parent.name}”` : root.task,
