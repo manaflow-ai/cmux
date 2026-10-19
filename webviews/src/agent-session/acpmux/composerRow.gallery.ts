@@ -29,6 +29,17 @@ const effort = {
   ],
 };
 
+const fastMode = {
+  id: "fast-mode",
+  name: "Fast mode",
+  category: "model_config",
+  currentValue: "on",
+  options: [
+    { value: "off", name: "Off" },
+    { value: "on", name: "On" },
+  ],
+};
+
 const modes = {
   currentModeId: "auto",
   availableModes: [
@@ -79,9 +90,15 @@ function cycleSpeed(current: string, values = ["off", "on"]): Play {
     const target = { selector: ".acpmux-composer-actions .acpmux-fast" } as const;
     try {
       await ctx.waitFor(() => ctx.document.querySelector(target.selector));
-      if (ctx.document.defaultView!.innerWidth < 370) {
-        if (ctx.document.defaultView!.getComputedStyle(ctx.find(target)).display !== "none")
-          throw new Error("the speed button must give way in the narrowest pane");
+      // A composer at or under 370 px lays the bolt out of the row (composerRowFit.ts speedHidden).
+      const view = ctx.document.defaultView!;
+      const composer = ctx.document.querySelector<HTMLElement>(".acpmux-composer")!;
+      const pad = view.getComputedStyle(composer);
+      const composerWidth = composer.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
+      if (composerWidth <= 370) {
+        const style = view.getComputedStyle(ctx.find(target));
+        if (style.display !== "none" && style.visibility !== "hidden")
+          throw new Error("the speed button must give way in a narrow composer");
         return;
       }
       const actions = ctx.find(target).parentElement!;
@@ -125,6 +142,19 @@ const longCatalog = CATALOG.map((entry) =>
     : entry,
 );
 
+// The model as the catalog names it in Leo's capture ("Claude Opus 5.5"; its short name is
+// "Opus 5.5"), and a permission mode with a long label: the row the footer steps measure.
+const leoCatalog = CATALOG.map((entry) =>
+  entry.id === "claude"
+    ? {
+        ...entry,
+        models: entry.models.map((model) =>
+          model.id === "claude-opus-5-5" ? { ...model, name: "Claude Opus 5.5" } : model,
+        ),
+      }
+    : entry,
+);
+
 export default agentPaneEntry({
   id: "agent-pane.composer-row",
   title: "Composer controls row",
@@ -146,6 +176,13 @@ export default agentPaneEntry({
     "long-model": {
       note: "A long model name: it shows whole while the row has room and is the last label to shorten.",
       snapshot: { ...row({ model: LONG_MODEL }), catalog: longCatalog },
+    },
+    "leo-report": {
+      note: "Claude Opus 5.5 with Fast mode on (the bolt), Medium and Auto: a narrower pane swaps whole units (effort's short name, the model's family, the mode's label, the model's mark alone and the bolt, then the mic), never an ellipsis; effort stays a chip of its own.",
+      snapshot: {
+        ...row({}, { configOptions: [effort, fastMode], modes }),
+        catalog: leoCatalog,
+      },
     },
     granted: {
       note: "A chat-wide allowance: the row still shows one lock, the mode's; the granted status gets no slot in it.",

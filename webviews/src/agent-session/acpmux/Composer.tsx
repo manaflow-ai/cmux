@@ -69,6 +69,7 @@ import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
+import { useComposerSettings } from "./composerSettings";
 import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
 
@@ -83,6 +84,7 @@ export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
 export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
+  placeholderQueued: "composer.placeholderQueued",
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
@@ -334,11 +336,13 @@ export function Composer({
   const locationSlotSession = useRef<string | undefined>(undefined);
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  // The controls row drops its permission labels to icons when it runs out of room (composerRowFit.ts).
+  // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
   useRowFit(bar);
   // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
+  // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css).
+  const { plainFooter } = useComposerSettings();
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -814,7 +818,12 @@ export function Composer({
     }
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
     if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
-      const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
+      // The list draws at the top of the form, over the strip (ComposerQueue.tsx).
+      const chat = form.current?.closest(".acpmux-main") ?? form.current;
+      // A long queue's fold ("N more queued") sits under its rows, so ↑ reaches it first.
+      const rows = chat?.querySelectorAll<HTMLElement>(
+        ".acpmux-composer-queue .acpmux-queued, .acpmux-queue-foldbar .acpmux-queue-fold",
+      );
       const last = rows?.[rows.length - 1];
       if (last) {
         event.preventDefault();
@@ -904,6 +913,8 @@ export function Composer({
   // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
   const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
   const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
+  // While a turn runs, what is sent waits behind it, so the empty prompt says so.
+  const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1047,6 +1058,9 @@ export function Composer({
         )}
       {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
       <ComposerQueue
+        // One per chat: a chat's long queue keeps its fold, open or closed, as you switch chats.
+        key={snapshot.summary?.sessionId || sessionId}
+        chat={snapshot.summary?.sessionId || sessionId}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
         t={t}
@@ -1111,7 +1125,7 @@ export function Composer({
             ref={fieldRef}
             className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
             value={text}
-            placeholder={t(COMPOSER_LABELS.placeholder)}
+            placeholder={t(queues ? COMPOSER_LABELS.placeholderQueued : COMPOSER_LABELS.placeholder)}
             attributes={{
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
@@ -1163,7 +1177,7 @@ export function Composer({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
-          <div ref={bar} className="acpmux-composer-bar">
+          <div ref={bar} className="acpmux-composer-bar" data-footer-look={plainFooter ? "plain" : undefined}>
             <input
               ref={chooser}
               className="acpmux-attach-input"
@@ -1277,7 +1291,12 @@ export function Composer({
                 </button>
               )}
               {speed && <FastToggle speed={speed} />}
-              {accessory}
+              {/* The mic leaves a narrow row (composerRowFit.ts micHidden). */}
+              {accessory && (
+                <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
+                  {accessory}
+                </span>
+              )}
               {stop ? (
                 <button
                   key="stop"
