@@ -330,16 +330,16 @@ def main() -> int:
             f"{PROMPT_PREFIX}_{uuid.uuid4().hex[:10]}: reply with one short sentence "
             "confirming you received this mobile Agent Chat prompt. Do not edit files."
         )
-    if args.provider.casefold() != "claude":
-        raise DriverError("live verification currently supports Claude only; other workflow providers use resume-only fake credentials")
-    if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
-        raise DriverError("CLAUDE_CODE_OAUTH_TOKEN is missing; refusing to claim live provider verification")
 
     output = Path(args.out)
     output.mkdir(parents=True, exist_ok=True)
     started = time.time()
     evidence: dict[str, Any] = {"provider": args.provider, "prompt": args.prompt, "tag": args.tag, "sim_id": args.sim_id}
     try:
+        if args.provider.casefold() != "claude":
+            raise DriverError("live verification currently supports Claude only; other workflow providers use resume-only fake credentials")
+        if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+            raise DriverError("CLAUDE_CODE_OAUTH_TOKEN is missing; refusing to claim live provider verification")
         # Live production app must show the workspace shell button. Preview mode
         # exposes OpenAgentMode instead and is deliberately rejected before and
         # after opening the mode, so fixture UI cannot accidentally pass.
