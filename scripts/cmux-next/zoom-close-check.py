@@ -360,7 +360,8 @@ def check_live(directory, colors, focus_pane=None):
         held = sum(1 for r in series if r[3] > 1 and any(abs(r[1 + k] - r[7 + k]) > 0.5 for k in range(4)))
         frozen, changes = 0, []
         for a, b in zip(series, series[1:]):
-            size_moved = abs(a[3] - b[3]) > 0.5 or abs(a[4] - b[4]) > 0.5
+            # Under a point is AppKit's pixel rounding of the content frame, not a held layout.
+            size_moved = abs(a[3] - b[3]) > 1 or abs(a[4] - b[4]) > 1
             content_moved = abs(a[11] - b[11]) > 0.25 or abs(a[12] - b[12]) > 0.25
             if content_moved:
                 changes.append(abs(a[11] - b[11]) + abs(a[12] - b[12]))
@@ -453,10 +454,15 @@ def check_close(name, directory, frames, colors, scale):
         runs.append((f"{colors.get(key[0], key[0])}.{key[1]}", count))
     spread = 0.0
     if shares:
-        length = min(len(s) for s in shares.values())
-        for index in range(length):
-            values = [s[index][1] for s in shares.values()]
-            spread = max(spread, max(values) - min(values))
+        # Aligned by sample time: a pane a split adds has no samples before it appears.
+        by_time = {}
+        for series in shares.values():
+            for t, share in series:
+                by_time.setdefault(t, []).append(share)
+        count = len(shares)
+        for values in by_time.values():
+            if len(values) == count:
+                spread = max(spread, max(values) - min(values))
     # Hole: samples after the closed pane left in which no remaining pane has moved yet.
     first = {row[0]: row[1:5] for row in (samples[0]["panes"] if samples else [])}
     holes = 0
