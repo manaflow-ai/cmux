@@ -6,11 +6,20 @@ import UIKit
 
 /// A navigation value that opens the Chief conversation.
 public struct ChiefRoute: Hashable, Sendable {
+    /// Which Chief, fixed when the route is pushed: an open conversation
+    /// never switches Chief when the default one changes under it.
+    public enum Place: Hashable, Sendable {
+        case cloud
+        case mac
+    }
+
     /// Home's compose button: the keyboard rises once the push settles.
     public var focusesComposer: Bool
+    public var place: Place
 
-    public init(focusesComposer: Bool = false) {
+    public init(focusesComposer: Bool = false, place: Place = .mac) {
         self.focusesComposer = focusesComposer
+        self.place = place
     }
 }
 
@@ -116,6 +125,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.didMove(toParent: self)
         takeOverHeader()
         installQuestionBar()
+        installLiveBubble()
         // The header redraws only when the title changes; a new avatar from
         // the Mac (chief-profile-changed) redraws it in place.
         headerAvatar = chiefInitials
@@ -188,6 +198,54 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         } else {
             apply()
         }
+    }
+
+    // MARK: Chief's streaming reply
+
+    /// The streaming reply bubble and activity line (``ChiefLiveBubble``),
+    /// over the end of the transcript. It takes no touches, so the
+    /// transcript under it scrolls as usual.
+    private lazy var liveBubble: UIHostingController<ChiefLiveBubble> = {
+        let host = UIHostingController(rootView: ChiefLiveBubble(session: session))
+        host.view.backgroundColor = .clear
+        host.view.isUserInteractionEnabled = false
+        host.sizingOptions = .intrinsicContentSize
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        return host
+    }()
+    /// The bubble's bottom: on the composer once it is found, else the safe area.
+    private var liveBubbleBottom: NSLayoutConstraint?
+    private var liveBubbleOnComposer = false
+
+    private func installLiveBubble() {
+        addChild(liveBubble)
+        view.addSubview(liveBubble.view)
+        liveBubble.didMove(toParent: self)
+        NSLayoutConstraint.activate([
+            liveBubble.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            liveBubble.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+        anchorLiveBubble()
+    }
+
+    /// Pins the bubble just above the package's composer (found by its
+    /// accessibility marker), so it rides the keyboard with it. A package
+    /// that renames the marker leaves it above the bottom safe area.
+    private func anchorLiveBubble() {
+        guard !liveBubbleOnComposer, liveBubble.parent === self else { return }
+        let field = conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" }
+        let bottom: NSLayoutConstraint
+        if let field {
+            bottom = liveBubble.view.bottomAnchor.constraint(equalTo: field.topAnchor, constant: -18)
+            liveBubbleOnComposer = true
+        } else if liveBubbleBottom == nil {
+            bottom = liveBubble.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -72)
+        } else {
+            return
+        }
+        liveBubbleBottom?.isActive = false
+        bottom.isActive = true
+        liveBubbleBottom = bottom
     }
 
     public func presentQuestion(_ id: String) {
@@ -330,6 +388,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         if view.window != nil { enableEdgePop() }
         labelTrailing()
         layoutQuestionBar()
+        anchorLiveBubble()
     }
 
     /// The back swipe from the left edge, as in Messages. On iOS 26 and later
@@ -380,7 +439,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         enableEdgePop()
-        ChiefAlerts.shared.conversationVisible = true
+        session.isVisible = true
         session.markSeen()
         showOutboxIfWaiting()
         if focusesComposerOnAppear {
@@ -396,7 +455,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         // A sheet over Chief keeps it on screen.
-        if presentedViewController == nil { ChiefAlerts.shared.conversationVisible = false }
+        if presentedViewController == nil { session.isVisible = false }
     }
 
     public override func viewWillDisappear(_ animated: Bool) {

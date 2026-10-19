@@ -21,6 +21,13 @@ configs:
   # with Apple. Built only by scripts/testflight-build.sh. See
   # verify/testflight-readiness.md.
   TestFlight: release
+  # TestFlightStaging: the TestFlight build (same app record, bundle, signing,
+  # push and Sign in with Apple) pointed at staging: the development Stack
+  # project, the dev cnx-ios-api Worker and the staging Cloud service
+  # (cloud-api-staging, where Cloud Chief brains are on). Built only by
+  # `scripts/testflight-build.sh --config TestFlightStaging`; production
+  # (TestFlight) stays the default.
+  TestFlightStaging: release
 options:
   bundleIdPrefix: dev.cmux.cnx
   deploymentTarget:
@@ -28,6 +35,7 @@ options:
 settings:
   base:
     CNX_TAG: ""
+    CNX_SOURCE_COMMIT: ""
     CNX_DISPLAY_NAME: cmux
     # The cnx-ios-api base URL baked into Info.plist (CNXAPIBase). DEBUG
     # builds fall back to the dev Worker when it is empty; a non-DEBUG build
@@ -38,6 +46,19 @@ settings:
     # its /v1/health before archiving; override with CNX_PROD_API_BASE=... when
     # the Worker moves to a custom domain.
     CNX_PROD_API_BASE: https:/$()/cnx-ios-api.cmux.dev
+    # The Cloud service (backend/apps/api, CNXCloudAPIBase) where the user's
+    # Cloud Chief lives. Its Stack project must match the build's sign-in:
+    # production for shipping configs, staging (the development Stack
+    # project) for Debug and Demo, which sign in to the development project.
+    CNX_PROD_CLOUD_API_BASE: https:/$()/cloud-api.cmux.dev
+    CNX_STAGING_CLOUD_API_BASE: https:/$()/cloud-api-staging.cmux.dev
+    CNX_CLOUD_API_BASE: $(CNX_STAGING_CLOUD_API_BASE)
+    # The dev cnx-ios-api Worker (backend/wrangler.jsonc env "dev"; accepts the
+    # development and production Stack projects).
+    CNX_STAGING_API_BASE: https:/$()/cnx-ios-api-dev.debussy.workers.dev
+    # The Stack project of a non-DEBUG build (CNXStackEnvironment): empty is
+    # production; "development" is the development project (staging).
+    CNX_STACK_ENVIRONMENT: ""
     # User-facing version. Must stay at or above the highest version ever
     # uploaded to cmux INTERNAL (TestFlight orders builds by it first);
     # testflight-build.sh checks this against App Store Connect. The build
@@ -48,6 +69,7 @@ settings:
     Release:
       # Release (the `xcodebuild archive` default) is a production build too.
       CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
+      CNX_CLOUD_API_BASE: $(CNX_PROD_CLOUD_API_BASE)
     Demo:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CNX_DEMO
       SWIFT_OPTIMIZATION_LEVEL: -O
@@ -58,9 +80,11 @@ settings:
       CNX_DISPLAY_NAME: cmux cnx
       # The production Worker (cnx-ios-api-prod; production Stack project only).
       CNX_API_BASE: https:/$()/cnx-ios-api.cmux.dev
+      CNX_CLOUD_API_BASE: $(CNX_PROD_CLOUD_API_BASE)
     Release:
       # A non-DEBUG build with no service address signs in to an empty app.
       CNX_API_BASE: $(CNX_PROD_API_BASE)
+      CNX_CLOUD_API_BASE: $(CNX_PROD_CLOUD_API_BASE)
     TestFlight:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: CNX_PRODUCTION CNX_TESTFLIGHT
       SWIFT_OPTIMIZATION_LEVEL: -O
@@ -68,6 +92,15 @@ settings:
       # The App Store Connect record's name.
       CNX_DISPLAY_NAME: cmux INTERNAL
       CNX_API_BASE: $(CNX_PROD_API_BASE)
+      CNX_CLOUD_API_BASE: $(CNX_PROD_CLOUD_API_BASE)
+    TestFlightStaging:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: CNX_PRODUCTION CNX_TESTFLIGHT
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      CNX_TAG: ""
+      CNX_DISPLAY_NAME: cmux INTERNAL
+      CNX_API_BASE: $(CNX_STAGING_API_BASE)
+      CNX_CLOUD_API_BASE: $(CNX_STAGING_CLOUD_API_BASE)
+      CNX_STACK_ENVIRONMENT: development
 packages:
   CnxKit:
     path: CnxKit
@@ -130,6 +163,17 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: cmux Internal Distribution
+        TestFlightStaging:
+          PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.app.internal
+          # Push (production APNs), Sign in with Apple, and its own keychain
+          # group. The "cmux Internal Distribution" App Store profile
+          # authorizes each key; testflight-build.sh signs manually with it.
+          CODE_SIGN_ENTITLEMENTS: App/CnxApp-TestFlight.entitlements
+          CNX_PUSH: "YES"
+          CNX_APPLE_SIGN_IN: "YES"
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: cmux Internal Distribution
     info:
       path: App/Info.plist
       properties:
@@ -142,14 +186,22 @@ targets:
         LSRequiresIPhoneOS: true
         CNXTag: $(CNX_TAG)
         CNXAPIBase: $(CNX_API_BASE)
+        CNXCloudAPIBase: $(CNX_CLOUD_API_BASE)
+        CNXStackEnvironment: $(CNX_STACK_ENVIRONMENT)
+        # The commit an archive was built from (testflight-build.sh sets it;
+        # --from-archive refuses an archive of another commit).
+        CNXSourceCommit: $(CNX_SOURCE_COMMIT)
         CNXPush: $(CNX_PUSH)
         CNXAppleSignIn: $(CNX_APPLE_SIGN_IN)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        # WireGuard (boringtun), WebRTC (DTLS-SRTP) and rustls use encryption
-        # outside the OS: standard algorithms, mass-market exempt (EAR
-        # 740.17(b)(1)), no documents. See verify/testflight-readiness.md.
-        ITSAppUsesNonExemptEncryption: true
+        # WireGuard (boringtun), WebRTC (DTLS-SRTP) and rustls use standard
+        # algorithms outside the OS. Lawrence 2026-10-15: standard algorithms
+        # only, no proprietary crypto, not on the French App Store. App Store
+        # Connect records exactly that answer as usesNonExemptEncryption=false
+        # ("you can specify this in Info.plist"), offers no encryption
+        # declaration for it, and refuses YES without a compliance code (90592).
+        ITSAppUsesNonExemptEncryption: false
         # The Mac link dials the Mac's LAN address directly (WireGuard UDP,
         # WebRTC host candidates) before falling back to the relay.
         NSLocalNetworkUsageDescription: Connect directly to your Mac on this network for a faster, private link.

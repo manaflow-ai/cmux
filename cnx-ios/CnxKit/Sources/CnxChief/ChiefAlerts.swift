@@ -64,8 +64,6 @@ public struct ChiefPreferences: @unchecked Sendable {
 public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
     public static let shared = ChiefAlerts()
 
-    /// True while the Chief conversation is on screen (it shows the message itself).
-    public var conversationVisible = false
     /// False while the app is in the background, where an open Chief is not seen.
     private var appActive = true
     private var installed = false
@@ -110,8 +108,10 @@ public final class ChiefAlerts: NSObject, UNUserNotificationCenterDelegate {
     static var canNotify: Bool { Bundle.main.bundleURL.pathExtension == "app" }
 
     /// Posts an alert for `message` from Chief in `conversationID`.
-    func notify(_ message: ConversationMessage, title: String, conversationID: String, preferences: ChiefPreferences) {
-        guard Self.canNotify, !(conversationVisible && appActive), !preferences.muted(conversationID) else { return }
+    /// `visible`: that Chief's conversation is on screen (it shows the message itself).
+    func notify(_ message: ConversationMessage, title: String, conversationID: String, preferences: ChiefPreferences,
+                visible: Bool) {
+        guard Self.canNotify, !(visible && appActive), !preferences.muted(conversationID) else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = message.isUnsent ? String(localized: "Message unsent")

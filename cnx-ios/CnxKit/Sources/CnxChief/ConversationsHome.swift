@@ -42,7 +42,8 @@ func plainPreview(_ markdown: String) -> String {
 /// their chat.
 public struct ConversationsHome<Leading: ToolbarContent>: View {
     let store: AppStore
-    let session: ChiefSession
+    /// The Cloud Chief (the default once it answers) and the Mac Chief.
+    let sources: ChiefSources
     let leading: Leading
     let open: (HomeConversationRoute) -> Void
     @State private var query = ""
@@ -50,6 +51,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     @State private var unread: Set<String> = []
     @State private var muted: Set<String> = []
     @State private var deleted: Set<String> = []
+    /// The New Chief name prompt is up.
+    @State private var namingChief = false
+    @State private var newChiefName = ""
 
     enum Filter: String, CaseIterable, Identifiable {
         case all, unread, needsYou
@@ -64,18 +68,17 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// `open` pushes a conversation New Message opened onto Home's stack.
-    public init(store: AppStore, session: ChiefSession = .shared,
+    public init(store: AppStore, sources: ChiefSources = .shared,
                 open: @escaping (HomeConversationRoute) -> Void,
                 @ToolbarContentBuilder leading: () -> Leading) {
         self.store = store
-        self.session = session
+        self.sources = sources
         self.open = open
         self.leading = leading()
     }
 
-    private var composer: ChiefComposer {
-        ChiefComposer(store: store, session: session, open: open)
-    }
+    /// The default Chief: compose, New Message and the first pin.
+    private var session: ChiefSession { sources.primary }
 
     private var agents: [AgentConversation] {
         var all: [AgentConversation] = []
@@ -126,7 +129,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// Chief's pin follows the filter too (SPEC 1.6): Unread while it has
     /// unread messages, Needs You while it waits on the user.
-    private var showsChief: Bool {
+    private var showsChief: Bool { shows(session) || sources.secondary.map(shows) == true }
+
+    private func shows(_ session: ChiefSession) -> Bool {
         let passesFilter: Bool = switch filter {
         case .all: true
         case .unread: session.unreadCount > 0
@@ -143,10 +148,48 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         let stamp = MessagesStamp()
         List {
             if showsChief {
-                PinnedGrid(session: session)
+                HStack(alignment: .bottom, spacing: 0) {
+                    if shows(session) {
+                        PinnedGrid(session: session, route: ChiefRoute(place: sources.primaryPlace), name: primaryName,
+                                   identifier: "home.chief", cloud: sources.isCloudReady ? sources : nil,
+                                   newChief: newChiefAction)
+                    }
+                    if let mac = sources.secondary, shows(mac) {
+                        PinnedGrid(session: mac, route: ChiefRoute(place: .mac), name: String(localized: "Mac Chief"),
+                                   identifier: "home.chief.mac")
+                    }
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(theme.colors.bg.color)
+            }
+            // The Cloud Chief could not take the pin: say why, under the Mac Chief.
+            if filter == .all, query.isEmpty, let status = sources.cloudStatus {
+                VStack(spacing: 6) {
+                    Text(status)
+                        .font(.footnote)
+                        .foregroundStyle(theme.colors.label2.color)
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("home.chief.cloudStatus")
+                    cloudActions
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 8)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(theme.colors.bg.color)
+            } else if filter == .all, query.isEmpty, let error = sources.changeError {
+                // A refused switch or create while the Cloud Chief is open.
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(Color(uiColor: .systemRed))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 8)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
                     .listRowBackground(theme.colors.bg.color)
+                    .accessibilityIdentifier("home.chief.changeError")
             }
             let rows = agents
             if filter != .all, rows.isEmpty, !showsChief {
@@ -236,16 +279,83 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // every other recipient is already a row here, and Chief
                 // routes work to agents itself.
                 Button("New Message to Chief", systemImage: "square.and.pencil") {
-                    open(.chiefComposing)
+                    open(.chiefComposing(sources.primaryPlace))
                 }
                 .accessibilityIdentifier("home.compose")
             }
         }
         .navigationDestination(for: ChiefRoute.self) { route in
-            ChiefConversationScreen(session: session, compose: composer, focusesComposer: route.focusesComposer)
+            let chief = sources.session(for: route.place)
+            ChiefConversationScreen(session: chief, compose: ChiefComposer(store: store, session: chief, open: open),
+                                    focusesComposer: route.focusesComposer)
+        }
+        // Back on Home: look for the Cloud Chief again if it was not reachable.
+        .task { sources.refreshIfNeeded() }
+        .alert("New Chief", isPresented: $namingChief) {
+            TextField("Name", text: $newChiefName)
+                .accessibilityIdentifier("home.chief.newName")
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let name = newChiefName
+                Task { await sources.createChief(named: name) }
+            }
+            .accessibilityIdentifier("home.chief.newCreate")
+        } message: {
+            Text("A new Cloud Chief with its own conversation and memory.")
         }
         .animation(theme.motion.smooth.animation, value: filter)
         .animation(theme.motion.smooth.animation, value: deleted)
+    }
+
+    /// The first pin's name: the Cloud Chief's own name once it is the default.
+    private var primaryName: String {
+        if let chief = sources.cloudChief, !chief.displayName.isEmpty { return chief.displayName }
+        return String(localized: "Chief")
+    }
+
+    /// New Chief only where this service answered a Chief brain route.
+    private var newChiefAction: (() -> Void)? {
+        guard sources.brainsAvailable else { return nil }
+        return { startNewChief() }
+    }
+
+    private func startNewChief() {
+        newChiefName = String(localized: "Chief")
+        namingChief = true
+    }
+
+    /// Under the Cloud status: make a chief, turn its brain on, or open another one.
+    @ViewBuilder private var cloudActions: some View {
+        HStack(spacing: 12) {
+            switch sources.cloudAction {
+            case .create:
+                Button("Create Cloud Chief", action: startNewChief)
+                    .accessibilityIdentifier("home.chief.create")
+            case let .turnOn(chief):
+                Button("Turn On Cloud Chief") { Task { await sources.turnOn(chief) } }
+                    .accessibilityIdentifier("home.chief.turnOn")
+            case nil:
+                EmptyView()
+            }
+            if sources.cloudChiefs.count > 1 {
+                ChiefPickerMenu(sources: sources, newChief: newChiefAction) {
+                    Text("Other Chiefs")
+                }
+            }
+        }
+        .font(.footnote.weight(.semibold))
+        .buttonStyle(.borderless)
+        .disabled(sources.isChanging)
+        if sources.isChanging {
+            ProgressView().controlSize(.small)
+        }
+        if let error = sources.changeError {
+            Text(error)
+                .font(.footnote)
+                .foregroundStyle(Color(uiColor: .systemRed))
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("home.chief.changeError")
+        }
     }
 
     private func toggle(_ set: inout Set<String>, _ id: String) {
@@ -258,9 +368,16 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 /// preview (or typing) bubble above an avatar with something new.
 struct PinnedGrid: View {
     let session: ChiefSession
+    /// Which Chief the pin opens.
+    var route = ChiefRoute()
+    var name = String(localized: "Chief")
+    var identifier = "home.chief"
+    /// The Cloud Chief's pin: its menu lists the account's other chiefs.
+    var cloud: ChiefSources?
+    var newChief: (() -> Void)?
 
     var body: some View {
-        NavigationLink(value: ChiefRoute()) {
+        NavigationLink(value: route) {
             pin
                 .frame(maxWidth: .infinity)
                 // The bubble rides above the avatar: room for it, so it
@@ -277,11 +394,14 @@ struct PinnedGrid: View {
                     session.setMuted(!session.isMuted)
                 }
             }
+            if let cloud {
+                ChiefPickerItems(sources: cloud, newChief: newChief)
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
-        .accessibilityIdentifier("home.chief")
-        .animation(theme.motion.snappy.animation, value: session.isTyping)
+        .accessibilityIdentifier(identifier)
+        .animation(theme.motion.snappy.animation, value: session.isWorking)
         .animation(theme.motion.snappy.animation, value: showsPreview)
         .animation(theme.motion.snappy.animation, value: showsBubble)
     }
@@ -293,7 +413,7 @@ struct PinnedGrid: View {
         session.unreadCount > 0 || session.isWaitingOnYou
     }
 
-    private var showsBubble: Bool { session.isTyping || showsPreview }
+    private var showsBubble: Bool { session.isWorking || showsPreview }
 
     /// Extra top room while a bubble shows, growing with the text (the
     /// search drawer above does too). Measured round 2: 10 pt left 8 pt at Large
@@ -305,16 +425,16 @@ struct PinnedGrid: View {
     private var previewText: String { plainPreview(session.preview) }
 
     private var accessibilityLabel: Text {
-        if session.isTyping { return Text("Chief, typing") }
-        if showsPreview { return Text("Chief, \(previewText)") }
-        return Text("Chief, pinned")
+        if session.isWorking { return Text("\(name), typing") }
+        if showsPreview { return Text("\(name), \(previewText)") }
+        return Text("\(name), pinned")
     }
 
     private var pin: some View {
         VStack(spacing: 6) {
             ZStack(alignment: .topLeading) {
                 ChiefAvatar(text: session.avatar, size: 88)
-                if session.isTyping {
+                if session.isWorking {
                     TypingBubble()
                         .offset(x: -14, y: -18)
                         .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
@@ -337,7 +457,7 @@ struct PinnedGrid: View {
                 if session.unreadCount > 0 {
                     Circle().fill(theme.colors.label.color).frame(width: 8, height: 8)
                 }
-                Text("Chief")
+                Text(name)
                     .font(.footnote)
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(2)
@@ -543,6 +663,51 @@ struct TypingBubble: View {
             .background(theme.colors.surfaceRaised.color, in: .capsule)
         }
         .accessibilityLabel("Typing")
+    }
+}
+
+/// The account's Cloud Chiefs, the open one checked, and New Chief.
+struct ChiefPickerItems: View {
+    let sources: ChiefSources
+    var newChief: (() -> Void)?
+
+    var body: some View {
+        Section("Cloud Chiefs") {
+            ForEach(sources.cloudChiefs.filter { $0.mainConversation != nil }, id: \.id) { chief in
+                Button {
+                    sources.select(chief)
+                } label: {
+                    if chief.id == sources.cloudChief?.id {
+                        Label(Self.name(chief), systemImage: "checkmark")
+                    } else {
+                        Text(Self.name(chief))
+                    }
+                }
+            }
+            if let newChief {
+                Button("New Chief", systemImage: "plus", action: newChief)
+            }
+        }
+    }
+
+    static func name(_ chief: CloudChief) -> String {
+        chief.displayName.isEmpty ? String(localized: "Chief") : chief.displayName
+    }
+}
+
+/// ``ChiefPickerItems`` as a menu button.
+struct ChiefPickerMenu<MenuLabel: View>: View {
+    let sources: ChiefSources
+    var newChief: (() -> Void)?
+    @ViewBuilder let label: () -> MenuLabel
+
+    var body: some View {
+        Menu {
+            ChiefPickerItems(sources: sources, newChief: newChief)
+        } label: {
+            label()
+        }
+        .accessibilityIdentifier("home.chief.picker")
     }
 }
 #endif
