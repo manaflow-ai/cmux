@@ -81,10 +81,10 @@ import Testing
         let lane = try #require(AgentActivityLane.of(summary: [
             "sessionId": "op", "name": "op", "spawnedBy": "chief", "cwd": "/src/app",
             "lane": ["state": "working"],
-        ], title: nil))
+        ])
         #expect(lane.spawnedBy == "chief")
         #expect(lane.cwd == "/src/app")
-        let bare = try #require(AgentActivityLane.of(summary: ["sessionId": "x", "spawnedBy": "", "lane": ["state": "idle"]], title: nil))
+        let bare = try #require(AgentActivityLane.of(summary: ["sessionId": "x", "spawnedBy": "", "lane": ["state": "idle"]])
         #expect(bare.spawnedBy == nil)
         #expect(bare.cwd == nil)
         #expect(bare.pullRequests.isEmpty)

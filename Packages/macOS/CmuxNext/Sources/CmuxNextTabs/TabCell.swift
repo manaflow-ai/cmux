@@ -306,18 +306,20 @@ final class TabCell {
 
     /// Lays the parts out for a slot `slotWidth` wide. `onPath`: one sample of a moving width
     /// (`retimeInner`): no part is removed (it hides), nothing fades, and the title's geometry is
-    /// recorded in `pathTitle` instead of applied.
-    func layoutParts(slotWidth: CGFloat, onPath: Bool) {
+    /// recorded in `pathTitle` instead of applied. `form`: the path's form at this sample
+    /// (`TabChromeVisibility.path`); nil lays out the rest form of the width.
+    func layoutParts(slotWidth: CGFloat, onPath: Bool, form: TabChromeVisibility? = nil) {
         let slot = CGRect(x: 0, y: 0, width: slotWidth, height: layer.bounds.height)
         let m = metrics
         // The pill leaves the gap to the next tab at its trailing side (the
         // first pill starts on the border's line); content lays out in it.
         let bounds = m.pillFrame(slotWidth: slot.width, height: slot.height)
-        visibility = closingVisibility ?? TabChromeVisibility.resolve(
+        visibility = closingVisibility ?? form ?? TabChromeVisibility.resolve(
             width: slot.width,
             isPinned: item.isPinned,
             isSelected: isSelected,
             isHovered: isHovered,
+            isClosable: item.isClosable,
             style: style,
             metrics: m
         )

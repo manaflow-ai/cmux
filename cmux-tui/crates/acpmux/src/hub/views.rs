@@ -74,7 +74,14 @@ impl Hub {
 /// error from it. Waiting reads `inputSince` (when it began waiting), so a
 /// later record or a draft save does not move it.
 ///
-/// `{state, since, error}`; null for a closed session.
+/// `step` is what it is doing now (hq#2509), see `lane_step`; `title` is the
+/// session's title, else its latest prompt. The lane's error, step and title
+/// are masked (`secret_scan`), so a view that reads only the lane never shows
+/// a pasted secret. The summary's other fields (`turn.prompt`, `lastPrompt`,
+/// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
+/// way to a peer daemon (`server/peer_text.rs`).
+///
+/// `{state, since, error, step, title}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
     if summary["status"] == "closed" {
         return Value::Null;
@@ -101,8 +108,75 @@ pub fn lane(summary: &Value) -> Value {
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
-    json!({"state": state, "since": since, "error": error})
+    let error = error.as_str().map_or(Value::Null, |e| Value::String(masked_error(e)));
+    json!({"state": state, "since": since, "error": error, "step": lane_step(summary), "title": lane_title(summary)})
 }
+
+/// The lane's step, one line: the running turn's prompt, else the agent's
+/// last reply line. Masked before it is folded and cut, so a cut never
+/// leaves part of a secret unmasked. Null when there is neither, or when a
+/// person's own message is the last one (it says nothing new).
+fn lane_step(summary: &Value) -> Value {
+    let reply = || {
+        (summary["lastMessage"]["role"] == "agent")
+            .then(|| summary["lastMessage"]["text"].as_str())
+            .flatten()
+    };
+    let line = summary["turn"]["prompt"].as_str().or_else(reply).map(masked_line);
+    line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
+}
+
+/// The lane's title: the session's title, else its latest prompt, masked and
+/// cut like the step. Null when there is neither.
+fn lane_title(summary: &Value) -> Value {
+    let title = summary["title"].as_str().filter(|t| !t.trim().is_empty());
+    let line = title.or_else(|| summary["lastPrompt"].as_str()).map(masked_line);
+    line.filter(|l| !l.is_empty()).map_or(Value::Null, Value::String)
+}
+
+/// `text` folded to one line, masked and cut to `LANE_STEP_CHARS`. Only the
+/// head of the folded text is scanned (a pasted log can be megabytes), and it
+/// is masked before the cut, so a cut never leaves part of a secret unmasked.
+/// The head is cut after folding: a raw cut inside a token behind a blank run
+/// would leave the token's head unmasked once the run folds away.
+fn masked_line(text: &str) -> String {
+    let (mut head, mut chars) = (String::new(), 0);
+    for word in text.split_whitespace() {
+        if chars > 0 {
+            head.push(' ');
+            chars += 1;
+        }
+        let taken: String = word.chars().take(LANE_SCAN_CHARS.saturating_sub(chars)).collect();
+        chars += taken.chars().count();
+        head.push_str(&taken);
+        if chars >= LANE_SCAN_CHARS {
+            break;
+        }
+    }
+    super::session::short_text(&crate::secret_scan::mask(&head), LANE_STEP_CHARS)
+}
+
+/// A turn's error masked, lines kept. An error can be a whole pasted log, so
+/// only its head is scanned, and it is cut well inside that head after
+/// masking, so a secret that straddles the cut is still masked whole.
+fn masked_error(text: &str) -> String {
+    if text.chars().nth(LANE_ERROR_CHARS).is_none() {
+        return crate::secret_scan::mask(text);
+    }
+    let head: String = text.chars().take(LANE_SCAN_CHARS).collect();
+    let mut error: String =
+        crate::secret_scan::mask(&head).chars().take(LANE_ERROR_CHARS).collect();
+    error.push('…');
+    error
+}
+
+/// How long a lane's error may be.
+const LANE_ERROR_CHARS: usize = 3072;
+/// How long a lane's step may be; the row clips it to its width anyway.
+const LANE_STEP_CHARS: usize = 240;
+/// How much of a step or title is scanned: far past the cut, so a secret
+/// that starts before it is still whole.
+const LANE_SCAN_CHARS: usize = 4096;
 
 /// Set the summary's derived fields: its status dot and its lane.
 pub fn decide(summary: &mut Value) {
@@ -348,3 +422,7 @@ impl Hub {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "views_lane_tests.rs"]
+mod lane_tests;

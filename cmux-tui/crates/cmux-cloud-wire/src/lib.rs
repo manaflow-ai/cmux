@@ -15,6 +15,12 @@
 //! ([`OpRequest`], [`ReadResponse`], [`OpResponse`], [`HttpError`]) mirrors
 //! `backend/packages/protocol/src/api.ts`.
 //!
+//! The socket side lives here too: [`frames`] are the ownership protocol's
+//! frames and [`mirror::StreamMirror`] is the client engine (confirmed
+//! mirror + intent log) that the daemon and the mobile apps share
+//! (plans/cmux-next/object-sync DESIGN.md). `tests/mirror_vectors.rs` replays
+//! the traces of the TypeScript client in `schemas/ownership-mirror/vectors.json`.
+//!
 //! Field names are the catalog's. An optional field is `Option<T>` and is
 //! left out when `None`; an optional field that may also be `null` is
 //! `Option<Option<T>>`. Forward compatibility: a newer backend must not break
@@ -28,6 +34,8 @@
 #[macro_use]
 mod macros;
 mod envelope;
+pub mod frames;
+pub mod mirror;
 mod op;
 mod value;
 
@@ -41,6 +49,11 @@ mod value;
 mod generated;
 
 pub use envelope::{HttpError, OpError, OpRequest, OpResponse, Origin, ReadResponse};
+pub use frames::{ClientOut, OwnerFrame};
 pub use generated::*;
+pub use mirror::{
+    Applied, INTENT_TTL_MS, MAX_BUFFERED_EVENTS, OwnerUnreachable, PositionOnly, Received, Resume,
+    StreamMirror,
+};
 pub use op::{Op, OpVisitor, WireClass, WireError, WireIdempotency, WirePrincipal};
 pub use value::{BoolLit, WireNumber};
