@@ -174,7 +174,7 @@ public final class SidebarSessionTree {
     /// Folds or opens the subtree under `id`.
     public func toggle(_ id: WorkspaceID) {
         if collapsed.remove(id) == nil { collapsed.insert(id) }
-        defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
+        save()
     }
 
     /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to).
@@ -187,6 +187,17 @@ public final class SidebarSessionTree {
         }
         guard opened != collapsed else { return }
         collapsed = opened
+        save()
+    }
+
+    /// Saves the folds, dropping each one that is no longer a parent in the live tree (a closed
+    /// workspace, or one whose sub-sessions ended), so the saved list never outgrows the tree. It
+    /// prunes only while the tree has parents: before the first pass every fold is kept.
+    private func save() {
+        if let parents = state?.parents, !parents.isEmpty {
+            let live = Set(parents.values)
+            collapsed = collapsed.filter(live.contains)
+        }
         defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
     }
 
