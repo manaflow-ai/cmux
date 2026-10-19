@@ -1572,6 +1572,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// The Claude Code background session this pane was viewing through
     /// `claude attach`. Restore reattaches it instead of resuming a second writer.
     var claudeBackgroundViewer: ClaudeBackgroundSessionViewer?
+    /// Explicit recovery state retained when an automatic relaunch could not
+    /// start. This prevents the next snapshot from looking like a plain shell.
+    var restoreRecovery: SessionRestoreRecoverySnapshot?
 
     init(
         workingDirectory: String? = nil,
@@ -1588,7 +1591,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         remotePTYSessionID: String? = nil,
         wasAgentRunning: Bool? = nil,
         hasReceivedExplicitInput: Bool? = nil,
-        claudeBackgroundViewer: ClaudeBackgroundSessionViewer? = nil
+        claudeBackgroundViewer: ClaudeBackgroundSessionViewer? = nil,
+        restoreRecovery: SessionRestoreRecoverySnapshot? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.fontSize = fontSize
@@ -1605,7 +1609,13 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.wasAgentRunning = wasAgentRunning
         self.hasReceivedExplicitInput = hasReceivedExplicitInput
         self.claudeBackgroundViewer = claudeBackgroundViewer
+        self.restoreRecovery = restoreRecovery
     }
+}
+
+struct SessionRestoreRecoverySnapshot: Codable, Equatable, Sendable {
+    var reason: String
+    var recoveryInput: String?
 }
 
 extension SessionTerminalPanelSnapshot: WorkspaceSessionRemoteRestoreTerminalSnapshot {}

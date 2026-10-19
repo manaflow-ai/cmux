@@ -51,7 +51,7 @@ struct UpdateErrorView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .updatePrimaryButtonStyle()
                 .controlSize(.small)
             }
 

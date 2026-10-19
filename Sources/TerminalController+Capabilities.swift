@@ -142,6 +142,7 @@ extension TerminalController {
             "vm.agent_updates_set",
             "vm.rename",
             "vm.pause",
+            "vm.hygiene",
             "vm.resume",
             "vm.restart",
             "vm.snapshot",
