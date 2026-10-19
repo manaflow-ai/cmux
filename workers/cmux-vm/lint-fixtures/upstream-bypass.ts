@@ -4,3 +4,4 @@ import { makeUpstreamClient } from "../src/upstream/live.ts";
 
 export const bypass = makeUpstreamClient;
 export const direct = () => fetch("https://upstream.invalid/v5/vms");
+export const indirect = () => globalThis.fetch("https://upstream.invalid/v5/vms");

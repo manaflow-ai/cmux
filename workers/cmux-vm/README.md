@@ -83,12 +83,14 @@ budget. CI runs the same in `.github/workflows/cmux-vm.yml`.
 
 ## E2B provider adapter
 
-The E2B adapter lives under `src/providers/e2b/` and is intentionally not wired into the
-Worker router yet. It uses E2B platform REST for sandbox lifecycle and snapshots, and the
-secured envd HTTP API for Connect-framed exec/directory calls and file transfers. E2B pause
-preserves memory and is also the compatibility implementation of `shutdownVm`; E2B has no
-native stopped state, resize operation, or delegated end-user credential, so those capabilities
-remain explicit refusals in `E2B_CAPABILITIES`.
+The E2B adapter is `src/upstream/live-e2b.ts` and is intentionally not wired into the Worker
+router yet. It uses E2B platform REST for sandbox lifecycle and snapshots, and the secured envd
+HTTP API for Connect-framed exec/directory calls and file transfers. E2B maps cmux's
+`idleTimeoutSeconds` to its lifetime, then refreshes that lifetime on every brokered exec and
+file call; `-1` uses E2B's documented maximum and `0` is refused. E2B has no native stopped
+state, resize operation, or delegated end-user credential, so those capabilities remain explicit
+refusals in `E2B_CAPABILITIES`. Run `bun scripts/smoke-e2b.ts` manually with E2B credentials; it
+deletes only the exact sandbox id it created.
 
 ## Operations
 

@@ -1,6 +1,6 @@
 import { Effect, Redacted } from "effect";
-import { UpstreamId, type UpstreamId as UpstreamIdType } from "../../lib/ids.ts";
-import { upstreamIdOf, type TenantOwnsResource } from "../../proofs/tenant-owns-resource.ts";
+import { UpstreamId, type UpstreamId as UpstreamIdType } from "../lib/ids.ts";
+import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamError,
   type CreatedResource,
@@ -10,14 +10,21 @@ import {
   type SizeRequest,
   type UpstreamClientService,
   type UpstreamVm,
-} from "../../upstream/client.ts";
-import { E2B_CAPABILITIES } from "./capabilities.ts";
+} from "./client.ts";
+import { E2B_CAPABILITIES } from "../providers/e2b/capabilities.ts";
+import { upstreamName } from "./naming.ts";
+import type { Environment } from "../policy.ts";
 
 const DEFAULT_API_URL = "https://api.e2b.app/";
 const DEFAULT_SANDBOX_DOMAIN = "https://sandbox.e2b.app/";
 const ENVD_PORT = "49983";
 const DEFAULT_TIMEOUT_SECONDS = 86_400;
 const MAX_EXEC_TIMEOUT_MS = 300_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const SLOW_REQUEST_TIMEOUT_MS = 120_000;
+const TRANSFER_REQUEST_TIMEOUT_MS = 15 * 60_000;
+const MIN_UPLOAD_ENVD_VERSION: readonly [number, number, number] = [0, 5, 7];
+const MAX_BUFFERED_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 /** The optional template id is intentionally configuration, not tenant input. */
 export interface E2bClientConfig {
@@ -41,12 +48,14 @@ interface E2bSandbox {
   readonly memoryMB?: unknown;
   readonly diskSizeMB?: unknown;
   readonly metadata?: unknown;
+  readonly envdVersion?: unknown;
 }
 
 interface Connection {
   readonly id: string;
   readonly token: string;
   readonly domain: string;
+  readonly envdVersion: string | null;
 }
 
 class HttpFailure extends Error {
@@ -60,7 +69,7 @@ class HttpFailure extends Error {
 
 class ConnectFailure extends Error {}
 
-const idOf = <C, R>(proof: TenantOwnsResource<C, R>): UpstreamIdType => upstreamIdOf(proof);
+const idOf = <C, R>(proof: TenantOwnsResource<C, R>): Effect.Effect<UpstreamIdType> => Effect.sync(() => upstreamIdOf(proof));
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null ? Object.fromEntries(Object.entries(value)) : {};
@@ -81,6 +90,13 @@ const domainUrl = (raw: string): URL => {
     throw new Error("E2B sandbox domain must be a bare HTTPS origin");
   }
   return url;
+};
+
+const envdDomain = (id: string, raw: string | null, configured: URL): URL => {
+  if (raw === null || raw === "e2b.app" || raw === "sandbox.e2b.app") return configured;
+  const parsed = domainUrl(raw);
+  if (parsed.hostname === "e2b.app" || parsed.hostname === "sandbox.e2b.app") return configured;
+  return new URL(`https://49983-${id}.${parsed.hostname}/`);
 };
 
 const asIso = (value: unknown): string => {
@@ -104,7 +120,7 @@ const connectionFrom = (id: string, sandbox: E2bSandbox, configuredDomain: URL):
   const token = stringValue(sandbox.envdAccessToken);
   if (token === null) return null;
   const rawDomain = stringValue(sandbox.domain);
-  return { id, token, domain: rawDomain === null ? configuredDomain.toString() : domainUrl(rawDomain).toString() };
+  return { id, token, domain: envdDomain(id, rawDomain, configuredDomain).toString(), envdVersion: stringValue(sandbox.envdVersion) };
 };
 
 const encodeFrame = (message: unknown): Uint8Array => {
@@ -144,26 +160,31 @@ const sizeWithinLimits = (size: SizeRequest | undefined): boolean =>
     (size.memoryMib === undefined || (size.memoryMib > 0 && size.memoryMib <= E2B_CAPABILITIES.maxMemoryMib)) &&
     (size.diskMib === undefined || (size.diskMib > 0 && size.diskMib <= E2B_CAPABILITIES.maxDiskMib)));
 
-const timeoutSeconds = (seconds: number): number => {
-  // E2B requires a positive TTL. A cmux "no idle timeout" VM gets E2B's documented 24-hour maximum.
-  return seconds < 0 ? DEFAULT_TIMEOUT_SECONDS : Math.max(1, Math.ceil(seconds));
+const timeoutSeconds = (seconds: number): number => (seconds < 0 ? DEFAULT_TIMEOUT_SECONDS : Math.ceil(seconds));
+
+const versionAtLeast = (value: string | null, minimum: readonly [number, number, number]): boolean => {
+  if (value === null) return false;
+  const parts = value.split(".").map((part) => Number.parseInt(part, 10));
+  return parts.length >= 3 && parts.every(Number.isFinite) && (parts[0] ?? 0) * 1_000_000 + (parts[1] ?? 0) * 1_000 + (parts[2] ?? 0) >= minimum[0] * 1_000_000 + minimum[1] * 1_000 + minimum[2];
 };
+
+const environmentOf = (value: string): Environment => value === "local" || value === "preview" || value === "staging" ? value : "production";
 
 export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientService {
   const api = normalizeOrigin(config.apiUrl ?? DEFAULT_API_URL, "E2B API URL must be a bare HTTPS origin");
   const sandboxDomain = domainUrl(config.domain ?? DEFAULT_SANDBOX_DOMAIN);
   const send = config.fetch ?? globalThis.fetch.bind(globalThis);
   const connections = new Map<string, Connection>();
-  const vmDetails = new Map<string, { readonly idleTimeoutSeconds: number | null; readonly maxRunSeconds: number | null; readonly autoDeleteSeconds: number | null; readonly updatedAt: string }>();
+  const vmDetails = new Map<string, { readonly idleTimeoutSeconds: number; readonly updatedAt: string }>();
 
-  const request = (operation: string, base: URL, path: string, init: RequestInit = {}): Effect.Effect<Response, UpstreamError> =>
+  const request = (operation: string, base: URL, path: string, init: RequestInit = {}, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Effect.Effect<Response, UpstreamError> =>
     Effect.tryPromise({
       try: async () => {
         const url = new URL(path, base);
         const headers = new Headers(init.headers);
         headers.set("accept", "application/json");
         if (base.origin === api.origin) headers.set("X-API-Key", Redacted.value(config.apiKey));
-        const response = await send(new Request(url, { ...init, headers, redirect: "manual" }));
+        const response = await send(new Request(url, { ...init, headers, redirect: "manual", signal: init.signal ?? AbortSignal.timeout(timeoutMs) }));
         if (!response.ok) {
           await response.body?.cancel();
           throw new HttpFailure(response.status);
@@ -185,14 +206,12 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
   const rawSandbox = (operation: string, id: UpstreamIdType): Effect.Effect<E2bSandbox, UpstreamError> =>
     request(operation, api, `/sandboxes/${pathId(id)}`).pipe(Effect.flatMap((response) => json(operation, response)));
 
-  const remember = (id: UpstreamIdType, sandbox: E2bSandbox, details?: { readonly idleTimeoutSeconds: number | null; readonly maxRunSeconds: number | null; readonly autoDeleteSeconds: number | null }) => {
+  const remember = (id: UpstreamIdType, sandbox: E2bSandbox, idleTimeoutSeconds?: number) => {
     const connection = connectionFrom(id, sandbox, sandboxDomain);
     if (connection !== null) connections.set(id, connection);
     const previous = vmDetails.get(id);
     vmDetails.set(id, {
-      idleTimeoutSeconds: details?.idleTimeoutSeconds ?? previous?.idleTimeoutSeconds ?? null,
-      maxRunSeconds: details?.maxRunSeconds ?? previous?.maxRunSeconds ?? null,
-      autoDeleteSeconds: details?.autoDeleteSeconds ?? previous?.autoDeleteSeconds ?? null,
+      idleTimeoutSeconds: idleTimeoutSeconds ?? previous?.idleTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -208,8 +227,8 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
         storage: byteSize(sandbox.diskSizeMB),
       },
       idleTimeoutSeconds: details?.idleTimeoutSeconds ?? null,
-      maxRunSeconds: details?.maxRunSeconds ?? null,
-      autoDeleteSeconds: details?.autoDeleteSeconds ?? null,
+      maxRunSeconds: null,
+      autoDeleteSeconds: null,
       createdAt: startedAt,
       updatedAt: details?.updatedAt ?? startedAt,
     };
@@ -221,16 +240,29 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
       Effect.map((sandbox) => ({ sandbox, vm: toVm(id, sandbox) })),
     );
 
-  const connectionFor = (operation: string, id: UpstreamIdType): Effect.Effect<Connection, UpstreamError> =>
+  const timeoutFor = (id: UpstreamIdType): number => vmDetails.get(id)?.idleTimeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
+
+  const connectSandbox = (operation: string, id: UpstreamIdType, connection: Connection, timeout = timeoutFor(id)): Effect.Effect<Connection, UpstreamError> =>
+    request(operation, api, `/v2/sandboxes/${pathId(id)}/connect`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ timeout }),
+    }, SLOW_REQUEST_TIMEOUT_MS).pipe(
+      Effect.flatMap((response) => json(operation, response)),
+      Effect.map((sandbox) => connectionFrom(id, sandbox, sandboxDomain) ?? connection),
+      Effect.tap((next) => Effect.sync(() => { connections.set(id, next); })),
+    );
+
+  const brokerConnection = (operation: string, id: UpstreamIdType): Effect.Effect<Connection, UpstreamError> =>
     getRaw(operation, id).pipe(
       Effect.flatMap(({ sandbox }) => {
         const connection = connectionFrom(id, sandbox, sandboxDomain) ?? connections.get(id);
-        return connection === undefined ? Effect.fail(new UpstreamError({ operation, status: 502 })) : Effect.succeed(connection);
+        return connection === undefined ? Effect.fail(new UpstreamError({ operation, status: 502 })) : connectSandbox(operation, id, connection, timeoutFor(id));
       }),
     );
 
   const deleteResource = (operation: string, base: URL, path: string): Effect.Effect<"deleted" | "gone", UpstreamError> =>
-    request(operation, base, path, { method: "DELETE" }).pipe(
+    request(operation, base, path, { method: "DELETE" }, SLOW_REQUEST_TIMEOUT_MS).pipe(
       Effect.flatMap((response) => Effect.promise(async () => void (await response.body?.cancel())).pipe(Effect.as("deleted" as const))),
       Effect.catchIf((error) => error.status === 404, () => Effect.succeed("gone" as const)),
     );
@@ -249,21 +281,21 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
     return headers;
   };
 
-  const envdRequest = (operation: string, connection: Connection, path: string, init: RequestInit = {}): Effect.Effect<Response, UpstreamError> => {
+  const envdRequest = (operation: string, connection: Connection, path: string, init: RequestInit = {}, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS): Effect.Effect<Response, UpstreamError> => {
     const base = domainUrl(connection.domain);
     const headers = new Headers(init.headers);
     headers.set("e2b-sandbox-id", connection.id);
     headers.set("e2b-sandbox-port", ENVD_PORT);
     headers.set("x-access-token", connection.token);
-    return request(operation, base, path, { ...init, headers });
+    return request(operation, base, path, { ...init, headers }, timeoutMs);
   };
 
-  const connectRequest = (operation: string, connection: Connection, path: string, message: unknown, timeoutMs?: number): Effect.Effect<Response, UpstreamError> => {
+  const connectRequest = (operation: string, connection: Connection, path: string, message: unknown, timeoutMs?: number, requestTimeoutMs?: number): Effect.Effect<Response, UpstreamError> => {
     const headers = connectHeaders(connection);
     if (timeoutMs !== undefined) headers.set("connect-timeout-ms", String(timeoutMs));
     const bytes = encodeFrame(message);
     const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(bytes); controller.close(); } });
-    return envdRequest(operation, connection, path, { method: "POST", headers, body });
+    return envdRequest(operation, connection, path, { method: "POST", headers, body }, requestTimeoutMs ?? timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
   };
 
   const connectUnaryRequest = (operation: string, connection: Connection, path: string, message: unknown): Effect.Effect<Response, UpstreamError> => {
@@ -271,37 +303,77 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
     return envdRequest(operation, connection, path, { method: "POST", headers, body: JSON.stringify(message) });
   };
 
+  const sendStdin = (connection: Connection, pid: number, stdinBase64: string): Promise<void> =>
+    Effect.runPromise(
+      connectUnaryRequest("execVm.sendInput", connection, "/process.Process/SendInput", {
+        process: { pid },
+        input: { stdin: stdinBase64 },
+      }).pipe(
+        Effect.flatMap((response) => Effect.promise(async () => void (await response.body?.cancel()))),
+        Effect.zipRight(
+          connectUnaryRequest("execVm.closeStdin", connection, "/process.Process/CloseStdin", { process: { pid } }).pipe(
+            Effect.flatMap((response) => Effect.promise(async () => void (await response.body?.cancel()))),
+          ),
+        ),
+      ),
+    );
+
+  const chmodFile = (connection: Connection, path: string, mode: number): Effect.Effect<void, UpstreamError> =>
+    connectRequest("writeFile.mode", connection, "/process.Process/Start", {
+      process: { cmd: "/bin/chmod", args: [mode.toString(8), path] },
+      stdin: false,
+    }).pipe(
+      Effect.flatMap((response) => Effect.promise(async () => void (await new Response(execStream(response, () => Promise.resolve())).text()))),
+    );
+
   const pauseById = (id: UpstreamIdType, operation: string): Effect.Effect<UpstreamVm, UpstreamError> =>
-    request(operation, api, `/sandboxes/${pathId(id)}/pause`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ memory: true }) }).pipe(
+    request(operation, api, `/sandboxes/${pathId(id)}/pause`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ memory: true }) }, SLOW_REQUEST_TIMEOUT_MS).pipe(
       Effect.flatMap((response) => Effect.promise(async () => void (await response.body?.cancel()))),
       Effect.zipRight(getRaw(operation, id)),
       Effect.map(({ vm }) => vm),
     );
 
-  const execStream = (response: Response): ReadableStream<Uint8Array> => {
+  const execStream = (response: Response, onStart: (pid: number) => Promise<void>): ReadableStream<Uint8Array> => {
     if (response.body === null) throw new ConnectFailure("E2B exec response had no body");
     const reader = response.body.getReader();
     const encoder = new TextEncoder();
-    const stdoutDecoder = new TextDecoder();
-    const stderrDecoder = new TextDecoder();
+    const decoders = { stdout: new TextDecoder(), stderr: new TextDecoder() };
     let pending = new Uint8Array();
     let exitCode: number | null = null;
-    let stderr = "";
+    let streamField: "stdout" | "stderr" | null = null;
+    let bufferedField: "stdout" | "stderr" = "stdout";
+    let buffered = "";
+    let startPromise: Promise<void> | null = null;
     const escaped = (value: string) => JSON.stringify(value).slice(1, -1);
+    const appendBuffered = (value: string) => {
+      const room = MAX_BUFFERED_OUTPUT_BYTES - buffered.length;
+      if (room > 0) buffered += value.slice(0, room);
+    };
     const emitMessage = (message: Record<string, unknown>, controller: ReadableStreamDefaultController<Uint8Array>) => {
       const event = asRecord(asRecord(message.event).event ?? message.event);
       const data = asRecord(event.data);
-      const stdout = decodeBase64(data.stdout);
-      if (stdout.byteLength > 0) controller.enqueue(encoder.encode(escaped(stdoutDecoder.decode(stdout, { stream: true }))));
-      const stderrBytes = decodeBase64(data.stderr);
-      if (stderrBytes.byteLength > 0) stderr += stderrDecoder.decode(stderrBytes, { stream: true });
+      for (const field of ["stdout", "stderr"] as const) {
+        const bytes = decodeBase64(data[field]);
+        if (bytes.byteLength === 0) continue;
+        const text = decoders[field].decode(bytes, { stream: true });
+        if (streamField === null) {
+          streamField = field;
+          bufferedField = field === "stdout" ? "stderr" : "stdout";
+          controller.enqueue(encoder.encode(`{"${field}":"`));
+        }
+        if (field === streamField) controller.enqueue(encoder.encode(escaped(text)));
+        else appendBuffered(text);
+      }
+      const start = asRecord(event.start);
+      const pid = numberValue(start.pid);
+      if (pid !== null && startPromise === null) startPromise = onStart(pid);
       const end = asRecord(event.end);
       const code = numberValue(end.exitCode);
       if (code !== null) exitCode = code;
+      else if (end.exited === true) exitCode = 0;
     };
     return new ReadableStream<Uint8Array>({
       async start(controller) {
-        controller.enqueue(encoder.encode('{"stdout":"'));
         try {
           while (true) {
             const next = await reader.read();
@@ -316,17 +388,29 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
               const message = asRecord(JSON.parse(new TextDecoder().decode(payload)));
               if ((flags & 2) !== 0) {
                 const error = asRecord(message.error);
-                if (Object.keys(error).length > 0) throw new ConnectFailure(stringValue(error.message) ?? "E2B Connect request failed");
+                if (Object.keys(error).length > 0) exitCode = null;
               } else {
                 emitMessage(message, controller);
+                if (startPromise !== null) {
+                  await startPromise;
+                  startPromise = null;
+                }
               }
             }
           }
           if (pending.byteLength !== 0) throw new ConnectFailure("truncated E2B Connect frame");
-          const stdoutTail = stdoutDecoder.decode();
-          if (stdoutTail.length > 0) controller.enqueue(encoder.encode(escaped(stdoutTail)));
-          stderr += stderrDecoder.decode();
-          controller.enqueue(encoder.encode(`","stderr":${JSON.stringify(stderr)},"exitCode":${exitCode === null ? "null" : String(exitCode)}}`));
+          for (const field of ["stdout", "stderr"] as const) {
+            const tail = decoders[field].decode();
+            if (tail.length === 0) continue;
+            if (streamField === field) controller.enqueue(encoder.encode(escaped(tail)));
+            else appendBuffered(tail);
+          }
+          if (streamField === null) {
+            streamField = "stdout";
+            bufferedField = "stderr";
+            controller.enqueue(encoder.encode('{"stdout":""'));
+          }
+          controller.enqueue(encoder.encode(`","${bufferedField}":${JSON.stringify(buffered)},"exitCode":${exitCode === null ? "null" : String(exitCode)}}`));
           controller.close();
         } catch (error) {
           controller.error(error);
@@ -347,15 +431,16 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
   };
 
   return {
-    getVm: (_vm, { owns }) => getRaw("getVm", idOf(owns)).pipe(Effect.map(({ vm }) => vm)),
+    getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getRaw("getVm", id).pipe(Effect.map(({ vm }) => vm))),
 
-    getVmForWrite: (_vm, { owns }) => getRaw("getVmForWrite", idOf(owns)).pipe(Effect.map(({ vm }) => vm)),
+    getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getRaw("getVmForWrite", id).pipe(Effect.map(({ vm }) => vm))),
 
     createVm: (caller, spec: CreateVmSpec, { source }) => {
+      if (spec.idleTimeoutSeconds === 0) return Effect.fail(new UpstreamError({ operation: "createVm", status: 422 }));
+      if (spec.maxRunSeconds !== undefined || spec.autoDeleteSeconds !== undefined) return Effect.fail(new UpstreamError({ operation: "createVm", status: 409 }));
       if (!sizeWithinLimits(spec.size)) return Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
-      const sourceId = source === undefined ? null : idOf(source.owns);
       const body = {
-        templateID: sourceId ?? config.templateId ?? "base",
+        templateID: config.templateId ?? "base",
         timeout: timeoutSeconds(spec.idleTimeoutSeconds),
         autoPause: true,
         autoPauseMemory: true,
@@ -363,68 +448,56 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
         metadata: {
           cmux_tenant: caller.value.tenantId,
           cmux_id: spec.cmuxId,
-          cmux_environment: config.environment,
+          cmux_env: spec.environment,
         },
       };
-      return request("createVm", api, "/v2/sandboxes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).pipe(
+      const create = source === undefined
+        ? request("createVm", api, "/v2/sandboxes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, SLOW_REQUEST_TIMEOUT_MS)
+        : Effect.flatMap(idOf(source.owns), (sourceId) => request("createVm", api, "/v2/sandboxes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, templateID: sourceId }) }, SLOW_REQUEST_TIMEOUT_MS));
+      return create.pipe(
         Effect.flatMap((response) => json("createVm", response)),
         Effect.flatMap((sandbox) => {
           const id = stringValue(sandbox.sandboxID);
           if (id === null) return Effect.fail(new UpstreamError({ operation: "createVm", status: 502 }));
           const upstreamId = UpstreamId.make(id);
-          remember(upstreamId, sandbox, {
-            idleTimeoutSeconds: spec.idleTimeoutSeconds,
-            maxRunSeconds: spec.maxRunSeconds ?? null,
-            autoDeleteSeconds: spec.autoDeleteSeconds ?? null,
-          });
-          const vm = toVm(upstreamId, sandbox);
-          const grow = (size: SizeRequest): Effect.Effect<UpstreamVm, UpstreamError> => {
-            if (!sizeWithinLimits(size)) return Effect.fail(new UpstreamError({ operation: "resizeVm", status: 400 }));
-            const needsResize =
-              (size.vcpus !== undefined && size.vcpus > vm.resources.cpu) ||
-              (size.memoryMib !== undefined && size.memoryMib > vm.resources.memory) ||
-              (size.diskMib !== undefined && size.diskMib > vm.resources.storage);
-            return needsResize ? Effect.fail(new UpstreamError({ operation: "resizeVm", status: 409 })) : Effect.succeed(vm);
-          };
-          return Effect.succeed<CreatedResource & { readonly vm: UpstreamVm; readonly grow: (size: SizeRequest) => Effect.Effect<UpstreamVm, UpstreamError> }>({
-            upstreamId,
-            vm,
-            discard: discardVm(upstreamId),
-            grow,
-          });
+          remember(upstreamId, sandbox, spec.idleTimeoutSeconds);
+          return getRaw("createVm", upstreamId).pipe(
+            Effect.map(({ vm }) => {
+              const grow = (size: SizeRequest): Effect.Effect<UpstreamVm, UpstreamError> => {
+                if (!sizeWithinLimits(size)) return Effect.fail(new UpstreamError({ operation: "resizeVm", status: 400 }));
+                const needsResize =
+                  (size.vcpus !== undefined && size.vcpus > vm.resources.cpu) ||
+                  (size.memoryMib !== undefined && size.memoryMib > vm.resources.memory) ||
+                  (size.diskMib !== undefined && size.diskMib > vm.resources.storage);
+                return needsResize ? Effect.fail(new UpstreamError({ operation: "resizeVm", status: 409 })) : Effect.succeed(vm);
+              };
+              return { upstreamId, vm, discard: discardVm(upstreamId), grow } satisfies CreatedResource & { readonly vm: UpstreamVm; readonly grow: (size: SizeRequest) => Effect.Effect<UpstreamVm, UpstreamError> };
+            }),
+          );
         }),
       );
     },
 
-    startVm: (_vm, { owns }) => {
-      const id = idOf(owns);
-      return request("startVm", api, `/sandboxes/${pathId(id)}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) }).pipe(
-        Effect.flatMap((response) => json("startVm", response)),
-        Effect.zipRight(getRaw("startVm", id)),
-        Effect.map(({ vm }) => vm),
-      );
-    },
+    startVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getRaw("startVm", id).pipe(
+      Effect.flatMap(({ sandbox }) => {
+        const connection = connectionFrom(id, sandbox, sandboxDomain) ?? connections.get(id);
+        return connection === undefined ? Effect.fail(new UpstreamError({ operation: "startVm", status: 502 })) : connectSandbox("startVm", id, connection);
+      }),
+      Effect.zipRight(getRaw("startVm", id)),
+      Effect.map(({ vm }) => vm),
+    )),
 
-    pauseVm: (_vm, { owns }) => {
-      return pauseById(idOf(owns), "pauseVm");
-    },
+    pauseVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => pauseById(id, "pauseVm")),
 
-    shutdownVm: (_vm, { owns }) =>
-      // E2B has no stopped state. The control-plane stop operation is intentionally the documented pause compatibility path.
-      pauseById(idOf(owns), "shutdownVm").pipe(Effect.asVoid),
+    shutdownVm: () => Effect.fail(new UpstreamError({ operation: "shutdownVm", status: 409 })),
 
-    deleteVm: (_vm, { owns }) => {
-      const id = idOf(owns);
-      return deleteResource("deleteVm", api, `/sandboxes/${pathId(id)}`).pipe(Effect.tap(() => Effect.sync(() => { connections.delete(id); vmDetails.delete(id); })));
-    },
+    deleteVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => deleteResource("deleteVm", api, `/sandboxes/${pathId(id)}`).pipe(Effect.tap(() => Effect.sync(() => { connections.delete(id); vmDetails.delete(id); })))),
 
-    snapshotForFork: (caller, _vm, spec, { owns }) => {
-      const id = idOf(owns);
-      return request("snapshotVm", api, `/sandboxes/${pathId(id)}/snapshots`, {
+    snapshotForFork: (caller, _vm, spec, { owns }) => Effect.flatMap(idOf(owns), (id) => request("snapshotVm", api, `/sandboxes/${pathId(id)}/snapshots`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: `${config.environment}-${caller.value.tenantId}-${spec.cmuxId}`, memory: true }),
-      }).pipe(
+        body: JSON.stringify({ name: upstreamName(environmentOf(config.environment), caller.value.tenantId, spec.cmuxId), memory: true }),
+      }, SLOW_REQUEST_TIMEOUT_MS).pipe(
         Effect.flatMap((response) => json("snapshotVm", response)),
         Effect.flatMap((snapshot) => {
           const snapshotId = stringValue(snapshot.snapshotID);
@@ -432,32 +505,34 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
             ? Effect.fail(new UpstreamError({ operation: "snapshotVm", status: 502 }))
             : Effect.succeed({ upstreamId: UpstreamId.make(snapshotId), discard: discardSnapshot(UpstreamId.make(snapshotId)) });
         }),
-      );
-    },
+      )),
 
-    deleteSnapshot: (_snapshot, { owns }) => deleteResource("deleteSnapshot", api, `/templates/${pathId(idOf(owns))}`),
+    deleteSnapshot: (_snapshot, { owns }) => Effect.flatMap(idOf(owns), (id) => deleteResource("deleteSnapshot", api, `/templates/${pathId(id)}`)),
 
     exec: (_vm, { owns }, spec: ExecSpec) => {
-      const id = idOf(owns);
-      return connectionFor("execVm", id).pipe(
+      return Effect.flatMap(idOf(owns), (id) => brokerConnection("execVm", id).pipe(
         Effect.flatMap((connection) => {
-          const message = { process: { cmd: "/bin/sh", args: ["-lc", spec.command], ...(spec.env === undefined ? {} : { envs: spec.env }) }, stdin: spec.stdinBase64 !== undefined };
+          const process = spec.linuxUser === undefined
+            ? { cmd: "/bin/sh", args: ["-lc", spec.command] }
+            : { cmd: "/usr/sbin/runuser", args: ["-u", spec.linuxUser, "--", "/bin/sh", "-lc", spec.command] };
+          const message = { process: { ...process, ...(spec.env === undefined ? {} : { envs: spec.env }) }, stdin: spec.stdinBase64 !== undefined };
           const timeout = Math.min(MAX_EXEC_TIMEOUT_MS, Math.max(1, spec.timeoutMs ?? 30_000));
-          return connectRequest("execVm", connection, "/process.Process/Start", message, timeout).pipe(
-            Effect.map((response) => execStream(response)),
+          return connectRequest("execVm", connection, "/process.Process/Start", message, timeout, timeout + 30_000).pipe(
+            Effect.flatMap((response) => response.body === null
+              ? Effect.fail(new UpstreamError({ operation: "execVm", status: response.status }))
+              : Effect.succeed(execStream(response, (pid) => spec.stdinBase64 === undefined ? Promise.resolve() : sendStdin(connection, pid, spec.stdinBase64)))),
           );
         }),
-      );
+      ));
     },
 
     readFile: (_vm, { owns }, path, range) => {
-      const id = idOf(owns);
-      return connectionFor("readFile", id).pipe(
+      return Effect.flatMap(idOf(owns), (id) => brokerConnection("readFile", id).pipe(
         Effect.flatMap((connection) => {
           const query = new URLSearchParams({ path });
           const headers = new Headers();
           if (range !== undefined) headers.set("range", range);
-          return envdRequest("readFile", connection, `/files?${query.toString()}`, { method: "GET", headers }).pipe(
+          return envdRequest("readFile", connection, `/files?${query.toString()}`, { method: "GET", headers }, TRANSFER_REQUEST_TIMEOUT_MS).pipe(
             Effect.flatMap((response) => {
               if (response.body === null) return Effect.fail(new UpstreamError({ operation: "readFile", status: response.status }));
               return Effect.succeed<FileRead>({
@@ -469,13 +544,13 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
             }),
           );
         }),
-      );
+      ));
     },
 
     writeFile: (_vm, { owns }, file) => {
-      const id = idOf(owns);
-      return connectionFor("writeFile", id).pipe(
+      return Effect.flatMap(idOf(owns), (id) => brokerConnection("writeFile", id).pipe(
         Effect.flatMap((connection) => {
+          if (!versionAtLeast(connection.envdVersion, MIN_UPLOAD_ENVD_VERSION)) return Effect.fail(new UpstreamError({ operation: "writeFile", status: 409 }));
           const query = new URLSearchParams({ path: file.path });
           const sized = new FixedLengthStream(file.length);
           void file.body.pipeTo(sized.writable).catch(() => undefined);
@@ -483,17 +558,19 @@ export function makeE2bUpstreamClient(config: E2bClientConfig): UpstreamClientSe
             method: "POST",
             headers: { "content-type": "application/octet-stream", "content-length": String(file.length) },
             body: sized.readable,
-          }).pipe(Effect.flatMap((response) => Effect.promise(async () => void (await response.body?.cancel()))));
+          }, TRANSFER_REQUEST_TIMEOUT_MS).pipe(
+            Effect.flatMap((response) => Effect.promise(async () => void (await response.body?.cancel()))),
+            Effect.zipRight(file.mode === undefined ? Effect.void : chmodFile(connection, file.path, file.mode)),
+          );
         }),
-      );
+      ));
     },
 
     listFiles: (_vm, { owns }, path) => {
-      const id = idOf(owns);
-      return connectionFor("listFiles", id).pipe(
+      return Effect.flatMap(idOf(owns), (id) => brokerConnection("listFiles", id).pipe(
         Effect.flatMap((connection) => connectUnaryRequest("listFiles", connection, "/filesystem.Filesystem/ListDir", { path }).pipe(Effect.flatMap((response) => json("listFiles", response)))),
         Effect.map(listEntries),
-      );
+      ));
     },
   };
 }

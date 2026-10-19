@@ -18,6 +18,7 @@ expected=(
   "gdp-ts(no-any)"
   "eslint(no-restricted-imports)"
   "eslint(no-restricted-globals)"
+  "eslint(no-restricted-syntax)"
 )
 for rule in "${expected[@]}"; do
   if ! grep -qF "$rule" <<<"$output"; then

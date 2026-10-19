@@ -5,6 +5,7 @@ interface FakeSandbox {
   readonly envdAccessToken: string;
   readonly domain: string;
   readonly templateID: string;
+  readonly envdVersion: string;
   readonly startedAt: string;
   state: "running" | "paused";
   readonly metadata: Record<string, string>;
@@ -53,6 +54,7 @@ export function makeFakeE2b() {
   const calls: Call[] = [];
   const sandboxes = new Map<string, FakeSandbox>();
   const snapshots = new Set<string>();
+  const pendingSnapshots = new Set<string>();
   let nextSandbox = 1;
   let nextSnapshot = 1;
   const fail = new Map<string, number>();
@@ -70,24 +72,26 @@ export function makeFakeE2b() {
     }
 
     if (url.hostname === "api.test") {
+      if (request.headers.get("x-api-key") !== "e2b-test-key") return json({ message: "authorization header is missing" }, 401);
       if (request.method === "POST" && url.pathname === "/v2/sandboxes") {
         const payload = asRecord(JSON.parse(new TextDecoder().decode(body ?? new Uint8Array())));
         const sandboxID = `sbx-${nextSandbox++}`;
         const sandbox: FakeSandbox = {
           sandboxID,
           envdAccessToken: `envd-${sandboxID}`,
-          domain: "https://sandbox.test/",
+          domain: "e2b.app",
           templateID: typeof payload.templateID === "string" ? payload.templateID : "base",
+          envdVersion: "0.5.7",
           startedAt: "2026-10-18T00:00:00.000Z",
           state: "running",
           metadata: stringRecord(payload.metadata),
           files: new Map(),
         };
         sandboxes.set(sandboxID, sandbox);
-        return json({ ...sandbox, cpuCount: 2, memoryMB: 512, diskSizeMB: 10240, endAt: "2026-10-18T01:00:00.000Z" }, 201);
+        return json({ sandboxID, envdAccessToken: sandbox.envdAccessToken, domain: sandbox.domain, templateID: sandbox.templateID }, 201);
       }
 
-      const sandboxMatch = /^\/sandboxes\/([^/]+)(?:\/(pause|resume|snapshots))?$/u.exec(url.pathname);
+      const sandboxMatch = /^\/sandboxes\/([^/]+)(?:\/(pause|resume|snapshots|connect|timeout))?$/u.exec(url.pathname);
       if (sandboxMatch !== null) {
         const sandbox = sandboxes.get(decodeURIComponent(sandboxMatch[1] ?? ""));
         if (sandbox === undefined) return json({ message: "not found" }, 404);
@@ -101,20 +105,29 @@ export function makeFakeE2b() {
           sandbox.state = "paused";
           return new Response(null, { status: 204 });
         }
-        if (request.method === "POST" && action === "resume") {
+        if (request.method === "POST" && action === "connect") {
           sandbox.state = "running";
-          return json({ ...sandbox, cpuCount: 2, memoryMB: 512, diskSizeMB: 10240 }, 201);
+          return json({ sandboxID: sandbox.sandboxID, envdAccessToken: sandbox.envdAccessToken, domain: sandbox.domain, templateID: sandbox.templateID }, 201);
+        }
+        if (request.method === "POST" && action === "timeout") {
+          return new Response(null, { status: 204 });
         }
         if (request.method === "POST" && action === "snapshots") {
           const snapshotID = `snapshot-${nextSnapshot++}`;
-          snapshots.add(snapshotID);
+          pendingSnapshots.add(snapshotID);
+          queueMicrotask(() => {
+            pendingSnapshots.delete(snapshotID);
+            snapshots.add(snapshotID);
+          });
           return json({ snapshotID, names: [snapshotID] }, 201);
         }
       }
 
       const templateMatch = /^\/templates\/([^/]+)$/u.exec(url.pathname);
       if (templateMatch !== null && request.method === "DELETE") {
-        snapshots.delete(decodeURIComponent(templateMatch[1] ?? ""));
+        const snapshotID = decodeURIComponent(templateMatch[1] ?? "");
+        snapshots.delete(snapshotID);
+        pendingSnapshots.delete(snapshotID);
         return new Response(null, { status: 204 });
       }
       return json({ message: "not found" }, 404);
@@ -127,11 +140,13 @@ export function makeFakeE2b() {
       if (request.headers.get("x-access-token") !== sandbox.envdAccessToken) return json({ message: "unauthorized" }, 401);
       if (url.pathname === "/process.Process/Start" && request.method === "POST") {
         return framedResponse([
+          { message: { event: { start: { pid: 7 } } } },
           { message: { event: { data: { stdout: base64("ok\n") } } } },
-          { message: { event: { end: { exitCode: 0, exited: true } } } },
+          { message: { event: { end: { exited: true } } } },
           { message: {}, flags: 2 },
         ]);
       }
+      if ((url.pathname === "/process.Process/SendInput" || url.pathname === "/process.Process/CloseStdin") && request.method === "POST") return json({});
       if (url.pathname === "/filesystem.Filesystem/ListDir" && request.method === "POST") {
         return json({ entries: [{ name: "hello.txt", path: "/tmp/hello.txt", type: "FILE_TYPE_FILE" }] });
       }
@@ -163,6 +178,7 @@ export function makeFakeE2b() {
     calls,
     sandboxes,
     snapshots,
+    pendingSnapshots,
     fail(method: string, pathname: string, status: number) {
       fail.set(`${method} ${pathname}`, status);
     },

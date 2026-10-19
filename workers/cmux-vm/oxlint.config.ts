@@ -27,6 +27,13 @@ export default {
       files: guarded,
       rules: {
         "no-restricted-globals": ["error", "fetch"],
+        "no-restricted-syntax": [
+          "error",
+          {
+            selector: "MemberExpression[object.name='globalThis'][property.name='fetch']",
+            message: "Use the injected fetch only from src/upstream/ or src/auth/.",
+          },
+        ],
         "no-restricted-imports": [
           "error",
           {
@@ -40,7 +47,7 @@ export default {
         ],
       },
     },
-    { files: ["src/upstream/**", "src/auth/**"], rules: { "no-restricted-globals": "off" } },
+    { files: ["src/upstream/**", "src/auth/**"], rules: { "no-restricted-globals": "off", "no-restricted-syntax": "off" } },
     { files: ["src/upstream/**", "src/proofs/**", "src/index.ts"], rules: { "no-restricted-imports": "off" } },
   ],
 };
