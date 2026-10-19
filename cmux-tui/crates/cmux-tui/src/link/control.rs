@@ -22,7 +22,7 @@ use super::paired_streams::{OpenStreams, Revocations};
 
 /// The paired peers, re-read from their file on `link.reload`.
 pub(super) struct Peers {
-    path: PathBuf,
+    path: Option<PathBuf>,
     /// The authoritative view for both admission and active streams.
     changes: tokio::sync::watch::Sender<Arc<Pairings>>,
     /// Every admitted or handshaking paired stream.
@@ -38,7 +38,18 @@ impl Peers {
     pub(super) fn load(path: PathBuf) -> io::Result<Self> {
         let loaded = Arc::new(Pairings::load(&path)?);
         let (changes, _) = tokio::sync::watch::channel(loaded);
-        Ok(Self { path, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) })
+        Ok(Self {
+            path: Some(path),
+            changes,
+            open: Arc::default(),
+            updates: tokio::sync::Mutex::new(()),
+        })
+    }
+
+    /// Native links do not load manual pairings or accept file-based reloads.
+    pub(super) fn isolated() -> Self {
+        let (changes, _) = tokio::sync::watch::channel(Arc::new(Pairings::default()));
+        Self { path: None, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) }
     }
 
     /// What every incoming or outgoing paired stream watches for revocation.
@@ -56,8 +67,11 @@ impl Peers {
     /// the overlay drops the peers. Failed overlay I/O never restores a
     /// revoked admission view.
     pub(super) async fn reload<O: Overlay>(&self, overlay: &O) -> io::Result<()> {
+        let path = self.path.as_ref().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::PermissionDenied, "cloud.native.manual_peers_refused")
+        })?;
         let _update = self.updates.lock().await;
-        let fresh = Arc::new(Pairings::load(&self.path)?);
+        let fresh = Arc::new(Pairings::load(path)?);
         let removed: Vec<[u8; 32]> = self
             .snapshot()
             .peers

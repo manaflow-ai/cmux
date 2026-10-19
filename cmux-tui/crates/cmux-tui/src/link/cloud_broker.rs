@@ -18,6 +18,11 @@ use super::dial::DIAL_TIMEOUT;
 const MAX_REPLY: usize = 64 * 1024;
 const QUEUE_SIZE: usize = 16;
 
+pub(super) struct Bound {
+    pub stream: StdStream,
+    pub identity: Option<super::native_broker::Identity>,
+}
+
 /// Duplicate and seal only a connected stream inherited from this parent.
 /// The parent owns the other endpoint; a path, pid file or claimed identity
 /// can never substitute for possession of that endpoint.

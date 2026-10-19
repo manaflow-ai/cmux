@@ -12,6 +12,7 @@ mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
+mod native_broker;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
@@ -192,6 +193,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
                         "--server-config",
                         "--ready-fd",
                         "--cloud-broker-fd",
+                        "--native-cloud-broker-fd",
                     ],
                 )?,
                 supervised,
@@ -398,17 +400,35 @@ async fn reload(socket: &Path) -> bool {
 }
 
 fn run_serve(flags: &Flags, supervised: bool) -> anyhow::Result<()> {
-    if supervised && flags.contains_key("--cloud-broker-fd") {
+    let native = flags.contains_key("--native-cloud-broker-fd");
+    if supervised && (flags.contains_key("--cloud-broker-fd") || native) {
         bail!("cloud.broker.supervision_conflict");
     }
-    let broker =
-        flags.get("--cloud-broker-fd").map(|fd| cloud_broker::inherited(fd)).transpose()?;
+    if native
+        && (!flags.contains_key("--state-dir")
+            || ["--cloud-broker-fd", "--session-socket", "--server-config"]
+                .iter()
+                .any(|flag| flags.contains_key(*flag)))
+    {
+        bail!("cloud.native.scope_conflict");
+    }
+    let broker = if let Some(fd) = flags.get("--native-cloud-broker-fd") {
+        Some(native_broker::bind(fd)?)
+    } else {
+        flags
+            .get("--cloud-broker-fd")
+            .map(|fd| {
+                cloud_broker::inherited(fd)
+                    .map(|stream| cloud_broker::Bound { stream, identity: None })
+            })
+            .transpose()?
+    };
     let bootstrap = supervised.then(supervision::Bootstrap::receive).transpose()?;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.
-    let config_path = server_config_path(flags);
+    let config_path = if native { None } else { server_config_path(flags) };
     let config_bytes = read_server_config(config_path.as_deref())?;
     let owner = owner_session(config_path.as_deref(), config_bytes.as_deref())?;
     let ready = match flags.get("--ready-fd") {
@@ -488,10 +508,16 @@ async fn serve(
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
     bootstrap: Option<supervision::Bootstrap>,
-    broker: Option<std::os::unix::net::UnixStream>,
+    mut broker: Option<cloud_broker::Bound>,
 ) -> anyhow::Result<()> {
-    let config = state.config().context("run `cmux link init --install ID` first")?;
-    let private_key = state.private_key()?;
+    let native = broker.as_ref().is_some_and(|bound| bound.identity.is_some());
+    let (config, private_key) = match broker.as_mut().and_then(|bound| bound.identity.take()) {
+        Some(identity) => (identity.config, identity.key),
+        None => (
+            state.config().context("run `cmux link init --install ID` first")?,
+            state.private_key()?,
+        ),
+    };
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -508,7 +534,7 @@ async fn serve(
     )?;
     let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
     let (source, broker) = match broker {
-        Some(stream) => {
+        Some(cloud_broker::Bound { stream, .. }) => {
             stream.set_nonblocking(true)?;
             let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
             (cloud::CloudSource::Broker(source), Some(driver))
@@ -516,7 +542,7 @@ async fn serve(
         None => (cloud::CloudSource::Unavailable, None),
     };
     let resolver = Arc::new(cloud::CloudResolver::new(source));
-    let peers = Arc::new(Peers::load(state.peers_path())?);
+    let peers = Arc::new(if native { Peers::isolated() } else { Peers::load(state.peers_path())? });
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();
@@ -528,7 +554,7 @@ async fn serve(
             .to_string()
             .into();
     registration::write(&state.registration_dir(), &Registration::new(socket_path.clone(), pid))?;
-    let ready_line = json!({
+    let mut ready_line = json!({
         "event": "link-ready",
         "socket": socket_path,
         "pid": pid,
@@ -536,6 +562,10 @@ async fn serve(
         "udp": udp,
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
     });
+    if native {
+        ready_line["native"] = json!(true);
+        ready_line["wg_public_key"] = json!(public_key);
+    }
     print_json(&ready_line);
     if let Some(ready) = ready {
         ready.send(&ready_line);
