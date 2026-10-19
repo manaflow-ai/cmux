@@ -106,3 +106,24 @@ test("another pointer being canceled does not release the outside primary press"
   expect(f.mouse("click").defaultPrevented).toBe(true);
   expect(f.received).toEqual([]);
 });
+
+// WebKit and Chromium dispatch click as a PointerEvent whose pointerId need not match its
+// pointerdown's (WebKit reports -1); the dismissing click is still swallowed.
+test("a dismissing click delivered as a PointerEvent is swallowed whatever its pointerId", () => {
+  const f = fixture();
+  f.pointer("pointerdown");
+  f.mouse("mousedown");
+  f.pointer("pointerup");
+  f.mouse("mouseup");
+  const click = new f.view.PointerEvent("click", {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    detail: 1,
+    pointerId: -1,
+    pointerType: "mouse",
+  });
+  f.action.dispatchEvent(click);
+  expect(click.defaultPrevented).toBe(true);
+  expect(f.received).toEqual([]);
+});
