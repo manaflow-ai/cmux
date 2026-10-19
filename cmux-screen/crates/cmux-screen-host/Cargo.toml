@@ -12,8 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 cmux-screen-proto = { path = "../cmux-screen-proto" }
+cmux-tailnet = { path = "../cmux-tailnet" }
 libwebrtc = "0.3.52"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 ureq = "3"

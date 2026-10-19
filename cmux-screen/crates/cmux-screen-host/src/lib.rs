@@ -1,5 +1,6 @@
-//! The host side of a cmux screen stream: holds a room on the signal
-//! Worker, answers a viewer's WebRTC offer with the screen as a video track
+//! The host side of a cmux screen stream: takes viewers from the tailnet
+//! (its own tsnet node, WhoIs-checked) and from a room on the signal Worker
+//! (fallback), answers a viewer's WebRTC offer with the screen as a video track
 //! (hardware H.264 where the platform has it), and hands the viewer's input
 //! to the platform backend.
 //!
@@ -9,6 +10,7 @@
 pub mod backend;
 pub mod host;
 pub mod signal;
+pub mod tailnet_signal;
 
 pub use host::Host;
 

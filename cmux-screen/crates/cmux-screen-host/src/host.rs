@@ -1,8 +1,12 @@
-//! One host: keeps the room open, answers each viewer with a WebRTC
+//! One host: takes viewers from its signaling sources (the tailnet listener,
+//! and the Worker room as the fallback), answers each viewer with a WebRTC
 //! session (one viewer at a time), and keeps a connected session running
-//! through room connection drops on either side. Only WebRTC itself (the
-//! peer connection failing or closing, or the input channel closing) ends a
+//! through signaling drops on either side. Only WebRTC itself (the peer
+//! connection failing or closing, or the input channel closing) ends a
 //! session once its input channel is open.
+//!
+//! A viewer identified on the tailnet is never displaced by a Worker room
+//! offer: the room secret is a weaker credential than a tailnet identity.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -26,6 +30,7 @@ use libwebrtc::video_source::native::NativeVideoSource;
 use tokio::sync::mpsc;
 
 use crate::backend::{Backend, BackendKind};
+use crate::tailnet_signal::{self, Incoming, Source, TailnetSignal};
 use crate::{log, signal};
 
 /// What libwebrtc's callbacks report back to the host loop.
@@ -44,6 +49,8 @@ enum Event {
 
 struct Session {
     id: u64,
+    /// Where this session's viewer signals (answers and candidates go back there).
+    source: Source,
     peer: PeerConnection,
     video: NativeVideoSource,
     sender: RtpSender,
@@ -59,7 +66,10 @@ struct Session {
 }
 
 pub struct Host {
-    pairing: Pairing,
+    name: String,
+    /// The Worker room (fallback signaling and TURN), if this host keeps one.
+    pairing: Option<Pairing>,
+    tailnet: Option<TailnetSignal>,
     backend: BackendKind,
     factory: PeerConnectionFactory,
     session: Option<Arc<Session>>,
@@ -71,10 +81,12 @@ pub struct Host {
 }
 
 impl Host {
-    pub fn new(pairing: Pairing, backend: BackendKind) -> Self {
+    pub fn new(name: String, pairing: Option<Pairing>, tailnet: Option<TailnetSignal>, backend: BackendKind) -> Self {
         let (events, event_inbox) = mpsc::unbounded_channel();
         Self {
+            name,
             pairing,
+            tailnet,
             backend,
             factory: PeerConnectionFactory::default(),
             session: None,
@@ -85,52 +97,71 @@ impl Host {
         }
     }
 
-    /// Serves the room until the process ends, reconnecting with backoff.
+    /// Serves viewers until the process ends.
     pub async fn run(mut self) {
         let mut events = self.event_inbox.take().expect("run once");
-        let mut delay = Duration::from_secs(1);
+        let (incoming, mut inbox) = mpsc::unbounded_channel::<Incoming>();
+        if let Some(tailnet) = self.tailnet.take() {
+            let port = tailnet.port;
+            match tailnet_signal::serve(tailnet, incoming.clone()) {
+                Ok(()) => log(format!("serving viewers on tailnet port {port}")),
+                Err(error) => log(format!("tailnet signaling failed: {error:#}")),
+            }
+        }
+        if let Some(pairing) = self.pairing.clone() {
+            tokio::spawn(worker_room(pairing, self.outbox.clone(), incoming.clone()));
+        }
+        drop(incoming);
         loop {
-            match signal::connect(&self.pairing, "host").await {
-                Ok(mut room) => {
-                    *self.outbox.lock().unwrap() = Some(room.outbox.clone());
-                    delay = Duration::from_secs(1);
-                    loop {
-                        tokio::select! {
-                            message = room.inbox.recv() => match message {
-                                Some(message) => self.on_signal(message, &room.outbox).await,
-                                None => break,
-                            },
-                            Some(event) = events.recv() => self.on_event(event),
-                        }
-                    }
-                    log("room connection lost; reconnecting");
-                }
-                Err(error) => log(format!("room connection failed: {error:#}; retrying in {} s", delay.as_secs())),
+            tokio::select! {
+                Some(incoming) = inbox.recv() => self.on_signal(incoming).await,
+                Some(event) = events.recv() => self.on_event(event),
+                else => break,
             }
-            // Keep serving the running session's events while the room is away.
-            let sleep = tokio::time::sleep(delay); // reconnect backoff
-            tokio::pin!(sleep);
-            loop {
-                tokio::select! {
-                    _ = &mut sleep => break,
-                    Some(event) = events.recv() => self.on_event(event),
-                }
-            }
-            delay = (delay * 2).min(Duration::from_secs(30));
         }
     }
 
-    async fn on_signal(&mut self, message: SignalMessage, outbox: &mpsc::UnboundedSender<SignalMessage>) {
+    /// Sends to a viewer on whichever signaling link it uses.
+    fn send(&self, source: &Source, message: SignalMessage) {
+        match source {
+            Source::Worker => {
+                if let Some(outbox) = self.outbox.lock().unwrap().as_ref() {
+                    let _ = outbox.send(message);
+                }
+            }
+            Source::Tailnet { reply, .. } => {
+                let _ = reply.send(message);
+            }
+        }
+    }
+
+    async fn on_signal(&mut self, incoming: Incoming) {
+        let Incoming { source, message } = incoming;
+        let ours = self.session.as_ref().is_some_and(|session| session.source.same(&source));
         match message.kind.as_str() {
-            "hello" => log(format!("waiting for a viewer in room {}…", self.pairing.room.get(..8).unwrap_or("?"))),
+            "hello" => {
+                if let Some(pairing) = &self.pairing {
+                    log(format!("waiting for a viewer in room {}…", pairing.room.get(..8).unwrap_or("?")));
+                }
+            }
             "offer" => {
                 let Some(sdp) = message.sdp else { return };
-                if let Err(error) = self.accept(&sdp, outbox).await {
+                if let Some(session) = &self.session
+                    && matches!(session.source, Source::Tailnet { .. })
+                    && matches!(source, Source::Worker)
+                {
+                    log("room offer refused: a tailnet viewer is connected");
+                    return;
+                }
+                if let Err(error) = self.accept(&sdp, source).await {
                     log(format!("could not answer the viewer: {error:#}"));
                     self.end_session(None);
                 }
             }
             "candidate" => {
+                if !ours {
+                    return;
+                }
                 let (Some(session), Some(candidate)) = (self.session.clone(), message.candidate) else { return };
                 let mid = message.sdp_mid.unwrap_or_default();
                 let index = message.sdp_mline_index.unwrap_or(0);
@@ -144,11 +175,14 @@ impl Host {
                 }
             }
             "peer-left" => {
-                // The viewer's room connection dropped. A connected session
+                if !ours {
+                    return;
+                }
+                // The viewer's signaling link dropped. A connected session
                 // lives on (WebRTC reports its own end); a half-open one ends.
                 match &self.session {
                     Some(session) if session.opened.load(Ordering::SeqCst) => {
-                        log("viewer's room connection dropped; the stream continues");
+                        log(format!("viewer's {} link dropped; the stream continues", source.describe()));
                     }
                     _ => {
                         log("viewer left");
@@ -160,9 +194,18 @@ impl Host {
         }
     }
 
-    async fn accept(&mut self, sdp: &str, outbox: &mpsc::UnboundedSender<SignalMessage>) -> Result<()> {
+    async fn accept(&mut self, sdp: &str, source: Source) -> Result<()> {
         self.end_session(None);
-        let ice = signal::ice_servers(&self.pairing).await?;
+        // ICE tries direct candidates first (on a tailnet these are the
+        // tailnet addresses); the room's STUN and TURN are the fallback.
+        let ice = match (&self.pairing, &source) {
+            (Some(pairing), Source::Worker) => signal::ice_servers(pairing).await?,
+            (Some(pairing), Source::Tailnet { .. }) => signal::ice_servers(pairing).await.unwrap_or_else(|error| {
+                log(format!("room ICE servers unavailable ({error:#}); direct paths only"));
+                vec![]
+            }),
+            (None, _) => vec![],
+        };
         let mut configuration = RtcConfiguration::default();
         configuration.ice_servers = ice
             .into_iter()
@@ -244,6 +287,7 @@ impl Host {
         *backend_slot.lock().unwrap() = Some(backend.clone());
         let session = Arc::new(Session {
             id,
+            source: source.clone(),
             peer,
             video,
             sender,
@@ -259,9 +303,9 @@ impl Host {
         session.peer.set_local_description(answer.clone()).await.map_err(|e| anyhow::anyhow!("answer: {e:?}"))?;
         let answer = answer.to_string();
         log(format!("answer: {}", describe_video(&answer)));
-        let _ = outbox.send(SignalMessage::with_sdp("answer", answer));
+        self.send(&source, SignalMessage::with_sdp("answer", answer));
         self.session = Some(session);
-        log("viewer offered; streaming answer sent");
+        log(format!("{} viewer offered; streaming answer sent", source.describe()));
         Ok(())
     }
 
@@ -269,12 +313,8 @@ impl Host {
         match event {
             Event::Candidate(id, message) => {
                 // A previous session's late candidates must not reach the next viewer.
-                if self.current(id).is_none() {
-                    return;
-                }
-                if let Some(outbox) = self.outbox.lock().unwrap().as_ref() {
-                    let _ = outbox.send(message);
-                }
+                let Some(session) = self.current(id) else { return };
+                self.send(&session.source, message);
             }
             Event::Channel(id, channel) => match self.current(id) {
                 Some(session) => session.channels.lock().unwrap().push(channel),
@@ -303,7 +343,7 @@ impl Host {
                     }
                 });
                 let weak = Arc::downgrade(&session);
-                let name = self.pairing.name.clone();
+                let name = self.name.clone();
                 let (backend, video) = (session.backend.clone(), session.video.clone());
                 // Capture setup blocks (ScreenCaptureKit): off the host loop.
                 tokio::task::spawn_blocking(move || {
@@ -453,4 +493,31 @@ async fn outbound_summary(sender: &RtpSender) -> String {
         }
     }
     "no outbound video".into()
+}
+
+/// Keeps the Worker room open (fallback signaling), reconnecting with backoff.
+async fn worker_room(
+    pairing: Pairing,
+    outbox: Arc<Mutex<Option<mpsc::UnboundedSender<SignalMessage>>>>,
+    incoming: mpsc::UnboundedSender<Incoming>,
+) {
+    let mut delay = Duration::from_secs(1);
+    loop {
+        match signal::connect(&pairing, "host").await {
+            Ok(mut room) => {
+                *outbox.lock().unwrap() = Some(room.outbox.clone());
+                delay = Duration::from_secs(1);
+                while let Some(message) = room.inbox.recv().await {
+                    if incoming.send(Incoming { source: Source::Worker, message }).is_err() {
+                        return;
+                    }
+                }
+                *outbox.lock().unwrap() = None;
+                log("room connection lost; reconnecting");
+            }
+            Err(error) => log(format!("room connection failed: {error:#}; retrying in {} s", delay.as_secs())),
+        }
+        tokio::time::sleep(delay).await; // reconnect backoff, not synchronization
+        delay = (delay * 2).min(Duration::from_secs(30));
+    }
 }

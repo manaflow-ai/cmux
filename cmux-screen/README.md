@@ -5,6 +5,16 @@ computer's screen goes to a cmux viewer (the cmux VNC iOS app today) as a
 WebRTC video track, and the viewer's touches and keys come back on WebRTC
 data channels.
 
+Viewers reach the host two ways (design: `plans/cmux-next/remote-desktop-v2.md`):
+
+- **Tailnet (default).** The host is its own device on the user's tailnet
+  through embedded Tailscale (`cmux-tailnet`, libtailscale), named
+  `cmux-<computer>`; no Tailscale app is needed. The first run prints a
+  sign-in link. Each viewer connection is identified with Tailscale WhoIs and
+  served only if it is the owner's device (or on `--allow`).
+- **Worker room (fallback).** The pairing link and Cloudflare TURN, for
+  viewers with no tailnet. `--no-room` turns it off.
+
 It speaks the same wire protocol as the Swift host in
 `Packages/Shared/CmuxVNCWebRTC`, so the iOS app pairs with either host
 unchanged and both share `~/.config/cmux-vnc-host/pairing.json`.
@@ -14,7 +24,8 @@ unchanged and both share `~/.config/cmux-vnc-host/pairing.json`.
 | Crate | What it holds |
 | --- | --- |
 | `cmux-screen-proto` | Pairing links, room signaling messages, input and host messages, quality presets. Pure Rust, every platform. |
-| `cmux-screen-host` | The host: room connection (signal Worker), WebRTC sessions, quality, reconnect rules, and the platform backends. |
+| `cmux-screen-host` | The host: tailnet and room signaling, WebRTC sessions, quality, reconnect rules, and the platform backends. |
+| `cmux-tailnet` | This install as a tailnet device: libtailscale node, sign-in events, TCP listen and dial, WhoIs, and the owner-only access check. CLI `cmux-tailnet up/serve/dial`. |
 
 WebRTC is Google's libwebrtc through LiveKit's `libwebrtc` crate, so
 congestion control, hardware encoders (VideoToolbox, NVENC, VA-API),
@@ -39,8 +50,10 @@ app that starts it.
 ## Build and run
 
 ```bash
-cargo build --release
-./target/release/cmux-screen-host --name "My Mac"            # prints the pairing link
+cargo build --release                                        # needs Go 1.27 for libtailscale (GOTOOLCHAIN=auto)
+./target/release/cmux-screen-host --name "My Mac"            # prints the sign-in link, then the pairing link
+./target/release/cmux-screen-host --tailnet-auth-key-file -  # headless sign-in with a one-time auth key on stdin
+./target/release/cmux-screen-host --no-room                  # tailnet only
 ./target/release/cmux-screen-host --backend desktop          # libwebrtc's capturer instead
 ```
 

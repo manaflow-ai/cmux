@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cmux-screen-proto", "crates/cmux-screen-host"]
+members = ["crates/cmux-screen-proto", "crates/cmux-screen-host", "crates/cmux-tailnet"]
 
 [workspace.package]
 edition = "2024"

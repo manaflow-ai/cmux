@@ -1,0 +1,20 @@
+[package]
+name = "cmux-tailnet"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "This cmux install as its own device on the user's tailnet (embedded libtailscale), sign-in, WhoIs and the owner-only access check"
+build = "build.rs"
+links = "tailscale"
+
+[[bin]]
+name = "cmux-tailnet"
+path = "src/bin/cmux-tailnet.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+ureq = "3"
+libc = "0.2"

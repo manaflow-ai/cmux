@@ -1,22 +1,44 @@
-//! cmux-screen-host: streams this computer's screen to the cmux VNC app.
+//! cmux-screen-host: streams this computer's screen to a cmux viewer.
 //!
-//!   cmux-screen-host [--name NAME] [--signal URL] [--new-pairing] [--backend native|desktop]
+//!   cmux-screen-host [--name NAME] [--backend native|desktop]
+//!                    [--no-tailnet] [--tailnet-hostname NAME] [--tailnet-auth-key-file FILE|-]
+//!                    [--tailnet-port N] [--allow-tailnet-members] [--allow PRINCIPAL]...
+//!                    [--no-room] [--signal URL] [--new-pairing]
 //!
-//! The pairing (room and secret) is kept in ~/.config/cmux-vnc-host/pairing.json,
-//! the same file the Swift host uses, so a phone paired with either keeps working.
+//! Viewers arrive two ways:
+//! - the tailnet (default): the host is its own device, `cmux-<computer>`, on
+//!   the user's tailnet through embedded Tailscale (no Tailscale app needed).
+//!   The first run prints a sign-in link; the login is kept in
+//!   ~/.config/cmux-screen/tailnet. Only the owner's devices are served unless
+//!   `--allow` or `--allow-tailnet-members` widens it.
+//! - the Worker room (fallback for viewers with no tailnet). The pairing
+//!   (room and secret) is kept in ~/.config/cmux-vnc-host/pairing.json, the
+//!   same file the Swift host uses, so a phone paired with either keeps working.
 
 use std::path::PathBuf;
 
+use std::sync::Arc;
+
 use cmux_screen_host::backend::BackendKind;
+use cmux_screen_host::tailnet_signal::{DEFAULT_PORT, TailnetSignal};
 use cmux_screen_host::{Host, log};
 use cmux_screen_proto::{DEFAULT_SIGNAL, Pairing};
+use cmux_tailnet::{Access, BackendState, Node, NodeConfig};
 
 struct Options {
     name: String,
     signal: String,
     new_pairing: bool,
     backend: BackendKind,
+    tailnet: bool,
+    tailnet_hostname: Option<String>,
+    tailnet_auth_key_file: Option<String>,
+    tailnet_port: u16,
+    access: Access,
+    room: bool,
 }
+
+const USAGE: &str = "usage: cmux-screen-host [--name NAME] [--backend native|desktop] [--no-tailnet] [--tailnet-hostname NAME] [--tailnet-auth-key-file FILE|-] [--tailnet-port N] [--allow-tailnet-members] [--allow PRINCIPAL] [--no-room] [--signal URL] [--new-pairing]";
 
 fn options() -> Options {
     let mut options = Options {
@@ -24,6 +46,12 @@ fn options() -> Options {
         signal: DEFAULT_SIGNAL.into(),
         new_pairing: false,
         backend: BackendKind::Native,
+        tailnet: true,
+        tailnet_hostname: None,
+        tailnet_auth_key_file: None,
+        tailnet_port: DEFAULT_PORT,
+        access: Access::default(),
+        room: true,
     };
     let mut arguments = std::env::args().skip(1);
     while let Some(flag) = arguments.next() {
@@ -37,8 +65,18 @@ fn options() -> Options {
                     _ => BackendKind::Native,
                 }
             }
+            "--no-tailnet" => options.tailnet = false,
+            "--tailnet-hostname" => options.tailnet_hostname = arguments.next(),
+            "--tailnet-auth-key-file" => options.tailnet_auth_key_file = arguments.next(),
+            "--tailnet-port" => {
+                options.tailnet_port = arguments.next().and_then(|port| port.parse().ok()).unwrap_or(options.tailnet_port)
+            }
+            "--allow-tailnet-members" => options.access.allow_tailnet_members = true,
+            "--allow" => options.access.allow.extend(arguments.next()),
+            "--deny" => options.access.deny.extend(arguments.next()),
+            "--no-room" => options.room = false,
             _ => {
-                eprintln!("usage: cmux-screen-host [--name NAME] [--signal URL] [--new-pairing] [--backend native|desktop]");
+                eprintln!("{USAGE}");
                 std::process::exit(if flag == "--help" || flag == "-h" { 0 } else { 2 });
             }
         }
@@ -58,9 +96,69 @@ fn hostname() -> String {
         .unwrap_or_else(|| "Computer".into())
 }
 
+fn home() -> PathBuf {
+    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default()
+}
+
 fn pairing_file() -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    home.join(".config/cmux-vnc-host/pairing.json")
+    home().join(".config/cmux-vnc-host/pairing.json")
+}
+
+/// `cmux-` and the computer name as a DNS label: `Lawrence's Mac mini` -> `cmux-lawrences-mac-mini`.
+fn tailnet_hostname(name: &str) -> String {
+    let mut label = String::from("cmux-");
+    for c in name.to_lowercase().chars() {
+        if c.is_ascii_alphanumeric() {
+            label.push(c);
+        } else if (c.is_whitespace() || c == '-' || c == '_' || c == '.') && !label.ends_with('-') {
+            label.push('-');
+        }
+    }
+    let label = label.trim_end_matches('-');
+    label.chars().take(63).collect()
+}
+
+fn read_auth_key(file: Option<&str>) -> anyhow::Result<Option<String>> {
+    Ok(match file {
+        None => None,
+        Some("-") => {
+            let mut key = String::new();
+            std::io::stdin().read_line(&mut key)?;
+            Some(key.trim().to_owned())
+        }
+        Some(path) => Some(std::fs::read_to_string(path)?.trim().to_owned()),
+    })
+}
+
+/// Starts this host's tailnet node and reports sign-in as it happens (IPN bus events, no polling).
+fn start_tailnet(options: &Options) -> anyhow::Result<TailnetSignal> {
+    let hostname = options.tailnet_hostname.clone().unwrap_or_else(|| tailnet_hostname(&options.name));
+    let mut config = NodeConfig::new(home().join(".config/cmux-screen/tailnet"), hostname);
+    config.auth_key = read_auth_key(options.tailnet_auth_key_file.as_deref())?;
+    let node = Arc::new(Node::new(&config)?);
+    node.start()?;
+    let watcher = node.clone();
+    std::thread::Builder::new().name("tailnet-state".into()).spawn(move || {
+        let Ok(watch) = watcher.watch() else { return };
+        let mut shown = String::new();
+        for notify in watch {
+            if let Some(url) = notify.browse_to_url.as_deref().filter(|url| !url.is_empty() && *url != shown) {
+                println!("Sign in to Tailscale to put this computer on your tailnet:\n\n{url}\n");
+                shown = url.to_owned();
+            }
+            match notify.backend_state() {
+                Some(BackendState::Running) => {
+                    let status = watcher.status().unwrap_or_default();
+                    let owner = status.owner().map(|owner| owner.login_name.clone()).unwrap_or_else(|| "a tagged device".into());
+                    log(format!("on the tailnet as {} (owner {owner})", status.dns_name().unwrap_or_default()));
+                }
+                Some(BackendState::NeedsLogin) if shown.is_empty() => log("tailnet: waiting for sign-in"),
+                Some(BackendState::NeedsMachineAuth) => log("tailnet: an admin must approve this device"),
+                _ => {}
+            }
+        }
+    })?;
+    Ok(TailnetSignal { node, access: options.access.clone(), port: options.tailnet_port })
 }
 
 fn load_pairing(options: &Options) -> anyhow::Result<Pairing> {
@@ -93,9 +191,18 @@ fn save_private(file: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let options = options();
-    let pairing = load_pairing(&options)?;
-    log(format!("cmux screen host (Rust): {} ({:?} backend)", pairing.name, options.backend));
-    println!("Pair the cmux VNC app by opening this link on the iPhone:\n\n{}\n", pairing.link());
-    Host::new(pairing, options.backend).run().await;
+    if !options.tailnet && !options.room {
+        anyhow::bail!("--no-tailnet and --no-room leave no way for a viewer to connect");
+    }
+    log(format!("cmux screen host (Rust): {} ({:?} backend)", options.name, options.backend));
+    let tailnet = if options.tailnet { Some(start_tailnet(&options)?) } else { None };
+    let pairing = if options.room {
+        let pairing = load_pairing(&options)?;
+        println!("Fallback for viewers without a tailnet: open this pairing link on the iPhone:\n\n{}\n", pairing.link());
+        Some(pairing)
+    } else {
+        None
+    };
+    Host::new(options.name.clone(), pairing, tailnet, options.backend).run().await;
     Ok(())
 }
