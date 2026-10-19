@@ -100,6 +100,30 @@ Gate: classify as causal, amplifying, or unrelated only with timestamped evidenc
   not a necessary cause.
 - **Low:** Governor/TOML changes caused the initial failures.
 
+## M5S external OWC/NVMe comparison (2026-10-19T08:41Z)
+
+The same 4 TB OWC Express 1M2 80G enclosure/PCIe APFS layout is healthy on
+M3 but currently stalls on M5S. Both machines report APFS on `/dev/disk6s2`,
+PCI-Express transport, solid-state media, and `SMART Status: Verified`; this
+does not support a simple NAND/media failure diagnosis. M3's `Workshop`
+volume accepts the existing write/fsync probe, while M5S's `Atelier` volume
+fails a new `mktemp` write immediately with `Interrupted system call`.
+
+The Thunderbolt identity and link are materially different: M5S reports OWC
+firmware `64.1` and upstream micro-firmware `1.11.0`, at 80 Gb/s; M3 reports
+firmware `61.61` and upstream micro-firmware `1.7.0`, also at 80 Gb/s. The
+same SSD model and negotiated link speed with different bridge firmware makes
+an OWC bridge/firmware/power/link interaction a stronger M5S-specific lead
+than the SSD media itself. No SMART tool is installed on either host, so
+`SMART Status: Verified` is the available health evidence, not a full NVMe
+health-log dump.
+
+Current storage confidence: **low** for NAND/media failure, **medium-high**
+for an APFS/Thunderbolt/process-contention stall, and **medium** for a
+bridge-firmware or power/link interaction. Re-test after stale agent/TartCI
+process cleanup and a controlled sleep/wake or reboot; do not enable the M5S
+runner pool until write, fsync, and `loop.pid` reads all pass.
+
 ## Workstream history evidence
 
 - The local `~/.cmuxterm/workstream.jsonl` is currently approximately 832 MB
