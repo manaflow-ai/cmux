@@ -52,3 +52,8 @@ test("an earlier turn without a summary ends a plan sent after its answer", () =
   ];
   expect(planRow(rows, "p")?.turnEnded).toBe(true);
 });
+
+test("a turn the agent started on its own after the summary keeps its plan live", () => {
+  const rows = [row("u", "user"), row("a", "assistant", { text: "done" }), summary("s"), plan("p")];
+  expect(planRow(rows, "p", true)?.turnEnded).toBeUndefined();
+});
