@@ -68,6 +68,10 @@ export type NewTabScreenActions = {
   /// The machine the page runs on and its chat starts on (the host's name for it), for the
   /// location row's computer.
   machineName?: string;
+  /// Preview features on: the location row's computer is the environment picker (ComposerContext).
+  environments?: boolean;
+  /// The environment picker's New environment: the host's SSH and cmux Cloud connect flows.
+  onConnect?(kind: "ssh" | "cloud"): void;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
 };
@@ -547,6 +551,8 @@ export function NewTabScreen(props: Props) {
             onNoProject={() => pickProject(undefined)}
             noProject={none}
             {...(browseProject ? { onBrowseProject: browseProject } : {})}
+            {...(props.environments ? { environments: true } : {})}
+            {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
           />
         </div>
         <div ref={setBox} className="nt-box">

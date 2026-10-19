@@ -1061,3 +1061,36 @@
       color var(--agent-motion-hover) var(--agent-ease-out);
   }
 }
+
+/* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,
+   in Local, SSH and Cloud sections. A section's name sits above its first row, outside the row's
+   hover; each of the first nine rows ends with its ⌥⌘ digit, then the current one's check. */
+.acpmux-env-popover { min-width: 260px; }
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-section]) { position: relative; margin-top: 20px; }
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-first-section]) { margin-top: 18px; }
+.acpmux-env-row[data-section]::before {
+  content: attr(data-section);
+  position: absolute;
+  top: -17px;
+  left: 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 14px;
+  pointer-events: none;
+}
+.acpmux-env-row .acpmux-env-key {
+  flex: none;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-env-row .acpmux-env-key + .acpmux-location-check { margin-left: 6px; }
+.acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
+.acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
+.acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }
