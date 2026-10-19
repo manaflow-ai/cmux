@@ -8,7 +8,7 @@ import { DAEMON, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 
 export const MESH = "mesh_" + "0".repeat(26), OTHER_MESH = "mesh_" + "2".repeat(26), VM = "vm_" + "1".repeat(26)
 export const mesh = (id = MESH) => ({ id, ipv4Cidr: "10.128.0.0/20", displayName: "Cloud", createdAt: "2026-10-19T00:00:00Z" })
-export interface MeshOptions { lostCreate?: boolean; lostAttach?: boolean; badVmLookup?: boolean; member?: Record<string, unknown>; meshes?: Array<ReturnType<typeof mesh>> }
+export interface MeshOptions { lostCreate?: boolean; lostAttach?: boolean; lostMeshCreate?: boolean; badVmLookup?: boolean; member?: Record<string, unknown>; meshes?: Array<ReturnType<typeof mesh>> }
 
 /** Real owner, ledger, guard, Native client and bind. Only external Native HTTP is replaced. */
 export const withMeshMachine = async (options: MeshOptions, run: (world: {
@@ -16,12 +16,14 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
   create: () => ReturnType<CloudDO["submit"]>; retry: () => Promise<void>; restart: (change?: Partial<Env>) => Promise<void>;
   connect: () => Promise<unknown>; owner: () => CloudDO; pendingMachine: () => Promise<string>; remove: (id: string) => ReturnType<CloudDO["submit"]>;
   setMeshes: (values: Array<ReturnType<typeof mesh>>) => void; setNetworkHook: (hook: () => Promise<void>) => void; setAttachHook: (hook: () => Promise<void>) => void;
+  meshKeys: string[];
 }) => Promise<void>) => {
   const t = await mirroredTeam("Cloud machine mesh")
   const e = { ...(env as Env), CLOUD_ALLOWED_TEAMS: t.team, CLOUD_VM_TRANSPORT: "vm-api", CLOUD_VM_API_ORIGIN: "https://vm.test", CLOUD_VM_API_SERVICE_KEY: "test-machine-mesh-key", CLOUD_VM_API_IMAGE: "cloud-agent", CLOUD_VM_API_IMAGE_REVISION: "v1" }
   const calls: string[] = []
   let vm: Record<string, any> | undefined, bind: Record<string, any> | undefined, creates = 0, attaches = 0
   let meshes = options.meshes ?? [mesh()]
+  const meshKeys: string[] = [], meshCreations = new Map<string, ReturnType<typeof mesh>>()
   let networkHook: (() => Promise<void>) | undefined, attachHook: (() => Promise<void>) | undefined
   const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const r = new Request(input, init), url = new URL(r.url)
@@ -30,6 +32,17 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
     expect(r.headers.get("authorization")).toBe(`Bearer ${e.CLOUD_VM_API_SERVICE_KEY}`)
     expect(r.redirect).toBe("manual")
     calls.push(`${r.method} ${url.pathname}`)
+    if (url.pathname === "/v1/mesh-creations" && r.method === "POST") {
+      const key = r.headers.get("idempotency-key")
+      expect(key).toBeTruthy()
+      meshKeys.push(key!)
+      const body = await r.json() as { displayName: string }
+      const created = meshCreations.get(key!) ?? { ...mesh(), displayName: body.displayName }
+      meshCreations.set(key!, created)
+      if (!meshes.some((m) => m.id === created.id)) meshes.push(created)
+      if (options.lostMeshCreate && meshKeys.length === 1) throw new Error("lost mesh creation reply")
+      return Response.json(created, { status: 201 })
+    }
     if (url.pathname === "/v1/meshes" || (r.method === "GET" && url.pathname.startsWith("/v1/meshes/"))) {
       const hook = networkHook; networkHook = undefined; await hook?.()
       if (url.pathname === "/v1/meshes") return Response.json({ items: meshes })
@@ -63,7 +76,7 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
       const initialize = async () => { expect((await owner.readOp(t.team, p, "cloud.machine.list", {})).ok).toBe(true) }
       await initialize()
       const submit = (op: string, params: unknown) => owner.submit(t.team, p, { t: "op", op, params, idempotency_key: crypto.randomUUID(), origin: "user" })
-      await run({ team: t.team, tenant: t.stackTeam, calls, creates: () => creates, bindFile: () => bind,
+      await run({ team: t.team, tenant: t.stackTeam, calls, meshKeys, creates: () => creates, bindFile: () => bind,
         create: () => submit("cloud.machine.create", { size: { memory_mb: 4096 } }),
         retry: async () => { await owner.fakeControl({ advance_ms: 60_000 }); await owner.alarm() },
         restart: async (change = {}) => { owner = new CloudDO(state, { ...e, ...change }); await initialize() },
