@@ -88,4 +88,22 @@ rm -f "$TMP/paths" "$TMP/retried"
 status=0; run STUB_STALE_PCM=1 || status=$?
 [[ $status -eq 65 && $(wc -l < "$TMP/paths") -eq 1 ]] || fail "fresh path retried a stale PCM diagnostic"
 
+# 5. Outside the glaeda pools release-derived-data-path.sh gives
+#    $RUNNER_TEMP/cmux-next-release-compile, which hosted macOS runners keep
+#    under /Users/runner/_work/_temp, not /tmp. The binary-module guard clears
+#    it on a first build, so refusing it failed every such Release compile
+#    ("refusing unexpected DerivedData path", from 2026-10-18). Other paths
+#    under RUNNER_TEMP stay refused.
+RT=$(mktemp -d /var/tmp/cmux-release-rt.XXXXXX)
+mkdir -p "$RT/cmux-next-release-compile/Build/Products" "$RT/cmux-next-release-compile/SourcePackages" "$RT/other/Build"
+status=0
+RUNNER_TEMP="$RT" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$RT/cmux-next-release-compile" >"$TMP/out" 2>&1 || status=$?
+[[ $status -eq 0 ]] || { rm -rf "$RT"; fail "RUNNER_TEMP DerivedData refused (exit $status)"; }
+[[ ! -e "$RT/cmux-next-release-compile/Build" && -d "$RT/cmux-next-release-compile/SourcePackages" ]] \
+  || { rm -rf "$RT"; fail "RUNNER_TEMP DerivedData was not cleared to its packages"; }
+status=0
+RUNNER_TEMP="$RT" /bin/bash "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$RT/other" >"$TMP/out" 2>&1 || status=$?
+[[ $status -eq 2 && -d "$RT/other/Build" ]] || { rm -rf "$RT"; fail "an unrelated RUNNER_TEMP path was cleared (exit $status)"; }
+rm -rf "$RT"
+
 printf 'release compile DerivedData tests: ok\n'
