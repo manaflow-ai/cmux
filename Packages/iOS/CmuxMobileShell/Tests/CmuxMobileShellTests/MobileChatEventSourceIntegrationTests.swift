@@ -79,13 +79,13 @@ struct MobileChatEventSourceIntegrationTests {
         #expect(requests.filter { $0.method == "mobile.chat.answer" }.allSatisfy { $0.optionIndex == 1 })
         #expect(requests.filter { $0.method == "mobile.chat.controls" }.count == sessions.count)
         #expect(requests.filter { $0.method == "mobile.chat.controls.update" }.count == sessions.count)
-        // A nil control is an explicit clear on the wire. The same clear
-        // semantics must survive the cached controls attached to the next
-        // send, otherwise a stale host value can be resurrected.
+        // The generic controls API keeps explicit null semantics for a future
+        // provider implementation, while normal prompt sends remain plain
+        // text/attachment requests until a live provider-control path exists.
         #expect(requests.filter { $0.method == "mobile.chat.controls.update" }
             .allSatisfy { $0.reasoningEffortWasNull })
         #expect(requests.filter { $0.method == "mobile.chat.send" }
-            .allSatisfy { $0.cachedReasoningEffortWasNull })
+            .allSatisfy { !$0.hasControlsPayload })
         #expect(requests.filter { $0.method == "mobile.chat.review" }.map(\.sessionID) == sessions.map(\.id))
         #expect(requests.filter { $0.method == "mobile.chat.review" }.allSatisfy { $0.action == "comment" })
         #expect(requests.filter { $0.method == "mobile.chat.review" }.allSatisfy { $0.lineNumber == 12 })
@@ -290,7 +290,7 @@ private struct CapturedChatRequest: Sendable, Equatable {
     let action: String?
     let lineNumber: Int?
     let reasoningEffortWasNull: Bool
-    let cachedReasoningEffortWasNull: Bool
+    let hasControlsPayload: Bool
 }
 
 private actor MobileChatRPCTransport: CmxByteTransport {
@@ -359,7 +359,7 @@ private actor MobileChatRPCTransport: CmxByteTransport {
             action: params["action"] as? String,
             lineNumber: params["line_number"] as? Int,
             reasoningEffortWasNull: params["reasoning_effort_id"] is NSNull,
-            cachedReasoningEffortWasNull: ((params["controls"] as? [String: Any])?["reasoning_effort_id"] is NSNull)
+            hasControlsPayload: params.keys.contains("controls")
         ))
 
         let result: Any
@@ -412,7 +412,7 @@ private actor MobileChatRPCTransport: CmxByteTransport {
             result = try jsonObject(ChatSessionLaunchResult(
                 action: action,
                 parentSessionID: sessionID,
-                terminalID: "(sessionID)-terminal"
+                terminalID: "\(sessionID)-terminal"
             ))
         default:
             result = [:]

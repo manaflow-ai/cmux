@@ -42,6 +42,15 @@ extension TerminalController {
         )
     }
 
+    /// Error shown when a client asks the host to change controls that cannot
+    /// be translated into the already-running provider process.
+    static var chatLiveControlsUnsupportedMessage: String {
+        String(
+            localized: "mobile.chat.error.liveControlsUnsupported",
+            defaultValue: "Change the model, permissions, or other agent settings in the terminal."
+        )
+    }
+
     /// Routes one `mobile.chat.*` method to its handler (single dispatch
     /// case in `mobileHostHandleRPC` keeps the god-file growth flat).
     func v2MobileChatDispatch(
@@ -202,49 +211,28 @@ extension TerminalController {
         return ticketWorkspace.isEmpty || requested == ticketWorkspace || ticket.createdWorkspaceIDs.contains(requested)
     }
 
-    /// Returns the provider-neutral controls and host-advertised choices for a
-    /// live session. Provider model discovery is intentionally reused from the
-    /// task composer, while permission/sandbox/plan choices stay generic.
+    /// Returns the controls contract for a live session.
+    ///
+    /// Running provider processes are currently driven through terminal input,
+    /// so cmux cannot truthfully claim that model, permission, sandbox, or plan
+    /// changes would affect an in-flight turn. Keep the descriptor explicit
+    /// about that limitation instead of exposing controls that only mutate
+    /// cached session metadata.
     func v2MobileChatControls(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id"), !sessionID.isEmpty else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
         guard let service = agentChatTranscriptService,
-              let record = service.sessionRecord(sessionID: sessionID) else {
+              service.sessionRecord(sessionID: sessionID) != nil else {
             return .err(code: "not_found", message: "Unknown agent session", data: ["session_id": sessionID])
         }
-        let provider = MobileTaskModelProvider(rawValue: record.agentKind.sourceName)
-        let discovered: MobileTaskModelListResult?
-        if let provider {
-            discovered = await mobileTaskModelDiscovery.models(for: provider)
-        } else {
-            discovered = nil
-        }
-        let current = service.sessionControls(sessionID: sessionID) ?? ChatSessionControls()
-        var controls = current
-        if let discovered {
-            controls.modelOptions = discovered.models.map {
-                ChatSessionControlOption(id: $0.id, displayName: $0.displayName)
-            }
-            let selectedModel = discovered.models.first { $0.id == current.modelID }
-                ?? discovered.defaultModel
-                ?? discovered.models.first
-            controls.reasoningEffortOptions = selectedModel?.efforts.map {
-                ChatSessionControlOption(id: $0.id, displayName: $0.displayName, description: $0.description)
-            } ?? []
-            if controls.modelID == nil { controls.modelID = selectedModel?.id }
-            if controls.reasoningEffortID == nil { controls.reasoningEffortID = selectedModel?.defaultEffortID }
-        }
-        controls.permissionOptions = Self.mobileChatPermissionOptions(for: record.agentKind.sourceName)
-        controls.sandboxOptions = Self.mobileChatSandboxOptions(for: record.agentKind.sourceName)
-        controls.supportsPlanMode = true
-        return .ok(Self.mobileChatControlsPayload(controls))
+        return .ok(Self.mobileChatControlsPayload(ChatSessionControls()))
     }
 
-    /// Applies a partial controls update. The host stores the acknowledged
-    /// values on the session record and emits the normal descriptor revision;
-    /// provider-specific translation remains a host concern and is applied by
-    /// the next provider turn where supported.
+    /// Live provider controls are not supported while a session is running.
+    /// Returning an error is important: acknowledging a metadata-only write
+    /// would make the phone believe a later prompt uses values the provider
+    /// process never received.
     func v2MobileChatControlsUpdate(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id"), !sessionID.isEmpty else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
@@ -260,43 +248,11 @@ extension TerminalController {
         guard params.keys.contains(where: allowedKeys.contains) else {
             return .err(code: "invalid_params", message: "No controls supplied", data: nil)
         }
-        let updated = service.updateSessionControls(sessionID: sessionID) { controls in
-            if let value = params["model_id"] as? String { controls.modelID = value.isEmpty ? nil : value }
-            else if params["model_id"] is NSNull { controls.modelID = nil }
-            if let value = params["reasoning_effort_id"] as? String { controls.reasoningEffortID = value.isEmpty ? nil : value }
-            else if params["reasoning_effort_id"] is NSNull { controls.reasoningEffortID = nil }
-            if let value = params["permission_mode"] as? String { controls.permissionMode = value.isEmpty ? nil : value }
-            else if params["permission_mode"] is NSNull { controls.permissionMode = nil }
-            if let value = params["sandbox_mode"] as? String { controls.sandboxMode = value.isEmpty ? nil : value }
-            else if params["sandbox_mode"] is NSNull { controls.sandboxMode = nil }
-            if let value = params["plan_mode"] as? Bool { controls.planMode = value }
-        }
-        guard updated != nil else { return .err(code: "not_found", message: "Unknown agent session", data: nil) }
-        // Re-run discovery so changing the model refreshes its effort choices
-        // in the same acknowledgement returned to the phone.
-        return await v2MobileChatControls(params: ["session_id": sessionID])
-    }
-
-    private static func mobileChatControlOptions(_ values: [(String, String)]) -> [ChatSessionControlOption] {
-        values.map { ChatSessionControlOption(id: $0.0, displayName: $0.1) }
-    }
-
-    private static func mobileChatPermissionOptions(for provider: String) -> [ChatSessionControlOption] {
-        switch provider {
-        case "codex":
-            return mobileChatControlOptions([("on-request", "On request"), ("never", "Never ask"), ("plan", "Plan only")])
-        default:
-            return mobileChatControlOptions([("default", "Default"), ("accept-edits", "Accept edits"), ("bypass", "Always allow"), ("plan", "Plan only")])
-        }
-    }
-
-    private static func mobileChatSandboxOptions(for provider: String) -> [ChatSessionControlOption] {
-        switch provider {
-        case "codex":
-            return mobileChatControlOptions([("read-only", "Read only"), ("workspace-write", "Workspace write"), ("danger-full-access", "Full access")])
-        default:
-            return mobileChatControlOptions([("restricted", "Restricted"), ("workspace-write", "Workspace write"), ("full-access", "Full access")])
-        }
+        return .err(
+            code: "unsupported",
+            message: Self.chatLiveControlsUnsupportedMessage,
+            data: ["session_id": sessionID]
+        )
     }
 
     private static func mobileChatControlsPayload(_ controls: ChatSessionControls) -> [String: Any] {
@@ -730,28 +686,17 @@ extension TerminalController {
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
-        if let controls = params["controls"] as? [String: Any] {
-            applyMobileChatControls(controls, sessionID: sessionID)
-        }
         if let mutationError = mobileChatMutationError(sessionID: sessionID) {
             return mutationError
         }
-        return await v2MobileChatSendValidated(params: params, sessionID: sessionID)
-    }
-
-    private func applyMobileChatControls(_ params: [String: Any], sessionID: String) {
-        guard let service = agentChatTranscriptService else { return }
-        _ = service.updateSessionControls(sessionID: sessionID) { controls in
-            if let value = params["model_id"] as? String { controls.modelID = value.isEmpty ? nil : value }
-            else if params["model_id"] is NSNull { controls.modelID = nil }
-            if let value = params["reasoning_effort_id"] as? String { controls.reasoningEffortID = value.isEmpty ? nil : value }
-            else if params["reasoning_effort_id"] is NSNull { controls.reasoningEffortID = nil }
-            if let value = params["permission_mode"] as? String { controls.permissionMode = value.isEmpty ? nil : value }
-            else if params["permission_mode"] is NSNull { controls.permissionMode = nil }
-            if let value = params["sandbox_mode"] as? String { controls.sandboxMode = value.isEmpty ? nil : value }
-            else if params["sandbox_mode"] is NSNull { controls.sandboxMode = nil }
-            if let value = params["plan_mode"] as? Bool { controls.planMode = value }
+        guard !params.keys.contains("controls") else {
+            return .err(
+                code: "unsupported",
+                message: Self.chatLiveControlsUnsupportedMessage,
+                data: ["session_id": sessionID]
+            )
         }
+        return await v2MobileChatSendValidated(params: params, sessionID: sessionID)
     }
 
     private func v2MobileChatSendValidated(params: [String: Any], sessionID: String) async -> V2CallResult {

@@ -545,6 +545,78 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     }
 
     @MainActor
+    @Test("live control updates fail without mutating cached session controls")
+    func liveControlsAreRejectedWithoutMetadataMutation() async throws {
+        let suiteName = "AgentChatTranscriptServiceUnsupportedControls.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let sessionID = "unsupported-controls-agent-session"
+        let originalControls = ChatSessionControls(
+            modelID: "model-a",
+            permissionMode: "default",
+            sandboxMode: "restricted",
+            planMode: false
+        )
+        let record = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: .codex,
+            workspaceID: UUID().uuidString,
+            surfaceID: UUID().uuidString,
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 700),
+            controls: originalControls
+        )
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(restoredRecords: [record]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            metadataDefaults: defaults
+        )
+        let controller = TerminalController.shared
+        let previousService = controller.agentChatTranscriptService
+        controller.agentChatTranscriptService = service
+        defer {
+            controller.agentChatTranscriptService = previousService
+            service.shutdown()
+        }
+
+        let result = await controller.v2MobileChatControlsUpdate(params: [
+            "session_id": sessionID,
+            "model_id": "model-b",
+        ])
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected live controls update to be rejected")
+            return
+        }
+        #expect(code == "unsupported")
+        #expect(service.sessionControls(sessionID: sessionID) == originalControls)
+
+        let sendWithControls = await controller.v2MobileChatSend(params: [
+            "session_id": sessionID,
+            "text": "Continue",
+            "controls": ["model_id": "model-b"],
+        ])
+        guard case .err(let sendCode, _, _) = sendWithControls else {
+            Issue.record("Expected sends with explicit controls to be rejected")
+            return
+        }
+        #expect(sendCode == "unsupported")
+
+        let discovery = await controller.v2MobileChatControls(params: ["session_id": sessionID])
+        guard case .ok(let rawPayload) = discovery,
+              let payload = rawPayload as? [String: Any],
+              let controls = payload["controls"] as? [String: Any] else {
+            Issue.record("Expected a controls descriptor")
+            return
+        }
+        #expect(controls["supports_plan_mode"] as? Bool == false)
+        #expect((controls["model_options"] as? [[String: Any]])?.isEmpty == true)
+        #expect((controls["permission_options"] as? [[String: Any]])?.isEmpty == true)
+        #expect((controls["sandbox_options"] as? [[String: Any]])?.isEmpty == true)
+    }
+
+    @MainActor
     @Test("deleted sessions remain hidden after service reconstruction")
     func deletedMetadataSurvivesServiceReconstruction() throws {
         let suiteName = "AgentChatTranscriptServiceDeletedMetadata.\(UUID().uuidString)"

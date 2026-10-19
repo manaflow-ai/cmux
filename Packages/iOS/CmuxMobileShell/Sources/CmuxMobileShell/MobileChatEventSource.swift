@@ -312,9 +312,6 @@ public actor MobileChatEventSource: AgentChatSessionSource {
             }
             params["attachments"] = wireAttachments
         }
-        if let controls = controlsBySession[sessionID] {
-            params["controls"] = Self.controlsPayload(controls)
-        }
         let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.send", params: params)
         _ = try await client.sendRequest(request)
     }
@@ -351,20 +348,6 @@ public actor MobileChatEventSource: AgentChatSessionSource {
         let acknowledged = try coding.decode(ChatSessionControlsResponse.self, from: result).controls
         controlsBySession[sessionID] = acknowledged
         return acknowledged
-    }
-
-    private static func controlsPayload(_ controls: ChatSessionControls) -> [String: Any] {
-        // Keep the cached send payload semantically identical to an explicit
-        // controls update. A nil value is an intentional clear; omitting it
-        // would make a later send reapply stale host state.
-        var payload: [String: Any] = [
-            "model_id": controls.modelID ?? NSNull(),
-            "reasoning_effort_id": controls.reasoningEffortID ?? NSNull(),
-            "permission_mode": controls.permissionMode ?? NSNull(),
-            "sandbox_mode": controls.sandboxMode ?? NSNull(),
-            "plan_mode": controls.planMode,
-        ]
-        return payload
     }
 
     /// Uploads a general file through the same resumable host store used by
