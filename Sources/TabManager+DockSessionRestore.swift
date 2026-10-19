@@ -11,10 +11,11 @@ extension TabManager {
         deferBrowserPanels: Bool = false
     ) {
         let pairs = restoredSessionWorkspacePairs(from: snapshot)
-        var workspacesByOriginalId: [UUID: Workspace] = [:]
+        let workspacesById = Dictionary(pairs.map { ($0.workspace.id, $0.workspace) }, uniquingKeysWith: { first, _ in first })
+        var restoredIdsByOriginalId: [UUID: [UUID]] = [:]
         for pair in pairs {
             if let originalId = pair.snapshot.workspaceId {
-                workspacesByOriginalId[originalId] = pair.workspace
+                restoredIdsByOriginalId[originalId, default: []].append(pair.workspace.id)
             }
         }
         for pair in pairs {
@@ -23,7 +24,16 @@ extension TabManager {
                 dockSnapshot,
                 excludingStableIdentities: excludingStableIdentities,
                 deferBrowserPanels: deferBrowserPanels,
-                sourceWorkspaceResolver: { workspacesByOriginalId[$0] }
+                sourceWorkspaceResolver: { originalId in
+                    let restoredIds = restoredIdsByOriginalId[originalId] ?? []
+                    // Legacy snapshots cannot distinguish duplicate source IDs. Prefer
+                    // this Dock's owner when it matches, otherwise the first saved source.
+                    // Keep the original ID in the snapshot for remote session restoration.
+                    let restoredId = restoredIds.contains(pair.workspace.id)
+                        ? pair.workspace.id
+                        : restoredIds.first
+                    return restoredId.flatMap { workspacesById[$0] }
+                }
             )
         }
     }
