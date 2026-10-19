@@ -129,6 +129,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.freeModel"),
                 // What this Mac does while agents work (keep awake).
                 group("settings.group.sessions"),
+                // Whether agent sessions may start sub-sessions, how many and how deep.
+                group("settings.group.subsessions"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added.
