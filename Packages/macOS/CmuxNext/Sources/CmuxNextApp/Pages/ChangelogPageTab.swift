@@ -16,9 +16,7 @@ final class ChangelogPageTab: InternalPageProvider {
     /// The route the next page view opens on (``open(_:focus:from:to:)``).
     private var pendingRoute: String?
 
-    init(services: AppServices) {
-        self.services = services
-    }
+    init(services: AppServices) { self.services = services }
 
     var page: InternalPageID { .changelog }
     var title: String { ChangelogPageStrings.title }
@@ -29,16 +27,8 @@ final class ChangelogPageTab: InternalPageProvider {
         let route = pendingRoute
         pendingRoute = nil
         guard let services, let view = PageFactory(services: services).changelogPage(route: route) else { return NSView() }
-        // Release-note docs and pull requests stay inside cmux's browser workspace. The page
-        // navigation policy cancels external origins unless the host handles them explicitly.
-        view.onOpenExternal = { [weak services] url in
-            guard let services, url.scheme?.lowercased() == "https" else { return }
-            if let pane = services.windows.active?.focusedPane {
-                pane.newBrowserTab(url: url)
-            } else {
-                services.externalOpen.perform(.browserTab(url))
-            }
-        }
+        // Release-note docs and pull requests open in cmux's browser, whatever the link setting.
+        view.onOpenExternal = { if $0.scheme?.lowercased() == "https" { LinkRouter.shared.open($0, in: .cmuxBrowser) } }
         pages[key] = view
         return view
     }
