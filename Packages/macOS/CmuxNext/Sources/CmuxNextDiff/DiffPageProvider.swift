@@ -1,6 +1,6 @@
-import CmuxNextPages
-import CmuxNextSettings
-import Foundation
+public import CmuxNextPages
+public import CmuxNextSettings
+public import Foundation
 
 /// One diff tab's `cmux.diff.*` namespace (diff-host.md decision a): the page
 /// calls `cmux.diff.<sidecar method>` with the request's params and gets its
@@ -16,7 +16,7 @@ import Foundation
 ///   the grant.
 /// The stdio sidecar sends no events: `cmux.diff.events` subscribes and stays
 /// quiet until the sidecar becomes a pane-protocol provider.
-final class DiffPageProvider: PageProvider {
+public final class DiffPageProvider: PageProvider {
     static let methods: Set<String> = ["protocolHandshake", "sessionOpen", "sessionClose", "branchList", "branchChange"]
     static let configOp = "cmux.diff.config"
     static let languagesOp = "cmux.diff.languages"
@@ -30,7 +30,7 @@ final class DiffPageProvider: PageProvider {
     static let maximumRequestBytes = 1024 * 1024
 
     /// The tab's repository grant, nil while it shows the empty state.
-    private(set) var ready: Task<DiffTabReady, any Error>?
+    public private(set) var ready: Task<DiffTabReady, any Error>?
     private let sidecar: (any DiffSidecarRunning)?
     private let languages: DiffLanguageFeed?
     private weak var host: (any DiffTabHosting)?
@@ -45,7 +45,7 @@ final class DiffPageProvider: PageProvider {
     private var events: [UUID: (JSONValue) -> Void] = [:]
     private(set) var isClosed = false
 
-    init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
+    public init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
          host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil, git: (any DiffGitRunning)? = nil) {
         self.ready = ready
         self.stores = stores
@@ -56,9 +56,9 @@ final class DiffPageProvider: PageProvider {
     }
 
     /// The tab shows the empty state (no repository yet).
-    var isPicking: Bool { ready == nil && !isClosed }
+    public var isPicking: Bool { ready == nil && !isClosed }
 
-    func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+    public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard !isClosed else { throw PageError.closed }
         switch op {
         case Self.configOp:
@@ -85,7 +85,7 @@ final class DiffPageProvider: PageProvider {
         }
     }
 
-    func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+    public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard !isClosed else { throw PageError.closed }
         switch stream {
@@ -118,7 +118,7 @@ final class DiffPageProvider: PageProvider {
     /// Shows the repository `folder` is in, from `source` (`cmux.diff.open`, a
     /// dropped folder): the config the page renders in place. The previous
     /// grant, its sessions and files are retired first.
-    func open(folder: URL, source: DiffOpenSource) async throws -> JSONValue {
+    public func open(folder: URL, source: DiffOpenSource) async throws -> JSONValue {
         guard !isClosed else { throw PageError.closed }
         guard let host else { throw PageError.unknownOp(Self.openOp) }
         guard let repository = await host.repository(at: folder) else {
@@ -241,7 +241,7 @@ final class DiffPageProvider: PageProvider {
 
     /// The tab closed: stops the open in flight, closes every session this tab
     /// opened, then removes the grant (off the main actor).
-    func close() async {
+    public func close() async {
         guard !isClosed else { return }
         isClosed = true
         events.removeAll()

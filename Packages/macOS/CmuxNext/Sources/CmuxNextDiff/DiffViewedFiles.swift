@@ -1,5 +1,5 @@
 import CmuxNextSettings
-import Foundation
+public import Foundation
 
 /// The diff page's "Viewed" marks (GitHub "Files changed" parity), kept by
 /// the host next to the recents (`diff-viewed.json`, coordinator decision
@@ -9,7 +9,7 @@ import Foundation
 /// file shows as "changed since viewed". At most ``scopeLimit`` scopes (the
 /// least recently changed go first) and ``fileLimit`` files per scope. Reads
 /// and writes run off the main actor, writes in order.
-final class DiffViewedFiles {
+public final class DiffViewedFiles {
     static let fileName = "diff-viewed.json"
     static let scopeLimit = 200
     static let fileLimit = 5000
@@ -30,11 +30,11 @@ final class DiffViewedFiles {
     private var loading: Task<[Scope], Never>?
     private var saving: Task<Void, Never>?
 
-    init(url: URL) {
+    public init(url: URL) {
         self.url = url
     }
 
-    static func standardURL(recents: URL) -> URL {
+    public static func standardURL(recents: URL) -> URL {
         recents.deletingLastPathComponent().appending(path: fileName)
     }
 

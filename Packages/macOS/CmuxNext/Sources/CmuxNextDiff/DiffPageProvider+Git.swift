@@ -1,12 +1,13 @@
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
+public import CmuxNextDaemonService
 import CmuxNextPages
-import CmuxNextSettings
+public import CmuxNextSettings
 import CryptoKit
 import Foundation
 
 /// Runs the diff tab's git reads and writes (cx-ueuc8) in a repository: the agent pane's git
 /// link and staging, so the viewer stages, commits and pushes as the chat's changes view does.
-protocol DiffGitRunning: AnyObject {
+public protocol DiffGitRunning: AnyObject {
     /// The session host's `git.status` of `repository`.
     func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue
     /// The session host's `git.diff` of `repository` in `scope`, with each file's patch or only its counts.
@@ -116,26 +117,26 @@ extension DiffPageProvider {
 }
 
 /// The running app's diff git: the agent pane's local git link and its staging.
-final class DiffAgentGit: DiffGitRunning {
+public final class DiffAgentGit: DiffGitRunning {
     private let link: AgentPaneGitLink
 
-    init(link: AgentPaneGitLink) {
+    public init(link: AgentPaneGitLink) {
         self.link = link
     }
 
-    func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
+    public func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.parse(try await link.read(.status(cwd: repository)))
     }
 
-    func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
+    public func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.parse(try await link.read(.diff(cwd: repository, scope: scope, includePatch: includePatch)))
     }
 
-    func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
+    public func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue {
         try Self.parse(try await link.write(request, in: repository))
     }
 
-    func stage(_ request: AgentPaneGitStage, in repository: String) async -> String? {
+    public func stage(_ request: AgentPaneGitStage, in repository: String) async -> String? {
         await AgentPaneGitStage.run(request, roots: [repository])
     }
 

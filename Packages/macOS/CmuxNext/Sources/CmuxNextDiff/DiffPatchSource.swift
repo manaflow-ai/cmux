@@ -1,4 +1,4 @@
-import CmuxNextPages
+public import CmuxNextPages
 import Darwin
 import Foundation
 
@@ -102,11 +102,11 @@ nonisolated struct DiffPatchResolver: Sendable {
 /// tab's patches through ``DiffPatchResolver`` with that tab's current grant,
 /// read off the main actor, with the sidecar's MIME type. Nothing is served
 /// while the tab has no grant. The tab's page view keeps it alive.
-final class DiffPatchSource: PageDynamicResourceSource {
+public final class DiffPatchSource: PageDynamicResourceSource {
     private let current: () -> Task<DiffTabReady, any Error>?
 
     /// `current` is the tab's grant now (its provider's).
-    init(current: @escaping () -> Task<DiffTabReady, any Error>?) {
+    public init(current: @escaping () -> Task<DiffTabReady, any Error>?) {
         self.current = current
     }
 
@@ -114,7 +114,7 @@ final class DiffPatchSource: PageDynamicResourceSource {
         self.init { ready }
     }
 
-    func resource(for request: PageResourceRequest) async -> PageResource? {
+    public func resource(for request: PageResourceRequest) async -> PageResource? {
         guard let grant = try? await current()?.value.grant else { return nil }
         return await Self.read(DiffPatchResolver(root: grant.root, token: grant.token), request)
     }
