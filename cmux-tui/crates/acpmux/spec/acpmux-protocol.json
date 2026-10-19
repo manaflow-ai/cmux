@@ -758,6 +758,30 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/inventory/refresh",
+      "params": {
+        "$ref": "#/types/InventoryRefreshParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/update/plan",
+      "params": {
+        "$ref": "#/types/HarnessUpdatePlanParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/harness/update/prepare",
+      "params": {
+        "$ref": "#/types/HarnessUpdatePlanParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/update",
       "params": true,
       "result": true
@@ -1104,6 +1128,18 @@
       ],
       "type": "object"
     },
+    "HarnessUpdatePlanParams": {
+      "additionalProperties": false,
+      "properties": {
+        "cli": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cli"
+      ],
+      "type": "object"
+    },
     "Indicator": {
       "enum": [
         "input",
@@ -1113,6 +1149,10 @@
         "done"
       ],
       "type": "string"
+    },
+    "InventoryRefreshParams": {
+      "additionalProperties": false,
+      "type": "object"
     },
     "InventoryWatchParams": {
       "additionalProperties": false,

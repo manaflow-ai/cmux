@@ -1,3 +1,4 @@
+import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextPalette
 import CmuxNextSettings
