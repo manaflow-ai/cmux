@@ -877,8 +877,14 @@ merged_head_checks() {
       "not merged: $ref does not merge cleanly into $base ($base_sha)" \
       'merge the base into the PR (scripts/merge-main.sh), push, and retry'
   fi
+  # The pages' strings tables are build output (#21946): vp check needs them, and
+  # gen-strings.mjs makes them from the catalogs and the settings schema.
+  local strings_inputs=()
+  if git -C "$repo_dir" cat-file -e "$merged_tree:schemas/settings" 2>/dev/null; then
+    strings_inputs+=(schemas/settings)
+  fi
   if ! git -C "$repo_dir" archive "$merged_tree" -- \
-      Packages/macOS/CmuxNext webviews scripts/cmux-next/check-no-godfiles.sh \
+      Packages/macOS/CmuxNext webviews ${strings_inputs[@]+"${strings_inputs[@]}"} scripts/cmux-next/check-no-godfiles.sh \
       scripts/cmux-next/godfile-baseline.tsv $(web_shared_paths "$merged_tree") | tar -x -C "$merged"; then
     rm -rf "$tmp"
     refuse \
@@ -911,7 +917,7 @@ merged_head_checks() {
     if ! bun=$(command -v bun); then
       status=2
       printf 'not merged: bun is not on PATH, so vp check cannot run on the merged head of %s\n' "$ref" >&2
-    elif ! output=$(cd "$merged/webviews" && "$bun" install --frozen-lockfile --ignore-scripts 2>&1 && "$bun" x vp check 2>&1); then
+    elif ! output=$(cd "$merged/webviews" && "$bun" install --frozen-lockfile --ignore-scripts 2>&1 && { [ ! -f scripts/pages/gen-strings.mjs ] || "$bun" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1; } && "$bun" x vp check 2>&1); then
       # A red the base already has is not this PR's: check the base tree with
       # the same install, and refuse only for files the base does not flag.
       local base_output new_files base_tree
@@ -921,9 +927,14 @@ merged_head_checks() {
       # base webviews separately for the red-base comparison instead of trying
       # to checkout the base in the archive (which exits 128 and hides the
       # actual vp diagnostic).
-      if ! git -C "$repo_dir" archive "$base_sha" -- webviews $(web_shared_paths "$base_sha") | tar -x -C "$base_tree"; then
+      local base_inputs=(webviews) shared_path
+      git -C "$repo_dir" cat-file -e "$base_sha:schemas/settings" 2>/dev/null && base_inputs+=(schemas/settings)
+      git -C "$repo_dir" cat-file -e "$base_sha:Packages/macOS/CmuxNext/Sources" 2>/dev/null \
+        && base_inputs+=(':(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings')
+      while IFS= read -r shared_path; do base_inputs+=("$shared_path"); done < <(web_shared_paths "$base_sha")
+      if ! git -C "$repo_dir" archive "$base_sha" -- "${base_inputs[@]}" | tar -x -C "$base_tree"; then
         base_output=''
-      elif base_output=$(cd "$base_tree/webviews" && "$bun" install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 && "$bun" x vp check 2>&1); then
+      elif base_output=$(cd "$base_tree/webviews" && "$bun" install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 && { [ ! -f scripts/pages/gen-strings.mjs ] || "$bun" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1; } && "$bun" x vp check 2>&1); then
         new_files=$(vp_flagged_files <<<"$output")
       else
         new_files=$(LC_ALL=C comm -23 <(vp_flagged_files <<<"$output") <(vp_flagged_files <<<"$base_output"))
