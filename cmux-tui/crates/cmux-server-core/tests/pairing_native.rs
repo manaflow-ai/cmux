@@ -40,10 +40,7 @@ fn server_pairing_native_refuses_confused_tenant_mesh_and_device_locators() {
     for field in ["tenant", "mesh", "device"] {
         let mut value = frame();
         value["network"][field] = json!("another-identity");
-        assert!(
-            read_frame(&value.to_string()).is_err(),
-            "accepted a mismatched {field}"
-        );
+        assert!(read_frame(&value.to_string()).is_err(), "accepted a mismatched {field}");
     }
 }
 
@@ -57,19 +54,13 @@ fn server_pairing_native_refuses_non_https_or_non_origin_api_targets() {
     ] {
         let mut value = frame();
         value["network_enrollment"]["origin"] = json!(origin);
-        assert!(
-            read_frame(&value.to_string()).is_err(),
-            "accepted an unsafe API origin"
-        );
+        assert!(read_frame(&value.to_string()).is_err(), "accepted an unsafe API origin");
     }
 }
 
 #[test]
 fn server_pairing_native_refuses_gateway_codes_and_invalid_public_bindings() {
-    for (field, bad) in [
-        ("code", "mec_00000000000000000000000000"),
-        ("expiresAt", "never"),
-    ] {
+    for (field, bad) in [("code", "mec_00000000000000000000000000"), ("expiresAt", "never")] {
         let mut value = frame();
         value["network_enrollment"][field] = json!(bad);
         assert!(read_frame(&value.to_string()).is_err());
