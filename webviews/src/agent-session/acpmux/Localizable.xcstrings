@@ -161551,530 +161551,530 @@
         }
       }
     },
-    "rail.connected": {
-      "comment": "Agent pane",
+    "summary.subagents.active": {
+      "comment": "Agent pane: the summary card's Subagents tab (summary/SubagentsTab.tsx), heading over its running subagents; {n} is their count",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} connected"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} متصل"
+            "value": "نشطة · {n}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povezano: {count}"
+            "value": "Aktivni · {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} forbundet"
+            "value": "Aktive · {n}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} verbunden"
+            "value": "Aktiv · {n}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active · {n}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} conectados"
+            "value": "Activos · {n}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} connectés"
+            "value": "Actifs · {n}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} connessi"
+            "value": "Attivi · {n}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} 件接続済み"
+            "value": "実行中 · {n}"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បានភ្ជាប់ {count}"
+            "value": "សកម្ម · {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count}개 연결됨"
+            "value": "활성 · {n}"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} tilkoblet"
+            "value": "Aktive · {n}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Połączono: {count}"
+            "value": "Aktywne · {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} conectados"
+            "value": "Ativos · {n}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключено: {count}"
+            "value": "Активные · {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชื่อมต่อแล้ว {count}"
+            "value": "กำลังทำงาน · {n}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} bağlı"
+            "value": "Etkin · {n}"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключено: {count}"
+            "value": "Активні · {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đã kết nối {count}"
+            "value": "Đang hoạt động · {n}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已连接 {count} 个"
+            "value": "活跃 · {n}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已連接 {count} 個"
+            "value": "活躍 · {n}"
           }
         }
       }
     },
-    "rail.connectorFailed": {
-      "comment": "Agent pane",
+    "summary.subagents.ended": {
+      "comment": "Agent pane: the summary card's Subagents tab (summary/SubagentsTab.tsx), heading over its ended subagents; {n} is their count",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فشل"
+            "value": "مكتملة · {n}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neuspjelo"
+            "value": "Gotovi · {n}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mislykkedes"
+            "value": "Færdige · {n}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fehlgeschlagen"
+            "value": "Fertig · {n}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done · {n}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error"
+            "value": "Terminados · {n}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Échec"
+            "value": "Terminés · {n}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non riuscito"
+            "value": "Completati · {n}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "失敗"
+            "value": "完了 · {n}"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បរាជ័យ"
+            "value": "រួចរាល់ · {n}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "실패"
+            "value": "완료 · {n}"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mislyktes"
+            "value": "Ferdige · {n}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niepowodzenie"
+            "value": "Ukończone · {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Falhou"
+            "value": "Concluídos · {n}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ошибка"
+            "value": "Завершённые · {n}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ล้มเหลว"
+            "value": "เสร็จแล้ว · {n}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başarısız"
+            "value": "Tamamlanan · {n}"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Помилка"
+            "value": "Завершені · {n}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thất bại"
+            "value": "Đã xong · {n}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "失败"
+            "value": "已完成 · {n}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "失敗"
+            "value": "已完成 · {n}"
           }
         }
       }
     },
-    "rail.connectorPending": {
-      "comment": "Agent pane",
+    "summary.subagents.noneActive": {
+      "comment": "Agent pane: the summary card's Subagents tab (summary/SubagentsTab.tsx) when no subagent runs",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connecting"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "جارٍ الاتصال"
+            "value": "لا يوجد وكلاء فرعيون نشطون"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Povezivanje"
+            "value": "Nema aktivnih subagenata"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbinder"
+            "value": "Ingen aktive subagenter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wird verbunden"
+            "value": "Keine aktiven Subagenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No active subagents"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conectando"
+            "value": "No hay subagentes activos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connexion"
+            "value": "Aucun sous-agent actif"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connessione"
+            "value": "Nessun subagente attivo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "接続中"
+            "value": "実行中のサブエージェントはありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំពុងភ្ជាប់"
+            "value": "គ្មានភ្នាក់ងាររងសកម្ម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결 중"
+            "value": "활성 하위 에이전트 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kobler til"
+            "value": "Ingen aktive underagenter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Łączenie"
+            "value": "Brak aktywnych subagentów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conectando"
+            "value": "Nenhum subagente ativo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Подключение"
+            "value": "Нет активных субагентов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "กำลังเชื่อมต่อ"
+            "value": "ไม่มีเอเจนต์ย่อยที่ทำงานอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bağlanıyor"
+            "value": "Etkin alt ajan yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Підключення"
+            "value": "Немає активних субагентів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đang kết nối"
+            "value": "Không có tác nhân phụ nào đang hoạt động"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在连接"
+            "value": "没有活跃的子代理"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在連接"
+            "value": "沒有活躍的子代理"
           }
         }
       }
     },
-    "rail.connectors": {
-      "comment": "Agent pane",
+    "summary.subagents.closeTab": {
+      "comment": "Agent pane: the summary card's Subagents tab close button (summary/SummaryCard.tsx)",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Connectors"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الموصلات"
+            "value": "إغلاق الوكلاء الفرعيين"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Konektori"
+            "value": "Zatvori Subagente"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forbindelser"
+            "value": "Luk Subagenter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Konnektoren"
+            "value": "Subagenten schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Subagents"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conectores"
+            "value": "Cerrar Subagentes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecteurs"
+            "value": "Fermer Sous-agents"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connettori"
+            "value": "Chiudi Subagenti"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コネクタ"
+            "value": "サブエージェントを閉じる"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ឧបករណ៍ភ្ជាប់"
+            "value": "បិទភ្នាក់ងាររង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "커넥터"
+            "value": "하위 에이전트 닫기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koblinger"
+            "value": "Lukk Underagenter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Konektory"
+            "value": "Zamknij Subagentów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conectores"
+            "value": "Fechar Subagentes"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Коннекторы"
+            "value": "Закрыть субагентов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตัวเชื่อมต่อ"
+            "value": "ปิดเอเจนต์ย่อย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bağlayıcılar"
+            "value": "Alt ajanları kapat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Конектори"
+            "value": "Закрити субагентів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình kết nối"
+            "value": "Đóng Tác nhân phụ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接器"
+            "value": "关闭子代理"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連接器"
+            "value": "關閉子代理"
           }
         }
       }
@@ -165615,6 +165615,534 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "rail.connected": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} connected"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezano: {count}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} forbundet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} conectados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} connectés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} connessi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} 件接続済み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានភ្ជាប់ {count}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count}개 연결됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} tilkoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączono: {count}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} conectados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключено: {count}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อแล้ว {count}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} bağlı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключено: {count}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã kết nối {count}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接 {count} 个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連接 {count} 個"
+          }
+        }
+      }
+    },
+    "rail.connectorFailed": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuspjelo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mislykkedes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlgeschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non riuscito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បរាជ័យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실패"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mislyktes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niepowodzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falhou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başarısız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помилка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thất bại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "失敗"
+          }
+        }
+      }
+    },
+    "rail.connectorPending": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezivanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbinder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kobler til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Łączenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlanıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在連接"
+          }
+        }
+      }
+    },
+    "rail.connectors": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectors"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموصلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konektori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konnektoren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecteurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connettori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コネクタ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍ភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "커넥터"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koblinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konektory"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коннекторы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlayıcılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Конектори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接器"
           }
         }
       }
