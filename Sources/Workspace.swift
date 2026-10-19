@@ -1994,16 +1994,11 @@ extension Workspace {
                 persistedManagedResumeBinding?.kind ?? persistedResumeBinding?.kind ?? snapshot.terminal?.agent?.kind.rawValue
             let capturedAgentSessionID = restorableAgent?.sessionId ?? effectiveResumeBindingForStartup?.checkpointId ??
                 persistedManagedResumeBinding?.checkpointId ?? persistedResumeBinding?.checkpointId ?? snapshot.terminal?.agent?.sessionId
-            let legacySubrouterResumeInput = legacySubrouterBinding && shouldAutoResumeAgent
-                ? Self.legacySubrouterResumeStartupInput(
-                    kind: persistedManagedResumeBinding?.kind ?? persistedResumeBinding?.kind ?? capturedAgentKind,
-                    sessionID: persistedManagedResumeBinding?.checkpointId ?? persistedResumeBinding?.checkpointId ?? capturedAgentSessionID,
-                    launchCommand: persistedManagedResumeBinding?.launchCommand ?? persistedResumeBinding?.launchCommand ??
-                        snapshot.terminal?.agent?.launchCommand ?? capturedCodexLaunch,
-                    resumeBinding: persistedManagedResumeBinding ?? persistedResumeBinding ?? resumeBinding,
-                    workingDirectory: resumeSessionWorkingDirectory
-                )
-                : nil
+            // Route structured agent records through `cmux restore`, which
+            // owns the cross-process launch lease and writer-lock admission.
+            // Binding-only legacy snapshots remain available for manual restore
+            // instead of typing an unleased Subrouter command at startup.
+            let legacySubrouterResumeInput: String? = nil
             let legacySubrouterRestoreBlocked = legacySubrouterBinding &&
                 shouldAutoResumeAgent &&
                 legacySubrouterResumeInput == nil

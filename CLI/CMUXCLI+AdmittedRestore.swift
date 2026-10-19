@@ -165,7 +165,9 @@ extension CMUXCLI {
             sessionDirectory: nil
         ),
         let executableIndex = words.firstIndex(where: {
-            URL(fileURLWithPath: $0).lastPathComponent == "claude"
+            URL(fileURLWithPath: $0).lastPathComponent == "claude" ||
+                $0 == AgentResumeArgv.claudeWrapperShellExecutableToken ||
+                $0.contains("CMUX_CLAUDE_WRAPPER_SHIM")
         }),
         let preserved = AgentLaunchSanitizer.preservedArguments(
             kind: "claude",
@@ -173,7 +175,14 @@ extension CMUXCLI {
         ) else {
             return nil
         }
-        let executable = words[executableIndex]
+        let capturedExecutable = words[executableIndex]
+        // Legacy captures made by the Claude shim store the logical executable
+        // as a wrapper token. Treat both spellings as Claude while retaining
+        // every argument after the executable for the routed restore planner.
+        let executable = capturedExecutable == AgentResumeArgv.claudeWrapperShellExecutableToken ||
+            capturedExecutable.contains("CMUX_CLAUDE_WRAPPER_SHIM")
+            ? "claude"
+            : capturedExecutable
         return AgentLaunchCommand(
             launcher: "claude",
             executablePath: executable,

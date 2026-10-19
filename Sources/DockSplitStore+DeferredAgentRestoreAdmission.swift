@@ -114,16 +114,11 @@ extension DockSplitStore {
             let startupInput: String?
             let claim: (kind: String, sessionId: String)?
             let capturedBinding = currentResumeBinding ?? restore.resumeBinding
-            let legacySubrouterInput = !restore.restoresRemoteWorkspaceTerminalSnapshot
-                ? Workspace.legacySubrouterResumeStartupInput(
-                    kind: capturedBinding?.kind ?? restore.restorableAgent?.kind.rawValue,
-                    sessionID: capturedBinding?.checkpointId ?? restore.restorableAgent?.sessionId,
-                    launchCommand: capturedBinding?.launchCommand
-                        ?? restore.restorableAgent?.launchCommand,
-                    resumeBinding: capturedBinding,
-                    workingDirectory: restore.resumeWorkingDirectory
-                )
-                : nil
+            // Structured agent records must resume through `cmux restore`,
+            // which owns the cross-process launch lease and writer-lock check.
+            // Binding-only legacy snapshots remain manually recoverable rather
+            // than typing an unleased `sr codex resume` command.
+            let legacySubrouterInput: String? = nil
             if let legacySubrouterInput {
                 // Legacy Subrouter records must use the proven routed launcher,
                 // but only after the complete ownership index has admitted this

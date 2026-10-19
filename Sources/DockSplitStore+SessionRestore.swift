@@ -506,16 +506,11 @@ extension DockSplitStore {
             routingResumeBinding?.kind ?? terminalSnapshot.agent?.kind.rawValue
         let capturedAgentSessionID = restorableAgent?.sessionId ?? approvedResumeBinding?.checkpointId ??
             routingResumeBinding?.checkpointId ?? terminalSnapshot.agent?.sessionId
-        let legacySubrouterResumeInput = legacySubrouterBinding && shouldAutoResumeAgent
-            ? Workspace.legacySubrouterResumeStartupInput(
-                kind: routingResumeBinding?.kind ?? capturedAgentKind,
-                sessionID: routingResumeBinding?.checkpointId ?? capturedAgentSessionID,
-                launchCommand: routingResumeBinding?.launchCommand ??
-                    terminalSnapshot.agent?.launchCommand ?? capturedCodexLaunch,
-                resumeBinding: routingResumeBinding,
-                workingDirectory: resumeSessionWorkingDirectory
-            )
-            : nil
+        // Route structured agent records through `cmux restore`, which owns
+        // the cross-process launch lease and writer-lock admission. Binding-
+        // only legacy snapshots remain available for manual restore instead
+        // of typing an unleased Subrouter command at startup.
+        let legacySubrouterResumeInput: String? = nil
         // A legacy direct binding can contain a stale per-session Subrouter
         // URL. Let the live `sr codex resume` route rebuild provider config.
         let legacySubrouterRestoreBlocked = legacySubrouterBinding &&
