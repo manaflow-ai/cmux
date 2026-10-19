@@ -416,7 +416,8 @@ refused. `--window` and `--id-format` are accepted and ignored.
 ### agent
 
 ```text
-cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown]
+cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown] [--needs-me]
+                [--sort needs-me|recent|none] [--limit <n>] [--counts]
 cmux agent report --terminal <term_id> --state <state> --source hook|socket [--source-session <id>]
 cmux agent hook install|uninstall|status [provider...]
 cmux agent hook emit --source <agent> --event <native-event> [--terminal <term_id>] [--payload-json <json>]
@@ -425,6 +426,11 @@ cmux agent plugin install <git-url> [--name <value>] [--force]
 cmux agent plugin use|update|remove <name-or-id>
 cmux agent plugin use --builtin
 ```
+
+`agent list` puts blocked agents first, then working, then idle and done
+(`--sort recent|none` for recency or the daemon's order). `--json` stays a bare
+array of agents; `--json --counts` adds the counts by state
+(`{"agents": [...], "counts": {...}}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`
 and `pi`. `hook emit` reads the native payload from stdin when
