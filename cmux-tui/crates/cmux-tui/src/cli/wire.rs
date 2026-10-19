@@ -482,7 +482,7 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    return print_result(global, plan, result);
+                    return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     eprintln!("protocol error: stream response did not confirm the requested ID");
