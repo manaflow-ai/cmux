@@ -13,6 +13,8 @@ public actor MobileCompatSession {
 
     let backend: any MobileCompatBackend
     let host: MobileCompatHostInfo
+    /// What this Mac lets phones do, read per request (Settings > Accounts > Phone Access).
+    let access: PhoneAccessGate
     let emit: Emit
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.compat")
     var subscribed = false
@@ -29,8 +31,9 @@ public actor MobileCompatSession {
     var readiness = MobileReadiness()
 
     public init(backend: any MobileCompatBackend, host: MobileCompatHostInfo, emit: @escaping Emit,
-                onUsable: (@Sendable (MobileUsableSession) -> Void)? = nil) {
+                access: PhoneAccessGate = PhoneAccessGate(), onUsable: (@Sendable (MobileUsableSession) -> Void)? = nil) {
         self.backend = backend
+        self.access = access
         self.host = host
         self.emit = emit
         self.onUsable = onUsable
@@ -61,6 +64,9 @@ public actor MobileCompatSession {
     }
 
     func dispatch(_ request: MobileRPCRequest) async throws -> JSONValue {
+        if MobileCompatMethods.startsSessions.contains(request.method), !access.allowsStartingSessions {
+            throw MobileRPCError("forbidden", PhoneAccessGate.startRefusal)
+        }
         switch request.method {
         case "mobile.host.status":
             return host.statusPayload
