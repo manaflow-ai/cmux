@@ -306,6 +306,7 @@ public nonisolated struct AgentPaneTunables {
             foldLongThoughts.descriptor,
             liveThoughtViewport.descriptor,
             newTabWidgets.descriptor,
+            openOutsideChatsViewOnly.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
