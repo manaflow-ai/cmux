@@ -1,15 +1,16 @@
 import CmuxNextAgentPane
 import CmuxNextSettings
+public import CmuxNextDaemonService
 import Foundation
 import CmuxNextCompat
 
 /// What every diff tab shares: the per-user session root, the sidecar pool
 /// (4 children at once, nil when this build has no bundled sidecar) and the
 /// language pack feed. Each tab still gets its own grant from ``prepare``.
-final class DiffPageRuntime {
+public final class DiffPageRuntime {
     let root: URL
-    let sidecar: (any DiffSidecarRunning)?
-    let languages: DiffLanguageFeed
+    public let sidecar: (any DiffSidecarRunning)?
+    public let languages: DiffLanguageFeed
     /// Reads the session host's `git.status` of a folder.
     private let status: @MainActor (String) async throws -> JSONValue
     nonisolated private static let swept = Mutex(false)
@@ -27,7 +28,7 @@ final class DiffPageRuntime {
     /// The runtime of the running app: `git.status` through the agent pane's
     /// git link (its own daemon connection, so a slow read never holds
     /// terminal commands).
-    convenience init(git: AgentPaneGitLink) {
+    public convenience init(git: AgentPaneGitLink) {
         self.init(status: { directory in
             let data = try await git.read(.status(cwd: directory))
             return try JSONValue.parse(data)
@@ -36,14 +37,14 @@ final class DiffPageRuntime {
 
     /// The repository `folder` is in, from the session host's `git.status`;
     /// nil when it is in none (or the session host cannot say).
-    func repository(at folder: URL) async -> DiffRepository? {
+    public func repository(at folder: URL) async -> DiffRepository? {
         guard let status = try? await status(folder.path) else { return nil }
         return DiffRepository(status: status)
     }
 
     /// The tab's grant (for `repository`'s root) and config. Fails with a
     /// ``DiffTabFailure`` the page shows.
-    func prepare(repository: DiffRepository, source: DiffOpenSource) -> Task<DiffTabReady, any Error> {
+    public func prepare(repository: DiffRepository, source: DiffOpenSource) -> Task<DiffTabReady, any Error> {
         let root = root, available = sidecar != nil
         return Task {
             guard available else { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
@@ -80,7 +81,7 @@ final class DiffPageRuntime {
 
     /// App quit: removes every live grant now, on the calling thread (the
     /// process is ending; nothing else will).
-    static func removeAllGrantsNow() {
+    public static func removeAllGrantsNow() {
         let grants = live.withLock { live -> [DiffSessionGrant] in
             defer { live.removeAll() }
             return Array(live.values)
