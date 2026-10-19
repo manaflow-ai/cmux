@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""test_touches_diff: per-file verdicts from a bun metafile, and a real bundle when bun is present."""
+import importlib.util
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).parents[1]
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+spec = importlib.util.spec_from_file_location("touches", ROOT / "scripts/ci/test_touches_diff.py")
+touches = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(touches)
+
+# The shape of PR #21651's case: the test reaches repository.ts through
+# routeHelpers.ts, and never reaches workflows.ts.
+EDGES = {
+    "tests/vm-route-deadlines.test.ts": ["services/vms/routeHelpers.ts", "services/vms/routeDeadline.ts"],
+    "services/vms/routeHelpers.ts": ["services/vms/repository.ts"],
+    "services/vms/routeDeadline.ts": ["services/vms/types.ts"],
+    "services/vms/repository.ts": [],
+    "services/vms/types.ts": [],
+    "tests/test-preload.ts": [],
+}
+SIZES = {"services/vms/routeHelpers.ts": 900, "services/vms/repository.ts": 4000, "services/vms/types.ts": 0}
+ENTRIES = ["tests/vm-route-deadlines.test.ts", "tests/test-preload.ts"]
+
+
+def by_file(files):
+    return {f["file"]: f for f in files}
+
+
+class Verdicts(unittest.TestCase):
+    def test_graph_only_verdicts(self):
+        files = by_file(touches.verdicts(
+            ["web/services/vms/workflows.ts", "web/services/vms/repository.ts", "web/services/vms/types.ts",
+             "docs/x.md"], EDGES, SIZES, ENTRIES))
+        self.assertEqual(files["web/services/vms/workflows.ts"]["verdict"], "not imported")
+        self.assertEqual(files["docs/x.md"]["verdict"], "not imported")
+        self.assertEqual(files["web/services/vms/types.ts"]["verdict"], "tree-shaken")
+        repo = files["web/services/vms/repository.ts"]
+        self.assertEqual(repo["verdict"], "imported")
+        self.assertEqual(repo["chain"], ["tests/vm-route-deadlines.test.ts", "services/vms/routeHelpers.ts",
+                                         "services/vms/repository.ts"])
+
+    def test_runner_files_reach_every_test(self):
+        files = touches.verdicts(["web/bun.lock", "web/bunfig.toml"], EDGES, SIZES, ENTRIES)
+        self.assertEqual({f["verdict"] for f in files}, {"runner"})
+        self.assertIn("every test", touches.summary_line("tests/a.test.ts", files, False))
+
+    def test_coverage_separates_run_from_merely_imported(self):
+        lines = {"web/services/vms/repository.ts": {3844, 3849}, "web/services/vms/routeHelpers.ts": {10},
+                 "web/services/vms/routeDeadline.ts": {7}}
+        hits = {"services/vms/repository.ts": {3844: 0, 3849: 0, 12: 5},
+                "services/vms/routeHelpers.ts": {10: 3}}
+        sizes = {**SIZES, "services/vms/routeDeadline.ts": 100}
+        files = by_file(touches.verdicts(list(lines), EDGES, sizes, ENTRIES, lines, hits))
+        self.assertEqual(files["web/services/vms/repository.ts"]["verdict"], "not executed")
+        self.assertEqual(files["web/services/vms/repository.ts"]["lines_not_run"], [3844, 3849])
+        self.assertEqual(files["web/services/vms/routeHelpers.ts"]["verdict"], "executed")
+        # Bundled, but bun never loaded it while the test ran.
+        self.assertEqual(files["web/services/vms/routeDeadline.ts"]["verdict"], "not executed")
+
+    def test_changed_lines_above_the_first_block_are_not_code(self):
+        files = touches.verdicts(["web/services/vms/repository.ts"], EDGES, SIZES, ENTRIES,
+                                 {"web/services/vms/repository.ts": {3, 4}},
+                                 {"services/vms/repository.ts": {12: 1}})
+        self.assertEqual(files[0]["verdict"], "no code changed")
+        self.assertIn("runs none of the changed code", touches.summary_line("tests/t.test.ts", files, True))
+
+    def test_a_changed_line_takes_its_blocks_hits(self):
+        # bun lists an uncalled function only by its first line (4, 0 hits); line 5 is inside it.
+        hits = {1: 11, 2: 9, 4: 0}
+        self.assertEqual(touches.block_hits(hits, {2, 5}), {2: 9, 5: 0})
+        self.assertEqual(touches.block_hits(hits, None), hits)
+
+    def test_comments_and_type_declarations_are_not_code(self):
+        text = "\n".join([
+            "export type Shape = {",       # 1
+            "  /** doc",                   # 2
+            "   * more */",                # 3
+            "  readonly a: number;",       # 4
+            "};",                          # 5
+            "// note",                     # 6
+            "",                            # 7
+            "export const x = run();",     # 8
+            "interface Other { b: string }",  # 9
+            "function f() {",              # 10
+            "  return x; // trailing",     # 11
+            "}",                           # 12
+        ])
+        self.assertEqual(touches.code_lines(text), {8, 10, 11, 12})
+
+    def test_lcov_parsing_relativizes_and_sums(self):
+        root = Path("/w/web")
+        text = "SF:/w/web/services/a.ts\nDA:1,2\nDA:2,0\nend_of_record\nSF:services/b.ts\nDA:5,1\nend_of_record\n"
+        self.assertEqual(touches.parse_lcov(text, root), {"services/a.ts": {1: 2, 2: 0}, "services/b.ts": {5: 1}})
+
+    def test_test_paths(self):
+        self.assertEqual(touches.test_path("tests/a.test.ts"), "web/tests/a.test.ts")
+        self.assertEqual(touches.test_path("./tests/a.test.ts"), "web/tests/a.test.ts")
+        self.assertEqual(touches.test_path("web/tests/a.test.ts"), "web/tests/a.test.ts")
+
+
+@unittest.skipUnless(shutil.which("bun") and shutil.which("git"), "needs bun and git")
+class RealBundle(unittest.TestCase):
+    """A two-commit repository: the diff changes one imported and one unrelated file."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        self.write("web/bunfig.toml", '[test]\npreload = ["./tests/preload.ts"]\n')
+        self.write("web/tests/preload.ts", "export {};\n")
+        self.write("web/lib/used.ts", "export function used() {\n  return 1;\n}\nexport function idle() {\n  return 2;\n}\n")
+        self.write("web/lib/types.ts", "export type Shape = { a: number };\n")
+        self.write("web/lib/other.ts", "export const other = 1;\n")
+        self.write("web/tests/a.test.ts",
+                   'import { test, expect } from "bun:test";\nimport { used } from "../lib/used";\n'
+                   'import type { Shape } from "../lib/types";\n'
+                   'test("a", () => { const s: Shape = { a: used() }; expect(s.a).toBe(1); });\n')
+        self.git("add", "-A")
+        self.git("commit", "-qm", "base")
+        self.write("web/lib/used.ts", "export function used() {\n  return 1;\n}\nexport function idle() {\n  return 3;\n}\n")
+        self.write("web/lib/other.ts", "export const other = 2;\n")
+        self.git("commit", "-qam", "head")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git(self, *args):
+        subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+
+    def write(self, path, text):
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text)
+
+    def test_checked_out_head(self):
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        files = by_file(report["files"])
+        self.assertEqual(report["entries"], ["tests/a.test.ts", "tests/preload.ts"])
+        self.assertEqual(files["web/lib/used.ts"]["verdict"], "imported")
+        self.assertEqual(files["web/lib/other.ts"]["verdict"], "not imported")
+        self.assertTrue(report["touches"])
+
+    def test_extracted_head_when_the_checkout_is_elsewhere(self):
+        self.git("checkout", "-q", "HEAD~1")
+        report = touches.check(self.repo, "web/tests/a.test.ts", "main~1", "main")
+        self.assertEqual(by_file(report["files"])["web/lib/used.ts"]["verdict"], "imported")
+
+    def test_coverage_sees_that_the_changed_function_never_runs(self):
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", coverage=True)
+        used = by_file(report["files"])["web/lib/used.ts"]
+        self.assertEqual(used["verdict"], "not executed", used)
+        self.assertFalse(report["touches"])
+
+
+if __name__ == "__main__":
+    unittest.main()
