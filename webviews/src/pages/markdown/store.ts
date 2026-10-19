@@ -311,7 +311,7 @@ export class MarkdownStore {
 
   /** Writes every Reading Settings value still waiting (the popover closed, the page hides). */
   flushPreferences(): void {
-    for (const [key, { value, cancel }] of [...this.unsentPreferences]) {
+    for (const [key, { value, cancel }] of this.unsentPreferences) {
       cancel();
       this.unsentPreferences.delete(key);
       void this.client?.call(MARKDOWN_SET_PREFERENCE_OP, { key, value }).catch((error: unknown) => {

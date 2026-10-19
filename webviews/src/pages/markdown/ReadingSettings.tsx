@@ -166,6 +166,7 @@ function Slider({
     <Row label={label} id={id} value={display}>
       <input
         id={id}
+        aria-label={label}
         className="md-reading-slider"
         type="range"
         min={range.min}
@@ -183,7 +184,13 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
   const id = useId();
   return (
     <div className="md-reading-row md-reading-check">
-      <input id={id} type="checkbox" checked={checked} onChange={(event) => onChange(event.currentTarget.checked)} />
+      <input
+        id={id}
+        aria-label={label}
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+      />
       <label htmlFor={id}>{label}</label>
     </div>
   );
@@ -209,6 +216,7 @@ function Choice<T extends string>({
           <label key={option} className="md-reading-segment" data-checked={option === value || undefined}>
             <input
               type="radio"
+              aria-label={text}
               name={name}
               value={option}
               checked={option === value}

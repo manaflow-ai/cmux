@@ -73,7 +73,8 @@ ${"The table below is wider than the reading column. ".repeat(3)}
 | ${Array.from({ length: 14 }, () => "---").join(" | ")} |
 ${Array.from(
   { length: 6 },
-  (_, row) => `| ${Array.from({ length: 14 }, (_, column) => `value ${row + 1}.${column + 1} with words`).join(" | ")} |`,
+  (_, row) =>
+    `| ${Array.from({ length: 14 }, (_, column) => `value ${row + 1}.${column + 1} with words`).join(" | ")} |`,
 ).join("\n")}
 
 \`\`\`ts

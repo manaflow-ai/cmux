@@ -33,7 +33,11 @@ describe("reading settings to CSS", () => {
   });
 
   test("paragraph spacing as a number is in em; line height and code size pass through", () => {
-    const vars = markdownStyleVariables({ spacing: { paragraph: 1.5 }, font: { lineHeight: 1.8 }, code: { blockSize: 13 } });
+    const vars = markdownStyleVariables({
+      spacing: { paragraph: 1.5 },
+      font: { lineHeight: 1.8 },
+      code: { blockSize: 13 },
+    });
     expect(vars["--cmux-md-paragraph-spacing"]).toBe("1.5em");
     expect(vars["--cmux-md-line-height"]).toBe("1.8");
     expect(vars["--cmux-md-code-block-size"]).toBe("13px");
@@ -106,7 +110,9 @@ describe("reading settings writes", () => {
     expect(markdownReadingValues(store.getState().look.settings).width).toBe(78);
     for (const timer of timers) if (!timer.cancelled) timer.run();
     const writes = calls.filter((call) => call.op === "cmux.markdown.setPreference");
-    expect(writes).toEqual([{ op: "cmux.markdown.setPreference", params: { key: "markdown.layout.width", value: 78 } }]);
+    expect(writes).toEqual([
+      { op: "cmux.markdown.setPreference", params: { key: "markdown.layout.width", value: 78 } },
+    ]);
   });
 
   test("reset writes null for the key; flush sends what is still waiting", () => {

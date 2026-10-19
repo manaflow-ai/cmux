@@ -176,7 +176,8 @@ export interface MarkdownReadingValues {
 }
 
 const numberIn = (value: unknown, option: { default: number; min: number; max: number }): number => {
-  const parsed = typeof value === "string" && /^\d+(\.\d+)?(px)?$/.test(value.trim()) ? Number.parseFloat(value) : value;
+  const parsed =
+    typeof value === "string" && /^\d+(\.\d+)?(px)?$/.test(value.trim()) ? Number.parseFloat(value) : value;
   return typeof parsed === "number" && Number.isFinite(parsed)
     ? Math.min(option.max, Math.max(option.min, parsed))
     : option.default;
