@@ -162,6 +162,18 @@ async fn full_access_off_keeps_every_chat_out_of_full_access() {
         )
         .await;
     assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
+    // Any id the shared rule (spec/full-access-modes.json) names, not only the modes acpmux picks.
+    for value in
+        ["danger-full-access", "auto-approve", "Bypass Permissions", "dangerously_skip_permissions"]
+    {
+        let r = app
+            .call(
+                "session/set_config_option",
+                json!({"sessionId": chat, "configId": "sandbox", "value": value}),
+            )
+            .await;
+        assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{value}: {r}");
+    }
     assert_eq!(app.mode(&chat).await, "agent");
     // Other modes still switch.
     let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;

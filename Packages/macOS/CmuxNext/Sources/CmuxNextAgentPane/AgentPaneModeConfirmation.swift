@@ -17,10 +17,15 @@ public nonisolated enum AgentPaneModeConfirmation: Equatable, Sendable, CustomSt
         }
     }
 
-    /// A mode that skips approvals (bypass permissions, full access, yolo), by the rule the
-    /// page's mode picker uses to draw it in the warning color (`unrestricted`, ComposerPickers.tsx).
+    /// The markers of cmux-tui/spec/full-access-modes.json, which acpmux applies too
+    /// (FullAccessModeRuleTests keeps the two the same).
+    static let fullAccessMarkers = ["bypass", "full", "yolo", "dangerous", "autoapprove", "skippermissions"]
+
+    /// A mode or option value that skips approvals (bypass permissions, full access, yolo), by the
+    /// rule acpmux enforces: lowercased, without `-`, `_` or spaces, it contains a marker.
     public static func isFullAccess(_ mode: String) -> Bool {
-        mode.range(of: #"bypass|full|yolo|dangerous|auto[-_ ]?approve"#, options: [.regularExpression, .caseInsensitive]) != nil
+        let folded = String(mode.lowercased().filter { !"-_ ".contains($0) })
+        return fullAccessMarkers.contains { folded.contains($0) }
     }
 
     /// For logs and tests: the mode, or `id = value`.
