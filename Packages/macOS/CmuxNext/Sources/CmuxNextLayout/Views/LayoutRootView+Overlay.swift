@@ -65,7 +65,7 @@ extension LayoutRootView {
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
-                let rect = host.chromeFrame.map { convert($0, from: screen) } ?? convert(host.bounds, from: host)
+                let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
                 chrome.setExcluded(screen.ringCovers(of: host, docks: docks, above: above).map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })

@@ -1482,7 +1482,9 @@
         if (this._page._isSecretName(value)) {
           // Select the field's text with a stand-in value that passes the
           // field checks, then let the host type the secret over it.
-          const r = await frame._agent("fill", handle, "0");
+          // The marker keeps the stand-in out of the agent cursor's keystroke
+          // overlay (automation_input::FILL_STAND_IN).
+          const r = await frame._agent("fill", handle, "0", "cmux-secret-stand-in");
           if (r === "error:notconnected") throw Object.assign(new Error("Element is not attached to the DOM"), { code: "stale" });
           if (r !== "needsinput") throw new Error("locator.fill: a secret can only be typed into a text field");
           await this._page._insertSecret(value, "locator.fill");

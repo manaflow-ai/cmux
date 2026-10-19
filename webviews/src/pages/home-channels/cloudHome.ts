@@ -222,6 +222,8 @@ export class CloudHome {
     run?: { run: Json; steps: Json[] };
     /** A Cloud Chief's live frame (`step.delta`, `run.activity`, `run.live`), in the owner's shape. */
     live?: Json;
+    /** Someone typing in a cloud conversation (the owner's `conversation-typing`). */
+    typing?: { conversation: string; participant: string; on: boolean };
   } | null {
     // A new lease (the app signed in or switched accounts), or the owner reset the inbox.
     if (event.event === "cloud-inbox-reset") {
@@ -255,6 +257,15 @@ export class CloudHome {
       case "cloud-conversation-live":
         if (!event.frame || typeof event.frame !== "object") return null;
         return { live: event.frame as Json };
+      case "cloud-conversation-typing":
+        if (typeof event.conversation !== "string" || typeof event.participant !== "string") return null;
+        return {
+          typing: {
+            conversation: event.conversation,
+            participant: this.localize({ participant: event.participant }).participant,
+            on: event.on === true,
+          },
+        };
       case "cloud-conversation-resynced": {
         const id = String(event.conversation);
         this.keepHead(id, this.localize(event.summary as Json));
