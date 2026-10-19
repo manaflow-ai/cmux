@@ -1561,6 +1561,7 @@ def lint_job(job_id, run_id, sha, conclusion="failure"):
     steps = [{"name": "Set up runner", "status": "completed", "conclusion": "success"},
              {"name": "Main-thread concurrency", "status": "completed", "conclusion": "success"},
              {"name": "Type scale", "status": "completed", "conclusion": "success"},
+             {"name": "God files and types (Swift)", "status": "completed", "conclusion": "success"},
              {"name": "Fail on any red check", "status": "completed", "conclusion": conclusion}]
     return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": LINT, "status": "completed",
             "conclusion": conclusion, "steps": steps}

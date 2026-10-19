@@ -414,6 +414,8 @@ class BaseCommitEvidence(unittest.TestCase):
         base = dict(failed_job(2, 40, TIP), name="web / react-apps-check")
         self.gh.jobs[2] = base
         self.gh.commit_checks[TIP] = [check_run(base)]
+        self.gh.logs[1] = log("web / react-apps-check (1)", TEST_STEP, ISSUE)
+        self.gh.logs[2] = log("web / react-apps-check", TEST_STEP, ISSUE)
         text = "\n".join(self.judge())
         self.assertIn("matched without its matrix suffix", text)
 
@@ -422,6 +424,8 @@ class BaseCommitEvidence(unittest.TestCase):
         base = dict(failed_job(2, 40, TIP), name="react-apps-check")
         self.gh.jobs[2] = base
         self.gh.commit_checks[TIP] = [check_run(base)]
+        self.gh.logs[1] = log("web / react-apps-check", TEST_STEP, ISSUE)
+        self.gh.logs[2] = log("react-apps-check", TEST_STEP, ISSUE)
         text = "\n".join(self.judge())
         self.assertIn("matched without its caller prefix", text)
 

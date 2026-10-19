@@ -1,5 +1,5 @@
 #!/bin/bash
-# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]
+# gh-merge-green REPO#PR [--dry-run] [--sha SHA] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]
 # gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
@@ -12,14 +12,6 @@ print_repair() {
   printf 'fix: %s\n%s\n' "$1" "$repair_note" >&2
 }
 
-on_error() {
-  local status=$?
-  if [ "$refusal_reported" -eq 0 ]; then
-    print_repair "inspect the failed GitHub query or command, then retry after it is healthy"
-  fi
-  exit "$status"
-}
-
 refuse() {
   refusal_reported=1
   printf '%s\n' "$1" >&2
@@ -27,14 +19,43 @@ refuse() {
   exit 1
 }
 
-trap on_error ERR
+# Details first, then the one-line reason, so `| tail -5` still shows the reason.
+refuse_with_details() {
+  refusal_reported=1
+  [ -n "$2" ] && printf '%s\n' "$2" | sed 's/^/  /' >&2
+  printf '%s\n' "$1" >&2
+  print_repair "$3"
+  exit 1
+}
+
+# bash 3.2 (macOS /bin/bash) runs the ERR trap inside $(...) even under `if !`;
+# a subshell only hands its status back, and the caller decides what it means.
+on_error() {
+  local status="$1" line="$2" command="$3"
+  [ "${BASH_SUBSHELL:-0}" -gt 0 ] && exit "$status"
+  if [ "$refusal_reported" -eq 0 ]; then
+    refusal_reported=1
+    printf 'not green: an unexpected command failed (exit %s) at gh-merge-green line %s: %s\n' "$status" "$line" "$command" >&2
+    print_repair "inspect the failed GitHub query or command, then retry after it is healthy"
+  fi
+  exit "$status"
+}
+
+install_error_trap() {
+  trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+}
+
+install_error_trap
 
 case "${1:-}" in
   -h|--help)
     printf '%s\n' \
-      'usage: gh-merge-green OWNER/REPO#PR [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
+      'usage: gh-merge-green OWNER/REPO#PR [--dry-run] [--sha SHA] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
       '       gh-merge-green --revert OWNER/REPO#PR' \
       'Merges only when the PR head'"'"'s required-in-practice checks are green.' \
+      '--dry-run runs every gate, then posts and merges nothing.' \
+      '--sha SHA (or --match-head-commit SHA) refuses unless SHA is the current head.' \
+      'gh pr merge flags passed on: --squash --merge --rebase --delete-branch --subject --body --body-file --author-email --auto --disable-auto --admin' \
       "$repair_note"
     exit 0
     ;;
@@ -123,11 +144,48 @@ fi
 fix=0
 override_reason=''
 trust_fork_head=''
+expected_head=''
+dry_run=0
 args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --main-fix)
       fix=1
+      ;;
+    --dry-run)
+      dry_run=1
+      ;;
+    --sha|--match-head-commit|--sha=*|--match-head-commit=*)
+      # The helper always pins gh pr merge to the head it checked; a caller's
+      # SHA is an assertion about that head (cmuxterm-hq#2554 passed --sha).
+      case "$1" in
+        *=*) value="${1#*=}" ;;
+        *)
+          [ "$#" -ge 2 ] || refuse \
+            "not green: $1 requires the head commit SHA" \
+            "pass $1 followed by the head SHA you reviewed"
+          value="$2"
+          shift
+          ;;
+      esac
+      value=$(tr '[:upper:]' '[:lower:]' <<<"$value")
+      [[ "$value" =~ ^[0-9a-f]{7,40}$ ]] || refuse \
+        "not green: '$value' is not a commit SHA" \
+        'pass the head commit SHA (7 to 40 hex characters)'
+      expected_head="$value"
+      ;;
+    -s|--squash|-m|--merge|-r|--rebase|-d|--delete-branch|--auto|--disable-auto|--admin)
+      args+=("$1")
+      ;;
+    -t|--subject|-b|--body|-F|--body-file|-A|--author-email)
+      [ "$#" -ge 2 ] || refuse \
+        "not green: $1 requires a value" \
+        "pass $1 followed by its value, or drop it"
+      args+=("$1" "$2")
+      shift
+      ;;
+    --subject=*|--body=*|--body-file=*|--author-email=*)
+      args+=("$1")
       ;;
     --freeze-token|--window-token)
       # Retired with the WINDOW file on cmux-lawrence: freezes are merge-freeze
@@ -156,7 +214,11 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     *)
-      args+=("$1")
+      # Checked before any GitHub query: gh pr merge would otherwise refuse
+      # only after every gate ran, its usage text burying the reason.
+      refuse \
+        "not green: unknown option '$1' for $ref; nothing was checked or merged" \
+        'drop it; gh-merge-green --help lists its options and the gh pr merge flags it passes on'
       ;;
   esac
   shift
@@ -245,6 +307,11 @@ if [ -z "$sha" ] || [ -z "$base" ]; then
     "not green: GitHub metadata for $ref has no head SHA or base branch" \
     'refresh the pull request metadata and retry'
 fi
+if [ -n "$expected_head" ] && [ "${sha#"$expected_head"}" = "$sha" ]; then
+  refuse \
+    "not green: $ref head is $sha, not the expected $expected_head; nothing was checked or merged" \
+    'review the current head, then retry with its SHA'
+fi
 if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then
   refuse \
     'exploration PR, needs a decision from Leo or the team before merging.' \
@@ -276,7 +343,9 @@ if [ "$fix" -eq 1 ]; then
       'not green: --main-fix validator is unavailable' \
       'set CMUX_REPO_ROOT to a cmux checkout containing scripts/ci/main_fix_evidence.py'
   fi
-  if ! python3 "$validator" "$ref" "$@"; then
+  check_only=()
+  [ "$dry_run" -eq 1 ] && check_only=(--check-only)
+  if ! python3 "$validator" "$ref" "${check_only[@]+"${check_only[@]}"}" "$@"; then
     refuse \
       "not green: --main-fix evidence refused $ref" \
       'read the validator evidence and repair the failing or missing exact-head checks'
@@ -344,7 +413,7 @@ workflow_on_base() {
   trap - ERR
   response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null)
   status=$?
-  trap on_error ERR
+  install_error_trap
   if [ "$status" -eq 0 ]; then
     workflow_response="$response"
     return 0
@@ -451,12 +520,15 @@ if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
   must+=("macos / macOS compile admission")
 fi
 
-# God-file, localization and concurrency lint fail only on the change itself, so
-# they are never waived: --override is for base-red or flaky lanes. Any such
-# check reported on the exact head must complete green, with or without it.
-# So must `risk evidence` (risk-tier.yml on feat-cmux-next): it reads only the
-# description, so it is never base-red, and a maintainer waives it with the
+# God-file, localization and concurrency lint are never waived: --override is for
+# base-red or flaky lanes. Any such check reported on the exact head must
+# complete, and a red one merges only when the base fails it the same way (the
+# same red lint steps and error lines; #21807 on 2026-10-19 was refused for a
+# lint red feat-cmux-next had too), with or without --override.
+# `risk evidence` (risk-tier.yml on feat-cmux-next) must be green: it reads only
+# the description, so it is never base-red, and a maintainer waives it with the
 # risk:waived label instead (docs/ci/risk-tiers.md on feat-cmux-next).
+lint_red=()
 while IFS=$'\t' read -r name st co; do
   [ -n "$name" ] || continue
   lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")
@@ -468,10 +540,18 @@ while IFS=$'\t' read -r name st co; do
   fi
   case "$co" in
     success|neutral|skipped) ;;
+    failure)
+      if [ "$lowered" = 'risk evidence' ]; then
+        refuse \
+          "not green: '$name' is $co on $sha; --override cannot bypass risk evidence, and the base cannot excuse it" \
+          "fix what '$name' reports on the exact head, then retry"
+      fi
+      lint_red+=("$name")
+      ;;
     *)
       refuse \
         "not green: '$name' is $co on $sha; --override cannot bypass god-file, l10n or concurrency lint, or risk evidence" \
-        "fix what '$name' reports on the exact head, then retry"
+        "re-run '$name' on the exact head until it has a verdict, then retry"
       ;;
   esac
 done <<<"$runs"
@@ -619,7 +699,7 @@ fi
 
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
-  for required in "${must[@]}"; do
+  for required in "${must[@]+"${must[@]}"}"; do
     [ "$required" = 'macos / macOS compile admission' ] && has_admission=1
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
@@ -735,29 +815,45 @@ for name in "${must[@]+"${must[@]}"}"; do
       ;;
   esac
 done
-# A red lane that fails the same way on the base branch's latest completed run
-# (same failed steps, test names and error lines) is excused and named; any
+# A red lane that fails the same way on the base is excused and named; any
 # failure the base does not have, and any runner refusal, still blocks.
-if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excuse_runs[@]}" -gt 0 ]; }; then
+# base_red_excuse.py reads the base tip, the merge-base and a few commits before
+# each, then the base's own runs, then unrelated pull requests for a job the
+# base never runs, and names everything it compared when it refuses.
+# --override skips this for required checks, never for red lint.
+excuse_args=()
+if [ -z "$override_reason" ]; then
   excuse_args=("${excuse_runs[@]+"${excuse_runs[@]}"}")
   for name in "${bad_required[@]+"${bad_required[@]}"}"; do
     excuse_args+=(--check "$name")
     red_lanes+=("'$name'")
   done
+fi
+for name in "${lint_red[@]+"${lint_red[@]}"}"; do
+  excuse_args+=(--check "$name")
+  red_lanes+=("'$name'")
+done
+if [ "${#excuse_args[@]}" -gt 0 ]; then
   excuse_errors=$(mktemp)
-  if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+  if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" --pr "$num" \
       "${excuse_args[@]}" 2>"$excuse_errors"); then
-    why=$(cat "$excuse_errors")
+    why=$(sed 's/^not excused: //' "$excuse_errors")
     rm -f "$excuse_errors"
-    refuse \
-      "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') on $sha, not excused by $base (${why:-the base comparison failed})" \
+    lint_note=''
+    [ "${#lint_red[@]}" -gt 0 ] && lint_note='; --override cannot bypass god-file, l10n or concurrency lint'
+    refuse_with_details \
+      "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') red on $sha and not red the same way on $base${lint_note}" \
+      "${why:-the base comparison failed without saying why}" \
       "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
   fi
   rm -f "$excuse_errors"
   printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
-if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+if [ -n "$failing" ]; then
+  echo "note: other failing checks on $sha (${must[*]:-every reported check} decides):" >&2
+  printf '%s\n' "$failing" | sed 's/^/  /' >&2
+fi
 if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty' 2>/dev/null); then
   if ! patches=$(git_patches); then
     refuse "not green: cannot read the diff for $ref" 'restore GitHub API access or provide a verified cmux checkout for Git fallback'
@@ -944,6 +1040,13 @@ merged_head_checks() {
 if [ "$base" = feat-cmux-next ]; then
   merged_head_checks
 fi
+if [ "$dry_run" -eq 1 ]; then
+  printf 'dry-run: every gate passes for %s at %s; would run: gh pr merge %s --repo %s --match-head-commit %s%s\n' \
+    "$ref" "$sha" "$num" "$repo" "$sha" "$(printf ' %q' "$@")"
+  [ -n "$trust_fork_head" ] && echo "dry-run: would first comment merge-source-trust for $trust_fork_head" >&2
+  [ -n "$override_reason" ] && echo "dry-run: would first comment merge-override: $override_reason" >&2
+  exit 0
+fi
 if [ -n "$trust_fork_head" ]; then
   if ! gh pr comment "$num" --repo "$repo" --body "merge-source-trust: reviewed fork head $trust_fork_head for local merged-tree checks; normal CI, freeze, and merged-tree gates apply." >/dev/null; then
     refuse \
@@ -1030,10 +1133,11 @@ if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@" 2>"$merge
   else
     merge_error=$(cat "$merge_error_file")
     rm -f "$merge_error_file"
-    [ -n "$merge_error" ] && printf '%s\n' "$merge_error" >&2
-    refuse \
-      "not green: GitHub refused to merge $ref" \
-      'read the GitHub refusal, repair the named issue, and retry the exact head'
+    merge_reason=$(grep -v '^[[:space:]]*$' <<<"$merge_error" | head -n 1 || true)
+    refuse_with_details \
+      "not merged: gh pr merge refused $ref at $sha: ${merge_reason:-no error text}" \
+      "$merge_error" \
+      'repair what gh pr merge names, then retry the exact head'
   fi
 fi
 rm -f "$merge_error_file"
