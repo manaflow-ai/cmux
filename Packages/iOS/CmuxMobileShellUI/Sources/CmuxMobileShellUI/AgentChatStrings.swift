@@ -179,6 +179,18 @@ enum AgentChatStrings {
     static let listening = String(localized: "agent.chat.listening", defaultValue: "Listening… speak your next instruction.", bundle: .module)
     static let finishingDictation = String(localized: "agent.chat.finishing_dictation", defaultValue: "Finishing dictation…", bundle: .module)
     static let dictationUnavailable = String(localized: "agent.chat.dictation_unavailable", defaultValue: "Dictation is unavailable. Enable microphone and speech access in Settings.", bundle: .module)
+    static let enterSessionName = String(localized: "agent.chat.enter_session_name", defaultValue: "Enter a name for this session.", bundle: .module)
+    static let maxAttachmentsReached = String(localized: "agent.chat.max_attachments_reached", defaultValue: "You can attach up to 10 attachments.", bundle: .module)
+    static let fileTooLargeToSend = String(localized: "agent.chat.file_too_large_to_send", defaultValue: "That file is too large to send.", bundle: .module)
+    static let imageTooLargeToSend = String(localized: "agent.chat.image_too_large_to_send", defaultValue: "That image is too large to send.", bundle: .module)
+    static let attachmentsTotalLimit = String(localized: "agent.chat.attachments_total_limit", defaultValue: "Attachments can use up to 64 MB in total.", bundle: .module)
+    static let noImageToPaste = String(localized: "agent.chat.no_image_to_paste", defaultValue: "No image is available to paste.", bundle: .module)
+    static let maxImagesReached = String(localized: "agent.chat.max_images_reached", defaultValue: "You can attach up to 10 images.", bundle: .module)
+    static let imageCouldNotBePreparedForPaste = String(localized: "agent.chat.image_could_not_be_prepared_for_paste", defaultValue: "That image couldn’t be prepared. Choose another image.", bundle: .module)
+    static func pastedImage(_ index: Int) -> String {
+        let format = String(localized: "agent.chat.pasted_image", defaultValue: "Pasted image %lld", bundle: .module)
+        return String(format: format, locale: Locale.current, index)
+    }
 
     // Dynamic labels keep provider and transcript data intact while
     // localizing the surrounding copy. These use localized format strings so
