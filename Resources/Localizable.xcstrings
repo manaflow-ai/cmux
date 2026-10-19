@@ -237,6 +237,65 @@
         }
       }
     },
+    "cli.workspace.env.error.extraPositional": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: unexpected argument '%@'. Expected at most one workspace handle (a positional or --workspace)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: وسيطة غير متوقعة '%@'. يُتوقع معرّف مساحة عمل واحد على الأكثر (موضعياً أو باستخدام --workspace)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: unerwartetes Argument „%@“. Es darf höchstens ein Workspace-Handle angegeben werden (entweder positionell oder mit --workspace)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: argumento inesperado '%@'. Se espera como máximo un identificador de espacio de trabajo (posicional o con --workspace)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env : argument inattendu '%@'. Au plus un handle d’espace de travail est attendu (en position ou avec --workspace)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: 予期しない引数 '%@'。ワークスペースハンドルは位置引数または --workspace のいずれか1つまで指定できます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env: 예상치 못한 인수 '%@'. 워크스페이스 핸들은 위치 인수 또는 --workspace 중 하나만 사용할 수 있습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env：意外参数 '%@'。最多只能有一个工作区句柄（位置参数或 --workspace）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace env：意外的引數 '%@'。最多只能有一個工作區控制代碼（位置引數或 --workspace）"
+          }
+        }
+      }
+    },
     "projectPanel.reload": {
       "extractionState": "manual",
       "localizations": {
@@ -87531,6 +87590,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "已從 %@ 移除 Campfire cmux 擴充功能"
+          }
+        }
+      }
+    },
+    "cli.hooks.copilot.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إزالة خطافات Copilot cmux من %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Uklonjene Copilot cmux kuke iz %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Fjernede Copilot cmux-hooks fra %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copilot-cmux-Hooks aus %@ entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed Copilot cmux hooks from %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminaron los hooks de cmux de Copilot de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Hooks cmux de Copilot supprimés de %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Hook cmux di Copilot rimossi da %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から Copilot cmux hooks を削除しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 Copilot cmux 훅을 제거했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Fjernet Copilot cmux-hooks fra %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Usunięto hooki cmux Copilot z %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Hooks cmux do Copilot removidos de %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Хуки cmux для Copilot удалены из %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "ลบฮุก cmux ของ Copilot ออกจาก %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Copilot cmux kancaları %@ konumundan kaldırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Хуки cmux для Copilot видалено з %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从 %@ 移除 Copilot cmux hooks"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已從 %@ 移除 Copilot cmux 勾點"
+          }
+        }
+      }
+    },
+    "cli.hooks.copilot.legacyRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إزالة %1$lld من خطافات cmux من %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Uklonjeno %1$lld cmux kuka iz %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Fjernede %1$lld cmux-hook(s) fra %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld cmux-Hook(s) aus %2$@ entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %1$lld cmux hook(s) from %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminaron %1$lld hooks de cmux de %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld hook(s) cmux supprimé(s) de %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Rimossi %1$lld hook cmux da %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ から %1$lld 個の cmux hook を削除しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@에서 %1$lld개의 cmux 훅을 제거했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Fjernet %1$lld cmux-hook(s) fra %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Usunięto %1$lld hook(ów) cmux z %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "%1$lld hook(s) cmux removido(s) de %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Удалено %1$lld хуков cmux из %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "ลบฮุก cmux %1$lld รายการออกจาก %2$@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "%2$@ konumundan %1$lld cmux kancası kaldırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value" : "Видалено %1$lld хуків cmux із %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从 %2$@ 移除 %1$lld 个 cmux hook"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已從 %2$@ 移除 %1$lld 個 cmux 勾點"
           }
         }
       }
@@ -254496,6 +254793,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 Finder 中開啟目前目錄"
+          }
+        }
+      }
+    },
+    "menu.openInFork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Current Directory in Fork"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のディレクトリを Fork で開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Fork 中打开当前目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Fork 中開啟目前目錄"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 디렉토리를 Fork에서 열기"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuelles Verzeichnis in Fork öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir directorio actual en Fork"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir le répertoire courant dans Fork"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri la directory corrente in Fork"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn nuværende mappe i Fork"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz bieżący katalog w Fork"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть текущий каталог в Fork"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori trenutni direktorij u Fork"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الدليل الحالي في Fork"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne gjeldende katalog i Fork"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Diretório Atual no Fork"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดไดเรกทอรีปัจจุบันใน Fork"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçerli Dizini Fork'ta Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити поточну теку в Fork"
           }
         }
       }
@@ -516128,121 +516544,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paste this image directly into the Cloud terminal. Image attachments in the command buffer are not supported yet."
+            "value": "This attachment can’t be added to the command buffer. Paste the image directly into the Cloud terminal."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge dieses Bild direkt in das Cloud-Terminal ein. Bildanhänge im Befehlspuffer werden noch nicht unterstützt."
+            "value": "Dieser Anhang kann nicht zum Befehlspuffer hinzugefügt werden. Füge das Bild direkt in das Cloud-Terminal ein."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collez cette image directement dans le terminal Cloud. Les images jointes dans le tampon de commandes ne sont pas encore prises en charge."
+            "value": "Cette pièce jointe ne peut pas être ajoutée au tampon de commandes. Collez l’image directement dans le terminal Cloud."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الصق هذه الصورة مباشرة في طرفية Cloud. مرفقات الصور في مخزن الأوامر غير مدعومة بعد."
+            "value": "لا يمكن إضافة هذا المرفق إلى مخزن الأوامر. الصق الصورة مباشرة في طرفية Cloud."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pega esta imagen directamente en la terminal Cloud. Aún no se admiten imágenes adjuntas en el búfer de comandos."
+            "value": "Este adjunto no se puede añadir al búfer de comandos. Pega la imagen directamente en la terminal Cloud."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請將此圖片直接貼到 Cloud 終端機。指令緩衝區目前尚不支援圖片附件。"
+            "value": "無法將此附件加入指令緩衝區。請將圖片直接貼到 Cloud 終端機。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请将此图片直接粘贴到 Cloud 终端。命令缓冲区目前尚不支持图片附件。"
+            "value": "无法将此附件添加到命令缓冲区。请将图片直接粘贴到 Cloud 终端。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 이미지를 Cloud 터미널에 직접 붙여넣으세요. 명령 버퍼의 이미지 첨부는 아직 지원되지 않습니다."
+            "value": "이 첨부 파일은 명령 버퍼에 추가할 수 없습니다. 이미지를 Cloud 터미널에 직접 붙여넣으세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この画像を Cloud ターミナルに直接貼り付けてください。コマンドバッファでの画像添付にはまだ対応していません。"
+            "value": "この添付ファイルはコマンドバッファに追加できません。画像を Cloud ターミナルに直接貼り付けてください。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zalijepite ovu sliku direktno u Cloud terminal. Prilozi slika u komandnom polju još nisu podržani."
+            "value": "Ovaj prilog se ne može dodati u komandno polje. Zalijepite sliku direktno u Cloud terminal."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indsæt dette billede direkte i Cloud-terminalen. Billedvedhæftninger i kommandofeltet understøttes ikke endnu."
+            "value": "Denne vedhæftning kan ikke føjes til kommandofeltet. Indsæt billedet direkte i Cloud-terminalen."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Incolla questa immagine direttamente nel terminale Cloud. Gli allegati immagine nel campo dei comandi non sono ancora supportati."
+            "value": "Questo allegato non può essere aggiunto al campo dei comandi. Incolla l’immagine direttamente nel terminale Cloud."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សូមបិទភ្ជាប់រូបភាពនេះដោយផ្ទាល់ទៅក្នុងស្ថានីយ Cloud។ ការភ្ជាប់រូបភាពក្នុងប្រអប់ពាក្យបញ្ជាមិនទាន់គាំទ្រទេ។"
+            "value": "មិនអាចបន្ថែមឯកសារភ្ជាប់នេះទៅក្នុងប្រអប់ពាក្យបញ្ជាបានទេ។ សូមបិទភ្ជាប់រូបភាពដោយផ្ទាល់ទៅក្នុងស្ថានីយ Cloud។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lim inn bildet direkte i Cloud-terminalen. Bildevedlegg i kommandofeltet støttes ikke ennå."
+            "value": "Dette vedlegget kan ikke legges til i kommandofeltet. Lim inn bildet direkte i Cloud-terminalen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wklej ten obraz bezpośrednio do terminala Cloud. Załączniki obrazów w polu poleceń nie są jeszcze obsługiwane."
+            "value": "Tego załącznika nie można dodać do pola poleceń. Wklej obraz bezpośrednio do terminala Cloud."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cole esta imagem diretamente no terminal Cloud. Anexos de imagem no campo de comando ainda não são compatíveis."
+            "value": "Este anexo não pode ser adicionado ao campo de comando. Cole a imagem diretamente no terminal Cloud."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вставьте это изображение непосредственно в Cloud-терминал. Вложения изображений в поле команды пока не поддерживаются."
+            "value": "Это вложение нельзя добавить в поле команды. Вставьте изображение непосредственно в Cloud-терминал."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "วางรูปภาพนี้โดยตรงในเทอร์มินัล Cloud ขณะนี้ยังไม่รองรับไฟล์แนบรูปภาพในช่องคำสั่ง"
+            "value": "ไม่สามารถเพิ่มไฟล์แนบนี้ในช่องคำสั่งได้ วางรูปภาพโดยตรงในเทอร์มินัล Cloud"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu görüntüyü doğrudan Cloud terminaline yapıştırın. Komut alanındaki görüntü ekleri henüz desteklenmiyor."
+            "value": "Bu ek komut alanına eklenemez. Görüntüyü doğrudan Cloud terminaline yapıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вставте це зображення безпосередньо в Cloud-термінал. Вкладення зображень у полі команди ще не підтримуються."
+            "value": "Це вкладення не можна додати в поле команди. Вставте зображення безпосередньо в Cloud-термінал."
           }
         }
       }
@@ -656249,6 +656665,1627 @@
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "恢复执行的提案已更改或无法批准。未登记任何替代命令。请查看当前提案后重试。" } },
         "ko": { "stringUnit": { "state": "translated", "value": "재개 제안이 변경되었거나 승인할 수 없습니다. 대체 명령은 등록되지 않았습니다. 현재 제안을 검토한 후 다시 시도하세요." } },
         "ja": { "stringUnit": { "state": "translated", "value": "再開の提案が変更されたか、承認できませんでした。代わりのコマンドは登録されていません。現在の提案を確認して、もう一度お試しください。" } }
+      }
+    },
+    "cli.command.completion.abstract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اطبع برنامج إكمال الصدفة لـ cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ispišite skriptu za dovršavanje ljuske za cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udskriv et shell-fuldførelsesscript til cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Shell-Vervollständigungsskript für cmux ausgeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Print a shell completion script for cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imprime un script de finalización de shell para cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche un script de complétion du shell pour cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stampa uno script di completamento della shell per cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のシェル補完スクリプトを出力します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បោះពុម្ពស្គ្រីបបំពេញសែលសម្រាប់ cmux ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux용 셸 자동 완성 스크립트를 출력합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv ut et shell-fullføringsskript for cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wypisz skrypt uzupełniania powłoki dla cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imprime um script de conclusão do shell para cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вывести сценарий автодополнения оболочки для cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พิมพ์สคริปต์การเติมคำสั่งของเชลล์สำหรับ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux için kabuk tamamlama betiğini yazdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вивести сценарій автодоповнення оболонки для cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打印 cmux 的 Shell 补全脚本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列印 cmux 的 Shell 補全指令碼。"
+          }
+        }
+      }
+    },
+    "cli.command.completion.discussion": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف السطر المطابق إلى ملف بدء تشغيل الصدفة:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodajte odgovarajući red u datoteku za pokretanje ljuske:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføj den tilsvarende linje til din shells opstartsfil:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge die passende Zeile zu deiner Shell-Startdatei hinzu:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add the matching line to your shell startup file:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade la línea correspondiente al archivo de inicio de tu shell:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez la ligne correspondante au fichier de démarrage de votre shell :\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi la riga corrispondente al file di avvio della shell:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の行をシェルの起動ファイルに追加してください:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ថែមបន្ទាត់ដែលត្រូវគ្នាទៅឯកសារចាប់ផ្តើមសែលរបស់អ្នក៖\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 시작 파일에 해당 줄을 추가하세요:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg til den tilsvarende linjen i oppstartsfilen for skallet ditt:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj odpowiedni wiersz do pliku startowego powłoki:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione a linha correspondente ao arquivo de inicialização do shell:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавьте соответствующую строку в файл запуска оболочки:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มบรรทัดที่ตรงกันลงในไฟล์เริ่มต้นของเชลล์:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşen satırı kabuk başlangıç dosyanıza ekleyin:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додайте відповідний рядок до файлу запуску оболонки:\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将相应的行添加到 Shell 启动文件中：\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將對應行新增到 Shell 啟動檔案中：\n  zsh:  eval \"$(cmux completion zsh)\"\n  bash: eval \"$(cmux completion bash)\"\n  fish: cmux completion fish | source"
+          }
+        }
+      }
+    },
+    "cli.command.completion.shell.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصدفة التي سيُنشأ لها البرنامج النصي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ljuska za koju se generira skripta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shellen, der skal genereres et script til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell, für die ein Skript erstellt werden soll."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell to generate a script for."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell para la que se generará un script."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell pour lequel générer un script."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell per cui generare uno script."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリプトを生成するシェル。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សែលដែលត្រូវបង្កើតស្គ្រីបសម្រាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크립트를 생성할 셸입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skallet det skal genereres et skript for."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powłoka, dla której należy wygenerować skrypt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell para o qual gerar um script."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оболочка, для которой нужно создать сценарий."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชลล์ที่จะสร้างสคริปต์ให้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betik oluşturulacak kabuk."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оболонка, для якої потрібно створити сценарій."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要为其生成脚本的 Shell。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要為其產生指令碼的 Shell。"
+          }
+        }
+      }
+    },
+    "cli.command.completion.unsupportedShell": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصدفة '%@' غير مدعومة. المدعوم: bash وzsh وfish."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepodržana ljuska '%@'. Podržano: bash, zsh, fish."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke-understøttet shell '%@'. Understøttet: bash, zsh, fish."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht unterstützte Shell '%@'. Unterstützt: bash, zsh, fish."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported shell '%@'. Supported: bash, zsh, fish."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell no compatible '%@'. Compatibles: bash, zsh, fish."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell non pris en charge « %@ ». Pris en charge : bash, zsh, fish."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell '%@' non supportata. Supportate: bash, zsh, fish."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サポートされていないシェル '%@' です。対応: bash、zsh、fish。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សែល '%@' មិនត្រូវបានគាំទ្រទេ។ គាំទ្រ៖ bash, zsh, fish។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원되지 않는 셸 '%@'입니다. 지원: bash, zsh, fish."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell '%@' støttes ikke. Støttet: bash, zsh, fish."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieobsługiwana powłoka '%@'. Obsługiwane: bash, zsh, fish."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell '%@' não suportado. Compatíveis: bash, zsh, fish."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оболочка '%@' не поддерживается. Поддерживаются: bash, zsh, fish."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รองรับเชลล์ '%@' รองรับ: bash, zsh, fish"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desteklenmeyen kabuk '%@'. Desteklenenler: bash, zsh, fish."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оболонка '%@' не підтримується. Підтримуються: bash, zsh, fish."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支持 Shell '%@'。支持：bash、zsh、fish。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支援 Shell '%@'。支援：bash、zsh、fish。"
+          }
+        }
+      }
+    },
+    "cli.waitFor.error.createLock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for could not create its lock file: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على wait-for إنشاء ملف القفل: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for konnte seine Sperrdatei nicht erstellen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for no pudo crear su archivo de bloqueo: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for n’a pas pu créer son fichier de verrouillage : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for がロックファイルを作成できませんでした: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for에서 잠금 파일을 만들 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 无法创建锁定文件：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 無法建立鎖定檔案：%@"
+          }
+        }
+      }
+    },
+    "cli.waitFor.error.lockTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for timed out waiting to lock '%@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة wait-for أثناء انتظار قفل '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for: Zeitüberschreitung beim Warten auf die Sperre für '%@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for agotó el tiempo de espera al intentar bloquear '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for : délai dépassé en attendant le verrouillage de « %@ »"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for が '%@' のロックを待機中にタイムアウトしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for에서 '%@' 잠금을 기다리는 시간이 초과되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 等待锁定“%@”超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 等待鎖定「%@」逾時"
+          }
+        }
+      }
+    },
+    "cli.waitFor.error.removeLock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for could not remove its lock file: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على wait-for إزالة ملف القفل: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for konnte seine Sperrdatei nicht entfernen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for no pudo eliminar su archivo de bloqueo: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for n’a pas pu supprimer son fichier de verrouillage : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for がロックファイルを削除できませんでした: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for에서 잠금 파일을 제거할 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 无法移除锁定文件：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wait-for 無法移除鎖定檔案：%@"
+          }
+        }
+      }
+    },
+    "cli.root.abstract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحكم في cmux عبر مقبس Unix."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upravljajte cmuxom putem Unix utičnice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Styr cmux via Unix-sokkel."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuere cmux über einen Unix-Socket."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control cmux via Unix socket."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controla cmux mediante un socket Unix."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrôlez cmux via un socket Unix."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla cmux tramite un socket Unix."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unix ソケット経由で cmux を操作します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រប់គ្រង cmux តាមរយៈរន្ធ Unix ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unix 소켓을 통해 cmux를 제어합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontroller cmux via en Unix-sokkel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steruj cmux za pomocą gniazda Unix."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controle o cmux por meio de um soquete Unix."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Управляйте cmux через сокет Unix."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ควบคุม cmux ผ่านซ็อกเก็ต Unix"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'u Unix soketi üzerinden denetleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Керуйте cmux через сокет Unix."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 Unix 套接字控制 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透過 Unix socket 控制 cmux。"
+          }
+        }
+      }
+    },
+    "cli.help.wait-for": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nWait for or signal a named synchronization token, or lock/unlock it.\n\nFlags:\n  -S, --signal           Signal the token instead of waiting\n  -L                     Take the token's lock, waiting up to the timeout\n  -U                     Release the token's lock\n  --timeout <seconds>    Wait timeout (default: 30)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nانتظار رمز مزامنة مسمّى أو إرسال إشارة إليه أو قفله أو إلغاء قفله.\n\nالخيارات:\n  -S, --signal           إرسال إشارة إلى الرمز بدلًا من الانتظار\n  -L                     قفل الرمز مع الانتظار حتى انتهاء المهلة\n  -U                     إلغاء قفل الرمز\n  --timeout <seconds>    مهلة الانتظار (الافتراضي: 30)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nAuf ein benanntes Synchronisationstoken warten, es signalisieren oder sperren/entsperren.\n\nOptionen:\n  -S, --signal           Das Token signalisieren, statt darauf zu warten\n  -L                     Das Token sperren und dabei bis zur Zeitüberschreitung warten\n  -U                     Die Sperre des Tokens aufheben\n  --timeout <seconds>    Wartezeitlimit (Standard: 30)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nEsperar o señalar un token de sincronización con nombre, o bloquearlo/desbloquearlo.\n\nOpciones:\n  -S, --signal           Señalar el token en lugar de esperar\n  -L                     Bloquear el token, esperando hasta que se agote el tiempo\n  -U                     Liberar el bloqueo del token\n  --timeout <seconds>    Tiempo de espera (predeterminado: 30)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\nAttendre ou signaler un jeton de synchronisation nommé, ou le verrouiller/déverrouiller.\n\nOptions :\n  -S, --signal           Signaler le jeton au lieu d’attendre\n  -L                     Verrouiller le jeton en attendant jusqu’à expiration du délai\n  -U                     Déverrouiller le jeton\n  --timeout <seconds>    Délai d’attente (par défaut : 30)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\n名前付き同期トークンを待機するか、シグナルを送るか、ロック／ロック解除します。\n\nオプション:\n  -S, --signal           待機せずにトークンにシグナルを送る\n  -L                     タイムアウトまで待機してトークンのロックを取得する\n  -U                     トークンのロックを解除する\n  --timeout <seconds>    待機のタイムアウト（既定値: 30）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\n이름이 있는 동기화 토큰을 기다리거나 신호를 보내거나 잠금/잠금 해제합니다.\n\n옵션:\n  -S, --signal           기다리는 대신 토큰에 신호 보내기\n  -L                     제한 시간까지 기다리며 토큰 잠금 획득\n  -U                     토큰 잠금 해제\n  --timeout <seconds>    대기 제한 시간(기본값: 30)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\n等待命名同步令牌、向其发送信号，或锁定／解锁令牌。\n\n选项：\n  -S, --signal           向令牌发送信号，而不是等待\n  -L                     锁定令牌，并等待直到超时\n  -U                     解除令牌锁定\n  --timeout <seconds>    等待超时时间（默认：30）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux wait-for [-S|--signal|-L|-U] <name> [--timeout <seconds>]\n\n等待具名同步權杖、向其發出訊號，或鎖定／解鎖權杖。\n\n旗標：\n  -S, --signal           向權杖發出訊號，而不是等待\n  -L                     鎖定權杖，並等待直到逾時\n  -U                     解除權杖鎖定\n  --timeout <seconds>    等待逾時時間（預設：30）"
+          }
+        }
+      }
+    },
+    "cli.browser.legacyAlias.abstract": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاسم المستعار القديم لـ 'cmux browser %@'. شغّل 'cmux browser --help' للتفاصيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naslijeđeni alias za 'cmux browser %@'. Pokrenite 'cmux browser --help' za detalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ældre alias for 'cmux browser %@'. Kør 'cmux browser --help' for detaljer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veralteter Alias für 'cmux browser %@'. Führe 'cmux browser --help' für Details aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy alias for 'cmux browser %@'. Run 'cmux browser --help' for details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alias heredado para 'cmux browser %@'. Ejecuta 'cmux browser --help' para más detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alias historique pour 'cmux browser %@'. Exécutez 'cmux browser --help' pour plus de détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alias legacy per 'cmux browser %@'. Esegui 'cmux browser --help' per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'cmux browser %@' の互換エイリアスです。詳細は 'cmux browser --help' を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះហៅកាត់ចាស់សម្រាប់ 'cmux browser %@'។ រត់ 'cmux browser --help' សម្រាប់ព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'cmux browser %@'의 레거시 별칭입니다. 자세한 내용은 'cmux browser --help'를 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eldre alias for 'cmux browser %@'. Kjør 'cmux browser --help' for detaljer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starszy alias dla 'cmux browser %@'. Uruchom 'cmux browser --help', aby poznać szczegóły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alias legado para 'cmux browser %@'. Execute 'cmux browser --help' para obter detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устаревший псевдоним для 'cmux browser %@'. Выполните 'cmux browser --help' для подробностей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นามแฝงแบบเดิมสำหรับ 'cmux browser %@' เรียกใช้ 'cmux browser --help' เพื่อดูรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'cmux browser %@' için eski takma ad. Ayrıntılar için 'cmux browser --help' çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Застарілий псевдонім для 'cmux browser %@'. Виконайте 'cmux browser --help' для подробиць."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'cmux browser %@' 的旧版别名。运行 'cmux browser --help' 查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'cmux browser %@' 的舊版別名。執行 'cmux browser --help' 以取得詳細資訊。"
+          }
+        }
+      }
+    },
+    "cli.docs.completion.cliContractLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عقد CLI"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI ugovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-kontrakt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-Vertrag"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI contract"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrato de la CLI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrat de la CLI"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contratto della CLI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契約"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កិច្ចសន្យា CLI"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 계약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-kontrakt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrakt CLI"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrato da CLI"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контракт CLI"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อตกลง CLI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI sözleşmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контракт CLI"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契约"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 契約"
+          }
+        }
+      }
+    },
+    "cli.docs.completion.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نصوص إكمال الأوامر لـ zsh وbash وfish."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skripte za automatsko dovršavanje za zsh, bash i fish."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completion-scripts til zsh, bash og fish."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell-Completion-Skripte für zsh, bash und fish."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell completion scripts for zsh, bash, and fish."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scripts de autocompletado de shell para zsh, bash y fish."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scripts de complétion shell pour zsh, bash et fish."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Script di completamento della shell per zsh, bash e fish."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zsh、bash、fish 用のシェル補完スクリプト。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្គ្រីបបំពេញបញ្ជីពាក្យបញ្ជាសម្រាប់ zsh, bash, និង fish។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zsh, bash, fish용 셸 자동 완성 스크립트."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skallfullføringsskript for zsh, bash og fish."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrypty uzupełniania powłoki dla zsh, bash i fish."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scripts de autocompletar do shell para zsh, bash e fish."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрипты автодополнения оболочки для zsh, bash и fish."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สคริปต์เติมคำสั่งอัตโนมัติสำหรับ zsh, bash และ fish"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zsh, bash ve fish için kabuk tamamlama betikleri."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрипти автодоповнення оболонки для zsh, bash і fish."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于 zsh、bash 和 fish 的 shell 补全脚本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用於 zsh、bash 和 fish 的 shell 補全指令碼。"
+          }
+        }
+      }
+    },
+    "cli.docs.usage.topics": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបប្រើ: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies|completion]"
+          }
+        }
+      }
+    },
+    "settings.app.alwaysConfirmWorkspaceClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always Confirm Closing Workspaces"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التأكيد دائمًا قبل إغلاق مساحات العمل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen von Arbeitsbereichen immer bestätigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmar siempre al cerrar espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours confirmer la fermeture des espaces de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じるときは常に確認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 닫을 때 항상 확인"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завжди підтверджувати закриття робочих областей"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭工作区时始终确认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉工作區時一律確認"
+          }
+        }
+      }
+    },
+    "settings.app.alwaysConfirmWorkspaceClose.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle workspaces close without asking. Turn on to protect long-lived workspaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُغلق مساحات العمل الخاملة دون سؤال. فعّل هذا الخيار لحماية مساحات العمل طويلة الأمد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktive Arbeitsbereiche werden ohne Nachfrage geschlossen. Aktivieren, um langlebige Arbeitsbereiche zu schützen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo inactivos se cierran sin preguntar. Actívalo para proteger los espacios de trabajo de larga duración."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail inactifs se ferment sans demander. Activez cette option pour protéger les espaces de travail de longue durée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル状態のワークスペースは確認なしで閉じます。長く使うワークスペースを守るにはオンにします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴 워크스페이스는 확인 없이 닫힙니다. 오래 사용하는 워크스페이스를 보호하려면 켜세요."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неактивні робочі області закриваються без запиту. Увімкніть, щоб захистити довготривалі робочі області."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲的工作区会直接关闭。开启后可保护长期使用的工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置的工作區會直接關閉。開啟後可保護長期使用的工作區。"
+          }
+        }
+      }
+    },
+    "settings.app.alwaysConfirmWorkspaceClose.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every workspace close asks first, even when nothing is running."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب كل إغلاق لمساحة عمل التأكيد أولًا، حتى عندما لا يكون هناك شيء قيد التشغيل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedes Schließen eines Arbeitsbereichs fragt zuerst nach, auch wenn nichts läuft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada cierre de un espacio de trabajo pide confirmación, aunque no haya nada en ejecución."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque fermeture d’un espace de travail demande d’abord confirmation, même quand rien ne s’exécute."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何も実行されていなくても、ワークスペースを閉じる前に必ず確認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 것이 없어도 워크스페이스를 닫기 전에 항상 확인합니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кожне закриття робочої області спершу запитує підтвердження, навіть якщо нічого не запущено."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次关闭工作区都会先确认，即使没有正在运行的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次關閉工作區都會先確認，即使沒有正在執行的內容。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.always-confirm-workspace-close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation التأكيد دائمًا إغلاق مساحة العمل خامل حماية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation immer bestätigen arbeitsbereich schließen inaktiv schützen bestätigung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation confirmar siempre cerrar espacio de trabajo inactivo proteger confirmación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation toujours confirmer fermer espace de travail inactif protéger confirmation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation 常に確認 ワークスペースを閉じる アイドル 保護"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation 항상 확인 워크스페이스 닫기 유휴 보호"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation завжди підтверджувати закрити робочу область неактивна захист"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation 始终确认 关闭工作区 空闲 保护"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.alwaysConfirmWorkspaceClose always confirm close workspace idle protect confirmation 一律確認 關閉工作區 閒置 保護"
+          }
+        }
       }
     }
   },
