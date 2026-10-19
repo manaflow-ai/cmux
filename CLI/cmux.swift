@@ -6836,7 +6836,7 @@ struct CMUXCLI {
             let sub = commandArgs.first?.lowercased() ?? "help"
             switch sub {
             case "clear":
-                try runFeedClear()
+                try await runFeedClear()
                 return
             case "tui":
                 try runFeedTUI(
@@ -43813,7 +43813,7 @@ export default {
         return String(sanitized[..<end]) + suffix
     }
 
-    private func runFeedClear() throws {
+    private func runFeedClear() async throws {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let path = home
             .appendingPathComponent(".cmuxterm", isDirectory: true)
@@ -43832,7 +43832,10 @@ export default {
                 return
             }
         }
-        try fm.removeItem(at: path)
+        // Route through the actor so clearing preserves the durable revision
+        // floor before removing the JSONL file. Direct deletion would let a
+        // byte-count-derived generation fall back to a stale sidecar.
+        try await WorkstreamPersistence(fileURL: path).clear()
         print("Cleared \(path.path)")
     }
 

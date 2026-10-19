@@ -466,6 +466,12 @@ public actor WorkstreamPersistence {
 
     /// Truncates the JSONL file. Used by `cmux feed clear`.
     public func clear() throws {
+        // The byte count is part of the legacy revision fallback. Snapshot it
+        // into the durable sidecar before deleting the log, otherwise a clear
+        // after a byte-heavy run could make the next process advertise a
+        // generation lower than a subscribed phone has already observed.
+        let revisionFloor = try loadRevision()
+        try recordRevision(revisionFloor)
         if let fh = handle {
             try fh.close()
         }
