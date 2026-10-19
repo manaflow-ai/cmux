@@ -113,11 +113,14 @@ included. Usage is available to the owning tenant at `GET /v1/usage` with ISO
 GiB-hours, storage GiB-hours, list cost and marked-up cost. Transfer billing is
 not emitted because the current provider response has no per-VM transfer
 counter. TODO: add transfer intervals when the provider exposes that field.
+Provider and region are persisted on each ownership row; a missing or unknown
+price key stops export and logs an operator-visible error instead of billing
+zero.
 
 Freestyle list prices are kept in `src/metering/prices.ts` (source and date are
-documented there). Set `CMUX_VM_PROVIDER` and `CMUX_VM_PROVIDER_REGION` when a
-different provider/region price table is selected. `CMUX_VM_MARKUP_BPS` is an
-integer basis-point markup and defaults to zero. A negative, non-integer or
+documented there); each ownership row carries the provider and region used for
+that VM. `CMUX_VM_MARKUP_BPS` is an integer basis-point markup and defaults to
+zero. A negative, non-integer or
 unsafe value disables Stripe export without taking VM requests down.
 
 Stripe export is off unless both the `STRIPE_SECRET_KEY` secret and
@@ -127,6 +130,7 @@ as the meter value and a deterministic tenant-hour identifier. Successful
 hours are recorded in `cmux_vm.usage_exports`, so retries do not double bill.
 Before enabling export, an operator applies `migrations/0011_cmux_vm_usage.sql`,
 grants the Worker role `SELECT, INSERT, UPDATE` on `usage_intervals`, `SELECT`
-on `billing_accounts`, and `SELECT, INSERT` on `usage_exports`, and writes an
-active `cmux_vm.billing_accounts` row for each Stripe customer. Stripe's meter
+on `billing_accounts`, and `SELECT, INSERT, UPDATE` on `usage_exports` and
+`usage_adjustments`, and writes an active `cmux_vm.billing_accounts` row with
+`activated_at` for each Stripe customer. Stripe's meter
 must interpret the submitted value as micro-dollars.

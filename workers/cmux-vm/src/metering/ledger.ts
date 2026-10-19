@@ -5,6 +5,7 @@ export interface UsageQuery {
   readonly tenantId: string;
   readonly from: Date;
   readonly to: Date;
+  readonly now: Date;
   readonly vmId: string | null;
   readonly allowedVmIds: ReadonlySet<string> | null;
 }
@@ -35,6 +36,9 @@ export interface MeteringResource {
   readonly tenantId: string;
   readonly cmuxVmId: string;
   readonly upstreamVmId: string;
+  readonly provider: string | null;
+  readonly region: string | null;
+  readonly deletedAt: Date | null;
 }
 
 export interface MeteringProviderVm {
@@ -64,6 +68,7 @@ export interface TenantBillingAccount {
   readonly tenantId: string;
   readonly stripeCustomerId: string;
   readonly status: string;
+  readonly activatedAt: Date;
 }
 
 export interface TenantBillingAccountsService {

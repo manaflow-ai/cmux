@@ -213,6 +213,8 @@ const createRecorded = <C, S>(
         createdAt,
         displayName: spec.displayName,
         labels: spec.labels,
+        provider: vm.provider ?? null,
+        region: vm.region ?? null,
       })
       .pipe(
         Effect.tapError(() => created.discard),

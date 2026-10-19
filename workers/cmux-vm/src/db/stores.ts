@@ -16,6 +16,8 @@ export interface OwnedResource {
   readonly createdAt: Date;
   readonly displayName: string | null;
   readonly labels: Readonly<Record<string, string>>;
+  readonly provider?: string | null;
+  readonly region?: string | null;
 }
 
 /** Keyset position for paging newest first: the last row of the previous page. */
@@ -162,14 +164,15 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           resource.displayName,
           JSON.stringify(resource.labels),
         ];
-        return sql
+        const insert = sql
           .query(
             "ownership.record",
             `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, display_name, labels)
              VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8::text::jsonb)`,
             params,
-          )
-          .pipe(Effect.asVoid);
+          ).pipe(Effect.asVoid);
+        if (resource.provider === undefined && resource.region === undefined) return insert;
+        return insert.pipe(Effect.zipRight(sql.query("ownership.recordMetadata", "UPDATE cmux_vm.resources SET provider = $2, region = $3 WHERE cmux_id = $1", [resource.cmuxId, resource.provider ?? null, resource.region ?? null]).pipe(Effect.asVoid)));
       },
       listPage: (tenantId, kind, options) => {
         const params: ReadonlyArray<SqlParam> = [

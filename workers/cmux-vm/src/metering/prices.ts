@@ -4,6 +4,7 @@
  * https://www.freestyle.sh/docs/vms/pricing-and-limits
  */
 export interface ProviderPrices {
+  readonly effectiveFrom: string;
   readonly vcpuHourMicrodollars: number;
   readonly memoryGibHourMicrodollars: number;
   readonly storageGibHourMicrodollars: number;
@@ -13,6 +14,7 @@ export interface ProviderPrices {
 export const PROVIDER_PRICES: Readonly<Record<string, Readonly<Record<string, ProviderPrices>>>> = {
   freestyle: {
     "*": {
+      effectiveFrom: "2026-10-17T00:00:00.000Z",
       vcpuHourMicrodollars: 40_320,
       memoryGibHourMicrodollars: 12_900,
       storageGibHourMicrodollars: 86,
@@ -21,13 +23,11 @@ export const PROVIDER_PRICES: Readonly<Record<string, Readonly<Record<string, Pr
   },
 };
 
-export const pricesFor = (provider: string, region: string): ProviderPrices =>
-  PROVIDER_PRICES[provider]?.[region] ?? PROVIDER_PRICES[provider]?.["*"] ?? {
-    vcpuHourMicrodollars: 0,
-    memoryGibHourMicrodollars: 0,
-    storageGibHourMicrodollars: 0,
-    transferGbMicrodollars: 0,
-  };
+export const pricesFor = (provider: string, region: string, at: Date): ProviderPrices | null => {
+  const prices = PROVIDER_PRICES[provider]?.[region] ?? PROVIDER_PRICES[provider]?.["*"];
+  if (prices === undefined || at.getTime() < Date.parse(prices.effectiveFrom)) return null;
+  return prices;
+};
 
 /** Invalid markup disables export; it never makes request handling fail. */
 export const parseMarkupBps = (value: string | undefined): number | null => {

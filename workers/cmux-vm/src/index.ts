@@ -57,9 +57,6 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
-  /** Metering provider and region; defaults to Freestyle and its default region. */
-  readonly CMUX_VM_PROVIDER?: string;
-  readonly CMUX_VM_PROVIDER_REGION?: string;
   /** Integer basis points added to provider list prices; invalid values disable export. */
   readonly CMUX_VM_MARKUP_BPS?: string;
   /** Stripe Billing Meter event name; export is off unless this and STRIPE_SECRET_KEY are set. */
@@ -75,7 +72,7 @@ const liveServices = (env: Env) => {
     manaflowTenantIds: parseTenantList(env.MANAFLOW_TEAM_TENANT_IDS),
     vmQuotas: parseVmQuotas(env.TENANT_VM_QUOTAS),
   });
-  const metering = meteringLayer(meteringConfig(env)).pipe(Layer.provide(sql));
+  const metering = meteringLayer(meteringConfig(env, (request) => globalThis.fetch(request))).pipe(Layer.provide(sql));
   return Layer.mergeAll(
     // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
     Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer).pipe(
@@ -116,7 +113,7 @@ const runScheduled = (env: Env): Promise<void> => {
     yield* name("scheduled", (caller) => {
       const proof = mintMeteringMayReadFleet(caller);
       return Effect.gen(function* () {
-        yield* ledger.reconcile(now, (resource) =>
+    yield* ledger.reconcile(now, (resource) =>
           upstream
             .getVmForMetering(UpstreamId.make(resource.upstreamVmId), proof)
             .pipe(
@@ -125,12 +122,14 @@ const runScheduled = (env: Env): Promise<void> => {
                 Effect.succeed(error.status === 404 ? ({ kind: "gone" as const } as const) : ({ kind: "unavailable" as const } as const)),
               ),
             ),
-        );
-        yield* ledger.exportStripe(now);
+    ).pipe(Effect.catchAll((error) => Effect.logError("cmux-vm scheduled reconciliation failed").pipe(Effect.annotateLogs({ operation: error instanceof Error ? error.message.slice(0, 80) : "reconcile" }), Effect.asVoid)));
+    yield* ledger.exportStripe(now).pipe(Effect.catchAll((error) => Effect.logError("cmux-vm scheduled Stripe export failed").pipe(Effect.annotateLogs({ operation: error instanceof Error ? error.message.slice(0, 80) : "export" }), Effect.asVoid)));
       });
     });
   });
-  return Effect.runPromise(Effect.provide(effect, liveServices(env))).catch(() => undefined);
+  return Effect.runPromise(Effect.provide(effect, liveServices(env))).catch(() => {
+    console.error("cmux-vm scheduled execution failed");
+  });
 };
 
 /** The provider snapshot and terminal clients (slice S3a). */

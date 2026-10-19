@@ -63,6 +63,8 @@ export interface UpstreamConfig {
   readonly environment: Environment;
   readonly fetch?: (request: Request) => Promise<Response>;
   readonly timeoutMs?: number;
+  readonly provider?: string;
+  readonly region?: string;
 }
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -100,6 +102,8 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   }
   const sendRequest = config.fetch ?? ((request: Request) => fetch(request));
   const defaultTimeoutMs = config.timeoutMs ?? 10_000;
+  const provider = config.provider ?? "freestyle";
+  const region = config.region ?? "*";
 
   /** Sends one request. Resolves with a 2xx response (body unread); any other status is an UpstreamError. */
   const send = (operation: string, path: string, init: SendInit): Effect.Effect<Response, UpstreamError> =>
@@ -165,12 +169,15 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
 
   const vmPath = (id: UpstreamId, suffix = "") => `/v5/vms/${encodeURIComponent(id)}${suffix}`;
 
+  const withProvider = (vm: UpstreamVm): UpstreamVm => ({ ...vm, provider, region });
+
   const getVmById = (operation: string, id: UpstreamId) =>
-    send(operation, vmPath(id), { method: "GET" }).pipe(Effect.flatMap(json(operation, UpstreamVm)));
+    send(operation, vmPath(id), { method: "GET" }).pipe(Effect.flatMap(json(operation, UpstreamVm)), Effect.map(withProvider));
 
   const vmAction = (operation: string, id: UpstreamId, action: string) =>
     send(operation, vmPath(id, `/${action}`), { method: "POST", timeoutMs: SLOW_TIMEOUT_MS }).pipe(
       Effect.flatMap(json(operation, UpstreamVm)),
+      Effect.map(withProvider),
     );
 
   const deleteById = (operation: string, path: string): Effect.Effect<"deleted" | "gone", UpstreamError> =>
@@ -192,6 +199,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     if (Object.keys(body).length === 0) return Effect.succeed(current);
     return send("resizeVm", vmPath(id, "/resize"), { method: "POST", json: body, timeoutMs: SLOW_TIMEOUT_MS }).pipe(
       Effect.flatMap(json("resizeVm", UpstreamVm)),
+      Effect.map(withProvider),
     );
   };
 
@@ -199,7 +207,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   const discardSnapshot = (id: UpstreamId) => deleteById("discardSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`).pipe(Effect.ignore);
 
   return {
-    getVmForMetering: <C>(upstreamVmId: UpstreamId, _proof: MeteringMayReadFleet<C>) => getVmById("getVmForMetering", upstreamVmId),
+    getVmForMetering: (upstreamVmId: UpstreamId, _proof: MeteringMayReadFleet) => getVmById("getVmForMetering", upstreamVmId),
     getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
@@ -227,6 +235,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       };
       return send("createVm", "/v5/vms", { method: "POST", json: body, timeoutMs: SLOW_TIMEOUT_MS }).pipe(
         Effect.flatMap(json("createVm", CreatedVm)),
+        Effect.map(({ id, ...vm }) => ({ id, ...withProvider(vm) })),
         Effect.map(({ id, ...vm }) => ({ upstreamId: id, vm, discard: discardVm(id), grow: (size: SizeRequest) => growVm(id, vm, size) })),
       );
       });

@@ -33,6 +33,8 @@ export const UpstreamVm = Schema.Struct({
   idleTimeoutSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   maxRunSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   autoDeleteSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
+  provider: Schema.optional(Schema.String),
+  region: Schema.optional(Schema.String),
   createdAt: Schema.String,
   updatedAt: Schema.String,
 });
@@ -89,9 +91,9 @@ type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
   /** Scheduled metering reconciliation may inspect an owned provider VM by exact id. */
-  readonly getVmForMetering: <C>(
+  readonly getVmForMetering: (
     upstreamVmId: UpstreamId,
-    proof: MeteringMayReadFleet<C>,
+    proof: MeteringMayReadFleet,
   ) => Effect.Effect<UpstreamVm, UpstreamError>;
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,

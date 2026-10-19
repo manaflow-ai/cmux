@@ -24,7 +24,7 @@ import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
-import { makeMemoryMetering } from "./metering-fake.ts";
+import { makeLiveMetering } from "./metering-sql.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -78,8 +78,8 @@ interface StoredKey extends ApiKeyRecord {
 
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
-  const metering = makeMemoryMetering(
-    () => resources.map((row) => ({ tenantId: row.tenantId, cmuxVmId: row.cmuxId, upstreamVmId: row.upstreamId })),
+  const metering = makeLiveMetering(
+    () => resources.map((row) => ({ tenantId: row.tenantId, cmuxVmId: row.cmuxId, upstreamVmId: row.upstreamId, provider: row.provider ?? "freestyle", region: row.region ?? "*", deletedAt: deleted.has(row.cmuxId) ? new Date() : null })),
     options.meteringMarkupBps ?? 0,
   );
   const keys: StoredKey[] = [];
@@ -309,7 +309,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     },
     setBillingAccount(tenant: string, stripeCustomerId: string | null = "cus_test") {
       if (stripeCustomerId === null) metering.billingAccounts.delete(tenant);
-      else metering.billingAccounts.set(tenant, stripeCustomerId);
+      else metering.billingAccounts.set(tenant, { tenant_id: tenant, stripe_customer_id: stripeCustomerId, status: "active", activated_at: new Date("2026-10-17T00:00:00Z") });
     },
     metering,
     /** Snapshots and terminals (slice S3a): fake stores, audit log, entitlements and terminal sockets. */
@@ -333,6 +333,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
         createdAt: nextCreatedAt(new Date()),
         displayName: null,
         labels,
+        provider: "freestyle",
+        region: "*",
       });
       return { vmId, upstreamId };
     },

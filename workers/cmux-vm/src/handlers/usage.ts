@@ -28,6 +28,7 @@ export const usageHandlers = HttpApiBuilder.group(CmuxVmApi, "usage", (handlers)
             tenantId: principal.tenantId,
             from,
             to,
+            now: new Date(),
             vmId: urlParams.vmId ?? null,
             allowedVmIds: principal.resourceAllowlist,
           })
