@@ -159,6 +159,10 @@ pub struct Inputs {
     /// The app shows offered chats as chips ([`OFFER_TOOLS_ENV`] is `1`):
     /// sessions get `offer_session` (`offer_mcp.rs`).
     pub offers: bool,
+    /// Sub-session tools are on (settings `agents.subsessions.enabled`, on
+    /// by default): sessions get `start_session` and the rest
+    /// (`subsession_mcp.rs`, `hub/subsessions.rs`).
+    pub subsessions: bool,
     /// The display allocation folder when this daemon runs with
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
@@ -192,6 +196,7 @@ impl Inputs {
             acpmux: std::env::current_exe().ok(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_some_and(|v| v == "1"),
+            subsessions: crate::hub::subsessions::enabled(),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
         }
@@ -328,6 +333,16 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
+    if let (true, Some(acpmux)) = (inputs.subsessions, &inputs.acpmux) {
+        // start_session and the rest (`subsession_mcp.rs`): `for_session`
+        // gives it the session's id, caller token and this daemon's socket.
+        servers.push(McpServer {
+            name: crate::subsession_mcp::SERVER_NAME.into(),
+            command: acpmux.clone(),
+            args: vec!["subsession-mcp".into()],
+            env: vec![],
+        });
+    }
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
@@ -427,6 +442,22 @@ impl AgentTools {
                     (key.to_owned(), session_id.to_owned()),
                     ("ACPMUX_SOCKET".to_owned(), socket),
                 ];
+            }
+            // The sub-session server acts as the session: its caller token
+            // and the one socket the CLI sends it to (`hub/person.rs` (a)).
+            // The harness already holds the same token in its env; a Claude
+            // Code config with it is a 0600 file (`claude_args`).
+            if server.name == crate::subsession_mcp::SERVER_NAME {
+                let socket = crate::config::socket_path().to_string_lossy().into_owned();
+                server.env = vec![
+                    (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    ("ACPMUX_SOCKET".to_owned(), socket),
+                ];
+                server.env.extend(
+                    crate::hub::person::caller_env(session_id)
+                        .into_iter()
+                        .map(|(k, v)| (k.to_owned(), v)),
+                );
             }
         }
         self

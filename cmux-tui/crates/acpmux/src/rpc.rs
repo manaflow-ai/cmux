@@ -338,6 +338,15 @@ pub mod method {
     /// the person accepts or dismisses with `offer_respond`.
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
     pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
+    /// Sub-sessions (`hub/subsessions.rs`, `server/subsessions.rs`): an agent
+    /// session's own children, with the caller proven by its token.
+    pub const MUX_SUBSESSION_START: &str = "_acpmux/subsession/start";
+    pub const MUX_SUBSESSION_LIST: &str = "_acpmux/subsession/list";
+    pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
+    pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
+    pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Sets a session's limits: the person, or an ancestor session.
+    pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.
