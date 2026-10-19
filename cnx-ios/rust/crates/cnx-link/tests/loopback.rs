@@ -206,6 +206,64 @@ async fn exercise_turn(phone_options: DialOptions, mac_options: DialOptions) -> 
     TurnRun { phone: settled, changes, mac, binary: server.refused_binary_frames() }
 }
 
+/// [`exercise_turn`], echoing in rounds for at least `min`.
+async fn exercise_turn_for(phone_options: DialOptions, mac_options: DialOptions, min: Duration) -> TurnRun {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let mac_path = std::sync::Arc::new(std::sync::Mutex::new(None::<tokio::sync::watch::Receiver<LinkPath>>));
+    let slot = std::sync::Arc::clone(&mac_path);
+    tokio::spawn(async move {
+        while let Some(session) = mac.next_session().await {
+            let events = SessionEvents {
+                backend: mac.events(),
+                session_id: session.first.session_id.clone(),
+                session: session.events,
+            };
+            let (mac, options, slot) = (mac.clone(), mac_options.clone(), std::sync::Arc::clone(&slot));
+            tokio::spawn(async move {
+                let connected =
+                    dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await.unwrap();
+                *slot.lock().unwrap() = Some(connected.path.clone());
+                while let Some(mut incoming) = connected.link.accept().await {
+                    tokio::spawn(async move {
+                        while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                            let _ = incoming.channel.send(bytes).await;
+                        }
+                    });
+                }
+            });
+        }
+    });
+    let phone =
+        SignalingClient::connect(&server.base_url, "user:alice", "team", &uuid::Uuid::new_v4().to_string())
+            .await
+            .unwrap();
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, LinkConfig::default())
+            .await
+            .expect("dial");
+    let mut channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+    let started = std::time::Instant::now();
+    let mut round = 0u8;
+    while started.elapsed() < min {
+        channel.send(Bytes::from(vec![round; 20_000])).await.unwrap();
+        let mut got = 0;
+        while got < 20_000 {
+            match tokio::time::timeout(Duration::from_secs(20), channel.recv()).await.expect("echo in time") {
+                Some(ChannelEvent::Data(bytes)) => got += bytes.len(),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        round = round.wrapping_add(1);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let settled = *connected.path.borrow();
+    let mac = mac_path.lock().unwrap().as_ref().map(|path| *path.borrow());
+    connected.link.close("done");
+    TurnRun { phone: settled, changes: Vec::new(), mac, binary: server.refused_binary_frames() }
+}
+
 /// Phone dial options that trust `turn` and use all of its servers.
 fn with_turn(turn: &TestTurn, options: DialOptions) -> DialOptions {
     DialOptions {
@@ -329,6 +387,41 @@ async fn wireguard_survives_one_way_udp_through_the_peers_turn() {
     let run = exercise_turn(phone, mac).await;
     assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
+}
+
+/// While set, the Mac's plain UDP to anything but TURN relayed addresses is
+/// lost (`wireguard_upgrades_from_the_peers_turn_once_direct_works`).
+static MAC_LAN_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The phone first hears the Mac through the phone's TURN allocation (the
+/// Mac's LAN UDP is lost at first), so the phone's `reach` moves the Mac to
+/// the phone's relayed address. Once the LAN works both ways the Mac's
+/// upgrade spray reaches the phone directly and the path ends direct.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_upgrades_from_the_peers_turn_once_direct_works() {
+    use std::sync::atomic::Ordering;
+    // `RUST_LOG=cnx_link=debug` shows the routes and `reach` decisions.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    let turn = TestTurn::start().await;
+    MAC_LAN_DOWN.store(true, Ordering::Relaxed);
+    let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
+    let mac = DialOptions {
+        drop_udp_to: Some(|addr| {
+            MAC_LAN_DOWN.load(Ordering::Relaxed) && addr.port() < TEST_RELAY_PORTS_START
+        }),
+        ..options()
+    };
+    let lan_back = tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        MAC_LAN_DOWN.store(false, Ordering::Relaxed);
+    });
+    let run = exercise_turn_for(phone, mac, Duration::from_secs(12)).await;
+    lan_back.await.unwrap();
+    assert_eq!(run.mac, Some(LinkPath::Direct), "{run:?}");
+    assert_eq!(run.phone, LinkPath::Direct, "{run:?}");
 }
 
 /// An older peer's relay frames get one `relay_retired` error per session

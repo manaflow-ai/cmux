@@ -200,11 +200,18 @@ with 4001 `moved`.
   most every 3 s. `from` names the carrier that works (the receiver's TURN
   when it is its relayed address, else plain UDP) and `via` whether it
   reached the peer's relayed address. The current route is confirmed only
-  when it is that pair; otherwise the side switches to that pair (for
+  when it is that pair. Otherwise the side switches to that pair when it
+  is an upgrade (direct UDP instead of a relayed route), or when no `reach`
+  confirmed the current route in the 4 s since it became the route (for
   example plain UDP to the peer's relayed address when its own UDP to the
-  peer's LAN address is lost) and keeps it while `reach` keeps naming it,
+  peer's LAN address is lost), and keeps it while `reach` keeps naming it,
   even though the peer's datagrams arrive on another route, and for 7 s
-  after the last one. A confirmed route that is silent for 14 s is no longer
+  after the last one. A relayed copy of a datagram never displaces a
+  direct route that still delivers. A side that receives its peer's direct
+  UDP while most of the peer's datagrams arrive relayed sends `reach`
+  for that direct arrival at once (at most every 100 ms), so the peer
+  upgrades; while the route is relayed (its own TURN, or the peer's
+  relayed address) the direct candidates are tried every 5 s. A confirmed route that is silent for 14 s is no longer
   trusted (every route again until a new `reach`). A bare `{"t":"reach"}`
   confirms the current route.
   An older peer (version 0) sends its confirmation through the retired

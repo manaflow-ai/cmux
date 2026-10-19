@@ -629,9 +629,17 @@ async fn run_control(
             }
             endpoints = announce.recv() => {
                 let Some((mut endpoints, relayed, relayed_tls)) = endpoints else { return };
-                // Relayed addresses first, so a long list never loses them.
-                endpoints.sort_by_key(|text| !relayed.contains(text));
-                endpoints.truncate(MAX_ENDPOINTS);
+                // Past the limit, drop plain endpoints from the end first: a long
+                // list never loses the relayed ones, and the order (the first
+                // endpoint tells the peer the network changed) stays.
+                while endpoints.len() > MAX_ENDPOINTS {
+                    match endpoints.iter().rposition(|text| !relayed.contains(text)) {
+                        Some(index) => {
+                            endpoints.remove(index);
+                        }
+                        None => endpoints.truncate(MAX_ENDPOINTS),
+                    }
+                }
                 generation += 1;
                 let relayed: Vec<String> =
                     relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();

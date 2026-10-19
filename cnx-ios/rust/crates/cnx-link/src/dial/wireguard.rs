@@ -312,6 +312,13 @@ const REACH_REPEATS: [Duration; 3] =
 /// longer than two `reach` intervals, so it survives while it works and
 /// falls back to sending on every route soon after it stops.
 const REACH_PIN: Duration = Duration::from_secs(7);
+/// A `reach` naming another route than the current one moves the route
+/// there only if no `reach` confirmed the current route for this long (one
+/// arrives at least every [`MARKER_INTERVAL`] while it works), or if it
+/// names a direct route and the current one is relayed (an upgrade).
+const REACH_SWITCH_AFTER: Duration = Duration::from_secs(4);
+/// How recent an arrival counts as "still arriving" for the route rules.
+const RELAYED_RECENT: Duration = Duration::from_secs(1);
 
 /// How a route reaches the peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,11 +438,25 @@ struct HybridUnderlay {
     /// Asks the session's control task to send the peer a `reach` message
     /// naming the address and carrier its datagram came in on.
     reach_out: mpsc::UnboundedSender<(SocketAddr, Carrier)>,
-    /// Where plain UDP from the peer last came from.
+    /// Where plain UDP from the peer last came from (not its relayed address).
     last_udp_from: Option<SocketAddr>,
     /// The route was chosen by the peer's `reach`, not by where its datagrams
     /// arrive, until then ([`REACH_PIN`]).
     pinned_until: Option<Instant>,
+    /// This side's earlier TURN relayed addresses: a `reach` naming one is
+    /// stale (it was in flight across a new allocation).
+    retired_relayed: Vec<SocketAddr>,
+    /// When a `reach` last confirmed the current route.
+    last_fit: Option<Instant>,
+    /// When a `reach` last told the peer its direct UDP arrives while most
+    /// of its datagrams come relayed.
+    last_upgrade_reach: Option<Instant>,
+    /// When the route last changed.
+    route_since: Instant,
+    /// When a datagram last arrived on the route.
+    last_on_route: Option<Instant>,
+    /// When a datagram last arrived relayed (through a TURN server).
+    last_relayed_arrival: Option<Instant>,
     path: watch::Sender<LinkPath>,
     control: mpsc::UnboundedReceiver<Control>,
     /// STUN transactions of the current socket still unanswered, and where
@@ -513,6 +534,12 @@ impl HybridUnderlay {
             reach_out: spec.reach_out,
             last_udp_from: None,
             pinned_until: None,
+            retired_relayed: Vec::new(),
+            last_fit: None,
+            last_upgrade_reach: None,
+            route_since: Instant::now(),
+            last_on_route: None,
+            last_relayed_arrival: None,
             path: spec.path,
             control: spec.control,
             stun: Vec::new(),
@@ -565,6 +592,10 @@ impl HybridUnderlay {
                 self.turn_targets.clear();
                 self.last_direct = None;
                 self.last_udp = None;
+                // A `reach` still in flight names the old network's addresses.
+                self.last_udp_from = None;
+                self.pinned_until = None;
+                self.last_fit = None;
                 self.refused.clear();
                 self.sent_to.clear();
                 self.confirmed = false;
@@ -588,6 +619,12 @@ impl HybridUnderlay {
             }
             Control::Turn(turn) => {
                 tracing::debug!(relayed = %turn.relayed, transport = ?turn.transport, "WireGuard takes a TURN allocation");
+                if let Some(old) = self.turn.as_ref().map(|turn| turn.relayed) {
+                    self.retired_relayed.push(old);
+                    if self.retired_relayed.len() > 8 {
+                        self.retired_relayed.remove(0);
+                    }
+                }
                 self.turn = Some(turn);
                 self.wake_receiver();
                 self.retarget_turn();
@@ -647,6 +684,10 @@ impl HybridUnderlay {
             self.publish_path();
             return;
         };
+        if self.retired_relayed.contains(&from) {
+            // Sent before this side's TURN allocation was replaced.
+            return;
+        }
         let carrier = if self.turn.as_ref().is_some_and(|turn| turn.relayed == from) {
             Carrier::Turn
         } else {
@@ -660,17 +701,36 @@ impl HybridUnderlay {
                 tracing::debug!(direct = ?self.direct, "peer confirmed our datagrams reach it");
             }
             self.confirmed = true;
+            self.last_fit = Some(now);
             if self.pinned_until.is_some() {
                 self.pinned_until = Some(now + REACH_PIN);
             }
         } else if let Some(route) = self.route_for(carrier, via_turn) {
-            tracing::debug!(?route, current = ?self.direct, "the peer receives us on another route; sending there");
-            self.direct = Some(route);
-            self.pinned_until = Some(now + REACH_PIN);
-            self.confirmed = true;
-            self.replay_recent(false);
+            // Both may work (copies on every route before confirmation): take
+            // the named one only to upgrade to a direct route, or when the
+            // current one has gone unconfirmed.
+            let upgrade =
+                self.is_direct(route) && !self.direct.is_some_and(|current| self.is_direct(current));
+            // Unconfirmed for a while since it became the route (a `reach`
+            // for it would have arrived at least every 3 s if it worked).
+            let since = self.last_fit.map_or(self.route_since, |at| at.max(self.route_since));
+            let stale = now.duration_since(since) > REACH_SWITCH_AFTER;
+            if upgrade || stale {
+                tracing::debug!(?route, current = ?self.direct, "the peer receives us on another route; sending there");
+                self.direct = Some(route);
+                self.route_since = now;
+                self.pinned_until = Some(now + REACH_PIN);
+                self.confirmed = true;
+                self.last_fit = Some(now);
+                self.replay_recent(false);
+            }
         }
         self.publish_path();
+    }
+
+    /// Plain UDP to one of the peer's own addresses (not its relayed one).
+    fn is_direct(&self, route: Route) -> bool {
+        route.carrier == Carrier::Udp && !self.labels.peer_relayed.contains(&route.addr)
     }
 
     /// A route on `carrier` to the peer's relayed address (`via_turn`) or to
@@ -828,9 +888,13 @@ impl HybridUnderlay {
     fn maybe_spray(&mut self, datagram: &[u8], route: Route) {
         let now = Instant::now();
         let roaming = self.spray_until.is_some_and(|until| now < until);
+        // A route through a TURN server, ours or the peer's (plain UDP to its
+        // relayed address, as a `reach` may choose), is not direct: keep
+        // offering the direct candidates so the path upgrades when they work.
+        let relayed = route.carrier != Carrier::Udp || self.labels.peer_relayed.contains(&route.addr);
         let gap = if roaming || !self.confirmed {
             ROAM_SPRAY_GAP
-        } else if route.carrier != Carrier::Udp {
+        } else if relayed {
             UPGRADE_SPRAY_GAP
         } else {
             return;
@@ -999,7 +1063,9 @@ impl Underlay for HybridUnderlay {
         }
         if carrier == Carrier::Udp {
             self.last_udp = Some(now);
-            self.last_udp_from = Some(addr);
+            if !self.labels.peer_relayed.contains(&addr) {
+                self.last_udp_from = Some(addr);
+            }
         }
         // Plain UDP wins over TURN while it keeps arriving, an address the OS
         // refuses to send to is never the route, and a route the peer's
@@ -1010,7 +1076,29 @@ impl Underlay for HybridUnderlay {
             && self.direct.is_some_and(|current| current.carrier == Carrier::Udp);
         let refused = carrier == Carrier::Udp && self.refused.contains(&addr);
         let pinned = self.pinned_until.is_some_and(|until| now < until);
-        if !keep_udp && !refused && !pinned && self.direct != Some(route) {
+        let arrival_direct = self.is_direct(route);
+        // The peer's direct UDP arrives while most of its datagrams come
+        // relayed (its route is TURN): tell it at once, so it can upgrade.
+        let upgrade = self.peer_reaches
+            && arrival_direct
+            && self.last_relayed_arrival.is_some_and(|at| now.duration_since(at) <= RELAYED_RECENT)
+            && self.last_upgrade_reach.is_none_or(|at| now.duration_since(at) >= ROAM_SPRAY_GAP);
+        if upgrade {
+            self.last_upgrade_reach = Some(now);
+            let _ = self.reach_out.send((addr, carrier));
+        }
+        if !arrival_direct {
+            self.last_relayed_arrival = Some(now);
+        }
+        if self.direct == Some(route) {
+            self.last_on_route = Some(now);
+        }
+        // A relayed copy never displaces a direct route that still delivers
+        // (both arrive while either side sends on every route).
+        let downgrade = !arrival_direct
+            && self.direct.is_some_and(|current| self.is_direct(current))
+            && self.last_on_route.is_some_and(|at| now.duration_since(at) <= RELAYED_RECENT);
+        if !keep_udp && !refused && !pinned && !downgrade && self.direct != Some(route) {
             if self.direct.is_some() {
                 // The peer confirmed the old route, not this one (our UDP may
                 // be dropped silently): send on every route until it confirms
@@ -1018,12 +1106,17 @@ impl Underlay for HybridUnderlay {
                 // reach us here.
                 tracing::debug!(?route, "WireGuard route changed");
                 self.confirmed = false;
+                self.last_fit = None;
                 self.last_marker = None;
                 self.direct = Some(route);
+                self.route_since = now;
+                self.last_on_route = Some(now);
                 let forced = self.replay_pending;
                 self.replay_recent(forced);
             } else {
                 self.direct = Some(route);
+                self.route_since = now;
+                self.last_on_route = Some(now);
                 if self.replay_pending {
                     self.replay_recent(true);
                 }
