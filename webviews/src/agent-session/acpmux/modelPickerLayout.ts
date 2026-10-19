@@ -1,6 +1,7 @@
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
+import type { QuickMenuExtras } from "./QuickModelMenu";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -63,6 +64,15 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
+  /// The compact menu a click on the chip opens (QuickModelMenu; the Debug Settings choice
+  /// `agent.modelMenu`). Without it the chip opens the full picker at once. With it the chip draws
+  /// `detail` (the effort) after the model and no chevron.
+  quick?: QuickMenuExtras;
+  /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
+  detailShort?: string;
+  /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
+  /// number in place of real layout.
+  measureRoom?(menu: HTMLElement): number;
 };
 
 export type ModelCombo = { harness: string; model: string; effort?: string; fast?: boolean };

@@ -29,6 +29,11 @@
 .acpmux-summary-card__fold:focus-visible,.acpmux-summary-card__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-card__body{flex:1 1 auto;min-height:0;overflow:auto;padding:0 6px 6px;border-top:.5px solid var(--agent-border)}
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__body{padding:0 0 6px;border-top:0}
+/* Rows past a capped card's edge: that edge fades (scrollEdges.ts), the only sign under hidden scrollbars. */
+.acpmux-summary-card__body[data-fade-top],.acpmux-summary-card__body[data-fade-bottom]{--acpmux-summary-fade-top:0px;--acpmux-summary-fade-bottom:0px;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-summary-fade-top),#000 calc(100% - var(--acpmux-summary-fade-bottom)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-summary-fade-top),#000 calc(100% - var(--acpmux-summary-fade-bottom)),transparent)}
+.acpmux-summary-card__body[data-fade-top]{--acpmux-summary-fade-top:14px}.acpmux-summary-card__body[data-fade-bottom]{--acpmux-summary-fade-bottom:22px}
+@media (prefers-reduced-transparency:reduce){.acpmux-summary-card__body[data-fade-top],.acpmux-summary-card__body[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}}
+:root[data-reduce-transparency] .acpmux-summary-card__body[data-fade-top],:root[data-reduce-transparency] .acpmux-summary-card__body[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}
 .acpmux-summary-agent[aria-current=true]{background:var(--acpmux-menu-hover)}
 .acpmux-summary-agent__name{font-weight:inherit}
 .acpmux-summary-agent__kind{margin-left:6px;color:var(--agent-muted);font-size:var(--text-detail)}
@@ -108,6 +113,9 @@
 :root[data-status-indicators=static] .acpmux-lineage__icon[data-state=waiting]::after{content:"!";color:var(--acpmux-warning,var(--agent-warning))}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
 .acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
+/* Reduce Transparency: the gallery is a solid page, unblurred, as the other blurred acpmux surfaces are. The page background is clear in a translucent window, so the solid color is the opaque surface token the composer uses. */
+@media (prefers-reduced-transparency:reduce){.acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}}
+:root[data-reduce-transparency] .acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}
 .acpmux-chat-gallery-filters{display:flex;gap:2px;margin-right:8px}
 .acpmux-chat-gallery-filter{height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-chat-gallery-filter:hover{background:var(--agent-control-hover)}
@@ -140,6 +148,22 @@
 .acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-pr-dock__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer's column and tray, as the pull request bars are. */
+.acpmux-recap{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:var(--text-control--line-height)}
+.acpmux-quick .acpmux-recap{padding:6px 8px 0}
+.acpmux-recap__card{position:relative;padding:10px 36px 10px 12px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:12px;background:var(--acpmux-composer-tray);color:var(--agent-text)}
+.acpmux-recap__summary{margin:0 0 6px;color:var(--agent-muted);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
+.acpmux-recap__question{margin:0;overflow-wrap:anywhere}
+.acpmux-recap__actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.acpmux-recap__button{display:inline-flex;align-items:center;height:26px;padding:0 10px;border:0;border-radius:7px;font:inherit;font-size:var(--text-control);white-space:nowrap;cursor:default}
+.acpmux-recap__yes{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-recap__yes:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
+.acpmux-recap__yes .acpmux-keycap{margin:0 0 0 8px}
+.acpmux-recap__later{background:none;color:var(--agent-muted)}
+.acpmux-recap__later:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
+.acpmux-recap__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-recap__dismiss{position:absolute;top:6px;right:6px}
+.acpmux-recap__error{margin:6px 0 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 /* The session side rail (SessionRail.tsx, Debug Settings agent.sessionRail): a column beside the chat, as the side preview is (.acpmux-artifact), narrower; under 720px it lies over the chat. Cards are hairline-bordered and a step lighter than the page, rows 28px; it fades in, the width never animates. */
 .acpmux-rail{flex:0 0 clamp(240px,26%,340px);min-width:0;display:flex;flex-direction:column;align-items:stretch;gap:8px;box-sizing:border-box;padding:8px 10px 10px 2px;overflow-x:hidden;overflow-y:auto;background:var(--agent-page-bg);color:var(--agent-text);font-size:var(--text-control);line-height:18px}
 @media (max-width:560px){.acpmux-rail{position:absolute;z-index:var(--layer-overlay);top:0;right:0;bottom:0;width:min(300px,calc(100% - 32px));padding-left:10px;box-shadow:var(--elevation-2)}}

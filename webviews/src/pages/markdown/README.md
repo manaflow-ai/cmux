@@ -20,7 +20,9 @@ Cmd-= (also Cmd-Shift-=, Cmd-+) and Cmd-- are the app key dispatcher's `zoomIn` 
 
 ## Links
 
-A plain click on a link places the caret; Cmd-click follows it (the cursor turns into a pointer while Cmd is held), and in a read-only file a click follows. Hovering shows a card with the full URL or the resolved path, how the link opens, and "Not found" for a relative target that does not exist (also marked with a wavy underline). Where a followed link goes (`linkRouter.ts`):
+A plain click on a link places the caret and shows the **link bubble** under it (Google Docs' model, `linkEditing.ts` `LinkBubble`, `linkOverlays.tsx`); so does the caret entering a link from the keyboard. Hovering a link shows nothing. The bubble shows the full URL or the resolved path (the URL itself opens the link), how the link opens, "Not found" for a relative target that does not exist (also marked with a wavy underline), and Copy link, Edit and Remove. It never takes the focus: typing goes on in the editor, and Escape hides it until the caret leaves that link. Cmd-click and Option-Return follow the link at the caret (the cursor turns into a pointer while Cmd is held); in a read-only file a click follows. Where a followed link goes (`linkRouter.ts`):
+
+Where a followed link goes (`linkRouter.ts`):
 
 | Link                           | Goes to                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -33,7 +35,7 @@ A plain click on a link places the caret; Cmd-click follows it (the cursor turns
 
 Reference links and autolinks resolve the same way. Relative targets are checked through `cmux.markdown.resolveLinks`, batched per tick and cached per file.
 
-Editing: the `link` page command (Cmd-K) opens a link field on the selection or the link at the caret, completing `#headings` of this file and workspace paths (`cmux.markdown.listFiles`); Enter applies, Escape cancels, an empty URL removes the link. Pasting one URL over a selection links it; pasting a URL alone inserts an autolink. A reference link keeps its reference when its text or URL changes: a new URL rewrites its definition (and every link using it), and a shortcut `[text]` whose text changes is written as `[new text][label]`. Only the edited blocks change in the file.
+Editing: the bubble's Edit and the `link` page command (Cmd-K) open the link form on the link at the caret or the selection: a Text field and a URL field (completing `#headings` of this file and workspace paths, `cmux.markdown.listFiles`), Apply and Remove. Return applies, Escape cancels, an empty URL removes the link, an empty text uses the URL; with no selection Cmd-K inserts a new link. Remove (in the bubble or the form) unlinks and keeps the text. Pasting one URL over a selection links it; pasting a URL alone inserts an autolink. Typing a bare `http(s)://` or `www.` URL and then a space or Return links it (GFM's rules: trailing punctuation stays out); Cmd-Z right after takes the link back. Each link keeps its spelling when its paragraph is edited: `[text](url)` inline, `<url>` as `<url>`, a bare URL as a bare URL while its text is the URL. A reference link keeps its reference when its text or URL changes: a new URL rewrites its definition (and every link using it), and a shortcut `[text]` whose text changes is written as `[new text][label]`. Only the edited blocks change in the file.
 
 ## Reading Settings
 

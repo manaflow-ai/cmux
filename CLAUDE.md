@@ -96,7 +96,7 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
 - Every `feat-cmux-next` PR gets a `risk:low|medium|high` label from its paths, and the
   `risk evidence` check stays red until the description has that tier's evidence
-  ([risk tiers](docs/ci/risk-tiers.md)). Low: green CI. Medium (UI): a screenshot under
+  ([risk tiers](docs/ci/risk-tiers.md)). Low: no red of its own (green CI into main). Medium (UI): a screenshot under
   `## Proof`, next to its cmux-design-references match. High (release, migrations, defaults,
   protocol spec, pins and merge gates at any size; daemon and runtime changes over 40 lines;
   taking back a change merged in the last week): also `Review:` with the reviewed SHA and
@@ -106,22 +106,36 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   and the fix misses the next cut. Never add `risk:waived`; only a maintainer does.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
-- **Merge bar:** a PR merges once a [review subagent](skills/cmux-review/SKILL.md) passed it (the
-  owner's own subagent counts) and no red is caused by the PR. Reds that also fail on the base, and
-  pending or queued checks, never block; disclose skipped verification on the PR. There is no needs-green rule.
-- A red on every PR is a base red: fix it first in its own PR, which merges at once. Two fixes that
+- Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
+  first; a second model is not a review gate. Into `main`, wait for checks relevant to the
+  change; into `feat-cmux-next`, pending checks don't hold it (below). Disclose skipped verification on the PR. `main` is nightly: fix forward,
+  do not revert.
+- Into `main`, app/runtime/UI merges require the user’s explicit approval after dogfood **or a direct merge directive**
+  (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Into `feat-cmux-next`, the
+  `ready-to-land` label after your review is the hand-off (below). Follow
+  [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
+  Notify with `cmux notify` when a socket is available.
+- A red on every PR is a base red: fix it first in its own PR, which lands at once. Two fixes that
   are each red on the other's red get combined into one PR. A base lint red also skips the tests
   after it in the same job (#22197), which is why it goes first.
 - Classify each non-green check on the current head before changing source: a changed-file
-  defect (fix it), a base finding (the same failure on a recent base run: link it in a PR
-  comment; it does not block), a wrapper such as `Web status` (follow its root check), or a
+  defect (fix it), a base finding (the same check red at the base tip or on several unrelated PRs
+  at once: link it in a PR comment; it does not block), a wrapper such as `Web status` (follow its root check), or a
   cancelled or infrastructure run (rerun the same SHA). A push supersedes earlier CI and review
   results. Gallery captures and full webview sweeps are advisory
   ([check progression](docs/contributor-verification.md#pr-check-progression)).
-- Merge the exact head: `gh-merge-green OWNER/REPO#N --squash`, or when it refuses only on base reds,
-  `gh pr merge N --squash --match-head-commit SHA`. Either way, don't merge a path an open
-  `merge-freeze` issue freezes without its `freeze-ok` label ([merge freezes](docs/ci/merge-freeze.md)).
-  `main` is nightly: fix forward, do not revert.
+- **Into `feat-cmux-next`, a PR lands when it is reviewed and causes no red of its own.** Base
+  findings (above), flakes and pending checks never hold it; fixes found later go in follow-ups.
+  When your review subagent passes (and the risk tier's evidence is in the description), add the
+  `ready-to-land` label. A label older than the head's last push doesn't count: after any later
+  push, remove and add it again. `next-autoland` on Huge Blue then merges that exact head
+  (leo-workspace `tools/next_autoland.py`). It also requires `ci-status` to have run, a red
+  `risk evidence` or `merge freeze` keeps the PR out, and it reads the merge freezes again right
+  before merging. Don't wait for, rerun or fix base reds in your PR; a red it causes keeps it out
+  until you fix it. Don't merge with `gh-merge-green` here (`--revert` still works).
+- **Into `main`, the normal merge path is `gh-merge-green`** and main's rulesets. It refuses a PR
+  that touches a path an open `merge-freeze` issue freezes, or when the freeze state can't be read;
+  only the freeze owner's `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
 
 ## Implementation rules by task
 

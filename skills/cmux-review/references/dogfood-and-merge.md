@@ -21,11 +21,20 @@ image, so lower `--gif-fps` or `--gif-width` if the tool refuses one; replacing
 evidence already uploaded for that PR needs `--force`.
 
 **Merge fast, not blind.** `main` is our nightly: stack fixes, do not revert.
-Merge under the [merge bar](../../../CLAUDE.md#ci-review-and-merge). If a check
-that judges the change is still pending, say on the PR what was not verified; the merge
+Before merging, wait for the checks that judge the change (macOS compile
+admission plus the package and CLI tests CI selected for it) and skip slow
+unrelated lanes. If you merge without them, say on the PR what was not verified; the merge
 receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`. A
 main-regression comment on your PR (`main_regression_attribution.py`) is a
 fix-forward ask.
+
+**Approval.** The main agent owns dogfood, approval, mergeability and every
+pushed fix. Into `main`, merging app, runtime or UI changes requires the user's
+explicit approval after dogfood, or a direct merge directive that names the merge
+action (`merge`, `merge it`, `auto-merge`; `finish`, `lgtm` and `ship it` are not).
+Into `feat-cmux-next`, the bar is a passed review and no red of the PR's own: label
+it `ready-to-land` after the review (again after any later push) and `next-autoland`
+merges that exact head; base reds, flakes and pending checks don't hold it.
 
 **Scope verification to the feature.** Local-backend builds can dogfood desktop
 state, menus, and release-note rendering without a shared Cloud backend. Require
@@ -38,6 +47,9 @@ acknowledgement is required only for an actual shared landing resource or freeze
 not simply for a reviewed fork branch.
 
 **Re-dogfood.** If a fix changes runtime behavior mid-dogfood, rebuild the tag
-and re-notify (`cmux notify` when a socket is available), since the earlier
-verdict covers only the build the user tested.
+and re-notify, since the earlier verdict covers only the build the user tested.
+After a merge directive, re-dogfood (rebuild the tag and re-notify with the
+checklist) when a later fix changes user-visible behavior beyond what was
+dogfooded; skip it for internal, test-only or tightly scoped fixes. Either way,
+say on the PR which you did and why.
 

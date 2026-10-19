@@ -11,6 +11,7 @@ import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
+import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
@@ -72,6 +73,8 @@ export type NewTabScreenActions = {
   machineName?: string;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
+  /// The Now Playing player's controls (`nowPlaying.command`); without it the page shows no player.
+  onNowPlaying?(command: NowPlayingCommand): void;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -765,6 +768,7 @@ export function NewTabScreen(props: Props) {
           </button>
         </div>
       )}
+      {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
       {props.widgets && (
         <WidgetCards
           sessions={snapshot.sessions}
