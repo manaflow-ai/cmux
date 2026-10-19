@@ -1,7 +1,4 @@
-// What the composer's model picker shares between its two layouts: the cascade (submenus beside
-// their rows) and, when the pane has no room beside the menu, the in-place drill.
-import type React from "react";
-import { useLayoutEffect } from "react";
+// The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -88,29 +85,6 @@ export type CatalogRefreshState = {
 };
 
 /// The keys and pointer moves the chip forwards to the open menu's body.
-export type MenuHandle = {
-  keyDown(event: React.KeyboardEvent): void;
-  track(event: React.PointerEvent): void;
-};
-
-/// What ModelPicker hands the layout it chose. The body mounts with the menu and unmounts when it
-/// closes, so a query, an open path or an expanded fold never outlives one opening.
-export type ModelMenuProps = ModelPickerProps & {
-  trigger: React.RefObject<HTMLButtonElement | null>;
-  menu: React.RefObject<HTMLDivElement | null>;
-  handle: React.RefObject<MenuHandle | undefined>;
-  close(): void;
-};
-
-/// How many recents the menu numbers (keys 1 to this).
-export const RECENT_ROWS = 4;
-/// Rows a level shows before "More…".
-export const LEVEL_ROWS = 3;
-/// How long the pointer rests on a row before its submenu opens.
-export const HOVER_INTENT_MS = 150;
-/// The width one side submenu takes beside the menu: the widest (the reasoning slider, 240px)
-/// plus the 10px gap. Family and model submenus are at least 210px.
-export const SUBMENU_ROOM = 250;
 /// The tallest the open picker gets (Lawrence 2026-10-13: it grew to the window's height when a
 /// machine lists many harnesses). Less when the pane has less room above or below the chip; the
 /// harness rail and the model list scroll inside it.
@@ -135,41 +109,4 @@ export function pickerHeightBounds(
   const maxHeight = Math.max(MODEL_PICKER_MIN_HEIGHT, Math.min(roomed, MODEL_PICKER_MAX_HEIGHT));
   const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
   return { maxHeight, minHeight };
-}
-
-export type PickerLayout = "cascade" | "drill";
-
-/// The cascade when every side submenu fits between the pane's left edge and the menu, else the
-/// in-place drill. `depth` is how many submenus can stand side by side: 2 when the harness's
-/// models sit under providers and then families, else 1.
-export function pickerLayout(room: number, depth: number): PickerLayout {
-  return room >= depth * SUBMENU_ROOM ? "cascade" : "drill";
-}
-
-/// The room left of the open menu: its left edge in the page, which is the pane.
-export const menuRoom = (menu: HTMLElement) => menu.getBoundingClientRect().left;
-
-/// Hands the chip a body's keys and pointer tracking, and names its highlighted row on the chip
-/// for screen readers following the keys. Both go away when the body unmounts.
-export function useMenuHandle({ trigger, handle }: ModelMenuProps, keys: MenuHandle, activeId?: string) {
-  useLayoutEffect(() => {
-    handle.current = keys;
-    return () => {
-      handle.current = undefined;
-    };
-  });
-  useLayoutEffect(() => {
-    const chip = trigger.current;
-    if (!chip) return;
-    if (activeId) chip.setAttribute("aria-activedescendant", activeId);
-    else chip.removeAttribute("aria-activedescendant");
-    return () => chip.removeAttribute("aria-activedescendant");
-  }, [trigger, activeId]);
-  // The chip keeps DOM focus so Ctrl-N/P and arrows work without stealing focus from the composer.
-  // Keep the virtual highlight visible in the shared surface as it moves through a long level.
-  useLayoutEffect(() => {
-    if (!activeId) return;
-    const row = trigger.current?.ownerDocument.getElementById(activeId);
-    row?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [trigger, activeId]);
 }
