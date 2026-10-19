@@ -372,3 +372,42 @@ async fn a_failed_start_leaves_no_live_file() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = scratch("record-paths");
+    let hosts = dir.join("hosts");
+    std::fs::create_dir_all(&hosts).unwrap();
+    std::fs::set_permissions(&hosts, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let outside_socket = dir.join("must-not-be-removed");
+    std::fs::write(&outside_socket, "sentinel").unwrap();
+    let record = |session_id: &str, socket: PathBuf| HostRecord {
+        record_version: acpmux::agent_host::RECORD_VERSION,
+        session_id: session_id.into(),
+        incarnation: "11".repeat(16),
+        host_pid: std::process::id(),
+        start_nonce: "22".repeat(16),
+        harness_pid: None,
+        owner_token: "33".repeat(32),
+        protocol_min: acpmux::agent_host::PROTOCOL_MIN,
+        protocol_max: acpmux::agent_host::PROTOCOL_MAX,
+        host_build: "test".into(),
+        socket,
+    };
+    let wrong = record("wrong-socket", outside_socket.clone());
+    std::fs::write(hosts.join("wrong-socket.json"), serde_json::to_vec(&wrong).unwrap()).unwrap();
+
+    let linked = record("linked", acpmux::agent_host::socket_path(&hosts, "linked"));
+    let linked_target = dir.join("linked-record.json");
+    std::fs::write(&linked_target, serde_json::to_vec(&linked).unwrap()).unwrap();
+    std::os::unix::fs::symlink(&linked_target, hosts.join("linked.json")).unwrap();
+
+    let (good, bad) = acpmux::agent_host::load_records(&hosts).unwrap();
+    assert!(good.is_empty(), "untrusted host records were accepted: {good:#?}");
+    assert_eq!(bad.len(), 2, "each refused record is reported: {bad:#?}");
+    assert!(outside_socket.exists(), "discovery removed a path outside the hosts directory");
+    assert_eq!(std::fs::symlink_metadata(&hosts).unwrap().permissions().mode() & 0o777, 0o700);
+    let _ = std::fs::remove_dir_all(&dir);
+}
