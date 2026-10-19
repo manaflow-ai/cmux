@@ -414,3 +414,11 @@ count translate into resident processes and memory. It is consistent with the
 WindowServer snapshots showing 279 cmux threads and supports validating the new
 admission and hibernation logic against watcher count, not only JSON decode
 time.
+
+## Portable validation refresh (2026-10-19T14:57Z)
+
+At commit [`3243eb4b82d51d74a2a3fce07b593a74dc9b527a`](https://github.com/danielraffel/cmux/commit/3243eb4b82d51d74a2a3fce07b593a74dc9b527a),
+`swift test --package-path Packages/macOS/CMUXAgentLaunch --disable-sandbox`
+rebuilt the package and passed **883 tests in 100 suites**. This refresh is
+portable/package evidence only; the tagged full-app dogfood remains pending
+authenticated dev credentials and has not been substituted by this result.
