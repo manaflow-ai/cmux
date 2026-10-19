@@ -312,7 +312,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         WindowTitlebar.performDoubleClick(in: window)
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
 
     public override func layout() {
         super.layout()
@@ -410,7 +410,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     // The page's colors follow this view's theme scope (room, workspace), resolved in the hooks
     // that run again on every theme change.
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {
         layer?.backgroundColor = nil

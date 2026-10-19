@@ -1884,6 +1884,30 @@
   height: 100%;
   object-fit: cover;
 }
+/* Placing a still in the Chief's circle (backgrounds plan phase 4). */
+.lg-picture-crop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.lg-picture-crop-view {
+  position: relative;
+  overflow: hidden;
+  border-radius: 50%;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 0 0 1px var(--lg-line);
+}
+.lg-picture-crop-view:active {
+  cursor: grabbing;
+}
+.lg-picture-crop-view img {
+  position: absolute;
+  max-width: none;
+  user-select: none;
+  pointer-events: none;
+}
 .lg-chief-names {
   display: flex;
   flex-direction: column;

@@ -113,6 +113,8 @@ final class TabContentCache {
     /// closed, address bar editing ended); the App routes it through the
     /// window's focus coordinator.
     var onPageFocusRequest: ((String) -> Void)?
+    /// A provisional split's terminal tab got its daemon surface on a daemon (``awaitConfirm(_:of:daemon:)``).
+    var onTerminalConfirmed: ((TabModel, DaemonService) -> Void)?
     /// Every new page's chrome gets this (the page info bubble's registry router).
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
     /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's
@@ -142,13 +144,13 @@ final class TabContentCache {
     /// over `daemon`'s socket (the local daemon, or a Cloud machine's link).
     func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
         let validity = Self.terminalValidity(tab, daemon: daemon)
-        if let entry = terminals[tab.id], entry.validity == validity { return entry }
-        let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
-                                                     generation: daemon.store.generation)
-        if let entry = confirmedProvisional(tab, validity: validity, target: attachTarget, store: daemon.store) {
-            goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
+        // A provisional split's view stays: its own tab's confirm attaches it (`awaitConfirm`).
+        if let entry = terminals[tab.id], entry.validity == validity || entry.gate != nil {
+            if entry.gate != nil, entry.confirming !== tab { awaitConfirm(entry, of: tab, daemon: daemon) } // a new record of the tab
             return entry
         }
+        let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
+                                                     generation: daemon.store.generation)
         if let stale = terminals.removeValue(forKey: tab.id) {
             // Daemon restarted or the tab's surface changed: the pane
             // presenting the old view lets it go before it closes.
@@ -170,6 +172,7 @@ final class TabContentCache {
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
+        if gate != nil { awaitConfirm(entry, of: tab, daemon: daemon) }
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)
         return entry
@@ -223,12 +226,12 @@ final class TabContentCache {
         }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
-        guard pendingBrowsers.insert(key).inserted else { return nil }
+        guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
         Task {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
             do {
-                page = try await makeCEFTab(await browserTabs.historyStarts.chromium(tab, await chromiumConfiguration(for: tab, key: key, url: url), cache: self))
+                page = try await makeCEFTab(cef.noted("history", await browserTabs.historyStarts.chromium(tab, cef.noted("configured", await chromiumConfiguration(for: tab, key: key, url: url)), cache: self)))
             } catch {
                 guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
                 _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
