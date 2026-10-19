@@ -35,8 +35,9 @@ extension BrowserChromeView {
     /// menu's tracking loop then runs in a run-loop callout, not inside a
     /// main-queue job, so main-actor work (control calls) keeps running
     /// while it is open.
-    /// The tab has extensions but none is pinned, so the Extensions button
-    /// is hidden and More offers the Extensions menu (cx-d0d.81).
+    /// The tab has the extension toolbar but the Extensions button is not
+    /// shown, so More offers the Extensions menu (cx-d0d.81). The button now
+    /// shows on every Chromium tab, so this holds only while it is unbound.
     public var offersExtensionsMenuInMore: Bool {
         extensionToolbar.host != nil && !extensionToolbar.isShowingExtensions
     }
