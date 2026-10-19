@@ -2270,6 +2270,14 @@
             "null"
           ]
         },
+        "pullRequests": {
+          "default": [],
+          "description": "The pull request URLs its `gh pr create` calls printed, oldest first;\nabsent from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "queue": {
           "items": {
             "$ref": "#/types/QueuedPromptSummary"
