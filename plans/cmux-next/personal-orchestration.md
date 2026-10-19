@@ -17,20 +17,37 @@ through typed operations with ownership and confirmation checks.
 
 ## Existing seams
 
-This work composes existing cmux Next work rather than replacing it:
+This work composes existing cmux Next work rather than replacing it. On
+`feat-cmux-next` today:
 
-- [#20894](https://github.com/manaflow-ai/cmux/pull/20894) defines typed ACPMUX
-  attach, event, detach, view, unread, watch, and `_acpmux/event` operations.
-- [#20912](https://github.com/manaflow-ai/cmux/pull/20912) serves the protocol
-  intermediate representation through `_acpmux/protocol`, so clients can discover
-  methods and their schemas instead of maintaining a private list.
-- [#20929](https://github.com/manaflow-ai/cmux/pull/20929) adds
-  `_acpmux/complete`, the one-shot completion boundary used by follow-on work.
-- [#20924](https://github.com/manaflow-ai/cmux/pull/20924) exposes the MCP servers
-  loaded by a session in its summary, which gives a viewer enough context to explain
-  what the session can do.
-- [#16279](https://github.com/manaflow-ai/cmux/pull/16279) is the existing
+- The acpmux protocol registry (`cmux-tui/crates/acpmux/src/protocol/`) names every
+  served method and notification and is committed as `spec/acpmux-protocol.json`;
+  the web generates its typed client from that file. `_acpmux/attach`, `detach`,
+  `view`, `markUnread`, `watch`, `events`, and the `_acpmux/event` notification are
+  listed, but all of them are still untyped (`params` and `result` accept any
+  JSON). Clients read the committed file at build time; there is no RPC that serves
+  it at runtime.
+- [#20929](https://github.com/manaflow-ai/cmux/pull/20929) added
+  `_acpmux/complete`: one cheap, headless LLM text completion through the user's own
+  harness login (hq#1957, used for auto-naming). It takes a short prompt and returns
+  `{ text, harness, model }`, creates no chat session, keeps no record, and is
+  accepted only over the local unix socket. It is not an operation-completion
+  receipt and carries no operation id, final state, or journal sequence.
+- [#20924](https://github.com/manaflow-ai/cmux/pull/20924) lists the MCP servers a
+  session's harness loaded in its summary, which gives a viewer enough context to
+  explain what the session can do.
+
+Still open, not in code:
+
+- [#20894](https://github.com/manaflow-ai/cmux/pull/20894) types attach, events,
+  detach, view, markUnread, watch, and `_acpmux/event` in the registry.
+- [#20912](https://github.com/manaflow-ai/cmux/pull/20912) would serve the protocol
+  IR at runtime through `_acpmux/protocol`, so a client can discover methods and
+  their schemas from the daemon it is connected to.
+- [#16279](https://github.com/manaflow-ai/cmux/pull/16279) is the proposed
   orchestrator seam for chat, memory, code mode, and link operations.
+
+Where this plan relies on one of the open PRs, it says so.
 
 The cmux-tui contract already provides the daemon lifecycle, raw and typed protocol
 surfaces, event-driven waits, and capability negotiation. The Swift client side has
@@ -73,9 +90,11 @@ off-main read-only queries. `plans/cmux-next/control-snapshot-topology.md`,
 ### Discovery and identity
 
 A client begins with `initialize`, advertises its client kind and supported
-capabilities, and reads the daemon and ACPMUX capability sets. `_acpmux/protocol`
-provides the typed method descriptions and version so a client can disable an
-unsupported operation with a reason. Every request includes a client identity, an
+capabilities, and reads the daemon and ACPMUX capability sets. Typed method
+descriptions and the protocol version come from the committed protocol IR today;
+once `_acpmux/protocol` (#20912) lands, the client reads them from the connected
+daemon instead, so it can disable an operation that daemon does not serve and say
+why. Every request includes a client identity, an
 idempotency key, a parent operation id when applicable, and an origin (`user`, `cli`,
 `mcp`, `script`, or `remote`). `ControlSessionInfo` carries the stable session and
 host identity across reconnects; it is never reconstructed from a window title or a
@@ -130,9 +149,11 @@ before any child starts. Each child has an owner, origin, idempotency key, and p
 id; its lifecycle is represented in the event stream. A child cannot silently escape
 its parent scope or inherit a stronger capability than the parent was granted.
 
-Follow-on work uses the same operation record. `_acpmux/complete` is the explicit
-completion boundary for one-shot work and returns a receipt containing the operation
-id, final state, result summary, and journal sequence. The receipt is durable enough
+Follow-on work uses the same operation record. Each operation ends in a completion
+receipt containing the operation id, final state, result summary, and journal
+sequence. This receipt is new work: no current method returns one, and
+`_acpmux/complete` is unrelated (it is a one-shot text completion with no
+operation record). The receipt is durable enough
 for a reconnecting client to distinguish completed, cancelled, failed, and unknown
 work. A parent completion is valid only after all required children have receipts or
 an explicit cancellation/partial-result policy.
@@ -188,7 +209,8 @@ user can see why work is queued or refused.
 
 - Add a shared fixture set for snapshot, event, journal cursor, capability, ownership,
   fan-out, cancellation, gap, reconnect, and completion-receipt cases.
-- Specify the typed fields and redaction rules in the ACPMUX protocol IR.
+- Specify the typed fields and redaction rules in the ACPMUX protocol IR (building
+  on the types #20894 adds for attach, events, view, and watch).
 - Define the operation state machine and parent-child invariants in the reducer model.
 
 ### P1: read-only monitor
@@ -210,7 +232,7 @@ user can see why work is queued or refused.
 ### P3: bounded orchestration
 
 - Add parent-child fan-out, cancellation propagation, bounded concurrency, and
-  `_acpmux/complete` receipts.
+  operation completion receipts.
 - Show child progress and partial completion in every monitor surface.
 - Add policy controls for per-session and per-parent capacity with safe defaults.
 
