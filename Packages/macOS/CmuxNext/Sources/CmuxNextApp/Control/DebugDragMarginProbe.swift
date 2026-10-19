@@ -47,8 +47,9 @@ enum DragMarginProbe {
                 if flag, Thread.isMainThread {
                     if recording {
                         needs += 1
-                        if let window = me as? NSWindow {
-                            movableFlags["movableByBackground=\(window.isMovableByWindowBackground) movable=\(window.isMovable) transparent=\(window.titlebarAppearsTransparent)", default: 0] += 1
+                        if let window = me as? NSObject {
+                            let flags = ["movableByWindowBackground", "movable", "titlebarAppearsTransparent"].map { "\($0)=\(window.value(forKey: $0) ?? "nil")" }
+                            movableFlags[flags.joined(separator: " "), default: 0] += 1
                         }
                         if needs <= 40 { needStacks[stackKey(), default: 0] += 1 }
                     }
