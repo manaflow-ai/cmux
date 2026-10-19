@@ -149,12 +149,15 @@ export class ModelGatewayLive {
 
   /** The compactor's call: charged after the fact, once (settle without reserve). */
   async completeSimple(model: Model<Api>, context: Context, options?: Parameters<MutableModels["completeSimple"]>[2]): Promise<AssistantMessage> {
-    const reply = await this.upstream.completeSimple(model, context, options)
+    const w = this.who()
+    const request = safeId(`${this.scope}:compact:${crypto.randomUUID()}`)
+    // The Claude route's service key needs the payer team, chief and call id on the compactor's call too (as on a turn's).
+    const headers = model.provider === CLAUDE_ROUTE_PROVIDER ? { ...(options?.headers ?? {}), "x-cmux-team-id": payerTeam(w.owner ?? ""), ...(w.agent ? { "x-cmux-chief-id": w.agent } : {}), "x-request-id": request } : options?.headers
+    const reply = await this.upstream.completeSimple(model, context, { ...options, ...(headers ? { headers } : {}) } as typeof options)
     const name = nameOf(model)
     const cost = usageOf(reply).cost_usd
     if (creditsRequired(this.env, name) && cost > 0) {
-      const w = this.who()
-      const res = { team: payerTeam(w.owner ?? ""), request: safeId(`${this.scope}:compact:${crypto.randomUUID()}`), chief: w.agent, conversation: null, held_usd: 0, margin: creditsMargin(this.env), replayed: false }
+      const res = { team: payerTeam(w.owner ?? ""), request, chief: w.agent, conversation: null, held_usd: 0, margin: creditsMargin(this.env), replayed: false }
       await Effect.runPromise(Credits.use((c) => c.settle(res, cost)).pipe(Effect.provide(CreditsLive(this.env)))).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.compactor_settle_failed", error: String(e).slice(0, 200) })))
     }
     return reply
