@@ -27,42 +27,19 @@ nonisolated extension DeepLink {
     ///   - harness: The link's harness (lowercase).
     ///   - session: The link's harness session id.
     ///   - adopted: The agent chat tab resuming `harness:session`, if any.
-    ///   - terminals: The terminal tabs of the connected machines, in order.
+    ///   - harnessSessions: The terminal tabs of the connected machines, in order.
     /// - Returns: The tab id to reveal, or nil.
     public static func agentTab(harness: String, session: String, adopted: String?,
-                                terminals: [(tab: String, agent: String?, session: String)]) -> String? {
+                                harnessSessions: [(tab: String, agent: String?, session: String)]) -> String? {
         agentTab(harness: harness, session: session, adopted: adopted,
-                 terminals: terminals.map { AgentCandidate(tab: $0.tab, harness: $0.agent, session: $0.session) })
+                 terminals: harnessSessions.map { AgentCandidate(tab: $0.tab, harness: $0.agent, session: $0.session) })
     }
 
-    /// ``agentTab(harness:session:adopted:terminals:)`` over candidate values.
+    /// ``agentTab(harness:session:adopted:harnessSessions:)`` over candidate values.
     public static func agentTab(harness: String, session: String, adopted: String?, terminals: [AgentCandidate]) -> String? {
         if let adopted { return adopted }
         return terminals.first { candidate in
             candidate.session == session && (candidate.harness.map { $0.lowercased() == harness } ?? true)
         }?.tab
-    }
-
-    /// Where the keyboard goes after an agent link revealed its tab.
-    public nonisolated enum AgentFocus: Sendable, Hashable {
-        /// Focus stays where it was (a background open).
-        case none
-        /// The agent chat tab's composer takes the keyboard.
-        case focusComposer
-        /// The terminal running the agent takes the keyboard.
-        case focusTerminal
-    }
-
-    /// The focus an agent link's open asks for: the revealed session's input,
-    /// so talking to the agent takes one keystroke, only when the user opened
-    /// the link; a background open (Cmd held, or a run the user did not
-    /// start) never moves focus. The link itself never types or sends.
-    ///
-    /// - Parameters:
-    ///   - chatTab: The revealed tab is an agent chat tab (else a terminal).
-    ///   - background: The open must not take focus.
-    public static func agentFocus(chatTab: Bool, background: Bool) -> AgentFocus {
-        guard !background else { return .none }
-        return chatTab ? .focusComposer : .focusTerminal
     }
 }

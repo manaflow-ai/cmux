@@ -145,15 +145,8 @@ struct DeepLinkAgentTests {
         #expect(DeepLink.agentTab(harness: "claude", session: session, adopted: nil, terminals: []) == nil)
     }
 
-    // MARK: Where the keyboard goes
-
-    @Test func aUserOpenFocusesTheChatComposerOrTheTerminal() {
-        #expect(DeepLink.agentFocus(chatTab: true, background: false) == .focusComposer)
-        #expect(DeepLink.agentFocus(chatTab: false, background: false) == .focusTerminal)
-    }
-
-    @Test func aBackgroundOpenNeverMovesFocus() {
-        #expect(DeepLink.agentFocus(chatTab: true, background: true) == DeepLink.AgentFocus.none)
-        #expect(DeepLink.agentFocus(chatTab: false, background: true) == DeepLink.AgentFocus.none)
+    @Test func theDaemonsHarnessSessionsMatchLikeCandidates() {
+        let sessions: [(tab: String, agent: String?, session: String)] = [("term-1", "codex", session), ("term-2", nil, session)]
+        #expect(DeepLink.agentTab(harness: "claude", session: session, adopted: nil, harnessSessions: sessions) == "term-2")
     }
 }
