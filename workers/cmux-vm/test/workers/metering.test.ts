@@ -28,8 +28,8 @@ describe("metered usage over the HTTP boundary", () => {
 
     const own = await harness.request("/v1/usage?from=2020-01-01T00:00:00Z&to=2090-01-01T00:00:00Z", bearer(keyA));
     expect(own.status).toBe(200);
-    const body = await own.json();
-    expect(body).toMatchObject({ items: [{ vmId }], total: { vcpuHours: expect.any(Number), storageGibHours: expect.any(Number) } });
+    const usageBody = await own.json();
+    expect(usageBody).toMatchObject({ items: [{ vmId }], total: { vcpuHours: expect.any(Number), storageGibHours: expect.any(Number) } });
 
     const foreign = await harness.request("/v1/usage?from=2020-01-01T00:00:00Z&to=2090-01-01T00:00:00Z", bearer(keyB));
     expect(foreign.status).toBe(200);

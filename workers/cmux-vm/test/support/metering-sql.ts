@@ -75,7 +75,7 @@ export const makeLiveMetering = (
       case "metering.close": {
         const tenant = String(params[0]);
         const upstream = String(params[1]);
-        const at = asDate(params[2]);
+        const at = asDate(params[2] ?? null);
         const source = endedSourceOf(String(params[3]));
         for (const row of intervals) if (row.tenant_id === tenant && row.upstream_vm_id === upstream && row.ended_at === null && row.started_at <= at) { row.ended_at = at; row.ended_source = source; }
         return [];
@@ -88,7 +88,7 @@ export const makeLiveMetering = (
           region: String(params[2]),
           upstream_vm_id: String(params[3]),
           cmux_vm_id: params[4] === null ? null : String(params[4]),
-          started_at: asDate(params[5]),
+          started_at: asDate(params[5] ?? null),
           ended_at: null,
           vcpus: Number(params[6]),
           memory_mb: Number(params[7]),
@@ -103,8 +103,8 @@ export const makeLiveMetering = (
       case "metering.usage":
       case "metering.exportIntervals": {
         const tenant = operation === "metering.usage" ? String(params[0]) : null;
-        const from = operation === "metering.usage" ? asDate(params[1]).getTime() : Number.NEGATIVE_INFINITY;
-        const to = operation === "metering.usage" ? asDate(params[2]).getTime() : asDate(params[0]).getTime();
+        const from = operation === "metering.usage" ? asDate(params[1] ?? null).getTime() : Number.NEGATIVE_INFINITY;
+        const to = operation === "metering.usage" ? asDate(params[2] ?? null).getTime() : asDate(params[0] ?? null).getTime();
         const vmId = operation === "metering.usage" && params[3] !== null ? String(params[3]) : null;
         return intervals.filter((row) => (tenant === null || row.tenant_id === tenant) && row.started_at.getTime() < to && (row.ended_at === null || row.ended_at.getTime() > from) && (vmId === null || row.cmux_vm_id === vmId));
       }
@@ -118,7 +118,7 @@ export const makeLiveMetering = (
         return [...exports.values()];
       case "metering.exported.pending": {
         const key = `${String(params[0])}\u0000${String(params[1])}`;
-        if (!exports.has(key)) exports.set(key, { tenant_id: String(params[0]), hour_start: asDate(params[1]), stripe_customer_id: String(params[2]), identifier: String(params[3]), value_microdollars: Number(params[4]), status: "pending", last_error: null });
+        if (!exports.has(key)) exports.set(key, { tenant_id: String(params[0]), hour_start: asDate(params[1] ?? null), stripe_customer_id: String(params[2]), identifier: String(params[3]), value_microdollars: Number(params[4]), status: "pending", last_error: null });
         return [];
       }
       case "metering.exported.pending.update": {

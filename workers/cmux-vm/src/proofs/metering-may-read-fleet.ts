@@ -5,5 +5,5 @@ export interface MeteringMayReadFleet extends Proof<"MeteringMayReadFleet", ["sc
 
 const MeteringMayReadFleet = defineProof("MeteringMayReadFleet");
 
-export const mintMeteringMayReadFleet = (caller: Named<"scheduled", string>): MeteringMayReadFleet =>
+export const mintMeteringMayReadFleet = <C, N>(caller: Named<C, N>): MeteringMayReadFleet =>
   MeteringMayReadFleet.prove(caller) as unknown as MeteringMayReadFleet;
