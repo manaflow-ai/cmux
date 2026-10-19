@@ -138,19 +138,27 @@ class FastGate(unittest.TestCase):
         rollup = [c for c in GREEN if c["name"] not in names] + [check(n, "IN_PROGRESS", "") for n in names]
         self.assertEqual(run(Reader(rollup))[2], [])
 
-    def test_lint_checks_are_waited_for_and_a_red_one_refuses(self):
-        """Like the full gate (#21692): god-file, l10n and concurrency lint must complete
-        green on the exact head; it is never waived or base-excused."""
+    def test_lint_checks_are_waited_for_and_a_red_one_goes_to_the_base(self):
+        """Like the full gate (#22128): god-file, l10n and concurrency lint must complete on
+        the exact head. A red one is never waived by --override; gh-merge-green asks the
+        base whether it prints every finding too. One with no verdict refuses."""
         lint = "cmux-next checks (god files, concurrency, crash safety, l10n)"
         with self.assertRaisesRegex(gate.Refused, "still waiting on " + re.escape(lint)):
             run(Reader(GREEN + [check(lint, "IN_PROGRESS", "")]), timeout=60)
-        for conclusion in ("FAILURE", "CANCELLED", "TIMED_OUT"):
+        for conclusion in ("CANCELLED", "TIMED_OUT"):
             with self.subTest(conclusion=conclusion):
-                with self.assertRaisesRegex(gate.Refused, re.escape(lint) + ".*never waived"):
+                with self.assertRaisesRegex(gate.Refused, re.escape(lint) + ".*no verdict"):
                     run(Reader(GREEN + [check(lint, conclusion=conclusion)]))
+        _, seen, reds = run(Reader(GREEN + [check(lint, conclusion="FAILURE")]))
+        self.assertIn(lint, seen)
+        self.assertEqual(reds, [lint])
         _, seen, reds = run(Reader(GREEN + [check(lint)]))
         self.assertIn(lint, seen)
         self.assertEqual(reds, [])
+
+    def test_a_red_risk_evidence_refuses(self):
+        with self.assertRaisesRegex(gate.Refused, "risk evidence.*never waived"):
+            run(Reader(GREEN + [check("risk evidence", conclusion="FAILURE")]))
 
     def test_a_rerun_replaces_the_earlier_verdict(self):
         rollup = GREEN + [check("cmux-next fast tier", conclusion="FAILURE"), check("cmux-next fast tier")]
