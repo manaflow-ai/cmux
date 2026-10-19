@@ -64,6 +64,9 @@ jobs:
       - name: Current account team selection
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/user-teams-list.test.ts
+      - name: Calling install authority
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/install-authority.test.ts
       - name: Membership roles, row migration and revocation
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/team-roles.test.ts test/team-roles-review.test.ts test/team-members-rows.test.ts test/team-authority-leftovers.test.ts
