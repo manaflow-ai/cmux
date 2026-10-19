@@ -19,6 +19,13 @@ crashed-thread frames each run, so its crash lines are not compared: the
 base's job must have died on the same signal, which makes the crash the
 base's (2026-10-09: a base SIGTRAP refused every feat-cmux-next PR). Failed
 steps and any test red before the crash are still compared.
+
+God-file, localization and concurrency lint is held to more: every line its
+failed steps printed, numbers masked, must be on the base's too. Their findings
+are lines such as `Localizable.xcstrings:key: missing uk`, not error lines, so a
+pull request adding one more missing translation to a base already red there
+would otherwise pass as the base's (2026-10-19: base reds in the cmux-next
+checks job refused every feat-cmux-next PR, and --override cannot waive lint).
 """
 from __future__ import annotations
 
@@ -52,6 +59,11 @@ GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Te
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 # SwiftPM's line for a killed test helper, and the hang sampler's ::error lines for it.
 CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper died on signal (\d+)")
+# Checks whose every finding must be the base's (gh-merge-green never waives them).
+LINT = re.compile(r"god[ -]?files?|l10n|locali[sz]ation|concurrency", re.IGNORECASE)
+# Per-run noise in what a step prints: mktemp names and commit or object hashes.
+RUN_NOISE = re.compile(r"\btmp\.[A-Za-z0-9]{6,}|\b[0-9a-f]{7,40}\b")
+ANSI = re.compile(r"\x1b\[[0-9;]*m|\^\[\[[0-9;]*m")
 CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper died on signal|"
                         r"no \"Test run with\" summary line")
 
@@ -78,6 +90,35 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
         if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text):
             errors.add(re.sub(r"\d+", "#", text.replace("##[error]", "").strip()))
     return steps, tests, errors
+
+
+def printed(job: dict, log: str) -> set[str]:
+    """What the job's failed steps printed, numbers masked: each step's output after the
+    `##[group]` echo of its script and environment, without warnings or the exit-code line.
+    A step that continues on error reports success but logs its `##[error]`; it counts."""
+    failed = {step["name"] for step in job.get("steps") or []
+              if step.get("conclusion") not in (None, "success", "skipped")}
+    for line in log.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3 and "##[error]" in parts[2]:
+            failed.add(parts[1])
+    found: set[str] = set()
+    echo: set[str] = set()
+    for line in log.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) < 3 or parts[1] not in failed:
+            continue
+        step, text = parts[1], ANSI.sub("", STAMP.sub("", parts[2].lstrip("\ufeff"))).strip()
+        if text.startswith("##[group]"):
+            echo.add(step)
+            continue
+        if text.startswith("##[endgroup]"):
+            echo.discard(step)
+            continue
+        if step in echo or not text or WARNING.search(text) or GENERIC.search(text):
+            continue
+        found.add(re.sub(r"\d+", "#", RUN_NOISE.sub("…", text.replace("##[error]", "").strip())))
+    return found
 
 
 def crash_signals(log: str) -> set[str]:
@@ -164,7 +205,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
         head_crash = crash_signals(head_log)
-        if not head_tests and not head_errors and not head_crash:
+        lint = bool(LINT.search(name))
+        head_printed = printed(job, head_log) if lint else set()
+        if lint and not head_printed:
+            raise Refused(f"'{name}': its failed steps printed nothing to compare with the base")
+        if not lint and not head_tests and not head_errors and not head_crash:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
@@ -172,13 +217,15 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}': the test helper died on signal {', '.join(missing)}, "
                           f"and {base} run {base_run['id']} did not")
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
-        if not head_tests:
+        if lint:
+            compared.append(("findings", head_printed, printed(base_job, base_log)))
+        elif not head_tests:
             compared.append(("errors", head_errors, base_errors))
         for kind, head, seen in compared:
             if missing := sorted(head - seen):
                 raise Refused(f"'{name}': {kind} not on {base} run {base_run['id']}: {'; '.join(missing)[:600]}")
         crash = [f"the test helper died on signal {signal}" for signal in sorted(head_crash)]
-        what = "; ".join(crash + sorted(head_tests)) or "; ".join(sorted(head_errors))
+        what = "; ".join(crash + sorted(head_tests)) or "; ".join(sorted(head_printed or head_errors))
         url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
         audit.append(f"excused '{name}': {base} run {base_run['id']} fails the same way ({url}): {what[:400]}")
     return audit

@@ -451,12 +451,15 @@ if [ "$needs_app_compile" -eq 1 ] && ! jq -e '
   must+=("macos / macOS compile admission")
 fi
 
-# God-file, localization and concurrency lint fail only on the change itself, so
-# they are never waived: --override is for base-red or flaky lanes. Any such
-# check reported on the exact head must complete green, with or without it.
-# So must `risk evidence` (risk-tier.yml on feat-cmux-next): it reads only the
-# description, so it is never base-red, and a maintainer waives it with the
+# God-file, localization and concurrency lint is never waived: --override is for
+# base-red or flaky lanes, and any such check reported on the exact head must
+# complete. A red one merges only when the base fails it with every finding the
+# head printed (base_red_excuse.py compares them line by line), since the
+# cmux-next checks job bundles many lints and the base can be red in one.
+# `risk evidence` (risk-tier.yml on feat-cmux-next) must be green: it reads only
+# the description, so it is never base-red, and a maintainer waives it with the
 # risk:waived label instead (docs/ci/risk-tiers.md on feat-cmux-next).
+lint_reds=()
 while IFS=$'\t' read -r name st co; do
   [ -n "$name" ] || continue
   lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")
@@ -468,6 +471,14 @@ while IFS=$'\t' read -r name st co; do
   fi
   case "$co" in
     success|neutral|skipped) ;;
+    failure)
+      if [ -n "$override_reason" ] || [ "$lowered" = "risk evidence" ]; then
+        refuse \
+          "not green: '$name' is $co on $sha; --override cannot bypass god-file, l10n or concurrency lint, or risk evidence" \
+          "fix what '$name' reports on the exact head, then retry"
+      fi
+      lint_reds+=("$name")
+      ;;
     *)
       refuse \
         "not green: '$name' is $co on $sha; --override cannot bypass god-file, l10n or concurrency lint, or risk evidence" \
@@ -738,9 +749,9 @@ done
 # A red lane that fails the same way on the base branch's latest completed run
 # (same failed steps, test names and error lines) is excused and named; any
 # failure the base does not have, and any runner refusal, still blocks.
-if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excuse_runs[@]}" -gt 0 ]; }; then
+if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excuse_runs[@]}" -gt 0 ] || [ "${#lint_reds[@]}" -gt 0 ]; }; then
   excuse_args=("${excuse_runs[@]+"${excuse_runs[@]}"}")
-  for name in "${bad_required[@]+"${bad_required[@]}"}"; do
+  for name in "${bad_required[@]+"${bad_required[@]}"}" "${lint_reds[@]+"${lint_reds[@]}"}"; do
     excuse_args+=(--check "$name")
     red_lanes+=("'$name'")
   done

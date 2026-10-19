@@ -323,6 +323,17 @@ class LintFindings(unittest.TestCase):
         self.assertIn(CHECKS, text)
         self.assertIn("sidebar.doc.move: missing uk", text)
 
+    def test_temp_names_and_hashes_that_differ_between_runs_do_not_block(self):
+        self.gh.logs[1] = self.gh.logs[1].replace(
+            "##[error]Process", "stripping release binary: /tmp/tmp.QIOv8hOe3B/cmux\nSubmodule path 'g': "
+            "checked out '738f29bd11cc'\n##[error]Process")
+        self.gh.logs[2] = self.gh.logs[2].replace(
+            "##[error]Process", "stripping release binary: /tmp/tmp.Zk2pWq9xYa/cmux\nSubmodule path 'g': "
+            "checked out 'fcdb3662c651'\n##[error]Process")
+        self.gh.logs = {job: "\n".join(line if "\t" in line else f"{CHECKS}\t{L10N}\t{line}"
+                                       for line in text.splitlines()) for job, text in self.gh.logs.items()}
+        self.assertTrue(self.judge())
+
     def test_a_finding_the_base_does_not_have_blocks(self):
         # One more missing translation prints no error line; it is still the head's own.
         self.gh.logs[1] = l10n_log(103765, f"{XCSTRINGS}:sidebar.doc.move: missing uk",
