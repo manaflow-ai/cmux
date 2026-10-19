@@ -5602,7 +5602,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>blink</string>
+			<string>none</string>
 			<key>pfm_name</key>
 			<string>notifications.attention.style</string>
 			<key>pfm_range_list</key>

@@ -482,7 +482,7 @@
     "setting.notifications.attention.persist": true,
     "setting.notifications.attention.showOnSidebar": true,
     "setting.notifications.attention.showOnTab": true,
-    "setting.notifications.attention.style": "blink",
+    "setting.notifications.attention.style": "none",
     "setting.notifications.attention.width": 2,
     "setting.notifications.desktop": "unlessFocused",
     "setting.notifications.dismissal": "keystroke",

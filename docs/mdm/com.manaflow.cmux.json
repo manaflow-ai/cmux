@@ -2397,7 +2397,7 @@
       "type" : "boolean"
     },
     "notifications.attention.style" : {
-      "default" : "blink",
+      "default" : "none",
       "description" : "notifications.attention.style",
       "enum" : [
         "blink",
