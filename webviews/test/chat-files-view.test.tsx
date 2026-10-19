@@ -152,10 +152,14 @@ test("search opens a result at its full path, and Escape clears it before closin
   await act(async () => rows()[0]!.click());
   expect(events).toEqual([`open ${ROOT}/src/main.ts`]);
   const section = host.querySelector("section")!;
-  await act(async () => section.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  await act(async () =>
+    section.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
   expect(events).toEqual([`open ${ROOT}/src/main.ts`]);
   expect(names()).toEqual(["src", "README.md"]);
-  await act(async () => section.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  await act(async () =>
+    section.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
   expect(events.at(-1)).toBe("close");
 });
 
@@ -167,6 +171,8 @@ test("a folder in no git repository says so", async () => {
 // Lucas 2026-10-19: the open viewer needs a plain way out besides Back: an X at the header's end.
 test("the viewer's X closes it", async () => {
   const { events } = await show();
-  await act(async () => host.querySelector<HTMLButtonElement>('.acpmux-diff-header button[aria-label="Close"]')!.click());
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>('.acpmux-diff-header button[aria-label="Close"]')!.click(),
+  );
   expect(events).toEqual(["close"]);
 });

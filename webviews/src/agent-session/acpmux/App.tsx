@@ -4783,7 +4783,11 @@ function AcpmuxPane() {
   );
   // The header's Files with the chat's viewer: the chat's folder beside the transcript; again closes it.
   const toggleFilesViewer = (cwd: string) => {
-    if (filesView) return closeFiles();
+    // A file opened from the list goes with it.
+    if (filesView) {
+      setFileView(undefined);
+      return closeFiles();
+    }
     inspectorOpenRef.current = false;
     setInspectorOpen(false);
     setDiffView(undefined);
@@ -5964,6 +5968,14 @@ function AcpmuxPane() {
                               chatViewer ? toggleFilesViewer(localCwd) : runSplitAction(HEADER_ACTIONS.files, localCwd, mode)
                           : undefined
                       }
+                      viewing={
+                        chatViewer
+                          ? [
+                              ...(filesOpen && !diffView ? [HEADER_ACTIONS.files] : []),
+                              ...(diffView ? [HEADER_ACTIONS.changes] : []),
+                            ]
+                          : undefined
+                      }
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
                         ignoreFailure(
@@ -6072,7 +6084,15 @@ function AcpmuxPane() {
                 )}
                 {fileView && fileOpen && !diffView && (
                   <Suspense fallback={null}>
-                    <FileViewer file={fileView} onClose={closeFile} onOpenFile={openChangedFile} />
+                    <FileViewer
+                      file={fileView}
+                      onClose={closeFile}
+                      onDismiss={() => {
+                        closeFile();
+                        closeFiles();
+                      }}
+                      onOpenFile={openChangedFile}
+                    />
                   </Suspense>
                 )}
                 {filesView && filesOpen && localCwd && !diffView && !(fileView && fileOpen) && (

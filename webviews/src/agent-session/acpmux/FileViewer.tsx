@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react";
 import { useT } from "./i18n";
 import { ChevronLeft, Code, OpenTab } from "./changeIcons";
 import { CodeBlock } from "./conversation/CodeBlock";
+import { Icon } from "./icons/Icon";
 import { isHighlighted } from "./shikiLanguages";
 
 /// What `link.readPath` returned for a text file, and the session it was opened in.
@@ -34,10 +35,14 @@ export function fileLanguage(path: string): string {
 export function FileViewer({
   file,
   onClose,
+  onDismiss = onClose,
   onOpenFile,
 }: {
   file: ViewedFile;
+  /// Back: to the Files list it was opened from, else out of the viewer.
   onClose(): void;
+  /// The X: out of the viewer, Files list and all.
+  onDismiss?(): void;
   /// The app's own file tab or the editor: leaving the chat is the reader's explicit choice.
   onOpenFile(path: string, where: "tab" | "editor"): void;
 }) {
@@ -86,6 +91,15 @@ export function FileViewer({
             onClick={() => onOpenFile(file.path, "editor")}
           >
             <Code />
+          </button>
+          <button
+            type="button"
+            className="acpmux-diff-tool"
+            aria-label={t("image.close")}
+            title={t("image.close")}
+            onClick={onDismiss}
+          >
+            <Icon name="action.close" size={12} />
           </button>
         </div>
       </header>

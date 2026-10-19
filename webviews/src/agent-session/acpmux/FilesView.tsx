@@ -8,19 +8,27 @@ import { useEffect, useRef, useState } from "react";
 import { useT } from "./i18n";
 import { ChevronLeft } from "./changeIcons";
 import { FileDoc, Folder } from "./conversation/icons";
+import { Icon } from "./icons/Icon";
 
 export type FilesEntry = { name: string; kind: string };
 
 /// The reads the view makes; the App answers them with `file.list` and `file.search`.
 export type FilesSource = {
   list(folder: string): Promise<{ entries?: FilesEntry[]; truncated?: boolean } | null | undefined>;
-  search(query: string): Promise<{ results?: { path: string }[]; search_root?: string; root?: string } | null | undefined>;
+  search(
+    query: string,
+  ): Promise<{ results?: { path: string }[]; search_root?: string; root?: string } | null | undefined>;
 };
 
-type Shown = { kind: "loading" } | { kind: "entries"; entries: FilesEntry[] } | { kind: "outside" } | { kind: "failed" };
+type Shown =
+  | { kind: "loading" }
+  | { kind: "entries"; entries: FilesEntry[] }
+  | { kind: "outside" }
+  | { kind: "failed" };
 
 /// A read that failed because the folder is in no git repository (the session host's reason).
-const outsideRepository = (error: unknown) => /not[ _-]?(in )?a[ _-]?(git )?repository/i.test(String((error as Error)?.message ?? error));
+const outsideRepository = (error: unknown) =>
+  /not[ _-]?(in )?a[ _-]?(git )?repository/i.test(String((error as Error)?.message ?? error));
 
 export function FilesView({
   root,
@@ -91,7 +99,11 @@ export function FilesView({
   );
   return (
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape clears the search, then closes the viewer.
-    <section className="acpmux-diff-panel acpmux-file-viewer acpmux-files" aria-label={t("header.files")} onKeyDown={onKeyDown}>
+    <section
+      className="acpmux-diff-panel acpmux-file-viewer acpmux-files"
+      aria-label={t("header.files")}
+      onKeyDown={onKeyDown}
+    >
       <header className="acpmux-diff-header">
         <button
           ref={back}
@@ -106,6 +118,15 @@ export function FilesView({
         <span className="acpmux-file-viewer-name" title={folder}>
           {inside ? `${name}/${inside}` : name}
         </span>
+        <button
+          type="button"
+          className="acpmux-diff-tool"
+          aria-label={t("image.close")}
+          title={t("image.close")}
+          onClick={onClose}
+        >
+          <Icon name="action.close" size={12} />
+        </button>
       </header>
       <div className="acpmux-files-search">
         <input
