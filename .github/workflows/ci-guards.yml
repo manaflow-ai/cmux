@@ -799,6 +799,18 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_storage_census.py
 
+      - name: Validate the web test failure census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_web_test_failure_census.py
+
+      - name: Validate the web test import-graph check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_test_touches_diff.py
+
+      - name: Validate the web test verdict
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_web_test_verdict.py
+
       - name: Validate the R2 cache pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
