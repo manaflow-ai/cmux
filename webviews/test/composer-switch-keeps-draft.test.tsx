@@ -7,7 +7,6 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
-import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -76,9 +75,10 @@ function Chips() {
 async function render(sessionId: string | undefined, props: { draft?: string; switching?: boolean } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
-  const snapshot = noChat([], {
-    ...(sessionId ? { sessionId, summary: { sessionId, harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 } } : {}),
-  });
+  const snapshot = noChat(
+    [],
+    sessionId ? { sessionId, summary: { sessionId, harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 } } : {},
+  );
   root ??= createRoot(host);
   await act(async () =>
     root!.render(
