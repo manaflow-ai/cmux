@@ -618,7 +618,7 @@ function Block({
             blocks={block.children}
             opts={opts}
             depth={depth}
-            code={code}
+            code={code === "plain" ? "plain" : undefined}
             renderId={renderId}
             turnStreaming={turnStreaming}
           />
@@ -645,7 +645,7 @@ function Block({
                 {it.children.length > 0 && (
                   <Blocks
                     blocks={it.children}
-                    code={code}
+                    code={code === "plain" ? "plain" : undefined}
                     opts={opts}
                     depth={depth + 1}
                     renderId={`${renderId}/item/${i}`}

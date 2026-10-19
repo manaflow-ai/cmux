@@ -5,4 +5,4 @@ export const ChatSessionContext = createContext("");
 export const TranscriptRowContext = createContext<string | undefined>(undefined);
 
 /// A replayed reply cannot authorize script execution, even if its turn is unfinished.
-export const RenderLiveContext = createContext(true);
+export const RenderLiveContext = createContext(false);

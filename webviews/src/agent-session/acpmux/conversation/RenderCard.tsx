@@ -13,7 +13,7 @@ import { devRenderFrameURL, LIVE_RENDER_FRAME_DOC } from "./renderFrameShell";
 import { RenderBridgeContext } from "./RenderBridgeContext";
 import { useRenderRequests } from "./useRenderRequests";
 import { ChatSessionContext, TranscriptRowContext, RenderLiveContext } from "./viewIdentity";
-import { renderWatchdog, renderHeartbeatScript } from "./renderWatchdog";
+import { renderWatchdog, renderHeartbeatPage } from "./renderWatchdog";
 import { renderStreamScript } from "./renderStreamRuntime";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
@@ -62,10 +62,10 @@ export function useRenderFrame(
     setStopped(false);
     if (!enabled) return;
     let stalled = false;
-    const watchdog = renderWatchdog(() => {
+    const watchdog = renderWatchdog((reason) => {
       stalled = true;
       setStopped(true);
-      setError(translate("render.loadFailed"));
+      setError(translate(reason === "hang" ? "render.hung" : "render.loadFailed"));
     });
     let reportedError = false;
     let booted = false,
@@ -124,7 +124,7 @@ export function useRenderFrame(
                 renderBridgeScript(theme, css) +
                 renderStreamScript() +
                 "</head><body></body></html>"
-              : renderHeartbeatScript() + latest.current.html,
+              : renderHeartbeatPage(latest.current.html),
             css,
           },
           "*",
@@ -198,7 +198,6 @@ export function RenderCard({
   call,
   panel = false,
   streaming = false,
-  turnStreaming = false,
 }: {
   call: RenderCall;
   panel?: boolean;
@@ -218,12 +217,15 @@ export function RenderCard({
   const identity = rowId ? [rowId, call.id ?? ""] : (call.id ?? call.html);
   const key = JSON.stringify([sessionId, identity]);
   const requests = useRenderRequests(key);
-  const liveTurn = useContext(RenderLiveContext) && turnStreaming;
-  const [ran, setRan] = useState(() => live && liveTurn);
+  const liveTurn = useContext(RenderLiveContext);
+  const [ran, setRan] = useState(() => ranRenders.has(call.html) || (live && liveTurn));
   const running = ran || (live && liveTurn);
   useEffect(() => {
     if (live && liveTurn) setRan(true);
   }, [live, liveTurn]);
+  useEffect(() => {
+    if (running) ranRenders.add(call.html);
+  }, [running, call.html]);
   const { frame, height, error, stopped } = useRenderFrame(
     call.html,
     live,
@@ -367,9 +369,21 @@ function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequ
   const t = useT();
   const pending = requests.pending!;
   const appeared = useRef(0);
+  const payload = useRef<HTMLDivElement>(null);
+  const [reviewed, setReviewed] = useState(false);
+  const checkEnd = () => {
+    const box = payload.current;
+    if (box && box.scrollHeight - box.clientHeight - box.scrollTop <= 1) setReviewed(true);
+  };
   useLayoutEffect(() => {
     // Give the reader time to see each request before its buttons accept a click (Lucas 2026-10-18).
     appeared.current = Date.now();
+    const box = payload.current!;
+    box.scrollTop = 0;
+    setReviewed(box.scrollHeight <= box.clientHeight + 1);
+    const observer = new ResizeObserver(checkEnd);
+    observer.observe(box);
+    return () => observer.disconnect();
   }, [pending]);
   const label =
     pending.method === "sendPrompt"
@@ -404,23 +418,39 @@ function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequ
         <span className="acpmux-render-confirm-origin">{t("render.origin")}</span>
         <span className="acpmux-render-confirm-label">{label}</span>
         <div
+          ref={payload}
           className="acpmux-render-confirm-text"
+          onScroll={checkEnd}
           // ui-allow: Keyboard users can scroll the full confirmation before acting.
           tabIndex={0}
           role="region"
           aria-label={label}
         >
-          {pending.text.replace(/[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Zl}\p{Zp}\u00a0]/gu, (character) =>
-            character === "\n" ? character : `[U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}]`,
-          )}
+          {pending.text
+            .replace(/[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Zl}\p{Zp}\u00a0\u2000-\u200a\u3000\ufff9-\ufffb]/gu, (character) =>
+              character === "\n" ? character : `[U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}]`,
+            )
+            .replace(/\n(?: *\n){3,}/g, (lines) =>
+              `\n${t("render.blankLines", { count: lines.split("\n").length - 2 })}\n`,
+            )}
         </div>
       </div>
       <div className="acpmux-render-confirm-actions">
-        <button type="button" className="acpmux-ask-action is-primary" onClick={() => requests.confirm(false)}>
+        <button
+          type="button"
+          className="acpmux-ask-action is-primary"
+          disabled={!reviewed}
+          onClick={() => requests.confirm(false)}
+        >
           {pending.method === "sendPrompt" ? t("composer.send") : label}
         </button>
         {pending.method === "sendPrompt" && (
-          <button type="button" className="acpmux-review-changes" onClick={() => requests.confirm(true)}>
+          <button
+            type="button"
+            className="acpmux-review-changes"
+            disabled={!reviewed}
+            onClick={() => requests.confirm(true)}
+          >
             {t("render.edit")}
           </button>
         )}

@@ -1944,6 +1944,7 @@ export class AcpmuxDirectClient {
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "activity",
+        renderLive: existing?.renderLive ?? live,
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
       });
@@ -1972,6 +1973,7 @@ export class AcpmuxDirectClient {
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "activity",
+        renderLive: existing?.renderLive ?? live,
         toolCount: items.filter((entry) => entry.kind === "tool").length,
         items,
       });

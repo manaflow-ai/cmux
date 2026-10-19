@@ -696,7 +696,11 @@ const RenderRow = memo(
     const tool = row.items?.[0]?.tool;
     const live = useLab("liveRender");
     const call = tool && (canRender() || live) ? renderCall(tool) : undefined;
-    return call ? <RenderCard call={call} /> : null;
+    return call ? (
+      <RenderLiveContext.Provider value={row.renderLive === true}>
+        <RenderCard call={call} />
+      </RenderLiveContext.Provider>
+    ) : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
