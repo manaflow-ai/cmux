@@ -189,6 +189,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `markdown.theme` | string | `"app"` | `app`, `light`, `dark` | Page Theme |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `appearance.fonts.ui` | string | `"system"` | `system`, `rounded`, `serif`, `mono` | Text Font. The face of chats, the composer, pages and the window's own text. |
+| `appearance.fonts.code` | string |  |  | Code Font. The face of code in chats, diffs and files. Unset, code uses the terminal's font. |
+| `appearance.fonts.chatSize` | real | `14` | 11 to 20 | Chat Text Size. The size of chat messages. |
 | `editor.fontFamily` | string |  |  | Font Family. Empty uses the terminal font. |
 | `editor.fontSize` | real |  | 6 to 72 | Font Size. Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor. |
 | `editor.fontWeight` | string | `"normal"` | `normal`, `bold`, `300`, `500`, `600` | Font Weight |
