@@ -266,8 +266,9 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
     }
 
-    /// A sized popup opens in a floating panel over the window that shows
-    /// its opener (else the active window); it is never a daemon tab.
+    /// A sized popup opens in a popup window of its own, placed from the
+    /// window that shows its opener (else the active window); it is never a
+    /// daemon tab.
     private func openPopup(_ child: any BrowserTab, request: BrowserPopupRequest, openerKey: String, pane: PaneModel) {
         guard let services else { child.close(); return }
         let owner = services.windows.controllers.first { $0.content?.pane(for: pane.handle) != nil }
@@ -275,7 +276,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             child.close()
             return
         }
-        services.popups.open(child, request: request, over: window, openerKey: openerKey)
+        services.popups.open(child, request: request, from: window, openerKey: openerKey)
     }
 
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,

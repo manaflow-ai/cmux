@@ -9,7 +9,7 @@ import { RETRY_MS } from "./memory.ts"
 import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
-import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
+import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, msOr, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
 
 /**
  * The turn loop of a ChiefBrainDO (brain-do.ts): a wake queues messages, the drain admits and opens one
@@ -168,7 +168,8 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     // A failing or rate-limited compactor costs no wait (the turn goes at once on the last view plus the whole messages).
     markPending(b.sql, "admitted")
     const healthy = !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
-    const fresh = healthy ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(SETTLE_MS)) : b.memory.first() >= b.memory.len()
+    const settleMs = msOr(b.doEnv.CHIEF_BRAIN_SETTLE_MS, SETTLE_MS)
+    const fresh = healthy && settleMs > 0 ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(settleMs)) : b.memory.first() >= b.memory.len()
     markPending(b.sql, "settled")
     // Messages that came during the wait ride along (the same conversation's queue, read again).
     const all = b.sql

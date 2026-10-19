@@ -174,6 +174,10 @@ public struct DaemonCapabilities: Sendable {
     /// `dock.role` (`agent_chat`) on `set-column-dock`, `move-tab-to-column`
     /// and `columns[].dock`: the agent chat column.
     public let dockColumnRole = "dock-column-role-v1"
+    /// Pinned dock columns (the Home dock): `set-column-dock` takes `pinned`,
+    /// and the daemon keeps a pinned column's first tab and refuses other
+    /// tabs into it unless its `allow_tabs` is on (`dock-column-pinned`).
+    public let pinnedDock = "pinned-dock-v1"
     /// Rows: `new-row`, `set-row-heights` and `columns[].rows`
     /// (plans/cmux-next/rows.md). Without it no row op is sent.
     public let rows = "rows-v1"
@@ -417,7 +421,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
-                                            terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
+                                            terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,

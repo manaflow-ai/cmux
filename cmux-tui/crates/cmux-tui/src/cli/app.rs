@@ -54,6 +54,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "open",
     "keybinding",
     "ghostty",
+    "errors",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -62,6 +63,8 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
+/// `errors.list` reads the app's logs first (the app bounds it at 12 s).
+const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -206,6 +209,51 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
             }
             call("ghostty.diagnostics", json!({}))
+        }
+        // The app's error journal: deduplicated warnings, errors, faults and
+        // crashes from its log, page consoles, acpmux, the Chief and crash reports.
+        ("errors", None | Some("list")) => {
+            let tail = if rest.len() > 1 { &rest[1..] } else { &[] };
+            let options = Options::parse(
+                tail,
+                &["since", "source", "level", "text", "limit"],
+                &["top", "no-harvest"],
+            )?;
+            let mut params = Map::new();
+            for key in ["since", "level", "text"] {
+                if let Some(value) = options.value(key) {
+                    params.insert(key.into(), json!(value));
+                }
+            }
+            let sources = options.values("source");
+            if !sources.is_empty() {
+                params.insert("source".into(), json!(sources));
+            }
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
+            }
+            if options.flag("top") {
+                params.insert("order".into(), json!("count"));
+            }
+            if options.flag("no-harvest") {
+                params.insert("harvest".into(), json!(false));
+            }
+            AppCommand::Call {
+                method: "errors.list",
+                params: Value::Object(params),
+                timeout: Some(ERRORS_TIMEOUT),
+                pick: None,
+            }
+        }
+        ("errors", Some("clear")) => {
+            let options = Options::parse(&rest[1..], &["fingerprint"], &[])?;
+            let fingerprints = options.values("fingerprint");
+            let params = if fingerprints.is_empty() {
+                json!({})
+            } else {
+                json!({ "fingerprints": fingerprints })
+            };
+            call("errors.clear", params)
         }
         // Bookmarks of a browser profile (plans/cmux-next/bookmarks.md).
         ("bookmark", Some(verb @ ("list" | "search"))) => {
