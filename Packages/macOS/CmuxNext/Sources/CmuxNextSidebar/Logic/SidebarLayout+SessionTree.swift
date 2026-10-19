@@ -56,12 +56,12 @@ nonisolated extension SidebarLayout {
         return found
     }
 
-    /// The fold and roll-up of the workspace at `index` drawn by `tree`: nil without children; a
-    /// folded parent counts the states of everything under it (`states` by model index).
-    static func treeFold(_ index: Int, _ ids: [WorkspaceID?], tree: SidebarSessionTreeState?,
+    /// The fold and roll-up of the workspace at `index` drawn by `tree`, whose list's `children`
+    /// (`treeChildren`) the caller computed once: nil without children; a folded parent counts the
+    /// states of everything under it (`states` by model index).
+    static func treeFold(_ index: Int, _ ids: [WorkspaceID?], tree: SidebarSessionTreeState?, children: [WorkspaceID: [Int]],
                          states: (Int) -> SidebarAgentState) -> (fold: SidebarTreeFold?, rollUp: SidebarTreeRollUp?) {
         guard let tree, let id = ids[index] else { return (nil, nil) }
-        let children = treeChildren(ids, parents: tree.parents)
         guard children[id]?.isEmpty == false else { return (nil, nil) }
         guard tree.collapsed.contains(id) else { return (.expanded, nil) }
         let rollUp = SidebarTreeRollUp(treeDescendants(of: id, ids, children: children).map(states))

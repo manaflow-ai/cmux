@@ -332,14 +332,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
                 let ids = Self.workspaceIDs(nodes.map { $0.node })
-                let drawn = Self.treeOrder(ids, parents: o.sessionTree?.parents, collapsed: o.sessionTree?.collapsed ?? [])
+                let drawn = Self.treeOrder(ids, parents: o.sessionTree?.parents, collapsed: filtering ? [] : o.sessionTree?.collapsed ?? [])
+                let children = o.sessionTree.map { Self.treeChildren(ids, parents: $0.parents) } ?? [:]
                 let listed = nodes
                 let state: (Int) -> SidebarAgentState = { i in
                     guard case let .workspace(ws) = listed[i].node else { return .idle }
                     return SidebarAgentState.of(ws, lane: o.sessionTree?.states[ws.id])
                 }
                 for (index, depth) in drawn {
-                    emit(index, nodes[index], depth: depth, fold: Self.treeFold(index, ids, tree: o.sessionTree, states: state))
+                    emit(index, nodes[index], depth: depth, fold: Self.treeFold(index, ids, tree: o.sessionTree, children: children, states: state))
                 }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue

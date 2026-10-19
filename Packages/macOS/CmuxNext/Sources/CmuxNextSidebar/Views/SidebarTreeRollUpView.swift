@@ -12,7 +12,7 @@ final class SidebarTreeRollUpView: NSView {
         let count = SidebarRowView.label(font: SidebarStyle.badgeFont)
     }
 
-    private let chips = [SidebarAgentState.blocked, .failed, .running, .finishedUnread].map(Chip.init)
+    private let chips = [SidebarAgentState.blocked, .failed, .running, .finishedUnread].map { Chip(state: $0) }
     private(set) var rollUp: SidebarTreeRollUp?
 
     override init(frame: NSRect) {

@@ -124,7 +124,11 @@ extension SidebarListView {
                 }
             }
             if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
-            guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else { continue }
+            guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
+                // A session a folded parent hides: the parent's roll-up counts it, so the list lays out again.
+                if SidebarSessionTree.shared.drawn?.collapsed.isEmpty == false { heightChanged = true }
+                continue
+            }
             let o = options ?? self.options(includeGap: true)
             options = o
             var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
