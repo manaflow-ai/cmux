@@ -386,7 +386,6 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
         if (!sizeIsValid(spec.size)) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
         if (spec.maxRunSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.maxRunSeconds", status: 409, unsupported: "Daytona cannot enforce maxRunSeconds without destroying the sandbox" }));
         if (spec.autoDeleteSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.autoDeleteSeconds", status: 409, unsupported: "Daytona auto-delete semantics are not compatible with this API" }));
-        if (spec.autoDeleteSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.autoDeleteSeconds", status: 409 }));
         const sourceId = source === undefined ? null : yield* idOf(source.owns);
         const requested = sizeBody(spec.size);
         if (sourceId !== null && Object.keys(requested).length > 0) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 409 }));
