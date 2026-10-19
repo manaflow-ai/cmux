@@ -295,6 +295,13 @@ also selects the unrelated expired `conversation-sidebar-release` feature flag
 (`reviewBy 2026-10-18`). All other 15 selected checks passed. That flag was not
 changed as part of this repair.
 
+The current-head native rerun used the `cmux-unit` scheme and selected the
+restore persistence, live-owner admission, and issue-12775 regression suites.
+It executed **41 tests in 3 suites**, all passing, with the same benign
+CoreSimulator-version warning on this host. This is the authoritative focused
+receipt for the current repair head; the earlier 21-test persistence receipt
+remains a subset of it.
+
 ## M5S wait-point sample (2026-10-19)
 
 A read-only `sample` of reclaim PID `48898` captured it spending the entire
