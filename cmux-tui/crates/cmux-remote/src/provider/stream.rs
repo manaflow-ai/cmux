@@ -64,8 +64,13 @@ where
         })?;
         let mut writer = self.writer.lock().await;
         let writer = writer.as_mut().ok_or(LinkError::Closed)?;
-        writer.write_all(&length.to_be_bytes()).await.map_err(map_io)?;
-        writer.write_all(&frame).await.map_err(map_io)?;
+        // One write for the length and the frame: two writes become two
+        // TLS records, two pipe writes for ssh to forward, and on a
+        // no-delay socket two segments, the first only four bytes long.
+        let mut record = Vec::with_capacity(LENGTH_BYTES + frame.len());
+        record.extend_from_slice(&length.to_be_bytes());
+        record.extend_from_slice(&frame);
+        writer.write_all(&record).await.map_err(map_io)?;
         writer.flush().await.map_err(map_io)
     }
 
