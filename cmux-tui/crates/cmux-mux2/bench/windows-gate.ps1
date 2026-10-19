@@ -1,6 +1,7 @@
 # windows-gate.ps1 BINDIR [PERL]: the mux2 correctness gate on Windows (the
-# corpus sizes of linux-gate.sh, but all 32 MB of unicode.txt: the slow
-# viewer must fall more than 16 MiB behind to take the resync path). The server runs with MUX2_TAP_DIR, so
+# corpus sizes of linux-gate.sh, but all 32 MB of cursor.txt and
+# unicode.txt: the slow viewer must fall more than 16 MiB behind to take the
+# resync path, and a ConPTY that passes bytes through adds none). The server runs with MUX2_TAP_DIR, so
 # mux2-verify compares against the bytes conhost wrote (see mux2-verify.rs).
 # PERL generates the corpus (default: MSYS2's perl).
 # -FileReference: also require the file's own reference, as on Unix (for a
@@ -13,8 +14,15 @@ New-Item -ItemType Directory -Force $W | Out-Null
 $env:MUX2_SOCKET = "$W\sock"; $env:MUX2_TAP_DIR = "$W\tap"
 $corpus = ($W -replace '\\', '/') + '/c'
 & $Perl (Join-Path $PSScriptRoot 'gen-corpus.pl') $corpus | Out-Null
-foreach ($f in 'cursor') { $s = [IO.File]::Open("$W\c\$f.txt", 'Open'); $s.SetLength(8MB); $s.Close() }
-foreach ($f in 'plain', 'sgr') { $s = [IO.File]::Open("$W\c\$f.txt", 'Open'); $s.SetLength(64MB); $s.Close() }
+# Cut at a line end: a cut inside an escape sequence leaves the parser
+# mid-sequence, which a ConPTY holds back and a file reference does not.
+function Cut($path, $size) {
+    $fs = [IO.File]::Open($path, 'Open'); $buf = New-Object byte[] 4096
+    $fs.Position = $size - 4096; $n = $fs.Read($buf, 0, 4096)
+    $end = [Array]::LastIndexOf($buf, [byte]10, $n - 1)
+    $fs.SetLength($size - 4096 + $end + 1); $fs.Close()
+}
+foreach ($f in 'plain', 'sgr') { Cut "$W\c\$f.txt" 64MB }
 & "$B\mux2.exe" stats | Out-Null
 $n = 0; $faithful = 0
 foreach ($f in 'cursor', 'unicode', 'sgr', 'plain') {

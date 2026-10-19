@@ -1,6 +1,6 @@
 # windows-bench.ps1: mux2 vs cmux-tui on Windows. One JSON line per result.
-#   windows-bench.ps1 -Mux2 DIR -Ctui EXE -Corpus DIR [-Test all|start|scale|tput|rtt] [-N 50]
-#                     [-Scale 500] [-Reps 1]
+#   windows-bench.ps1 -Mux2 DIR -Ctui EXE -Corpus DIR [-Test all|start,scale,rtt,tput,type,api]
+#                     [-N 50] [-Scale 500] [-Reps 1] [-Kinds mux2,cmux-tui]
 # DIR holds mux2.exe, mux2d.exe, mux2-verify.exe; EXE is cmux-tui.exe; the
 # corpus is gen-corpus.pl's output (plain.txt and sgr.txt are used).
 # The program every throughput run uses is `mux2-verify --cat FILE`: it
@@ -8,7 +8,7 @@
 # so both servers see identical conhost output; one run uses cmd's `type`. A viewer runs inside a terminal of a second
 # mux2 server (its own socket), as a console program would.
 param([string]$Mux2, [string]$Ctui, [string]$Corpus, [string]$Test = 'all', [int]$N = 50,
-      [int]$Scale = 500, [int]$Reps = 1)
+      [int]$Scale = 500, [int]$Reps = 1, [string[]]$Kinds = @('mux2', 'cmux-tui'))
 $ErrorActionPreference = 'Continue'
 $M = "$Mux2\mux2.exe"
 $Cat = "$Mux2\mux2-verify.exe"
@@ -175,7 +175,7 @@ function T-Rtt($kind) {
         $mark = 'M{0:d5}X' -f $i
         $sw = [Diagnostics.Stopwatch]::StartNew(); Screen $kind $id | Out-Null; $rd += Ms $sw
         $sw.Restart(); Write-Term $kind $id "$mark`r"
-        while ((Screen $kind $id) -notmatch $mark) {}
+        while ((Screen $kind $id) -notmatch $mark) { if ($sw.Elapsed.TotalSeconds -gt 10) { throw "rtt: $mark never appeared" } }
         $rt += Ms $sw
     }
     Kill-Term $kind $id
@@ -188,32 +188,35 @@ $env:MUX2_SOCKET = $HostSock; & $M stats | Out-Null
 $script:HostPid = [int]((Out $M @('stats')) -split "`n" | Where-Object { $_ -match '^pid' } | ForEach-Object { ($_ -split "`t")[1] })
 Remove-Item Env:\MUX2_SOCKET
 
-foreach ($kind in 'mux2', 'cmux-tui') {
-    if ($Test -in 'all', 'start') { T-Start $kind }
-    if ($Test -in 'all', 'scale') { T-Scale $kind }
-    if ($Test -in 'all', 'tput', 'rtt') {
+# PowerShell variable names ignore case: script-level names here must not
+# match a parameter ($N, $M, ...).
+$tests = if ($Test -eq 'all') { @('start', 'scale', 'rtt', 'tput', 'type', 'api') } else { $Test -split '[ ,]+' }
+foreach ($kind in $Kinds) {
+    if ('start' -in $tests) { T-Start $kind }
+    if ('scale' -in $tests) { T-Scale $kind }
+    if (@($tests | Where-Object { $_ -in 'rtt', 'tput', 'type' }).Count) {
         StopAll; Start-Server $kind | Out-Null
-        if ($Test -in 'all', 'rtt') { T-Rtt $kind }
-        if ($Test -in 'all', 'tput') {
-            for ($r = 0; $r -lt $Reps; $r++) {
+        if ('rtt' -in $tests) { T-Rtt $kind }
+        if ('tput' -in $tests) {
+            for ($rep = 0; $rep -lt $Reps; $rep++) {
                 foreach ($f in 'plain', 'sgr') {
                     T-Tput $kind "$Corpus\$f.txt"
                     T-Tput $kind "$Corpus\$f.txt" -Attach
                 }
             }
-            # cmd's type is slow (about 1 MB/s through either ConPTY): 16 MB of it.
-            if ($Test -eq 'all') {
-                $small = "$Corpus\plain-16m.txt"
-                if (-not (Test-Path $small)) {
-                    $src = [IO.File]::OpenRead("$Corpus\plain.txt"); $dst = [IO.File]::Create($small)
-                    $buf = New-Object byte[] (16MB); $n = $src.Read($buf, 0, $buf.Length); $dst.Write($buf, 0, $n)
-                    $src.Close(); $dst.Close()
-                }
-                T-Tput $kind $small -Type
+        }
+        # cmd's type is slow (about 1 MB/s through either ConPTY): 16 MB of it.
+        if ('type' -in $tests) {
+            $small = "$Corpus\plain-16m.txt"
+            if (-not (Test-Path $small)) {
+                $src = [IO.File]::OpenRead("$Corpus\plain.txt"); $dst = [IO.File]::Create($small)
+                $buf = New-Object byte[] (16MB); $got = $src.Read($buf, 0, $buf.Length); $dst.Write($buf, 0, $got)
+                $src.Close(); $dst.Close()
             }
+            T-Tput $kind $small -Type
         }
     }
-    if ($kind -eq 'mux2' -and $Test -in 'all', 'rtt') {
+    if ($kind -eq 'mux2' -and 'api' -in $tests) {
         StopAll
         Emit @{ test = 'api'; kind = 'mux2'; create = (Out $M @('bench', 'create', '100')); echo = (Out $M @('bench', 'echo', '500'))
                 write_to_visible = (Out $M @('bench', 'rtt', '200')) }

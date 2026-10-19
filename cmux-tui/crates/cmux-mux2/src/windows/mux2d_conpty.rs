@@ -282,7 +282,15 @@ unsafe impl Send for Console {}
 /// Creates a pseudoconsole of `cols` x `rows` (conhost starts here: most of
 /// a create's cost, which is why the server keeps one spare).
 pub(super) fn open_console(cols: u16, rows: u16) -> io::Result<Console> {
-    let (out_server, out_client) = pipe_pair(true, 128 << 10)?;
+    // conhost's output pipe quota (MUX2_PIPE_BUFFER bytes). 1 MiB against
+    // 128 KiB: +22 % plain and +28 % SGR throughput with Windows Terminal's
+    // ConPTY, no change with the system's. Only bytes waiting in the pipe
+    // use the quota, so an idle terminal costs nothing for it.
+    static OUT_BUFFER: OnceLock<u32> = OnceLock::new();
+    let out_buffer = *OUT_BUFFER.get_or_init(|| {
+        std::env::var("MUX2_PIPE_BUFFER").ok().and_then(|v| v.parse().ok()).unwrap_or(1 << 20)
+    });
+    let (out_server, out_client) = pipe_pair(true, out_buffer)?;
     let (in_server, in_client) = match pipe_pair(false, 16 << 10) {
         Ok(p) => p,
         Err(e) => {
