@@ -425,7 +425,9 @@ test("a live frame follows short content and caps tall pages at 1600px", async (
   expect(card.frame!.style.height).toBe("1600px");
 });
 
-test("embedded frames retain accessible titles without a visible heading", async () => {
+// The frame's name is for assistive tech only: a `title` attribute also shows as a native
+// hover tooltip ("Preview" for an untitled render) over the whole render (Lucas 2026-10-19).
+test("embedded frames retain accessible titles without a visible heading or hover tooltip", async () => {
   await draw();
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
   for (const [html, title] of [
@@ -434,7 +436,8 @@ test("embedded frames retain accessible titles without a visible heading", async
   ]) {
     act(() => root!.render(<RenderCard call={{ html }} />));
     expect(host.querySelector(".acpmux-render-card-title")).toBeNull();
-    expect(host.querySelector("iframe")?.title).toBe(title);
+    expect(host.querySelector("iframe")?.getAttribute("aria-label")).toBe(title);
+    expect(host.querySelector("iframe")?.hasAttribute("title")).toBe(false);
   }
 });
 
