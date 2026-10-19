@@ -97,7 +97,9 @@ test("Escape mid-press clears the marker", async () => {
     await act(async () => void button.dispatchEvent(pointer("pointerdown")));
     await act(
       async () =>
-        void dom.window.document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+        void dom.window.document.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        ),
     );
     expect(button.hasAttribute("data-press-active")).toBe(false);
   } finally {

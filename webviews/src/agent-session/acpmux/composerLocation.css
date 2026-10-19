@@ -562,14 +562,14 @@
 }
 .acpmux-composer-bar[data-footer-look="plain"]
   :is(.acpmux-model, .acpmux-effort, .acpmux-access)
-  .acpmux-picker-button:not(:hover, :focus-visible, :active, [aria-expanded="true"]) {
+  .acpmux-picker-button:not(:hover, :focus-visible, :active, [aria-expanded="true"], [data-press-active]) {
   background: none;
   box-shadow: none;
 }
 @media (hover: hover) and (pointer: fine) {
   .acpmux-composer-bar[data-footer-look="plain"]
     :is(.acpmux-model, .acpmux-effort, .acpmux-access)
-    .acpmux-picker-button:hover:not(:active, [aria-expanded="true"]) {
+    .acpmux-picker-button:hover:not(:active, [aria-expanded="true"], [data-press-active]) {
     background: var(--acpmux-row-hover);
   }
 }

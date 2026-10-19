@@ -11,7 +11,15 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
   // A mouse press already opened or closed it: the click it ends with does nothing.
   const pressed = useRef(false);
   const press = useRef<(() => void) | null>(null);
-  useEffect(() => () => press.current?.(), []);
+  // Clears the pressed marker; set while a mouse press holds the trigger.
+  const unmark = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      press.current?.();
+      unmark.current?.();
+    },
+    [],
+  );
   return {
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       openAtPress.current = open;
@@ -20,7 +28,23 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
       // before the held frame paints. The marker keeps that pressed tone until release; the composer
       // uses it to draw the first frame of a click the same as the open chip.
       const target = event.currentTarget;
+      unmark.current?.();
       target.dataset.pressActive = "true";
+      // A press can end with no pointerup reaching the page (the window loses focus, Escape), so
+      // those clear the marker too.
+      const view = target.ownerDocument.defaultView;
+      const onKey = (key: KeyboardEvent) => {
+        if (key.key === "Escape") clear();
+      };
+      const clear = () => {
+        delete target.dataset.pressActive;
+        view?.removeEventListener("blur", clear);
+        target.ownerDocument.removeEventListener("keydown", onKey, true);
+        if (unmark.current === clear) unmark.current = null;
+      };
+      view?.addEventListener("blur", clear);
+      target.ownerDocument.addEventListener("keydown", onKey, true);
+      unmark.current = clear;
       pressed.current = true;
       press.current?.();
       if (open) setOpen(false);
@@ -30,7 +54,7 @@ export function usePopoverTrigger(open: boolean, setOpen: (open: boolean) => voi
         close: open ? undefined : () => setOpen(false),
         end: (onTrigger) => {
           press.current = null;
-          delete target.dataset.pressActive;
+          clear();
           // No click follows a release off the trigger.
           if (!onTrigger) pressed.current = false;
         },
