@@ -1821,6 +1821,10 @@ class Controller:
             included = candidate.stack.included
             if not included or included[-1].number != pr.number or included[-1].sha != pr.sha:
                 continue
+            # The tested head is this PR's own stack commit (no regen commit on top),
+            # and the fleet build the override names passed.
+            if candidate.stack.head != candidate.stack.heads.get(pr.number) or not candidate.build.get("ok"):
+                continue
             before = candidate.stack.heads.get(included[-2].number) if len(included) > 1 else candidate.stack.base
             if before and self.same_tree(base_now, before):
                 return candidate
@@ -2137,7 +2141,9 @@ class Controller:
             if only is not None and not any(pr.number in only for pr in members):
                 continue
             members = [pr for pr in members if not self.reported(pr, ("culprit", "conflict", "refused"))]
-            reasons = {pr.number: ineligible_reason(pr, now(), own_checks=False) for pr in members}
+            # Own checks count: each member lands through gh-merge-green, which judges them,
+            # and a red one found only at landing would strand the members before it.
+            reasons = {pr.number: ineligible_reason(pr, now()) for pr in members}
             if not members or any(reasons.values()):
                 why = "; ".join(f"#{number} {reason}" for number, reason in reasons.items() if reason) or "no member left"
                 log(f"group {name}: waiting ({why})")
