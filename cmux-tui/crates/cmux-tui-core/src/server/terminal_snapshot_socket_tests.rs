@@ -1153,6 +1153,7 @@ fn dogfood_png_snapshot_events_match_the_golden_fixture() {
         return;
     }
     let expected = std::fs::read_to_string(&path).unwrap_or_default();
+    eprintln!("FIXTURE-BEGIN\n{actual}FIXTURE-END");
     assert!(
         actual == expected,
         "{DOGFOOD_PNG_FIXTURE} differs from the host's events; rerun with \
