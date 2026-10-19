@@ -127,7 +127,8 @@ fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
         }
         _ => ("execute", first_line(&script)),
     };
-    let mut call = json!({"kind": kind, "title": title, "rawInput": {"command": script, "cwd": cwd}});
+    let mut call =
+        json!({"kind": kind, "title": title, "rawInput": {"command": script, "cwd": cwd}});
     if kind != "execute"
         && let Some(path) = path
     {
@@ -181,7 +182,10 @@ fn changes(value: &Value) -> Vec<Change> {
                     path: s(c, "path")?.to_owned(),
                     kind: kind.to_owned(),
                     text: text(c),
-                    move_path: c.pointer("/kind/move_path").and_then(Value::as_str).map(str::to_owned),
+                    move_path: c
+                        .pointer("/kind/move_path")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
                 })
             })
             .collect();
@@ -220,7 +224,13 @@ fn hunks(diff: &str) -> Vec<Hunk> {
                 .find_map(|w| w.strip_prefix('-'))
                 .and_then(|range| range.split(',').next()?.parse().ok())
                 .unwrap_or(1);
-            out.push(Hunk { old_start, old: Vec::new(), new: Vec::new(), additions: 0, deletions: 0 });
+            out.push(Hunk {
+                old_start,
+                old: Vec::new(),
+                new: Vec::new(),
+                additions: 0,
+                deletions: 0,
+            });
             continue;
         }
         // File headers ("--- a", "+++ b") come before the first hunk only.
@@ -278,7 +288,9 @@ fn codex_file_change(id: &str, value: &Value, status: &str, at: Option<u64>) -> 
                 (change.text.lines().count() as u64, 0)
             }
             "delete" => {
-                content.push(json!({"type": "diff", "path": target, "oldText": change.text, "newText": ""}));
+                content.push(
+                    json!({"type": "diff", "path": target, "oldText": change.text, "newText": ""}),
+                );
                 locations.push(json!({"path": target}));
                 (0, change.text.lines().count() as u64)
             }
@@ -309,7 +321,9 @@ fn codex_file_change(id: &str, value: &Value, status: &str, at: Option<u64>) -> 
     if oversize(&content) {
         content = files
             .iter()
-            .map(|c| text_content(&format!("{}\n{}", c.move_path.as_deref().unwrap_or(&c.path), c.text)))
+            .map(|c| {
+                text_content(&format!("{}\n{}", c.move_path.as_deref().unwrap_or(&c.path), c.text))
+            })
             .collect();
     }
     let title = match files.as_slice() {
@@ -392,7 +406,9 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
             };
             Some((Ok(tool), true))
         }
-        "exec_command_end" => Some((Ok(codex_command(s(payload, "call_id")?, payload, at)?), false)),
+        "exec_command_end" => {
+            Some((Ok(codex_command(s(payload, "call_id")?, payload, at)?), false))
+        }
         "patch_apply_begin" => {
             let id = s(payload, "call_id")?;
             Some((Ok(codex_file_change(id, payload.get("changes")?, "completed", at)?), false))
@@ -404,7 +420,9 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
             } else {
                 "completed"
             };
-            if let Some(tool) = payload.get("changes").and_then(|c| codex_file_change(id, c, state, at)) {
+            if let Some(tool) =
+                payload.get("changes").and_then(|c| codex_file_change(id, c, state, at))
+            {
                 return Some((Ok(tool), false));
             }
             let mut done = json!({"status": state});

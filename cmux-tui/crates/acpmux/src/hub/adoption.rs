@@ -473,7 +473,14 @@ impl Hub {
                 let mut done = tool.done.clone();
                 done["sessionUpdate"] = json!("tool_call_update");
                 done["toolCallId"] = json!(tool.id);
-                self.append_at(session, "in", "tool_call_update", update(done), None, tool.ended_at.or(start));
+                self.append_at(
+                    session,
+                    "in",
+                    "tool_call_update",
+                    update(done),
+                    None,
+                    tool.ended_at.or(start),
+                );
             }
             if !turn.answer.is_empty() {
                 self.append_at(
