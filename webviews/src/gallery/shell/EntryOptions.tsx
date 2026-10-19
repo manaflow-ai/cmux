@@ -7,6 +7,7 @@ import {
   choiceLabel,
   choiceValue,
   effectiveOption,
+  optionAccepts,
   readOptions,
   writeOptions,
   type GalleryOption,
@@ -41,7 +42,7 @@ export function EntryOptions({
     <div className="gallery-options" aria-label="Entry options">
       {options.map((option) => {
         const value = effectiveOption(option, values, props);
-        const edited = option.id in values;
+        const edited = option.id in values && optionAccepts(option, values[option.id]!);
         if (option.kind === "toggle")
           return (
             <label key={option.id} className="gallery-option gallery-option-toggle" data-edited={edited || undefined}>

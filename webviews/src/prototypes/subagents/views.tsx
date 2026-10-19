@@ -129,7 +129,8 @@ export function ColumnsView({ nodes, platform, path, onSelect, header, visible }
               {platform === "iphone" && path[index] && <span className="sa-strip-name">{path[index]!.name}</span>}
             </button>
           );
-        const used = level.items.filter((item) => item.state !== "done" && item.state !== "stopped").length;
+        // Width counts open children (PROTOCOL.md): a finished child holds its slot until it is closed.
+        const used = level.items.length;
         return (
           <section key={level.parent?.id ?? "roots"} className="sa-column" data-platform={platform} aria-label={level.parent?.name ?? "Sessions"}>
             <header className="sa-column-header">

@@ -93,6 +93,7 @@ export function SubagentSidebar({
       />
       {panel && (
         <LimitsPanel
+          key={root.id}
           session={root}
           platform={platform}
           finished={childrenOf(nodes, root.id).filter((node) => node.state === "done" || node.state === "stopped").length}

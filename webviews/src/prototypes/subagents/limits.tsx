@@ -6,6 +6,9 @@ import { useState } from "react";
 import { DEFAULT_LIMITS, type AgentNode, type Limits } from "./hierarchy";
 import type { Platform } from "./parts";
 
+/** The person's ceiling (PROTOCOL.md): no session or setting goes past it. */
+const CEILING = { width: 1000, depth: 100 } as const;
+
 /** "38 of 50 · depth 4 of 10", with the over-limit part named. */
 export function LimitLine({
   used,
@@ -91,12 +94,24 @@ export function LimitsPanel({ session, platform, finished }: { session: AgentNod
         value={limits.width}
         step={10}
         min={1}
-        max={500}
+        max={CEILING.width}
         onChange={(width) => setLimits({ ...limits, width })}
       />
-      <Stepper label="Depth" value={limits.depth} step={1} min={1} max={50} onChange={(depth) => setLimits({ ...limits, depth })} />
+      <Stepper
+        label="Depth"
+        value={limits.depth}
+        step={1}
+        min={1}
+        max={CEILING.depth}
+        onChange={(depth) => setLimits({ ...limits, depth })}
+      />
       <div className="sa-limits-actions">
-        <button type="button" className="sa-text-button" onClick={() => setLimits({ width: limits.width * 2, depth: limits.depth })}>
+        <button
+          type="button"
+          className="sa-text-button"
+          disabled={limits.width >= CEILING.width}
+          onClick={() => setLimits({ width: Math.min(CEILING.width, limits.width * 2), depth: limits.depth })}
+        >
           Double subagents
         </button>
         {finished > 0 && (
@@ -114,7 +129,7 @@ export function LimitsPanel({ session, platform, finished }: { session: AgentNod
       </div>
       <p className="sa-muted sa-small">
         This session and its subagents. New sessions use {DEFAULT_LIMITS.width} and {DEFAULT_LIMITS.depth} (Settings ›
-        Agents › Subagents). The ceiling is 1000 and 100.
+        Agents › Subagents). The ceiling is {CEILING.width} and {CEILING.depth}.
       </p>
     </section>
   );
@@ -130,8 +145,8 @@ export function LimitsSettings({ platform }: { platform: Platform }) {
       <h2>Subagents</h2>
       <p className="sa-muted">Agents can start subagents, which can start their own. These limits apply to every new session.</p>
       <div className="sa-settings-group">
-        <Stepper label="Subagents per agent" value={width} step={10} min={1} max={500} onChange={setWidth} />
-        <Stepper label="Depth" value={depth} step={1} min={1} max={50} onChange={setDepth} />
+        <Stepper label="Subagents per agent" value={width} step={10} min={1} max={CEILING.width} onChange={setWidth} />
+        <Stepper label="Depth" value={depth} step={1} min={1} max={CEILING.depth} onChange={setDepth} />
       </div>
       <div className="sa-settings-group">
         <label className="sa-radio">

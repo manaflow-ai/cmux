@@ -26,7 +26,7 @@ import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
 import { armIds, validateExperiments, type Experiment } from "../experiments/experiment";
 import { validateTunables, type Tunable } from "../experiments/tunable";
-import { validateOptions, type GalleryOption } from "./options";
+import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
 import type { AccountsState, AgentsState, HarnessesState, HostLists } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -432,6 +432,14 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
     }
     for (const problem of validateTunables(entry.tunables ?? [])) problems.push(`${entry.id}: ${problem}`);
     for (const problem of validateOptions(entry.options ?? [])) problems.push(`${entry.id}: ${problem}`);
+    for (const option of entry.options ?? [])
+      for (const [name, variant] of Object.entries(entry.variants)) {
+        const value = (variant as { props?: Record<string, unknown> }).props?.[option.id];
+        if (value === undefined) continue;
+        const encoded = option.kind === "toggle" ? (value === true ? "on" : value === false ? "off" : undefined) : String(value);
+        if (encoded === undefined || !optionAccepts(option, encoded))
+          problems.push(`${entry.id}#${name}: prop ${option.id} is not one of the option's values`);
+      }
     if (entry.options?.length && entry.host !== "component")
       problems.push(`${entry.id}: options set props, so only component entries take them`);
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);

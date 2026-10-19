@@ -154,12 +154,13 @@ export function buildForest(options: ForestOptions): AgentNode[] {
     width: number,
     spine: boolean,
   ): AgentNode => {
-    const pool = SPLITS[Math.min(depth - 1, SPLITS.length - 1)] ?? SPLITS[0]!;
-    // Offset each parent's picks so a child never repeats its parent's or its siblings' task.
+    // The parent's own task is left out of the pool, and each parent's picks start at an offset, so a
+    // child never repeats its parent's name and siblings repeat only after the pool runs out.
+    const parentBase = parent?.name.replace(/ \d+$/, "");
+    const levelPool = SPLITS[Math.min(depth - 1, SPLITS.length - 1)] ?? SPLITS[0]!;
+    const pool = levelPool.filter((entry) => entry.name !== parentBase);
     const offset = parent ? hash(parent.id) % pool.length : 0;
-    let slot = (index + offset) % pool.length;
-    if (parent && pool[slot]!.name === parent.name.replace(/ \d+$/, "")) slot = (slot + 1) % pool.length;
-    const pick = parent ? pool[slot]! : undefined;
+    const pick = parent ? pool[(index + offset) % pool.length]! : undefined;
     const id = parent ? `${parent.id}.${index + 1}` : `s${ROOTS.indexOf(root) + 1}`;
     const seed = hash(id);
     const round = Math.floor(index / pool.length);
@@ -189,7 +190,14 @@ export function buildForest(options: ForestOptions): AgentNode[] {
       childCount: 0,
       limits: sessionLimits,
       workspace: root.workspace,
-      limitsSource: parent ? "inherited" : root === ROOTS[0] && options.limits ? "session" : "settings",
+      // A limit set on an ancestor session reads "inherited"; Settings and default values keep their source.
+      limitsSource: parent
+        ? parent.limitsSource === "session"
+          ? "inherited"
+          : parent.limitsSource
+        : root === ROOTS[0] && options.limits
+          ? "session"
+          : "settings",
     };
     nodes.push(node);
     const tapered = depth === 0 ? width : Math.max(spine ? 1 : 0, inner - (depth >> 1) - (seed % 2));

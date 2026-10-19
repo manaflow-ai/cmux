@@ -179,10 +179,12 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
     ),
   );
   const total = entries.reduce((sum, entry) => sum + Object.keys(entry.variants).length, 0);
-  /** Another entry's options mean nothing here: opening it drops them. */
-  const searchFor = (entryId: string) =>
-    entryId === address.entry ? address.search : { ...address.search, opts: "" };
-  const open = (target: { entry: string; variant: string }) => go({ ...target, search: searchFor(target.entry) });
+  /** Options belong to the stage they were set on: opening another variant or entry drops them, so
+   *  every variant link opens the variant's own named state. */
+  const searchFor = (entryId: string, variantName: string) =>
+    entryId === address.entry && variantName === address.variant ? address.search : { ...address.search, opts: "" };
+  const open = (target: { entry: string; variant: string }) =>
+    go({ ...target, search: searchFor(target.entry, target.variant) });
   const browseSearch = { ...address.search, view: "browse" as const };
   return (
     <nav className="gallery-list" aria-label="Gallery entries">
@@ -267,7 +269,7 @@ function Sidebar({ address, states, status }: { address: Address; states: readon
                           <li key={variant}>
                             <a
                               ref={current || index === active ? reveal : undefined}
-                              href={href({ entry: entry.id, variant, search: searchFor(entry.id) })}
+                              href={href({ entry: entry.id, variant, search: searchFor(entry.id, variant) })}
                               aria-current={current ? "page" : undefined}
                               data-active={index === active ? "" : undefined}
                               onClick={(event) => {
@@ -464,10 +466,10 @@ function BrowseEntryView({ address, states }: { address: Address; states: readon
         browse={search.browse}
         onBrowseChange={(browse, replace = true) => go({ ...address, search: { ...search, browse } }, replace)}
         onOpen={(target, targetVariant) =>
-          go({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+          go({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant", opts: "" } })
         }
         hrefFor={(target, targetVariant) =>
-          href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant" } })
+          href({ entry: target.id, variant: targetVariant, search: { ...search, view: "variant", opts: "" } })
         }
         sourceFor={(target) => states.find((state) => state.entry?.id === target.id)?.path}
       />
@@ -576,6 +578,7 @@ function EntryView({ entry, address, status }: { entry: GalleryEntry; address: A
             variant={variant}
             env={env}
             tune={search.tune}
+            opts={search.opts}
             sourcePath={address.sourcePath}
             revisionSha={status.sha}
             compare={search.compare}

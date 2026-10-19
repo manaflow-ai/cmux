@@ -33,7 +33,7 @@ export default componentEntry<SubagentSidebarProps>({
   options: [
     PLATFORM,
     { id: "fanout", label: "Children", kind: "choice", choices: ["5", "12", "50", "80"], defaultValue: "12", numeric: true },
-    { id: "depth", label: "Depth", kind: "choice", choices: ["1", "2", "4", "10", "12"], defaultValue: "4", numeric: true },
+    { id: "depth", label: "Depth", kind: "choice", choices: ["1", "2", "3", "4", "10", "12"], defaultValue: "4", numeric: true },
     { id: "visibleColumns", label: "Columns", kind: "choice", choices: ["2", "3", "4"], defaultValue: "3", numeric: true },
     {
       id: "groupBy",

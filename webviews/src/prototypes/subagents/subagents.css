@@ -269,7 +269,7 @@
   margin: 8px 12px 30px;
   min-height: 52px;
   padding: 0 8px 0 18px;
-  border-radius: 24px;
+  border-radius: 16px;
   background: var(--sa-raised);
   box-shadow: inset 0 0 0 0.5px var(--sa-line);
   flex: none;
@@ -577,8 +577,12 @@
   font-variant-numeric: tabular-nums;
   border-inline: 1px solid var(--sa-line);
 }
+.sa-limits-actions button {
+  white-space: nowrap;
+}
 .sa-limits-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin: 8px 0;

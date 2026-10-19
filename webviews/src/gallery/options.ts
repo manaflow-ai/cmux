@@ -88,7 +88,8 @@ export function applyOptions(
   for (const option of options) {
     const value = values[option.id];
     if (value === undefined || !optionAccepts(option, value)) {
-      if (!(option.id in next)) next[option.id] = option.defaultValue;
+      if (!(option.id in next))
+        next[option.id] = option.kind === "choice" && option.numeric ? Number(option.defaultValue) : option.defaultValue;
       continue;
     }
     next[option.id] = option.kind === "toggle" ? value === "on" : option.numeric ? Number(value) : value;
@@ -108,6 +109,11 @@ export function validateOptions(options: readonly GalleryOption[]): string[] {
       const values = option.choices.map(choiceValue);
       for (const value of values)
         if (!OPTION_VALUE.test(value)) problems.push(`option ${option.id}: choice ${value} is not lower kebab case`);
+      if (values.length === 0) problems.push(`option ${option.id}: no choices`);
+      if (new Set(values).size !== values.length) problems.push(`option ${option.id}: choices repeat`);
+      if (option.numeric)
+        for (const value of values)
+          if (!Number.isFinite(Number(value))) problems.push(`option ${option.id}: choice ${value} is not a number`);
       if (!values.includes(option.defaultValue)) problems.push(`option ${option.id}: the default is not a choice`);
     }
   }
