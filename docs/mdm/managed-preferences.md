@@ -175,6 +175,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.lineNumbers` | boolean | `true` |  | Line Numbers |
 | `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
+| `markdown.font.size` | real | `16` | 8 to 40 | Default Font Size. The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
 | `appearance.sidebarSurface` | string | `"same"` | `same`, `separate` | Sidebar Background. Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane. |
