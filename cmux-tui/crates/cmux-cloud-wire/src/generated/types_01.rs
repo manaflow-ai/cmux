@@ -150,6 +150,8 @@ pub struct CloudConnectInfo {
     pub host: HostId,
     pub epoch: i64,
     pub state: CloudMachineStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<CloudVmNetwork>,
     pub peer: CloudConnectInfoPeer,
     pub gateway: Option<CloudConnectInfoGateway>,
     pub services: Vec<CloudConnectInfoServicesItem>,
@@ -348,6 +350,14 @@ wire_enum! {
         Deleting = "deleting",
         Failed = "failed",
     }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmNetwork {
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub ipv4_cidr: String,
+    pub ipv4: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

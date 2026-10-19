@@ -455,6 +455,13 @@
             "name": "CloudMachineStatus"
           }
         },
+        "network": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "CloudVmNetwork"
+          }
+        },
         "peer": {
           "required": true,
           "type": {
@@ -1144,6 +1151,42 @@
           "type": {
             "kind": "ref",
             "name": "Revision"
+          }
+        }
+      }
+    },
+    "CloudVmNetwork": {
+      "kind": "object",
+      "fields": {
+        "tenant": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeTenantId"
+          }
+        },
+        "mesh": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeMeshId"
+          }
+        },
+        "ipv4_cidr": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "ipv4": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
           }
         }
       }
@@ -17016,6 +17059,45 @@
               "failed"
             ]
           },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "CloudVmNetwork": {
+            "type": "object",
+            "properties": {
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "ipv4_cidr": {
+                "type": "string"
+              },
+              "ipv4": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "tenant",
+              "mesh",
+              "ipv4_cidr",
+              "ipv4"
+            ],
+            "additionalProperties": true
+          },
           "Revision": {
             "type": "string",
             "pattern": "^[0-9]+$",
@@ -17035,6 +17117,9 @@
               },
               "state": {
                 "$ref": "#/$defs/CloudMachineStatus"
+              },
+              "network": {
+                "$ref": "#/$defs/CloudVmNetwork"
               },
               "peer": {
                 "type": "object",
