@@ -105,6 +105,15 @@ class Eligibility(unittest.TestCase):
         self.assertEqual(skipped, {5: "label hold", 40: "batch is full (3); next batch"})
 
 
+class ConflictingWithBase(unittest.TestCase):
+    def test_a_pr_conflicting_with_the_base_keeps_out_and_unknown_does_not(self):
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            self.assertEqual(nb.ineligible_reason(pr(1, mergeable="CONFLICTING"), NOW),
+                             "conflicts with feat-cmux-next (merge it, push)")
+            self.assertIsNone(nb.ineligible_reason(pr(2, mergeable="UNKNOWN"), NOW))
+            self.assertIsNone(nb.ineligible_reason(pr(3, mergeable="MERGEABLE"), NOW))
+
+
 class OpenPrsQuery(unittest.TestCase):
     """The PR list is light and paged; files and checks (30 PRs with both in one
     page timed out, HTTP 504) come only for PRs the cheap filters keep."""
