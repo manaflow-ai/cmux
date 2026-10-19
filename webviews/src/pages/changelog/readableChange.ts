@@ -64,9 +64,9 @@ const INTERNAL_WORDS = new RegExp(
     String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?)\b`,
   "i",
 );
-/** Product names whose casing is not code. */
+/** Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND). */
 const BRANDS =
-  /\b(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b/g;
+  /\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b/g;
 /** Code-looking text: backticks, dotted names, snake_case, versioned ids, bead ids, camelCase,
     {placeholders}. */
 const CODE_LIKE =
@@ -95,8 +95,11 @@ export interface ReadableChange {
   group: ChangeGroup;
 }
 
+/** A brand that starts lowercase keeps its casing at the start of a title: "macOS 26 …". */
+const LEADING_BRAND = /^(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad)\b/;
+
 function capitalized(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  return LEADING_BRAND.test(text) ? text : text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function strip(text: string): string {

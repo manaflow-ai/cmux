@@ -6322,8 +6322,11 @@ jobs:
   # show them. A title cut with "…", a bead id, a title shown twice or as its own description, or
   # internal work in New, Improved or Fixed fails it, and publish-release-notes waits for it
   # (scripts/cmux-next/check-release-notes.ts). Only this build's defects count, so a defect an
-  # older nightly already published never blocks the notes after it. No secrets: it reads the
-  # artifact and the public feed (an unverified older file can only fail the check, never pass it).
+  # older nightly already published never blocks the notes after it. Withheld notes are not lost:
+  # the next build's span starts at the newest published notes, so it carries the same commits and
+  # fails the same way until the rule or the line is fixed (report-nightly-failure opens the issue).
+  # No secrets: it reads the artifact and the public feed (an unverified older file can only fail
+  # the check, never pass it).
   check-release-notes:
     needs: [decide, build-nightly-app, sign-release-notes, resolve-nightly-cmux-tui-client]
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.sign-release-notes.result == 'success'"
@@ -6352,18 +6355,25 @@ jobs:
       - name: Check this build's notes as the page and the update card show them
         run: |
           set -euo pipefail
+          # A build commit from before the check landed has no script to run.
+          if [ ! -f scripts/cmux-next/check-release-notes.ts ]; then
+            echo "::warning title=Release notes::$NIGHTLY_BUILD: the build commit has no notes check; not checked"
+            exit 0
+          fi
           # The nine nightlies listed before this one, newest first: the artifact's copy when the
-          # backfill rewrote it, else the published file.
+          # backfill rewrote it, else the published file. A bad index fails here, not silently.
+          builds="$(python3 -c 'import json, sys; builds = [b["build"] for b in json.load(open(sys.argv[1]))["builds"] if b["build"] != sys.argv[2]]; print("\n".join(builds[:9]))' notes/index.json "$NIGHTLY_BUILD")"
           mkdir -p previous
           previous=()
           while IFS= read -r build; do
+            [ -n "$build" ] || continue
             file="notes/$build.json"
             if [ ! -f "$file" ]; then
               file="previous/$build.json"
               curl -fsSL --retry 3 -A "cmux-release-notes/1" -o "$file" "$NIGHTLY_NEXT_FEED_BASE/notes/$build.json" || continue
             fi
             previous+=("$file")
-          done < <(python3 -c 'import json, sys; builds = [b["build"] for b in json.load(open(sys.argv[1]))["builds"] if b["build"] != sys.argv[2]]; print("\n".join(builds[:9]))' notes/index.json "$NIGHTLY_BUILD")
+          done <<< "$builds"
           bun scripts/cmux-next/check-release-notes.ts "notes/$NIGHTLY_BUILD.json" "${previous[@]}"
 
   publish-release-notes:

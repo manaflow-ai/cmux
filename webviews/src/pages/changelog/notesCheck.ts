@@ -52,8 +52,11 @@ function rowDefects(where: NotesDefect["where"], rows: Row[], shown: boolean): N
     if (CUT.test(title)) defects.push({ kind: "truncated", where, text: title });
     if (BEAD.test(title) || BEAD.test(summary)) defects.push({ kind: "bead", where, text: title });
     if (row.machine && readableChange(title).internal) defects.push({ kind: "internal", where, text: title });
-    // The page and the card show the summary beside the title; the notes may carry both alike.
-    const echoes = summary && (key(summary) === key(title) || key(summary).startsWith(`${key(title)} `));
+    // The page and the card show the summary beside the title; the notes may carry both alike. A
+    // multi-line description shows as written (model.ts readableItem), so only a one-line summary
+    // that opens with the title echoes it.
+    const opens = !summary.includes("\n") && key(summary).startsWith(`${key(title)} `);
+    const echoes = summary && (key(summary) === key(title) || opens);
     if (titles.has(key(title)) || (shown && echoes)) defects.push({ kind: "duplicate", where, text: title });
     titles.add(key(title));
   }

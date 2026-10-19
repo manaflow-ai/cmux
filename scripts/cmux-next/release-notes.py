@@ -64,8 +64,8 @@ INTERNAL_WORDS = re.compile(
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
     r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
     r"consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?)\b", re.I)
-# Product names whose casing is not code.
-BRANDS = re.compile(r"\b(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
+# Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND).
+BRANDS = re.compile(r"\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b")
 # Code-looking subjects (dotted names, snake_case, versioned ids, bead ids, backticks) are internal.
 CODE_LIKE = re.compile(r"`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
@@ -78,6 +78,15 @@ PRODUCT_WORDS = {"cmux", "next", "cmux-next", "cmuxnext"}
 # "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", "(review)", anywhere in the
 # subject, and a bead reference cut off at the end.
 REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\w-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$", re.I)
+
+# A brand that starts lowercase keeps its casing at the start of a title: "macOS 26 …".
+LEADING_BRAND = re.compile(r"^(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad)\b")
+
+
+def capitalized(text):
+    """The text with a capital first letter, unless it starts with a lowercase brand."""
+    return text if LEADING_BRAND.match(text) else text[:1].upper() + text[1:]
+
 
 def summary_entry(subject):
     """(group, title) for a user-facing commit subject, else None."""
@@ -111,7 +120,7 @@ def summary_entry(subject):
     elif group == "changed" and re.match(r"^(fix|fixes|repair|stop|keep)\b", text, re.I):
         group = "fixed"
     # Whole: the page wraps a long line, and short_title gives the digest a title that fits.
-    return group, text[:1].upper() + text[1:]
+    return group, capitalized(text)
 
 
 CLAUSE = re.compile(r",|;| —| - | \(| so | because | while ")
@@ -139,7 +148,7 @@ def title_tail(full, title):
     tail = full[len(title):].lstrip(" ,;:—-").strip()
     if tail.startswith("(") and tail.endswith(")"):
         tail = tail[1:-1]
-    return tail[:1].upper() + tail[1:]
+    return capitalized(tail)
 
 
 def summarize_changes(subjects, limit=SUMMARY_LIMIT):
