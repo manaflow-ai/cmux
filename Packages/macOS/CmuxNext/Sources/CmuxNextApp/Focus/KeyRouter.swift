@@ -235,7 +235,8 @@ final class KeyRouter: BrowserKeyRouting {
         trace?("dispatcher: \(decision)")
         switch decision {
         case .run(let candidate):
-            run(candidate, context: context, window: controller.state.id)
+            // The key's own time starts a tab switch's input stage (debug.tab_switch).
+            DebugTabSwitch.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
             // A refusal (no neighbor) is reported by the registry; the chord
             // was still a cmux shortcut and never reaches the page or terminal.
             return true
