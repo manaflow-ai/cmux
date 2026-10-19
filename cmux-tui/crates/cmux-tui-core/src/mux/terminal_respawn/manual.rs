@@ -10,7 +10,9 @@
 //! count starts over (`supervisor.rs`). The restart runs the L2 worker
 //! (`run_terminal_respawn`): the same terminal id gets a new shell and
 //! incarnation in its tabs, below the previous screen and the marker line.
-//! The tab id, placement, name, pin and group stay.
+//! The tab id, placement, name, pin and group stay. A restarted keep-layout
+//! tab starts in its recorded directory and stops being kept
+//! (`tab-restart-kept-layout-v1`).
 
 use super::*;
 
@@ -114,6 +116,10 @@ impl Mux {
         let ContentPublicId::Terminal(public_id) = content.clone() else {
             return Err(TabRestartError::NotTerminal.into());
         };
+        // A keep-layout tab (`kept_tabs`): its shell starts in the directory
+        // the store recorded at the handoff, and the worker forgets the
+        // record once the new runtime is in place (`tab-restart-kept-layout-v1`).
+        let kept = self.presentation_snapshot().kept_tabs.get(tab_id.as_str()).cloned();
         // The automatic plan's lock order: registry, pinned state, then the
         // pending leaf lock.
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -165,6 +171,7 @@ impl Mux {
             delay: Duration::ZERO,
             recorded,
             user_restart: true,
+            kept,
         })
     }
 }

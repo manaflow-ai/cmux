@@ -13,10 +13,10 @@ extension DaemonService {
     /// - End Everything closes every local workspace but Home first, so the
     ///   next launch opens Home only.
     /// - End Sessions, Keep Layout on a daemon with
-    ///   `end-terminals-keep-layout-v1` keeps the tabs: the daemon's
-    ///   workspace store records each with its shell's directory, and the
-    ///   next launch restarts a shell in each with the same splits and
-    ///   ratios (`relaunchKeptLayoutIfNeeded`). Older daemons remove the tabs.
+    ///   `end-terminals-keep-layout-v1` and `tab-restart-kept-layout-v1`
+    ///   keeps the tabs: the daemon's workspace store records each with its
+    ///   shell's directory, and the next launch restarts a shell in each in
+    ///   place (`relaunchKeptLayoutIfNeeded`). Other daemons remove the tabs.
     public func endSessionsAndStop(_ choice: QuitSessionsChoice) async -> [EndSessionsFailure] {
         guard isLocal, choice.ends, let connection = endingConnection ?? connection else { return [] }
         guard supports(DaemonCapabilities.shared.terminalReap) || endingConnection != nil else {
@@ -44,7 +44,7 @@ extension DaemonService {
     /// closed connection cancels it.
     func relaunchKeptLayoutIfNeeded(_ connection: DaemonConnection) {
         guard isLocal, keptLayoutRelaunch == nil, supports(DaemonCapabilities.shared.endTerminalsKeepLayout),
-              supports(DaemonCapabilities.shared.tabRestart) else { return }
+              supports(DaemonCapabilities.shared.tabRestartKeptLayout) else { return }
         let logger = logger
         keptLayoutRelaunch = Task { [weak self] in
             defer { self?.keptLayoutRelaunch = nil }
