@@ -62,6 +62,15 @@ write_lock() { # <cmux-tui dependencies, quoted and comma-separated>
   printf 'version = 4\n\n[[package]]\nname = "cmux-tui"\nversion = "0.1.0"\ndependencies = [%s]\n\n[[package]]\nname = "helper"\nversion = "0.1.0"\n\n[[package]]\nname = "side"\nversion = "0.1.0"\n' "$1" \
     > "$lock/cmux-tui/Cargo.lock"
 }
+# The tree also publishes binaries of their own workspaces (the Cloud server,
+# the agent screen detector); their lockfiles must exist for anything to skip.
+other_lock() { # <path> <extra package name or empty>
+  mkdir -p "$lock/$(dirname "$1")"
+  printf 'version = 4\n\n[[package]]\nname = "own"\nversion = "0.1.0"\n' > "$lock/$1"
+  [ -z "$2" ] || printf '\n[[package]]\nname = "%s"\nversion = "0.1.0"\n' "$2" >> "$lock/$1"
+}
+other_lock first-party-apps/cloud/server/Cargo.lock ""
+other_lock cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock ""
 write_lock '"helper"'
 git_q -C "$lock" add -A; git_q -C "$lock" commit -m closure
 python3 "$lock/scripts/ci/check_cmux_tui_tree_inputs.py" --root "$lock" >/dev/null 2>"$TMP/err" \
@@ -72,4 +81,13 @@ if python3 "$lock/scripts/ci/check_cmux_tui_tree_inputs.py" --root "$lock" 2>"$T
   fail "an embed in a crate the published binary now links passed uncovered"
 fi
 grep -q "blob plans/t/tokens.json" "$TMP/err" || fail "the check did not name the linked embed: $(cat "$TMP/err")"
+# A published binary of another workspace that links the crate by path (its
+# own lockfile lists it) puts it back in the tree too.
+write_lock '"helper"'
+other_lock first-party-apps/cloud/server/Cargo.lock side
+git_q -C "$lock" commit -am cloud-links-side
+if python3 "$lock/scripts/ci/check_cmux_tui_tree_inputs.py" --root "$lock" 2>"$TMP/err"; then
+  fail "an embed in a crate the Cloud server links passed uncovered"
+fi
+grep -q "blob plans/t/tokens.json" "$TMP/err" || fail "the check did not name the Cloud-linked embed: $(cat "$TMP/err")"
 echo "tree-key-embeds: ok"
