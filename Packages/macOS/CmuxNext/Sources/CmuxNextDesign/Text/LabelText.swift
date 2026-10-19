@@ -34,7 +34,7 @@ enum LabelText {
         var lastBaselineFromBottom: CGFloat
     }
 
-    static let padding: CGFloat = 2
+    nonisolated static let padding: CGFloat = 2
 
     private static let storage = NSTextStorage()
     private static let container: NSTextContainer = {
