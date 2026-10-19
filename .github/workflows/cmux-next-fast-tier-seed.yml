@@ -33,7 +33,7 @@ jobs:
   due:
     if: ${{ github.repository == 'manaflow-ai/cmux' }}
     name: Is a fast-tier seed due
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -61,7 +61,7 @@ jobs:
     needs: due
     if: ${{ github.repository == 'manaflow-ai/cmux' && needs.due.outputs.due == 'true' }}
     name: Seed the fast-tier build cache
-    runs-on: blacksmith-12vcpu-macos-26
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
       actions: write
