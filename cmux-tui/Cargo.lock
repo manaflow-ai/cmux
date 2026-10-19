@@ -1008,7 +1008,6 @@ dependencies = [
  "libc",
  "reqwest",
  "rustls",
- "security-framework",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1025,7 +1024,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=c30e6489d483265dae15360901fafa75bad24a65#c30e6489d483265dae15360901fafa75bad24a65"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=882b976332ea3dd89df18b401ab13e14a5dc78cc#882b976332ea3dd89df18b401ab13e14a5dc78cc"
 dependencies = [
  "serde_json",
 ]
@@ -1037,6 +1036,7 @@ dependencies = [
  "base64",
  "core-foundation 0.10.1",
  "core-foundation-sys",
+ "jsonschema",
  "notify",
  "plist",
  "serde",
@@ -1164,6 +1164,7 @@ dependencies = [
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-wire",
  "cmux-terminal-sizing",
  "serde_json",
 ]
@@ -1184,6 +1185,14 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-mux2"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+ "libc",
 ]
 
 [[package]]
@@ -1340,6 +1349,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote-transcript"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -1476,6 +1496,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-build-identity",
+ "cmux-config",
  "cmux-host",
  "cmux-link",
  "cmux-pty",
@@ -1502,6 +1523,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "rquickjs",
  "rusqlite",
  "rustls",
  "serde",
@@ -1539,6 +1561,7 @@ name = "cmux-tui-cloud-conversations"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-wire",
  "serde",
  "serde_json",
  "url",

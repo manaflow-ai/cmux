@@ -234,6 +234,19 @@ else `current`; with `--socket` or `--session` they target that session's
 an incognito workspace that the session closes at its next start. Workspace
 groups and their order are personal state of this Mac's home session.
 
+```text
+cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>] [--timeout <500ms|30s|5m>|--timeout-ms <n>]
+```
+
+`cmux status wait` blocks until the status entry `KEY` of the workspace holds
+`--until`, then prints `{workspace_id, key, cleared, entry}`. `settled`, the
+default, returns when the entry is gone (cleared, its owner ended or its TTL
+passed) or shows `success` (exit 0), or shows `error` (exit 1); a key with no
+entry is settled at once. `cleared` waits for the entry to go, and `state=<s>`
+(`busy`, `waiting`, `success`, `error` or `info`) for that state. It follows the
+session's event stream instead of polling, and a passed timeout exits 124 with
+`wait.timeout`, also when the daemon stops answering.
+
 Rooms and groups (workspace, tab, screen and saved tab groups) take their id or
 their exact name. The CLI reads the list on the request's connection and sends
 the id, so a retry with `--idempotency-key` repeats the same request; a name

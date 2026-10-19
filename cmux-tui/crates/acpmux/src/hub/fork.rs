@@ -34,7 +34,8 @@ impl Hub {
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
         let (is_claude, mut fork_env) = self.harness_env(&parent_meta).await;
-        // The fork's workspace: the one the request names, else its parent's.
+        // The fork's workspace: the one the request names (typed or in its
+        // env, `session_env::workspace_id`), else its parent's.
         let workspace_id = workspace_id.or_else(|| parent_meta.workspace_id.clone());
         crate::agent_displays::mark(&mut fork_env, workspace_id.as_deref());
         let sid = parent_meta
@@ -158,6 +159,8 @@ impl Hub {
             adopted_cwd: None,
             harness_roots: vec![],
             composer_draft: None,
+            // It runs the parent's mode: a spawn from other preset contents leaves it too.
+            preset_mode_approval: parent_meta.preset_mode_approval.clone(),
             // Filled below with the fork's own seqs of the marked prompts it copies.
             bookmarks: Default::default(),
             // The fork keeps the chat's tools off (`hub/tools.rs`); its spawn lists them again.
@@ -171,6 +174,9 @@ impl Hub {
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
             harness_cost_usd: if cut.is_none() { parent_meta.harness_cost_usd } else { None },
+            // A fork is the person's new chat, never a sub-session of the parent's parent.
+            subsession: None,
+            subsession_limits: Default::default(),
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {

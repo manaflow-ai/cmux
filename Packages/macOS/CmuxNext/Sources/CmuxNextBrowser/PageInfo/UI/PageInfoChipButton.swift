@@ -14,7 +14,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
     }
 
     private let icon = NSImageView()
-    private let text = NSTextField(labelWithString: "")
+    private let text = ChromeLabel(labelWithString: "")
     private let density = DensityBinding()
     /// Where the pointer is now (`OmnibarPointer`); no hover while the chip
     /// opens nothing.

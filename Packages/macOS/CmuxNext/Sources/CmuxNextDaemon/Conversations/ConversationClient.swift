@@ -56,6 +56,12 @@ public struct ConversationClient: Sendable {
         return try await connection.request(request)
     }
 
+    /// `conversation-link-resolve`: opens a permalink (conversation-tree-v1).
+    public func resolveLink(_ url: String) async throws -> ConversationLinkTarget {
+        try await require()
+        return try await connection.request(ConversationLinkResolveRequest(url: url))
+    }
+
     public func typing(_ conversation: String, actor: String, on: Bool) async throws {
         try await require()
         _ = try await connection.request(ConversationTypingRequest(conversation: conversation, actor: actor, on: on))

@@ -420,6 +420,8 @@ section h3 {
   grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 8px;
+  /* The second line (current step or error) sits under its own title, not the page's button gap. */
+  row-gap: 1px;
   width: 100%;
   min-height: 26px;
   padding: 3px 6px;
@@ -435,6 +437,20 @@ section h3 {
 
 .lane:hover {
   background: var(--activity-well);
+}
+
+/* Hook updates move a row between priority buckets. Keep the motion short and
+   transform-only so a burst of session_changed events never reflows the list. */
+@media (prefers-reduced-motion: no-preference) {
+  .lane[data-priority-revision] {
+    animation: priority-lane-bounce 180ms cubic-bezier(.2,.8,.2,1);
+  }
+}
+
+@keyframes priority-lane-bounce {
+  0% { transform: translateY(-3px); }
+  65% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
 }
 
 .lane-dot {
@@ -467,6 +483,27 @@ section h3 {
   font-size: var(--text-caption);
   color: var(--activity-text-2);
   white-space: nowrap;
+}
+
+/* The second line: who runs it and what it is doing now (hq#2509), muted like the Claude and
+   Codex session rows. */
+.lane-detail {
+  grid-column: 2 / -1;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-caption);
+  color: var(--activity-text-2);
+  white-space: nowrap;
+}
+
+.lane-harness {
+  flex: none;
+}
+
+.lane-step {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lane-error {

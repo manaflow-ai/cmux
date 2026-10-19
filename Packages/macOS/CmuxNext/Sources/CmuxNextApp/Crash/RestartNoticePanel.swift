@@ -37,7 +37,7 @@ final class RestartNoticePanel {
     private func makeContent(text: String) -> NSView {
         // One line: a wrapping label reported one line of height in the
         // panel's fitting size and clipped the second.
-        let label = NSTextField(labelWithString: text)
+        let label = ChromeLabel(labelWithString: text)
         let content = body
         content.onThemeChange = { [weak label, weak content] in
             guard let label, let content else { return }

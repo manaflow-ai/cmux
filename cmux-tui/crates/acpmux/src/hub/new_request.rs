@@ -82,6 +82,13 @@ pub struct NewRequest {
     /// Keep the harness's own start mode (`start_mode.rs`): a handoff target
     /// of a source that is not in full access is never wider than it.
     pub keep_harness_mode: bool,
+    /// A route (`routes.rs`) bound to this chat before its harness first
+    /// starts (`_meta.acpmux.route`, unix socket only): the chat's model
+    /// provider from its first turn. Checked by the caller as a route id.
+    pub route: Option<String>,
+    /// The new session is a sub-session (`hub/subsessions.rs`): its parent,
+    /// short name and depth, checked against the parent's limits by the caller.
+    pub subsession: Option<crate::store::SubsessionLink>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

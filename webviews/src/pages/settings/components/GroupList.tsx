@@ -1,7 +1,11 @@
+import { startTransition, useEffect, useState } from "react";
 import type { CategoryGroup } from "../categories";
 import { text } from "../strings";
 import { FONTS_GROUP, FontPreview } from "./FontPreview";
 import { SettingRow } from "./SettingRow";
+
+/** Rows a category draws in its first frame: more than a tall window shows. */
+const FIRST_FRAME_ROWS = 24;
 
 /**
  * Rows under their group titles, separated by spacing and hairlines; no fills. With `shown` (a
@@ -21,7 +25,20 @@ export function GroupList({
   /** With a filter: the rows that draw their editors (the rest are empty collapsed slots). */
   mounted?: ReadonlySet<string>;
 }) {
+  // Opening a category draws the rows a window can show (and the focused one) at once and the
+  // rest in a transition after that frame, so a 123-row category opens at the cost of 24 rows.
+  const focusIndex = focus ? groups.flatMap((group) => group.rows).findIndex((row) => row.key === focus) : -1;
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    if (!all) startTransition(() => setAll(true));
+  }, [all]);
+  const limit = shown || all ? Number.POSITIVE_INFINITY : Math.max(FIRST_FRAME_ROWS, focusIndex + 1);
+  let before = 0;
   return groups.map((group) => {
+    const first = before;
+    before += group.rows.length;
+    if (first >= limit) return null;
+    const rows = group.rows.slice(0, limit - first);
     const open = !shown || group.rows.some((row) => shown.has(row.key));
     // The Fonts group draws its live preview above its rows (FontPreview.tsx), not under a search.
     const preview = !shown && group.key === FONTS_GROUP;
@@ -36,12 +53,18 @@ export function GroupList({
           <h3 className="group-title">{text(group.title)}</h3>
           {preview && <FontPreview />}
           <div className="rows">
-            {group.rows.map((row) =>
+            {rows.map((row) =>
               shown ? (
                 <div className="collapse" key={row.key} data-open={shown.has(row.key) ? "" : undefined}>
                   <div className="collapse-body">
                     {(mounted?.has(row.key) ?? true) && (
-                      <SettingRow row={row} query={query} filtered={!shown.has(row.key)} />
+                      // A row outside the filter highlights nothing, so its props stay equal and it
+                      // skips the keystroke's render.
+                      <SettingRow
+                        row={row}
+                        query={shown.has(row.key) ? query : undefined}
+                        filtered={!shown.has(row.key)}
+                      />
                     )}
                   </div>
                 </div>

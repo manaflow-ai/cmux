@@ -82,13 +82,20 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
+  A bug-fix PR body names that command, its failure on the base and its pass on the head,
+  then an `### Observed / Not run` section: what you ran and saw, then what you only read
+  or didn't run. `gh-merge-green` warns when a fix PR lacks it; it does not block.
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
-  Add `full-ci` only for a user-requested or agreed broad validation plan,
-  naming the extra lanes and why ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
+  Ordinary PRs use the normal fast, path-routed coverage by default. Add `full-ci` only for a
+  user-requested or agreed broad validation plan, naming the extra lanes and why
+  ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)); never add it merely for a fresh
+  rerun, queue movement, cache warming, or extra confidence.
 - Keep branches current locally with `scripts/merge-main.sh`; follow
   [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
+- Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
+  the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
   first; a second model is not a review gate. Wait for checks relevant to the
   change; disclose skipped verification on the PR. `main` is nightly: fix forward,
@@ -97,6 +104,9 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
+- The normal merge path is `gh-merge-green`. It refuses a PR that touches a path an open
+  `merge-freeze` issue freezes, or when the freeze state can't be read; only the freeze owner's
+  `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
 
 ## Implementation rules by task
 

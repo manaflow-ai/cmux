@@ -93,6 +93,12 @@ public final class PopupHostView: NSView {
     /// The layer that casts the popup shadow (behind the card).
     public let shadowLayer = CALayer()
     private let shadowCutout = CAShapeLayer()
+    /// Clear room kept around the shadow band, so a card that moves inside its window (the hover
+    /// card's slide, `HoverCardPanel`) is not clipped by the window. 0 for a popover that never
+    /// moves its card.
+    public var travelMargin: CGFloat = 0 {
+        didSet { if travelMargin != oldValue { placeCard() } }
+    }
 
     /// `card` sizes by its frame (the host lays it out). An
     /// `OverlaySurfaceView` card takes the popup radius.
@@ -129,7 +135,7 @@ public final class PopupHostView: NSView {
     /// The card fills the host less the band. A host smaller than the band
     /// (a window not yet placed) leaves the card where it is.
     private func placeCard() {
-        let margin = PopupStyle.standard.shadowMargin
+        let margin = PopupStyle.standard.shadowMargin + travelMargin
         guard bounds.width >= 2 * margin, bounds.height >= 2 * margin else { return }
         let frame = bounds.insetBy(dx: margin, dy: margin)
         card.frame = frame

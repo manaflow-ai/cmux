@@ -26,6 +26,7 @@ import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
 import { armIds, validateExperiments, type Experiment } from "../experiments/experiment";
 import { validateTunables, type Tunable } from "../experiments/tunable";
+import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
 import type { AccountsState, AgentsState, HarnessesState, HostLists } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -52,8 +53,6 @@ export type SettingsPageVariant = VariantBase & {
   backdropImages?: Record<string, string>;
   loading?: boolean;
   steps?: PageFixtureStep[];
-  /** The page's overall look (`data-settings-look` on the root); quiet when unset. */
-  look?: "quiet" | "dense";
   /** Publish every bundled theme and its colors (the app does); default the mock's six. */
   allThemes?: boolean;
 };
@@ -155,6 +154,9 @@ export type AgentPaneVariant = VariantBase & {
   /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
    *  in progress (New Worktree's "Creating worktree…"). */
   nativeDelayMs?: Record<string, number>;
+  /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
+   *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
+  sessionStatus?: boolean;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -322,6 +324,13 @@ type EntryBase<V> = {
   experiment?: GalleryExperiment;
   /** Values the stage edits live (a curve editor each; experiments/tunable.ts). */
   tunables?: readonly Tunable[];
+  /**
+   * Switches the header shows (options.ts): each sets one prop of a component entry's variant
+   * (a layout, a platform frame, a count). The URL keeps only the values the viewer changed.
+   */
+  options?: readonly GalleryOption[];
+  /** Extra words the gallery's filter matches (synonyms a person may type). */
+  keywords?: readonly string[];
   variants: Record<string, V>;
 };
 
@@ -425,6 +434,18 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
         if (!armIds(definition).includes(arm)) problems.push(`${entry.id}: a measurement names no arm ${arm}`);
     }
     for (const problem of validateTunables(entry.tunables ?? [])) problems.push(`${entry.id}: ${problem}`);
+    for (const problem of validateOptions(entry.options ?? [])) problems.push(`${entry.id}: ${problem}`);
+    for (const option of entry.options ?? [])
+      for (const [name, variant] of Object.entries(entry.variants)) {
+        const value = (variant as { props?: Record<string, unknown> }).props?.[option.id];
+        if (value === undefined) continue;
+        const encoded =
+          option.kind === "toggle" ? (value === true ? "on" : value === false ? "off" : undefined) : String(value);
+        if (encoded === undefined || !optionAccepts(option, encoded))
+          problems.push(`${entry.id}#${name}: prop ${option.id} is not one of the option's values`);
+      }
+    if (entry.options?.length && entry.host !== "component")
+      problems.push(`${entry.id}: options set props, so only component entries take them`);
     for (const problem of checkReasons(entry.checks)) problems.push(`${entry.id}: ${problem}`);
     for (const [name, variant] of Object.entries(entry.variants))
       for (const problem of checkReasons(variant.checks)) problems.push(`${entry.id}#${name}: ${problem}`);

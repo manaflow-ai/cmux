@@ -461,9 +461,10 @@ body {
     transform: rotate(360deg);
   }
 }
+/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
 @media (prefers-reduced-motion: reduce) {
   .base-picker-spinner {
-    animation-duration: 1.6s;
+    animation: none;
   }
 }
 .base-picker-popover {
@@ -1527,7 +1528,6 @@ body[data-loading="true"] #status::before {
   --agent-input-bg: var(--cmux-diff-solid-bg);
   --agent-accent: var(--cmux-diff-accent);
   --agent-danger: var(--cmux-diff-deletion-fg);
-  --acpmux-motion-hover: 80ms;
   --acpmux-motion-ease: ease-out;
   --acpmux-step-pressed: color-mix(in srgb, var(--agent-text) 16%, transparent);
 }

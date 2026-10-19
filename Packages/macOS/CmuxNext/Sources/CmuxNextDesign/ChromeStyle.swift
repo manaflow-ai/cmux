@@ -10,7 +10,7 @@ public import CoreGraphics
 /// - `card`: The curved main pane on one color; a line only between panes, no outline on a lone pane, no shade.
 /// - `card-outlined`: The curved main pane on one color; each pane outlined.
 /// - `flat`: No card, one color, edge to edge; a line only between panes.
-/// - `flat-sidebar-line`: Flat plus a hairline on the sidebar's edge.
+/// - `flat-sidebar-line`: Flat, no line between panes (the resize cursor shows a divider), plus a hairline on the sidebar's edge.
 /// - `bare`: No card, one color, no pane or sidebar lines (tab and palette separators stay).
 /// - `panes`: No card, one color; every pane its own outlined rounded card with small gaps.
 /// - `two-tone`: The curved main pane with a soft separate sidebar shade.
@@ -63,7 +63,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .card: PaneSeparation.dividers
         case .cardOutlined: PaneSeparation.borders
         case .flat: PaneSeparation.dividers
-        case .flatSidebarLine: PaneSeparation.dividers
+        case .flatSidebarLine: PaneSeparation.none
         case .bare: PaneSeparation.none
         case .panes: PaneSeparation.borders
         case .twoTone: PaneSeparation.dividers
@@ -142,7 +142,7 @@ public nonisolated enum ChromeStyle: String, Sendable, CaseIterable, Codable {
         case .bare: nil
         case .panes: nil
         case .twoTone: isDark ? 0.12 : 0.02
-        case .floating: isDark ? 0.25 : 0.05
+        case .floating: isDark ? 0.14 : 0.03
         }
     }
 }
