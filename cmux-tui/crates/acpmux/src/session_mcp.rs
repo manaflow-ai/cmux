@@ -25,8 +25,9 @@
 //!   first prompt. A folder the person marked untrusted is refused.
 //! - `send_to_session` reaches only sessions this chat started (its
 //!   `spawnedBy` tag) and the chat that started this one. Reads are open.
-//! - The worktree's git runs with hooks and fsmonitor off, so a hook the
-//!   agent wrote in its own repository does not run here.
+//! - The worktree's git runs with hooks, fsmonitor and submodule recursion
+//!   off, and a repository whose own config sets a checkout filter gets no
+//!   worktree, so nothing the agent wrote in its repository runs here.
 //! - What `list_sessions` and `read_session` return is masked
 //!   (`secret_scan`): titles, last messages and replies.
 //! - A peer strips a prompt's provenance (`remote_guard.rs`), so a brief or
