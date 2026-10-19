@@ -14,7 +14,7 @@ extension DaemonService {
 /// that object as soon as its surface is known, in one `close-tabs` commit that ends its terminal
 /// and stays out of the closed history (`session_end`): the tab never existed for the person, so
 /// Reopen Closed Tab never offers it.
-struct CancelledCreationClose {
+@MainActor struct CancelledCreationClose {
     let daemon: DaemonService
 
     func cancel(_ body: (DaemonCreations) -> Bool) -> Bool {

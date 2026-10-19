@@ -3,7 +3,7 @@ import Foundation
 /// The store's pending creations as a close sees them (``CancelledCreation``): a close of a
 /// provisional tab or pane cancels its creation, the creator asks whether it was cancelled, and
 /// a split's reply names the daemon's surface for that close.
-public struct DaemonCreations {
+@MainActor public struct DaemonCreations {
     let store: DaemonStore
 
     /// A close of tab `id` while it is a pending creation's provisional tab: it leaves the visible
