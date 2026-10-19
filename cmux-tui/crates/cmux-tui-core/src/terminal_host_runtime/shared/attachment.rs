@@ -274,13 +274,16 @@ impl HostAttachment {
         self.record.supports_clear_history
     }
 
-    pub fn send_viewer_size(&self, cols: u16, rows: u16) -> std::io::Result<()> {
+    /// Ask the host for a viewer size. Returns `Ok(false)` without a write
+    /// when this size is already the requested lease, `Ok(true)` when the
+    /// request was written.
+    pub fn send_viewer_size(&self, cols: u16, rows: u16) -> std::io::Result<bool> {
         let (cols, rows) = normalize_terminal_geometry(cols, rows).map_err(|error| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
         })?;
         let mut viewer_size = self.viewer_size.lock().unwrap();
         if *viewer_size == Some((cols, rows)) {
-            return Ok(());
+            return Ok(false);
         }
         // This is the daemon's desired logical lease, not an
         // acknowledgement from the host. Retain it across a failed write
@@ -291,7 +294,7 @@ impl HostAttachment {
         payload.extend_from_slice(&cols.to_le_bytes());
         payload.extend_from_slice(&rows.to_le_bytes());
         self.send(MessageKind::ViewerSize, &payload)?;
-        Ok(())
+        Ok(true)
     }
 
     /// Commit frontend cell metrics in the durable host before updating

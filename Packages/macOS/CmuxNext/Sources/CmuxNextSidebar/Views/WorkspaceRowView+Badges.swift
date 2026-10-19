@@ -10,7 +10,8 @@ extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
                          stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
-        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit)
+        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit,
+                                        detailed: shown.detailedStatus)
         guard style != .trailing, !isShowingPlaceholder else {
             rowBadge.configure([], look: .corner)
             return
@@ -28,9 +29,12 @@ extension WorkspaceRowView {
         }
         let corner = style == .corner
         // A text-only row (no user icon or favicon, WORKSPACE-ROWS-NO-DEFAULT-ICON) has no icon
-        // corner: its one corner glyph draws as a one-glyph stack in the trailing slot.
+        // corner: its one corner glyph draws bare in the trailing slot. A stack keeps its chips
+        // only when glyphs overlap; a lone glyph there is bare too (no disc behind the spinner
+        // or the unread dot, Lawrence 2026-10-18).
         let onIcon = corner && !icon.isHidden
-        rowBadge.configure(corner ? badges.first.map { [$0] } ?? [] : badges.stacked, look: onIcon ? .corner : .stack)
+        let states = corner ? badges.first.map { [$0] } ?? [] : badges.stacked
+        rowBadge.configure(states, look: onIcon ? .corner : states.count > 1 ? .stack : .plain)
         rowBadge.themedToolTip = Self.badgeSummary(badges, stacked: !corner)
     }
 
@@ -39,7 +43,7 @@ extension WorkspaceRowView {
     static func badgeSummary(_ badges: WorkspaceRowBadges, stacked: Bool) -> String? {
         var parts: [String] = []
         if badges.unreadCount > 0 { parts.append(Strings.unreadCount(badges.unreadCount)) }
-        for state in badges.items where state != .success {
+        for state in badges.pending where state != .success {
             if let text = Strings.activity(state), !parts.contains(text) { parts.append(text) }
         }
         if stacked, badges.overflow > 0 { parts.append(Strings.statusMore(badges.overflow)) }

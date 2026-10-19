@@ -38,12 +38,21 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 /// then a question, then work in progress, then each unread item (done). The corner badge draws
 /// the first; the stack draws up to `stackLimit` (`SidebarRowBadgeStackCap`) and leaves the rest to
 /// the tooltip and hover card.
+///
+/// Unless `detailed` (`sidebar.detailedStatusIcons`, off by default), a row says one of two things
+/// (Lawrence 2026-10-18: "it is working" or "it is blue and ready for me to look at it"): Ready, the
+/// blue done dot, for anything that waits for the user (unread, done, a question, a permission, an
+/// error), else Working, the one spinner. `items` then holds at most one state; `unreadCount` and
+/// `pending` keep what the tooltip lists.
 nonisolated struct WorkspaceRowBadges: Equatable {
     var items: [StatusIndicatorState]
+    /// Every pending item, detailed, for the tooltip.
+    var pending: [StatusIndicatorState]
     var unreadCount: Int
     var stackLimit: Int
 
-    init(unread: UnreadState, activity: StatusIndicatorState, stackLimit: Int = SidebarRowBadgeStackCap.five.limit) {
+    init(unread: UnreadState, activity: StatusIndicatorState, stackLimit: Int = SidebarRowBadgeStackCap.five.limit,
+         detailed: Bool = true) {
         self.stackLimit = stackLimit
         switch unread {
         case .none: unreadCount = 0
@@ -53,7 +62,20 @@ nonisolated struct WorkspaceRowBadges: Equatable {
         var items: [StatusIndicatorState] = activity == .idle || activity == .success ? [] : [activity]
         // Each unread item is a done dot; a finished workspace with nothing unread still shows one.
         items += Array(repeating: .success, count: unreadCount == 0 && activity == .success ? 1 : unreadCount)
-        self.items = items.sorted { Self.rank($0) < Self.rank($1) }
+        pending = items.sorted { Self.rank($0) < Self.rank($1) }
+        self.items = detailed ? pending : Self.simple(pending).map { [$0] } ?? []
+    }
+
+    /// The one state a row shows without detailed icons: Ready (`success`, the blue dot) when any
+    /// item waits for the user, else the work in progress (its progress kept), else nothing.
+    static func simple(_ items: [StatusIndicatorState]) -> StatusIndicatorState? {
+        let ready = items.contains { state in
+            switch state {
+            case .waiting, .error, .success: true
+            case .idle, .busy, .paused, .working: false
+            }
+        }
+        return ready ? .success : items.first { $0.isWorking || $0.isLoading }
     }
 
     var first: StatusIndicatorState? { items.first }

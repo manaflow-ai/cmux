@@ -5321,3 +5321,7 @@ mod parallel_new_tabs;
 
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
+
+#[cfg(target_os = "macos")]
+#[path = "terminal_host_recovery/slim_host.rs"]
+mod slim_host;

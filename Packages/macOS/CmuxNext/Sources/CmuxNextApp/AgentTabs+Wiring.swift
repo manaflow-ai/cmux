@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -288,7 +289,7 @@ extension AgentTabStore {
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
         AgentPaneModel.localMachineName = Task { [weak tabs] in
-            let name = await MacName.computerName()
+            let name = await MacName().computerName()
             tabs?.localHostName = name
             return AgentTabStore.displayName(name) ?? name
         }
