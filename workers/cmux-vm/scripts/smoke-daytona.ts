@@ -39,4 +39,3 @@ try {
     await call(`/sandbox/${encodeURIComponent(sandboxId)}`, { method: "DELETE" }).catch(() => undefined);
   }
 }
-
