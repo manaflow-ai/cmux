@@ -38044,7 +38044,7 @@
     },
     {
       "name" : "titlebarHistory",
-      "source" : "CmuxNextApp\/Windows\/TitlebarHistoryMenu.swift"
+      "source" : "CmuxNextHistory\/TitlebarHistoryMenu.swift"
     },
     {
       "name" : "notificationRow",
