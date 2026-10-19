@@ -37,13 +37,14 @@ await requireBrowserLane("render-kit-css.test.ts", async () => {
           `(() => { ${renderChartSource()}; window.cmux = { onTheme() {} }; installCharts(); cmux.chart('#chart', {type:'donut',labels:['A','B'],series:[{values:[2,3]}]}); })()`,
         );
         const colors = await page.evaluate(() => ({
-          hole: getComputedStyle(document.querySelector("#chart circle")!).fill,
+          // Donuts are stroked rings with transparent holes; circles below them are legend keys.
+          hole: getComputedStyle(document.querySelector("#chart path")!).fill,
           selected: getComputedStyle(document.querySelector("label")!).backgroundColor,
-          slice: getComputedStyle(document.querySelector("#chart path")!).fill,
+          slice: getComputedStyle(document.querySelector("#chart path")!).stroke,
           token: getComputedStyle(document.documentElement).getPropertyValue("--cmux-text").trim(),
         }));
         expect(colors).toEqual({
-          hole: "rgb(23, 41, 59)",
+          hole: "none",
           selected: "rgb(23, 41, 59)",
           slice: "rgb(0, 122, 255)",
           token: "rgb(220, 221, 222)",

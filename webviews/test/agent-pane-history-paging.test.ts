@@ -178,11 +178,23 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     await page.getByText(`Question ${TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
     await page.waitForTimeout(500);
 
-    // Opening fetched the tail only, and capped its size: acpmux ends a page at maxBytes, the most a
-    // remote session's open downloads.
+    // Opening caps the tail page, then completes its boundary turn so a reply or render fence is
+    // never truncated. This fixture's boundary is within one older page; nothing else is prefetched.
     const attach = requests.find((request) => request.method === "_acpmux/attach")!;
     expect(attach.sent).toBeLessThanOrEqual(400);
-    expect(requests.filter((request) => request.method === "_acpmux/events" && request.params.limit > 1)).toEqual([]);
+    expect(requests.filter((request) => request.method === "_acpmux/events" && request.params.limit > 1)).toEqual([
+      {
+        method: "_acpmux/events",
+        params: {
+          sessionId: CHAT,
+          beforeSeq: lastSeq - attach.sent + 1,
+          limit: 400,
+          maxBytes: 256 * 1024,
+          kinds: ["transcript"],
+        },
+        sent: 400,
+      },
+    ]);
     expect(attach.params.maxBytes).toBeLessThanOrEqual(128 * 1024);
     expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
 
