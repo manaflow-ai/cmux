@@ -6,8 +6,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-// Provider-free server identity and policy measured 403.1 KiB; no dependency was added.
-const BUDGET_GZIP_BYTES = 407 * 1024; // 298 KiB at S1
+// Keyed mesh recovery adds 3.8 KiB to the 405.7 KiB baseline; no dependency was added.
+const BUDGET_GZIP_BYTES = 411 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })
