@@ -381,6 +381,16 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_fake_socket_env.py
 
+      # release-notary is the group cmux-next-guards.yml runs on every
+      # feat-cmux-next pull request and push, where these files live.
+      - name: Test What's New highlights and release notes
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 scripts/whats-new/test_digest.py
+          python3 scripts/whats-new/test_validate.py
+          python3 scripts/whats-new/test_community.py
+          python3 tests/test_cmux_next_release_notes.py
+
       - name: Test the /release changelog line classifier
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_release_changelog_lines.py
@@ -1132,6 +1142,7 @@ jobs:
         run: |
           python3 tests/test_update_release_tag.py
           python3 tests/test_nightly_next_computer_use_helper.py
+          python3 tests/test_nightly_next_post_publish.py
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_republish_delta_guard.py
           python3 tests/test_nightly_resume_tracks.py
