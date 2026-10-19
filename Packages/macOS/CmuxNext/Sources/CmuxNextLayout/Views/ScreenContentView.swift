@@ -230,9 +230,11 @@ final class ScreenContentView: NSView {
                 if !animateFrames { frame.snap() }
                 dividerFrames[kind] = frame
             } else {
-                // A split's new divider starts on the edge its pane grows from; an unzoom's are there
-                // at once, under the zoomed pane springing back (it ranks above them).
-                let edge = arrivals.values.first?.edgeOffset ?? .zero
+                // A split's new divider starts on the edge of the pane beside it, where that edge shows now
+                // (an even split may put it past the new pane, on the next pane's edge); an unzoom's are
+                // there at once, under the zoomed pane springing back (it ranks above them).
+                let edge = arrivals.isEmpty ? .zero : SplitMotion.startShift(of: target.rect, axis: target.axis, panes: paneFrames,
+                                                                              skipping: Set(arrivals.keys)) ?? arrivals.values.first?.edgeOffset ?? .zero
                 var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: 1)
                 frame.setTarget(target.rect, alpha: 1)
                 dividerFrames[kind] = frame

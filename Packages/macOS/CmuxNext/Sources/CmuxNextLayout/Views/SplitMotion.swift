@@ -35,6 +35,28 @@ struct SplitMotion {
     }
 }
 
+extension SplitMotion {
+    /// Where a new divider at `divider` (its target) starts, as a shift from there: by as much as
+    /// the edge of an existing pane beside it (not one in `skipping`, the panes the change adds)
+    /// still has to travel, so the divider rides that edge from its first frame. Nil without one.
+    static func startShift(of divider: CGRect, axis: SplitAxis, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>) -> CGVector? {
+        let reach: CGFloat = 16
+        for (pane, frame) in panes where !skipping.contains(pane) {
+            let target = frame.targetRect, shown = frame.rect
+            if axis == .horizontal {
+                guard min(target.maxY, divider.maxY) - max(target.minY, divider.minY) > 1 else { continue }
+                if abs(target.maxX - divider.midX) <= reach { return CGVector(dx: shown.maxX - target.maxX, dy: 0) }
+                if abs(target.minX - divider.midX) <= reach { return CGVector(dx: shown.minX - target.minX, dy: 0) }
+            } else {
+                guard min(target.maxX, divider.maxX) - max(target.minX, divider.minX) > 1 else { continue }
+                if abs(target.maxY - divider.midY) <= reach { return CGVector(dx: 0, dy: shown.maxY - target.maxY) }
+                if abs(target.minY - divider.midY) <= reach { return CGVector(dx: 0, dy: shown.minY - target.minY) }
+            }
+        }
+        return nil
+    }
+}
+
 extension AnimatedFrame {
     /// Gives every component still short of its target the velocity of
     /// `rate` (fractions of its remaining travel per second).
