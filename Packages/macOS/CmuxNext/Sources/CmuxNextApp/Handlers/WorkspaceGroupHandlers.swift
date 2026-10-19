@@ -104,6 +104,12 @@ enum WorkspaceGroupHandlers {
         // A pinned (saved) group stays when its workspaces close.
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
             let group = try context.group(invocation)
+            // Only a top-level group pins: a nested group goes with its parent (`workspace-group-nest-v1`).
+            if group.parentGroup != nil && !group.pinned {
+                throw ActionFailure.invalidTarget(String(localized: "workspaceGroup.pinNestedRefused",
+                                                         defaultValue: "Only a top-level group can be pinned.",
+                                                         table: "Handlers", bundle: .module))
+            }
             try context.sidebar().handle(.setGroupPinned(sidebarID(group), !group.pinned))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.

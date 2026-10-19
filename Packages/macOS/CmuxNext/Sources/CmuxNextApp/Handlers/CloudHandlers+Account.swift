@@ -23,7 +23,9 @@ extension CloudHandlers {
                 return
             }
             run("new cloud workspace", context) {
-                if let id = await context.services.windows.createWorkspace(on: session.daemon) { show(id, context) }
+                guard let id = await context.services.windows.createWorkspace(on: session.daemon) else { return }
+                CloudGroupJoin(services: context.services).join(id)
+                show(id, context)
             }
         }
     }
@@ -38,7 +40,13 @@ extension CloudHandlers {
         return CloudCreationFlow(
             creations: cloud.creations,
             create: { creation in try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson) },
-            open: { session in try await firstWorkspace(on: session, context) },
+            open: { session in
+                // A workspace this flow makes joins the Cloud group; one the machine already had keeps its place.
+                let fresh = session.daemon.store.workspaces.isEmpty
+                let id = try await firstWorkspace(on: session, context)
+                if fresh { CloudGroupJoin(services: context.services).join(id) }
+                return id
+            },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")

@@ -45,6 +45,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `workspaces.autoName` (hq#1957): a workspace the user never named
     /// takes its front tab's name (a page's, a chat's, a terminal's). On by default.
     public var autoNamesWorkspaces = true
+    /// `sidebar.cloudGroup`: a new Cloud workspace joins the sidebar's Cloud
+    /// group (made with the first one) unless its creation named a group. On
+    /// by default; off, a new Cloud workspace lists like any other.
+    public var cloudGroup = true
     /// What each workspace row shows (`sidebar.workspaceRow.*`): by default
     /// the name, the user's icon and the unread/attention mark only
     /// (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE).

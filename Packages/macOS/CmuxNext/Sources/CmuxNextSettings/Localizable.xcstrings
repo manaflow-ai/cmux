@@ -123825,6 +123825,268 @@
           }
         }
       }
+    },
+    "settings.sidebar.cloudGroup.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new Cloud workspace goes into the sidebar's Cloud group, unless you picked a group for it. A workspace you move out stays where you put it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنتقل مساحة العمل السحابية الجديدة إلى مجموعة Cloud في الشريط الجانبي، إلا إذا اخترت لها مجموعة. وتبقى مساحة العمل التي تنقلها خارجها حيث وضعتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi Cloud radni prostor ide u grupu Cloud na bočnoj traci, osim ako ste za njega odabrali grupu. Radni prostor koji premjestite van ostaje gdje ste ga stavili."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et nyt Cloud-arbejdsområde lægges i sidepanelets Cloud-gruppe, medmindre du har valgt en gruppe til det. Et arbejdsområde, du flytter ud, bliver, hvor du lagde det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein neuer Cloud-Workspace kommt in die Cloud-Gruppe der Seitenleiste, außer du hast eine Gruppe dafür gewählt. Ein Workspace, den du herausziehst, bleibt, wo du ihn hinlegst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nuevo espacio de trabajo en la nube va al grupo Cloud de la barra lateral, salvo que hayas elegido un grupo. Un espacio que saques se queda donde lo pongas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nouvel espace de travail Cloud va dans le groupe Cloud de la barre latérale, sauf si vous lui avez choisi un groupe. Un espace que vous en sortez reste où vous le placez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nuovo spazio di lavoro Cloud va nel gruppo Cloud della barra laterale, a meno che tu non abbia scelto un gruppo. Uno spazio che sposti fuori resta dove lo metti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいクラウドワークスペースは、グループを選んだ場合を除き、サイドバーのCloudグループに入ります。グループの外へ移動したワークスペースは、移動した場所に残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការ Cloud ថ្មីចូលទៅក្រុម Cloud នៃរបារចំហៀង លុះត្រាតែអ្នកបានជ្រើសក្រុមសម្រាប់វា។ កន្លែងធ្វើការដែលអ្នកផ្លាស់ចេញ នៅកន្លែងដែលអ្នកដាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 클라우드 워크스페이스는 그룹을 직접 고르지 않으면 사이드바의 Cloud 그룹에 들어갑니다. 밖으로 옮긴 워크스페이스는 옮긴 자리에 그대로 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et nytt Cloud-arbeidsområde havner i sidefeltets Cloud-gruppe, med mindre du valgte en gruppe for det. Et arbeidsområde du flytter ut, blir der du la det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowy obszar roboczy w chmurze trafia do grupy Cloud na pasku bocznym, chyba że wybierzesz dla niego grupę. Obszar, który przeniesiesz poza nią, zostaje tam, gdzie go umieścisz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um novo espaço de trabalho na nuvem vai para o grupo Cloud da barra lateral, a menos que você escolha um grupo. Um espaço que você tirar fica onde você o colocou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новое облачное рабочее пространство попадает в группу Cloud на боковой панели, если вы не выбрали для него группу. Пространство, которое вы вынесли, остаётся там, куда вы его поместили."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เวิร์กสเปซคลาวด์ใหม่จะเข้าไปอยู่ในกลุ่ม Cloud ของแถบด้านข้าง เว้นแต่คุณเลือกกลุ่มให้ เวิร์กสเปซที่คุณย้ายออกจะอยู่ตรงที่คุณวางไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni bir bulut çalışma alanı, bir grup seçmediyseniz kenar çubuğundaki Cloud grubuna girer. Dışarı taşıdığınız bir çalışma alanı koyduğunuz yerde kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новий хмарний робочий простір потрапляє до групи Cloud на бічній панелі, якщо ви не вибрали для нього групу. Простір, який ви винесли, залишається там, куди ви його поклали."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc đám mây mới sẽ vào nhóm Cloud ở thanh bên, trừ khi bạn đã chọn nhóm cho nó. Không gian bạn chuyển ra ngoài sẽ ở nguyên chỗ bạn đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新的云端工作区会放入侧边栏的 Cloud 分组，除非你为它选了分组。你移出的工作区会留在你放置的位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新的雲端工作區會放入側邊欄的 Cloud 群組，除非你為它選了群組。你移出的工作區會留在你放置的位置。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.cloudGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put Cloud Workspaces in a Cloud Group"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وضع مساحات العمل السحابية في مجموعة Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stavi Cloud radne prostore u grupu Cloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Læg Cloud-arbejdsområder i en Cloud-gruppe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-Workspaces in eine Cloud-Gruppe legen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poner los espacios de trabajo en la nube en un grupo Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placer les espaces de travail Cloud dans un groupe Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metti gli spazi di lavoro Cloud in un gruppo Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドワークスペースをCloudグループに入れる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់កន្លែងធ្វើការ Cloud ក្នុងក្រុម Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클라우드 워크스페이스를 Cloud 그룹에 넣기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg Cloud-arbeidsområder i en Cloud-gruppe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umieszczaj obszary robocze w chmurze w grupie Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colocar espaços de trabalho na nuvem em um grupo Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помещать облачные рабочие пространства в группу Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใส่เวิร์กสเปซคลาวด์ไว้ในกลุ่ม Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bulut çalışma alanlarını bir Cloud grubuna koy"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розміщувати хмарні робочі простори в групі Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đưa không gian làm việc đám mây vào nhóm Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将云端工作区放入 Cloud 分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將雲端工作區放入 Cloud 群組"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
