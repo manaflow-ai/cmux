@@ -242,6 +242,53 @@ import Testing
         #expect(!slow.isSettled(url))
     }
 
+    /// A closed pull request can be reopened, so only a merged one is settled.
+    @Test func aClosedPullRequestIsAskedAgain() async throws {
+        let url = "https://github.com/o/r/pull/3"
+        let gh = try Self.fakeGitHub(answer: """
+            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":3,"title":"Paused","state":"CLOSED","isDraft":false,"mergeable":"UNKNOWN",
+             "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
+            """, status: 0)
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .zero)
+        store.refresh([url])
+        try await Self.waitUntil { store.answers[url] != nil }
+        #expect(store.answers[url]?.state == "closed")
+        #expect(!store.isSettled(url))
+    }
+
+    /// A null alias beside an error other than NOT_FOUND (SSO, a resource limit) says nothing about
+    /// that pull request: it keeps its last answer instead of clearing it.
+    @Test func aPartialGraphQLErrorKeepsTheLastAnswer() {
+        let targets = ["https://github.com/o/r/pull/7", "https://github.com/o/r/pull/8"]
+            .compactMap(AgentChatPullRequestReader.Target.init(url:))
+        let answer = """
+            {"data":{"p0":null,"p1":null},
+             "errors":[{"type":"FORBIDDEN","path":["p0"],"message":"SAML enforcement"},{"type":"NOT_FOUND","path":["p1","pullRequest"]}]}
+            """
+        let read = AgentChatPullRequestReader.pullRequests(fromGraphQL: Data(answer.utf8), targets)
+        #expect(!read.keys.contains("https://github.com/o/r/pull/7"))
+        #expect(read["https://github.com/o/r/pull/8"] == .some(nil))
+    }
+
+    /// An open pull request is read again every `freshness` while the tree shows it, though no
+    /// lane or workspace changes (an idle session's CI can still fail), and stops when the tree does.
+    @Test func anOpenPullRequestIsReadAgainOnItsOwn() async throws {
+        let url = "https://github.com/o/r/pull/4"
+        let gh = try Self.fakeGitHub(answer: """
+            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":4,"title":"Running","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
+             "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
+            """, status: 0)
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .milliseconds(100))
+        store.refresh([url])
+        try await Self.waitUntil { Self.calls(gh) >= 2 }
+        #expect(Self.calls(gh) >= 2)
+        store.stop()
+        try await Task.sleep(for: .milliseconds(150))
+        let stopped = Self.calls(gh)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(Self.calls(gh) == stopped)
+    }
+
     @Test func theCardIsADebugSettingOnByDefault() {
         #expect(SidebarTunables.pullRequestCard.descriptor.key == "sidebar.pullRequestCard")
         #expect(SidebarTunables.all.contains { $0.key == "sidebar.pullRequestCard" })
