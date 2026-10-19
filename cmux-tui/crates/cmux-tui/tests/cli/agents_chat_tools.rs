@@ -177,13 +177,15 @@ fn error_of(value: &Value) -> &Value {
     value.get("error").unwrap_or(value)
 }
 
-/// `cmux mcp serve` as chat `caller`'s agent: `tools/list`, then each call in
-/// order; the listed tools and every call's result.
+/// `cmux mcp serve --all-tools` as chat `caller`'s agent: `tools/list`, then
+/// each call in order; the listed tools and every call's result. Plain
+/// `serve` is code mode, which lists only `cmux_docs` and `cmux_exec`;
+/// `--all-tools` lists each tool with its schema and annotations.
 fn mcp(daemon: &Daemon, caller: &str, calls: &[(&str, Value)]) -> (Vec<Value>, Vec<Value>) {
     let mut child = cmux(daemon, Some(caller))
         .arg("--app-socket")
         .arg(daemon.dir.join("no-app.sock"))
-        .args(["mcp", "serve"])
+        .args(["mcp", "serve", "--all-tools"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
