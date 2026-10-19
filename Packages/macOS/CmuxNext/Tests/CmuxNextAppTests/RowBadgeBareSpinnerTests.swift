@@ -18,8 +18,10 @@ import Testing
     @Test(arguments: [RowBadgeView.Look.corner, .stack], [StatusIndicatorState.working, .busy])
     func aSpinnerDrawsWithNoDiscBehindIt(look: RowBadgeView.Look, spinning: StatusIndicatorState) {
         let view = Self.badge([spinning, .waiting], look)
-        #expect(view.backdrops(at: 0).allSatisfy(\.isHidden), "the spinner sits on the row's own background")
-        #expect(view.backdrops(at: 1).contains { !$0.isHidden }, "the waiting glyph keeps its disc")
+        let spinnerBare = view.backdrops(at: 0).allSatisfy(\.isHidden)
+        let waitingDisc = view.backdrops(at: 1).contains { !$0.isHidden }
+        #expect(spinnerBare, "the spinner sits on the row's own background")
+        #expect(waitingDisc, "the waiting glyph keeps its disc")
     }
 
     @Test(arguments: [RowBadgeView.Look.corner, .stack])
