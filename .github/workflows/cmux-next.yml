@@ -1387,6 +1387,9 @@ jobs:
             echo "All cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          # One annotation per red check: the red-checks line compares them with the base's run, so a
+          # new red check is told from a base one (scripts/ci/pr_red_checks_comment.py).
+          for name in "${failed[@]}"; do echo "::error title=cmux-next check::red check: $name"; done
           {
             echo "### ${#failed[@]} cmux-next check(s) failed"
             echo
@@ -3145,6 +3148,18 @@ jobs:
           curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -d "$body" \
             || echo "::warning::could not post the $CONTEXT status"
+
+  # The checks job's red sub-checks join the PR's red-checks line (pr-red-checks-comment.yml), each
+  # compared with the base's run: ci.yml and cmux-next-guards.yml call it after their own checks.
+  pr-red-checks:
+    needs: [checks]
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/pr-red-checks-comment.yml
 
   push-attribution:
     needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, perf-gate]
