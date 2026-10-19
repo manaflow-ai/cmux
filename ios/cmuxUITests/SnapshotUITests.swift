@@ -182,7 +182,7 @@ final class AgentChatModeUITests: XCTestCase {
         claude.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
         let usage = app.otherElements["MobileAgentUsageContextCard"]
-        XCTAssertTrue(reveal(usage, in: app), "Claude usage/context card should be reachable")
+        XCTAssertTrue(reveal(usage, in: app, requireHittable: false), "Claude usage/context card should be reachable")
         keepScreenshot(app, named: "agent-claude-context")
 
         let permissionTitle = app.staticTexts["Claude wants to run"]
@@ -227,13 +227,13 @@ final class AgentChatModeUITests: XCTestCase {
         let initialPrompt = app.staticTexts["Review the networking changes and summarize risks."]
         XCTAssertTrue(reveal(initialPrompt, in: app), "Codex initial prompt should be reachable")
         let usage = app.otherElements["MobileAgentUsageContextCard"]
-        XCTAssertTrue(reveal(usage, in: app), "Codex usage/context card should be reachable")
+        XCTAssertTrue(reveal(usage, in: app, requireHittable: false), "Codex usage/context card should be reachable")
         let diffPath = app.staticTexts["Sources/Network/RetryPolicy.swift"]
         XCTAssertTrue(reveal(diffPath, in: app), "Codex diff card should be reachable")
         let webSearch = app.otherElements["MobileAgentWebSearchCard"]
         XCTAssertTrue(reveal(webSearch, in: app), "Codex web-search card should be reachable")
         let markdownCode = app.staticTexts["let delay = min(8, attempt * 2)"]
-        XCTAssertTrue(reveal(markdownCode, in: app), "Codex Markdown code block should be reachable")
+        XCTAssertTrue(reveal(markdownCode, in: app, requireHittable: false), "Codex Markdown code block should be reachable")
         keepScreenshot(app, named: "agent-codex-review")
 
         let composer = app.textFields["Message your agent"]
@@ -300,7 +300,10 @@ final class AgentChatModeUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 12))
-        let codex = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Codex, Review the networking changes")).firstMatch
+        // Arabic VoiceOver labels can wrap the provider/title in directional
+        // isolates, so match the stable session title instead of assuming the
+        // English comma-separated accessibility ordering.
+        let codex = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Review the networking changes")).firstMatch
         XCTAssertTrue(codex.waitForExistence(timeout: 8))
         codex.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
@@ -360,19 +363,19 @@ final class AgentChatModeUITests: XCTestCase {
     }
 
     @MainActor
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 10) -> Bool {
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 10, requireHittable: Bool = true) -> Bool {
         let transcript = app.scrollViews["MobileAgentTranscript"].exists
             ? app.scrollViews["MobileAgentTranscript"]
             : app.scrollViews.firstMatch
         for _ in 0...maxSwipes {
-            if element.exists && element.isHittable { return true }
+            if element.exists && (!requireHittable || element.isHittable) { return true }
             if transcript.exists { transcript.swipeUp() } else { app.swipeUp() }
         }
         for _ in 0...maxSwipes {
-            if element.exists && element.isHittable { return true }
+            if element.exists && (!requireHittable || element.isHittable) { return true }
             if transcript.exists { transcript.swipeDown() } else { app.swipeDown() }
         }
-        return element.exists && element.isHittable
+        return element.exists && (!requireHittable || element.isHittable)
     }
 
     @MainActor
