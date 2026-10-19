@@ -310,6 +310,27 @@ final class AgentChatModeUITests: XCTestCase {
     }
 
     @MainActor
+    func testAgentChatPreviewArabicLayoutKeepsComposerReachable() {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(ar)", "-AppleLocale", "ar"]
+        app.launchEnvironment["CMUX_UITEST_AGENT_CHAT_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "0"
+        app.launch()
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 12))
+        keepScreenshot(app, named: "agent-history-arabic")
+        let codex = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Codex, Review the networking changes")).firstMatch
+        XCTAssertTrue(codex.waitForExistence(timeout: 8))
+        codex.tap()
+        XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
+        let composer = app.otherElements["MobileAgentComposer"].textFields.firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+        XCTAssertTrue(composer.isHittable, "The composer should remain reachable in right-to-left layout")
+        keepScreenshot(app, named: "agent-codex-arabic")
+    }
+
+    @MainActor
     func testAgentChatPreviewCanCloseAndReopenFromBothNavigationColumns() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UITEST_AGENT_CHAT_PREVIEW"] = "1"
