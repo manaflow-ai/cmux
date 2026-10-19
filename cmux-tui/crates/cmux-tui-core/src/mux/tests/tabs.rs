@@ -207,15 +207,15 @@ fn surface_session_subscription_tracks_real_tab_moves_without_layout_churn() {
     let events = mux.subscribe_surface_session(target.id).unwrap();
 
     assert!(mux.move_tab(target.id, destination_pane, 0));
-    mux.emit(MuxEvent::LayoutChanged(source_screen));
-    mux.emit(MuxEvent::LayoutChanged(destination_screen));
+    mux.emit(MuxEvent::LayoutChanged(source_screen, None));
+    mux.emit(MuxEvent::LayoutChanged(destination_screen, None));
 
     let received = events.try_iter().collect::<Vec<_>>();
     assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
     let layouts = received
         .iter()
         .filter_map(|event| match event {
-            MuxEvent::LayoutChanged(screen) => Some(*screen),
+            MuxEvent::LayoutChanged(screen, _) => Some(*screen),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -238,9 +238,7 @@ fn move_tab_does_not_emit_layout_for_a_removed_source_screen() {
         assert!(state.workspaces[0].screens.iter().all(|screen| screen.id != source_screen));
     });
     assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
-    assert!(
-        events.try_iter().all(
-            |event| !matches!(event, MuxEvent::LayoutChanged(screen) if screen == source_screen)
-        )
-    );
+    assert!(events.try_iter().all(
+        |event| !matches!(event, MuxEvent::LayoutChanged(screen, _) if screen == source_screen)
+    ));
 }

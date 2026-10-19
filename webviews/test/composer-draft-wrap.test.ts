@@ -181,6 +181,11 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
     await page.locator(surface.field).first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     await page.click(surface.field);
+    // Some running-turn fixtures intentionally arrive with a kept draft. This measurement starts
+    // from an empty prompt so it tests wrapping and growth rather than inserting into the clicked
+    // position of that fixture text. Draft hydration itself is covered by agent-pane-unsent-draft.
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
     return page;
   };
   const read = (page: Page, surface: (typeof surfaces)[number]) =>

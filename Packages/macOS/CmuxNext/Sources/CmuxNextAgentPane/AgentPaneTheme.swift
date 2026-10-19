@@ -39,6 +39,9 @@ enum AgentPaneTheme {
             "chatWidth": AgentPaneTunables.chatWidth.value.rawValue,
             // Debug Settings agentPane.debug.codexToolRuns, pushed again on a change as chatWidth is.
             "codexToolRuns": AgentPaneTunables.codexToolRuns.value,
+            // Debug Settings agentPane.debug.turnActionsPlacement, pushed with the theme so open
+            // transcript footers follow the setting without reloading the page.
+            "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),
@@ -48,6 +51,7 @@ enum AgentPaneTheme {
             "accentText": css(opaquePage),
             "danger": css(tokens.danger),
             "warning": css(tokens.attention),
+            "success": css(tokens.success),
             "highlight": css(tokens.highlight),
             "highlightText": css(tokens.highlightText),
             "shadow": css(tokens.shadow),
@@ -64,6 +68,9 @@ enum AgentPaneTheme {
                 "fadeOut": motion.duration(MotionFade.fadeOut),
                 "move": motion.duration(MotionSpring.move),
             ],
+            // Static status indicators, or Reduce Motion (cx-sya4n): the page stops its status
+            // loops and draws a shape per state (`data-status-indicators`).
+            "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
         ]
     }
 

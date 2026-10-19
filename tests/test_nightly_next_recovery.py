@@ -465,6 +465,19 @@ class FailureIssueTests(unittest.TestCase):
         self.OUTPUTS = {"decide": self.OUTPUTS["decide"], "publish-nightly": {"tag_status": "", "already_published": "true"}}
         self.assertEqual(self.publication("recovered", **outcome), (False, False))
 
+    def test_a_refused_publication_reports_and_never_closes(self):
+        self.OUTPUTS = {"decide": self.OUTPUTS["decide"],
+                        "publish-nightly": {"tag_status": "", "already_published": "true", "refused": "true",
+                                            "refusal_reason": "NIGHTLY_NEXT_WRITER read live is unreadable: HTTP 403"}}
+        outcome = {"republish-nightly-deltas": "skipped", "sign-release-notes": "skipped", "publish-release-notes": "skipped"}
+        self.assertEqual(self.publication("own", **outcome), (True, False))
+
+    def test_a_deliberate_stand_down_neither_reports_nor_closes(self):
+        self.OUTPUTS = {"decide": self.OUTPUTS["decide"],
+                        "publish-nightly": {"tag_status": "", "already_published": "true", "refused": "true"}}
+        outcome = {"republish-nightly-deltas": "skipped", "sign-release-notes": "skipped", "publish-release-notes": "skipped"}
+        self.assertEqual(self.publication("own", **outcome), (False, False))
+
     def test_an_already_published_own_build_neither_reports_nor_closes(self):
         outcome = {"republish-nightly-deltas": "skipped", "sign-release-notes": "skipped",
                    "publish-release-notes": "skipped"}
@@ -734,10 +747,16 @@ class WriterGateTests(unittest.TestCase):
     before the first write; anything else refuses (refused=true, exit 0, not a
     failure). For the transition week NIGHTLY_NEXT_HOLD=1 also refuses."""
 
-    def assert_refused(self, result, why: str):
+    def assert_refused(self, result, why: str, deliberate: bool = False):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.output.get("refused"), "true", result.stdout)
         self.assertIn(why, result.stdout)
+        # A fault names its reason (the failure issue opens); a deliberate
+        # stand-down by an operator does not.
+        if deliberate:
+            self.assertNotIn("refusal_reason", result.output, result.stdout)
+        else:
+            self.assertIn(why, result.output.get("refusal_reason", ""), result.stdout)
 
     def test_mac_publishes(self):
         for hold in ("0", "", "anything"):
@@ -752,7 +771,8 @@ class WriterGateTests(unittest.TestCase):
     def test_any_other_writer_refuses(self):
         for writer in ("linux", "none", "", "Mac", "macos"):
             with self.subTest(writer=writer):
-                self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": writer, "NIGHTLY_NEXT_HOLD": "0"}), "not mac")
+                self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": writer, "NIGHTLY_NEXT_HOLD": "0"}), "not mac",
+                                    deliberate=writer in ("linux", "none"))
 
     def test_an_unset_or_unreadable_writer_refuses(self):
         self.assert_refused(run_gate({"NIGHTLY_NEXT_HOLD": "0"}), "'<unset>', not mac")
@@ -760,12 +780,13 @@ class WriterGateTests(unittest.TestCase):
         self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac"}, token=""), "could not be minted")
 
     def test_the_transition_hold_still_refuses(self):
-        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac", "NIGHTLY_NEXT_HOLD": "1"}), "NIGHTLY_NEXT_HOLD read live is 1")
+        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac", "NIGHTLY_NEXT_HOLD": "1"}), "NIGHTLY_NEXT_HOLD read live is 1",
+                            deliberate=True)
         self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac", "NIGHTLY_NEXT_HOLD": None}), "NIGHTLY_NEXT_HOLD read live is unreadable")
 
     def test_a_recovered_build_is_refused_before_its_lineage_check(self):
         result = run_gate({"NIGHTLY_NEXT_WRITER": "linux"}, source="recovered")
-        self.assert_refused(result, "not mac")
+        self.assert_refused(result, "not mac", deliberate=True)
         self.assertNotIn("Recovered build not checked", result.stdout)
 
     def test_the_main_track_reads_no_writer(self):

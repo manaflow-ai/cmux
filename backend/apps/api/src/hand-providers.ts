@@ -114,6 +114,27 @@ const stub = (id: string, keyVar: string): SandboxProvider => {
   return { id, ready: () => false, canManage: () => false, create: none, exec: none, pause: none, remove: none, list: async () => [] }
 }
 
+/**
+ * Test only (ENVIRONMENT "test"): a sandbox whose install command is handed to the test, which plays the machine
+ * (pairs with the code, dials the hand socket). Never ready on a deployment.
+ */
+export const testSandboxInstalls: Array<{ readonly code: string; readonly name: string }> = []
+const testProvider: SandboxProvider = {
+  id: "test",
+  ready: (env) => env.ENVIRONMENT === "test",
+  canManage: (env) => env.ENVIRONMENT === "test",
+  create: async () => ({ id: `test-vm-${crypto.randomUUID().slice(0, 8)}` }),
+  exec: async (_env, _id, command) => {
+    const m = /--pair (\S+) --name ([A-Za-z0-9._-]+)/.exec(command)
+    if (!m) return 1
+    testSandboxInstalls.push({ code: m[1]!, name: m[2]! })
+    return 0
+  },
+  pause: async () => true,
+  remove: async () => true,
+  list: async () => []
+}
+
 /** Providers by id; only the ones whose key is on this deployment are offered. */
 export const PROVIDERS: Readonly<Record<string, SandboxProvider>> = {
   freestyle: freestyleProvider,
@@ -123,7 +144,8 @@ export const PROVIDERS: Readonly<Record<string, SandboxProvider>> = {
   blaxel: stub("blaxel", "HAND_BLAXEL_API_KEY"),
   docker: stub("docker", "HAND_DOCKER_HOST"),
   kubernetes: stub("kubernetes", "HAND_KUBERNETES_CONFIG"),
-  ssh: stub("ssh", "HAND_SSH_HOST")
+  ssh: stub("ssh", "HAND_SSH_HOST"),
+  test: testProvider
 }
 
 /** The provider a person asked for (default: the first ready one), or null when none is ready. */

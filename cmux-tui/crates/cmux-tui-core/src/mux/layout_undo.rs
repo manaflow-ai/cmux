@@ -237,7 +237,7 @@ impl Mux {
                 revision
             };
             self.emit(MuxEvent::TreeChanged);
-            self.emit(MuxEvent::LayoutChanged(screen_id));
+            self.emit_layout_changed(screen_id, None);
             return Ok(LayoutUndoResult::Undone { screen: screen_id, revision });
         }
 
@@ -378,7 +378,7 @@ impl Mux {
                 self.emit_tree_delta(delta, selection_resync);
             }
         }
-        self.emit(MuxEvent::LayoutChanged(screen_id));
+        self.emit_layout_changed(screen_id, None);
         Ok(LayoutUndoResult::Undone { screen: screen_id, revision })
     }
 }

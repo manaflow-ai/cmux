@@ -185,6 +185,9 @@ extension AgentPaneRequest {
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
+        case "project.icon":
+            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
+            else { self = .unsupported(method) }
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
@@ -305,6 +308,12 @@ extension AgentPaneRequest {
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)
+        case "dictation.audio":
+            if let enabled = params?["enabled"] as? Bool {
+                self = .dictation(.recordAudio(enabled))
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.openSettings":
             if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
                 self = .dictation(.openSettings(permission))

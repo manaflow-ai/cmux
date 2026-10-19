@@ -17,6 +17,8 @@ const SANDBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/
 const INSTALL_TIMEOUT_MS = 150_000
 /** Machine name prefixes of the environments (FREESTYLE-NAMES; cloud-driver.ts). */
 export const SANDBOX_PREFIX = /^cmuxnp-(dev|stg|prod)-cld-$/
+/** The tests' prefix is accepted only where ENVIRONMENT is "test" (its provider is the test one). */
+const sandboxPrefixOk = (env: Env, prefix: string) => SANDBOX_PREFIX.test(prefix) || (env.ENVIRONMENT === "test" && prefix === "cmuxnp-test-cld-")
 
 const maxSandboxes = (env: Env) => {
   const n = Number(env.HAND_SANDBOX_MAX ?? "3")
@@ -39,7 +41,7 @@ export const createSandbox = async (env: Env, caller: HandCaller, name: string, 
   const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/$/, "")
   if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(origin)) return unavailable("this deployment names no public https origin; a sandbox cannot reach it")
   const prefix = env.CLOUD_NAME_PREFIX ?? ""
-  if (!SANDBOX_PREFIX.test(prefix)) return unavailable("this deployment names no sandbox name prefix")
+  if (!sandboxPrefixOk(env, prefix)) return unavailable("this deployment names no sandbox name prefix")
   if (!SANDBOX_NAME.test(name)) return { ok: false, error: { code: "request.invalid", message: "name: 1-40 letters, digits, . _ -, starting with a letter or digit" } }
   if (env.PAIR_BEGIN_LIMIT) {
     const { success } = await env.PAIR_BEGIN_LIMIT.limit({ key: `hand-sandbox:${caller.user}` })

@@ -7,7 +7,7 @@ import Testing
 /// moving the pointer down the list dropped the hover highlight in every
 /// gap, so it flickered row to row. The rows' hit areas tile: the spacing
 /// between two rows belongs to them, so the hover moves from one row to the
-/// next in the same pointer step and the two fills cross-fade.
+/// next in the same pointer step: the new fill shows at once as the old one clears.
 @MainActor @Suite(.serialized) struct SidebarRowHoverGapTests {
     /// Leo's list: four loose workspaces, in a window. None is active, so
     /// every row's fill is its hover fill.
@@ -76,12 +76,12 @@ import Testing
             #expect(list.hoveredKey != nil, "y=\(y): hover dropped between rows")
             if let key = list.hoveredKey, let previous, key != previous {
                 switches += 1
-                // The fills cross-fade: the old one eases out as the new one eases in, in one step.
-                if Motion.duration(.hover) > 0 {
-                    let old = try #require(list.rowViews[previous]), new = try #require(list.rowViews[key])
-                    #expect(new.layer?.animation(forKey: "backgroundColor") != nil, "y=\(y): \(key)'s fill snapped in")
-                    #expect(old.layer?.animation(forKey: "backgroundColor") != nil, "y=\(y): \(previous)'s fill snapped out")
-                }
+                // The new fill shows at once (#21543: a sweep never leaves a delayed highlight behind
+                // the row under the pointer); the old one clears with the hoverOut token, instant by default.
+                let old = try #require(list.rowViews[previous]), new = try #require(list.rowViews[key])
+                #expect(new.layer?.animation(forKey: "backgroundColor") == nil, "y=\(y): \(key)'s fill faded in late")
+                #expect((old.layer?.animation(forKey: "backgroundColor") != nil) == (Motion.duration(.hoverOut) > 0),
+                        "y=\(y): \(previous)'s fill did not clear with the hoverOut token")
             }
             previous = list.hoveredKey ?? previous
             y += 1

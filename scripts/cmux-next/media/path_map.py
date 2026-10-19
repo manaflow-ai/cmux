@@ -15,13 +15,20 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "glass", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
+    # cmux's own themes, which the app bundles next to Ghostty's.
+    re.compile(r"^Resources/cmux-themes/"),
 )
 NEW_TAB = re.compile(r"(?:new.?tab|NewTab)", re.IGNORECASE)
 AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IGNORECASE)
+NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
+# Themes, glass and background art: the glass tour shows them over art and opaque.
+GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
+# A tour's own file: a pull request that edits a tour gets that tour's shots.
+TOUR_FILE = re.compile(r"^scripts/cmux-next/media/tours/([a-z0-9-]+)\.json$")
 
 
 def is_ui_path(path: str) -> bool:
@@ -31,6 +38,9 @@ def is_ui_path(path: str) -> bool:
 
 def tours_for_path(path: str) -> list[str]:
     normalized = path.strip().lstrip("./")
+    tour_file = TOUR_FILE.match(normalized)
+    if tour_file:
+        return [tour_file[1]] if tour_file[1] in TOUR_ORDER else []
     if not is_ui_path(normalized):
         return []
     selected: list[str] = []
@@ -38,6 +48,10 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("new-tab")
     if AGENT_PANE.search(normalized):
         selected.append("agent-pane")
+    if NOW_PLAYING.search(normalized):
+        selected.append("now-playing")
+    if GLASS.search(normalized):
+        selected.append("glass")
     if not selected:
         selected.append("core")
     return selected

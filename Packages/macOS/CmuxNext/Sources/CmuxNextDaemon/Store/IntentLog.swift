@@ -21,6 +21,12 @@ enum IntentUndo: Equatable {
     /// The screen's split tree and columns before a provisional split, and the provisional pane
     /// (nil when the split placed the daemon's pane, which the records already list).
     case splitPane(screen: ScreenID, layout: LayoutNode, columns: [ColumnSnapshot], pane: PaneID?)
+    /// The daemon's tab or pane of a creation the person closed first (``CancelledCreation``).
+    case hiddenTab(HiddenTab)
+    case hiddenPane(HiddenPane)
+    /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
+    /// provisional one (inserted) rather than the daemon's.
+    case createdWorkspace(key: WorkspaceKey, inserted: Bool)
 }
 
 struct PendingIntent {
@@ -42,12 +48,23 @@ struct PendingIntent {
     /// Due, but what it shows has not reached the daemon's records yet (a split's pane, cx-ry0y):
     /// it leaves the log once they hold it, or with the next snapshot.
     var awaitsRecords = false
+    /// The person closed what it creates before the daemon made it (``CancelledCreation``): it
+    /// shows nothing, hides the daemon's tab or pane, and leaves once the records drop it.
+    var closeWhenCreated = false
+    /// The daemon's surface was handed to the close (``DaemonCreations/onClose(_:)``).
+    var closeRequested = false
+    /// The surface the creation's reply named (a split's; a create's is `createdSurface`).
+    var replySurface: SurfaceID?
 }
 
 /// The ordered log of pending intents. Pure bookkeeping: the store applies
 /// and lifts the overlay (`DaemonStore+Intents.swift`).
 struct IntentLog {
     private(set) var entries: [PendingIntent] = []
+    /// The models Cmd-N's pending creates show (``DaemonStore/provisionalWorkspaces``).
+    var workspaceModels = ProvisionalWorkspaceModels()
+    /// Closes the daemon's surface of a creation the person closed first (``DaemonCreations/onClose(_:)``).
+    var closeCancelled: ((ClientTransactionID, SurfaceID) -> Void)?
     /// Recently settled transactions (bounded), so a late echo, reply or
     /// rejection for one never settles it again.
     private var settled: [ClientTransactionID] = []
@@ -113,7 +130,8 @@ struct IntentLog {
                 kept.append(entry)
                 continue
             }
-            if !snapshot, awaiting(entry) {
+            // A cancelled creation stays while the records hold what it made, snapshot or not.
+            if !snapshot || entry.closeWhenCreated, awaiting(entry) {
                 entry.awaitsRecords = true
                 kept.append(entry)
             } else {
@@ -142,6 +160,34 @@ struct IntentLog {
     private static func isDue(_ intent: PendingIntent, appliedSequence: UInt64, snapshot: Bool) -> Bool {
         if snapshot, intent.settlesAtSnapshot { return true }
         return intent.settleSequence.map { appliedSequence >= $0 } ?? false
+    }
+
+    /// Settled, but what it shows has not reached the records yet: it leaves the log on the
+    /// apply that brings them, or with the next snapshot.
+    mutating func awaitRecords(_ transaction: ClientTransactionID) {
+        entries.modifyFirst(where: { $0.transaction == transaction }) { $0.awaitsRecords = true }
+    }
+
+    /// Recently cancelled creations (bounded), still known after their intent left the log, so a
+    /// late reply never selects or focuses what the person closed.
+    private var cancelled: [ClientTransactionID] = []
+
+    func wasCancelled(_ transaction: ClientTransactionID) -> Bool { cancelled.contains(transaction) }
+
+    /// False when `transaction` is not pending.
+    mutating func markCloseWhenCreated(_ transaction: ClientTransactionID) -> Bool {
+        guard entries.modifyFirst(where: { $0.transaction == transaction }, { $0.closeWhenCreated = true }) else { return false }
+        cancelled.append(transaction)
+        if cancelled.count > settledLimit { cancelled.removeFirst(cancelled.count - settledLimit) }
+        return true
+    }
+
+    mutating func noteCloseRequested(_ transaction: ClientTransactionID) {
+        entries.modifyFirst(where: { $0.transaction == transaction }) { $0.closeRequested = true }
+    }
+
+    mutating func noteReplySurface(_ transaction: ClientTransactionID, surface: SurfaceID) {
+        entries.modifyFirst(where: { $0.transaction == transaction }) { $0.replySurface = surface }
     }
 
     mutating func noteCreated(_ transaction: ClientTransactionID, surface: SurfaceID) {

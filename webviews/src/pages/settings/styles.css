@@ -993,6 +993,41 @@ mark {
   border-style: dashed;
 }
 
+/* Your images (backgrounds plan phase 3): what they take, Show in Finder, and a remove
+   button in each tile's corner, shown on hover or focus. */
+.backdrop-own-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.backdrop-own {
+  position: relative;
+  min-width: 0;
+}
+
+.backdrop-own > .backdrop-tile {
+  width: 100%;
+}
+
+.backdrop-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  opacity: 0;
+}
+
+.backdrop-own:hover .backdrop-remove:not(:disabled),
+.backdrop-remove:focus-visible {
+  opacity: 1;
+}
+
 /* Browse More Art (cx-t2x.8). */
 .art-browser {
   margin: 12px 0;

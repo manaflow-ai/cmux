@@ -30,7 +30,7 @@ const history = async (token: string, conversation: string) => (await http("POST
 const brain = (name: string) => testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(name))
 const sql = <T,>(name: string, q: string, ...args: Array<unknown>) => runInDurableObject(brain(name), async (_i: unknown, s: DurableObjectState) => s.storage.sql.exec(q, ...args).toArray() as Array<T>)
 
-const SAVED = ["CHIEF_SPAWN_MAX", "CHIEF_SPAWN_MODEL"].map((k) => [k, testEnv[k]] as const)
+const SAVED = ["CHIEF_SPAWN_MAX", "CHIEF_SPAWN_MODEL", "CHIEF_SPAWN_KEEP_DAYS"].map((k) => [k, testEnv[k]] as const)
 afterEach(() => {
   for (const [k, v] of SAVED) v === undefined ? delete testEnv[k] : (testEnv[k] = v)
   vi.restoreAllMocks()
@@ -123,6 +123,19 @@ describe("a Cloud Chief spawns subagents with no hand", { timeout: 180_000 }, ()
     expect(card.parts[0].status).toBe("done")
     expect(card.parts[0].preview).toContain("a long task")
     expect((await t.run("sub_1")).json.value.run.status).toBe("done")
+  })
+
+  it("deletes a child's storage after its report, and members still read its run from the parent", async () => {
+    testEnv.CHIEF_SPAWN_KEEP_DAYS = "0"
+    const t = await setup("spawn-gc")
+    await t.say("k1", spawnText(["compute delta"]))
+    await t.until(async () => (await t.cards()).length === 1, "the report")
+    // The cleanup job is due at once (0 days): the child's alarm runs it.
+    await t.until(async () => (await sql<{ n: number }>(t.child(1), `SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'cb_turn'`).catch(() => [{ n: 1 }]))[0]!.n === 0, "the child's storage to go", () => fireAlarm(brain(t.child(1))).catch(() => undefined))
+    const r = await t.run("sub_1")
+    expect(r.status).toBe(200)
+    expect(r.json.value.run).toMatchObject({ id: "sub_1", status: "done" })
+    expect(r.json.value.steps.some((s: any) => s.kind === "talk")).toBe(true)
   })
 
   it("ends children with an out-of-credits report and no model call when the team has no credits", async () => {

@@ -63,6 +63,10 @@ FAKE_CLI = r'''#!/usr/bin/env python3
 import json, sys
 if "identify" in sys.argv:
     print(json.dumps({"app": "cmux-next", "version": "0.0.0", "build": "1"}))
+if __import__("os").environ.get("FAKE_CLI_FAIL") and any(
+    word in {"unsupported", "required"} for word in sys.argv
+):
+    raise SystemExit(1)
 '''
 
 # macOS tools the tour runs: the console user is root (no `launchctl asuser`),
@@ -144,6 +148,7 @@ class AppWindowCaptureTests(unittest.TestCase):
     def test_shots_and_frames_come_from_the_app_window(self) -> None:
         done, manifest = self.run_tour()
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
         self.assertEqual(manifest["capture_mode"], "app window (debug.window_snapshot)")
         out = self.root / "out/demo"
         for step in manifest["steps"]:
@@ -184,11 +189,70 @@ class AppWindowCaptureTests(unittest.TestCase):
     def test_a_snapshot_error_is_recorded_on_each_step(self) -> None:
         _, manifest = self.run_tour(FAKE_SNAPSHOT_ERROR="no such window")
         self.assertEqual(manifest["capture_mode"], "app window (debug.window_snapshot)")
+        self.assertEqual(manifest["result"], "degraded")
         for step in manifest["steps"]:
             self.assertNotIn("shot", step)
             self.assertIn("no such window", step["shot_error"])
         self.assertEqual(manifest["frames"], [])
         self.assertIn("no such window", manifest["frames_error"])
+
+    def test_matching_rendered_state_postcondition_passes(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 0,
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [100, 100, 800, 600]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        step = manifest["steps"][0]
+        self.assertEqual(step["status"], "ok")
+        self.assertEqual(step["postcondition"]["status"], "passed")
+        self.assertIn("matched windows.0.frame", step["postcondition"]["detail"])
+
+    def test_required_rendered_state_mismatch_fails(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Split right", "cmux": ["action", "run", "splitRight"], "wait": 0,
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [1, 2, 3, 4]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(manifest["result"], "failed")
+        step = manifest["steps"][0]
+        self.assertEqual(step["status"], "failed")
+        self.assertEqual(step["postcondition"]["status"], "failed")
+        self.assertIn("expected [1, 2, 3, 4]", step["postcondition"]["detail"])
+
+    def test_optional_rendered_state_mismatch_degrades(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Optional layout", "wait": 0, "optional": "layout is not ported",
+             "expect": {"method": "debug.layers", "fields": {"windows.0.frame": [1, 2, 3, 4]}}},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "degraded")
+        step = manifest["steps"][0]
+        self.assertEqual(step["status"], "unavailable")
+        self.assertEqual(step["postcondition"]["status"], "unavailable")
+        self.assertIn("layout is not ported", step["detail"])
+
+    def test_optional_failure_is_degraded_but_required_failure_is_failed(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 0},
+            {"title": "Unavailable feature", "cmux": ["unsupported"], "optional": "not ported", "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour(FAKE_CLI_FAIL="1")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "degraded")
+        self.assertEqual(manifest["steps"][1]["status"], "unavailable")
+
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 0},
+            {"title": "Required feature", "cmux": ["required"], "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour(FAKE_CLI_FAIL="1")
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(manifest["result"], "failed")
+        self.assertEqual(manifest["steps"][1]["status"], "failed")
 
 
 if __name__ == "__main__":

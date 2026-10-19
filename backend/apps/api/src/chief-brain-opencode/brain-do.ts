@@ -2,9 +2,10 @@ import { DurableObject } from "cloudflare:workers"
 import type { Env } from "../env.ts"
 import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
+import { turnFailedNotice } from "../chief-brain/brain-gateway.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
 import type { Step } from "../chief-brain/brain-runs.ts"
-import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
+import { signedFetch, turnsObject } from "../chief-brain/claude-auth.ts"
 import { claudeRoute, isMetered } from "../model-gateway/routes.ts"
 import { gatewayMessages } from "../model-gateway/http.ts"
 import { payerTeam } from "../credits.ts"
@@ -186,8 +187,15 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     // A metered model counts against the deployment's daily Claude cap, as on P (the holder decides).
     const model = brainModel(admitted.config.model)
     if (row.tries === 0 && isMetered(model)) {
-      const holder = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
-      if (!(await holder.claudeTurn(owner, model).catch(() => false))) return this.endWake(row.n, run, "skipped", "the deployment's daily Claude cap is reached")
+      // The owner's turns object counts it (no global object; claude-auth.ts ownerTurn). Only "ok" runs.
+      const turns = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner)))
+      const verdict = await turns.claudeTurn(owner, model).catch(() => "unreachable")
+      if (verdict !== "ok") {
+        this.endWake(row.n, run, "skipped", `no paid turn (${verdict})`)
+        // A paid model this owner may not use: the same notice as on P, never a silent wake (its own key: P run ids use run_<n> too).
+        if (verdict === "owner_not_allowed" || verdict === "model_not_offered") await turnFailedNotice(this.env, this.sql, admitted.config, conversation, `oc_${run}`, `no paid turn (${verdict})`, undefined)
+        return
+      }
     }
     this.sql.exec(`UPDATE oc_wake SET state = 'running', run = ?, tries = tries + 1 WHERE n = ?`, run, row.n)
     // An eviction mid-turn loses the in-memory loop: the alarm picks the running row up again.

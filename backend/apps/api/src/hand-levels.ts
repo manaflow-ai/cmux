@@ -93,20 +93,6 @@ export const presenceKey = (sql: SqlStorage, install: string): JsonWebKey | null
 /** The text an install key signs to register its presence key (binds the presence key to that install). */
 export const presenceRegistration = (env: Env, install: string, jwk: { x: string; y: string }) => `cmux-hand-presence-key:${env.ENVIRONMENT ?? "local"}:${install}:${jwk.x}:${jwk.y}`
 
-/** Registers (or replaces) the presence key of an owner's app install; the install key signs the registration. */
-export const registerPresenceKey = async (env: Env, sql: SqlStorage, caller: HandCaller, owner: string, install: string, jwk: unknown, signature: string): Promise<string | null> => {
-  if (caller.kind !== "owner" || caller.user !== owner) return "only the owner registers a presence key"
-  const k = jwk as { kty?: unknown; crv?: unknown; x?: unknown; y?: unknown } | null
-  if (!k || k.kty !== "EC" || k.crv !== "P-256" || typeof k.x !== "string" || typeof k.y !== "string") return "the presence key is a P-256 public JWK"
-  const user = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as { personKey(entity: string, install: string): Promise<JsonWebKey | null> }
-  const installKey = await user.personKey(owner, install).catch(() => null)
-  if (!installKey) return "that install is not one of the owner's active Mac or iPhone apps"
-  const pub = { kty: "EC", crv: "P-256", x: k.x, y: k.y }
-  if (!(await verifyInstallSignature(installKey, presenceRegistration(env, install, pub), signature))) return "bad signature"
-  sql.exec(`INSERT INTO hand_presence_key (install, jwk, at) VALUES (?, ?, ?) ON CONFLICT(install) DO UPDATE SET jwk = excluded.jwk, at = excluded.at`, install, JSON.stringify(pub), Date.now())
-  return null
-}
-
 export const proofOf = (b: Record<string, unknown> | null): Proof | undefined =>
   b && typeof b.install === "string" && typeof b.nonce === "string" && typeof b.signature === "string" ? { install: b.install, nonce: b.nonce, signature: b.signature } : undefined
 

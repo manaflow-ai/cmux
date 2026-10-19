@@ -24,6 +24,9 @@ public struct BackdropPaletteColor: Equatable, Hashable, Sendable {
 /// Layout hints authored with each bundled artwork.
 public struct BackdropArtMetadata: Equatable, Sendable {
     public let focalAnchor: BackdropFocalAnchor
+    /// The subject to keep whole and clear of the panes over the art; nil for art that names
+    /// only its focal anchor (``placement(forViewSize:imageSize:visible:)``).
+    public let subjectBox: BackdropSubjectBox?
     public let tone: BackdropArtTone
     public let dominantPalette: [BackdropPaletteColor]
     public let quietZone: BackdropQuietZone
@@ -40,31 +43,15 @@ public struct BackdropArtMetadata: Equatable, Sendable {
     public nonisolated init(focalAnchor: BackdropFocalAnchor, tone: BackdropArtTone,
                 dominantPalette: [BackdropPaletteColor], quietZone: BackdropQuietZone,
                 minimumTintOpacity: Double = 0, preferredTintOpacity: Double? = nil,
-                range: BackdropArtRange? = nil) {
+                range: BackdropArtRange? = nil, subjectBox: BackdropSubjectBox? = nil) {
         self.focalAnchor = focalAnchor
+        self.subjectBox = subjectBox
         self.tone = tone
         self.dominantPalette = dominantPalette
         self.quietZone = quietZone
         self.minimumTintOpacity = minimumTintOpacity
         self.preferredTintOpacity = preferredTintOpacity
         self.range = range
-    }
-
-    /// Returns the normalized aspect-fill crop, keeping the focal anchor visible.
-    /// The anchor's y coordinate is measured from the top, while Core Animation's
-    /// `contentsRect` uses a bottom-left origin.
-    public nonisolated func cropRect(forViewSize viewSize: CGSize, imageSize: CGSize) -> CGRect {
-        guard viewSize.width > 0, viewSize.height > 0, imageSize.width > 0, imageSize.height > 0 else {
-            return CGRect(x: 0, y: 0, width: 1, height: 1)
-        }
-        let viewAspect = viewSize.width / viewSize.height
-        let imageAspect = imageSize.width / imageSize.height
-        let visibleWidth = min(1, viewAspect / imageAspect)
-        let visibleHeight = min(1, imageAspect / viewAspect)
-        let x = min(max(focalAnchor.x - visibleWidth / 2, 0), 1 - visibleWidth)
-        let topOrigin = min(max(focalAnchor.y - visibleHeight / 2, 0), 1 - visibleHeight)
-        return CGRect(x: x, y: 1 - topOrigin - visibleHeight,
-                      width: visibleWidth, height: visibleHeight)
     }
 }
 

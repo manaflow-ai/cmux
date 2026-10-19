@@ -55,6 +55,8 @@ export interface Env {
   readonly HOST_DO: DurableObjectNamespace<HostDO>
   /** Chief hands (hand-do.ts): one object per installed hand (`h:<hand>`) and one index per owner (`owner:<user>`). */
   readonly HAND_DO: DurableObjectNamespace<HandDO>
+  /** "1": Chief hands are on (the /hand and /v1/hands routes, and the brain's hands tools). Off by default; production keeps it off until hands are ready (decision 2026-10-19). */
+  readonly HANDS_ENABLED?: string
   /** "1": Cloud requests may reach a `mac` profile hand. Off until the Mac hand trust post (#13742) is confirmed. */
   readonly HANDS_MAC_ENABLED?: string
   /** Comma list of user ids: with HANDS_MAC_ENABLED, only their mac hands take Cloud requests (a scoped test). */
@@ -67,6 +69,8 @@ export interface Env {
   readonly HAND_CLASSIFIER_MODEL?: string
   /** The classifier's time limit in ms (at most and by default 8000); a test sets it low to prove the timeout path. */
   readonly HAND_CLASSIFIER_TIMEOUT_MS?: string
+  /** Minutes a sign-in counts as fresh for replacing a hand presence key (hand-presence.ts; default 10). */
+  readonly HAND_PRESENCE_FRESH_MINUTES?: string
   /** Most live sandbox hands one owner may have (default 3). */
   readonly HAND_SANDBOX_MAX?: string
   /** Freestyle snapshot (slug) for Chief sandboxes with a hand (hand-sandbox.ts); baked by scripts/bake-hand-sandbox.ts; unset: no sandbox creation. */
@@ -255,6 +259,12 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
   /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */
   readonly CHIEF_BRAIN_CLAUDE_EFFORT_BODY?: string
+  /** The most a turn waits for the compactor before it runs (ms; default 5000, "0": never waits). Staging A/B knob. */
+  readonly CHIEF_BRAIN_SETTLE_MS?: string
+  /** The most a compaction waits for another call writing its prefix (ms; default 20000, "0": never waits). Staging A/B knob. */
+  readonly CHIEF_BRAIN_PREFIX_WAIT_MS?: string
+  /** The Claude compactor's effort: "low" or "medium" (default "high"). Staging A/B knob. */
+  readonly CHIEF_BRAIN_COMPACT_EFFORT?: string
   /** Prompt cache TTL on the Claude route (default "1h"; "5m" keeps the short default). */
   readonly CHIEF_BRAIN_CACHE_TTL?: string
   /** Secret: OpenRouter key for `openrouter:<id>` Chief models; OPENROUTER_BASE_URL overrides the endpoint. */
@@ -268,6 +278,10 @@ export interface Env {
   readonly CHIEF_SPAWN_MAX?: string
   /** Subagents' model (default: the model of the turn that spawned them). */
   readonly CHIEF_SPAWN_MODEL?: string
+  /** Days a subagent's object keeps its storage after its report reached the parent (default 7); its run record then lives in the parent. */
+  readonly CHIEF_SPAWN_KEEP_DAYS?: string
+  /** First compactor retry delay in ms (default 2 s; exponential backoff with full jitter, cap 5 min). Tests make it small. */
+  readonly CHIEF_BRAIN_COMPACT_RETRY_BASE_MS?: string
   /** Test only: the OptChat view budget in bytes (0 = the spec's 128,000). */
   readonly CHIEF_BRAIN_VIEW_BUDGET?: string
   /** One OpencodeBrainDO per chief: the opencode brain (implementation O, chief-brain-opencode/) and its container. Absent: O is off. */
@@ -278,6 +292,8 @@ export interface Env {
   readonly CHIEF_OPENCODE_CONTAINER?: string
   /** "1": test-only fault hooks (chief-fault.ts) for the crash-mid-turn conformance case; ignored on staging and production. */
   readonly CHIEF_FAULT_HOOKS?: string
+  /** The work folder a new sandbox hand starts in (the Chief's continuation names it; default /root/proj). */
+  readonly HAND_SANDBOX_WORKDIR?: string
   /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
   readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */

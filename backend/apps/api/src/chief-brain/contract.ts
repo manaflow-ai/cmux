@@ -76,6 +76,8 @@ export const Step = Schema.Struct({
   status: Schema.optionalKey(Schema.Literals(["running", "done", "failed"])),
   text: Schema.optionalKey(Schema.String),
   truncated: Schema.optionalKey(Schema.Boolean),
+  /** When the step ended (a tool step at its result, a talk step at its final text); `at` is its first write. */
+  ended_at: Schema.optionalKey(Ms),
   tool: Schema.optionalKey(Schema.Struct({ name: Schema.String, kind: Schema.optionalKey(Schema.String), input: Schema.optionalKey(Schema.Unknown), output: Schema.optionalKey(Schema.String), started_at: Schema.optionalKey(Ms), ended_at: Schema.optionalKey(Ms) }))
 })
 export type Step = typeof Step.Type
