@@ -252,6 +252,7 @@ export function ModelPicker(props: ModelPickerProps) {
     usage,
     quick,
     detail,
+    detailShort,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
@@ -414,6 +415,8 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     );
     setQuery("");
+    // Cmd-Ctrl-M or automation over the compact menu: the full picker replaces it.
+    setQuickOpen(false);
     // The fold opens closed; a session on a folded model has its row with the top ones, highlighted.
     setOlderOpen(false);
     setActive(
@@ -725,8 +728,11 @@ export function ModelPicker(props: ModelPickerProps) {
         <QuickModelMenu
           open={quickOpen}
           onOpenChange={(next) => {
-            if (open) close();
-            else setQuickOpen(next);
+            // A close is only ever the compact menu's own; a press on the chip while the full
+            // picker is open closes that one instead.
+            if (!next) setQuickOpen(false);
+            else if (open) close();
+            else setQuickOpen(true);
           }}
           trigger={trigger}
           chip={{
@@ -752,9 +758,21 @@ export function ModelPicker(props: ModelPickerProps) {
           {chipFace}
           {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
           {detail && (
-            <span className="acpmux-model-detail" data-fit-part="effort" data-fit-forms="full">
+            <span
+              className="acpmux-model-detail"
+              data-fit-part="effort"
+              data-fit-forms={detailShort ? "full" : "full short"}
+            >
               {detail}
             </span>
+          )}
+          {detail && detailShort && (
+            <span
+              className="acpmux-model-detail acpmux-fit-label"
+              data-fit-part="effort"
+              data-fit-forms="short"
+              data-label={detailShort}
+            />
           )}
         </QuickModelMenu>
       ) : (

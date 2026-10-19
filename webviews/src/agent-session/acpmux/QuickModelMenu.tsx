@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import type { Choice } from "./ComposerPickers";
+import type { SpeedSection } from "./EffortPicker";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import {
@@ -23,7 +24,9 @@ export type QuickMenu = {
   current?: string;
   onModel(id: string): void;
   /// The reasoning levels; absent when the model offers no choice.
-  effort?: { levels: Choice[]; current?: string; onPick(value: string): void };
+  /// `speed`: fast mode or Codex's service tier, as the reasoning menu offers it (the composer row's
+  /// bolt leaves a narrow row, so the menu keeps it reachable).
+  effort?: { levels: Choice[]; current?: string; onPick(value: string): void; speed?: SpeedSection };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
 };
@@ -115,6 +118,23 @@ export function QuickModelMenu({
                 </MenuRadioItem>
               ))}
             </MenuRadioGroup>
+            {effort.speed && (
+              <>
+                <MenuSeparator />
+                <MenuGroup label={effort.speed.title}>
+                  <MenuRadioGroup
+                    value={effort.speed.current ?? ""}
+                    onValueChange={(value) => value !== effort.speed?.current && effort.speed?.onPick(value)}
+                  >
+                    {effort.speed.choices.map((choice) => (
+                      <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
+                        <span className="acpmux-menu-label">{choice.name}</span>
+                      </MenuRadioItem>
+                    ))}
+                  </MenuRadioGroup>
+                </MenuGroup>
+              </>
+            )}
           </Submenu>
         )}
         {account && (
@@ -124,13 +144,20 @@ export function QuickModelMenu({
             label={
               <QuickRowLabel
                 label={t("picker.account")}
-                value={accounts.list ? (activeAccount?.name ?? t("picker.harnessLogin")) : undefined}
+                value={
+                  accounts.switchFailed
+                    ? t("picker.accountSwitchFailed")
+                    : accounts.list
+                      ? (activeAccount?.name ?? t("picker.harnessLogin"))
+                      : undefined
+                }
               />
             }
           >
             <AccountRows
               list={accounts.list}
               failed={accounts.failed}
+              switchFailed={accounts.switchFailed}
               onPick={(routeId) => {
                 onOpenChange(false);
                 accounts.pick(routeId);
@@ -159,23 +186,38 @@ function QuickRowLabel({ label, value }: { label: string; value?: string }) {
 }
 
 /// The Account submenu: the harness's own login (the chat's default binding), then each route
-/// that serves this chat. A chat bound by its workspace or family checks that route; picking it
-/// binds the chat itself. With no routes it says how to add one.
+/// that serves this chat. A chat bound by its workspace or family checks that route, and CLI login
+/// is disabled: unbinding the chat would leave it on that route. With no routes it says how to add
+/// one; a switch acpmux refused says so first.
 function AccountRows({
   list,
   failed,
+  switchFailed,
   onPick,
 }: {
   list?: ChatAccountList;
   failed: boolean;
+  switchFailed: boolean;
   onPick(routeId: string | null): void;
 }) {
   const t = useT();
-  if (!list) return <MenuItem disabled>{failed ? t("picker.accountFailed") : "…"}</MenuItem>;
+  const refused = switchFailed && (
+    <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+      {t("picker.accountSwitchFailed")}
+    </MenuItem>
+  );
+  if (!list)
+    return (
+      <>
+        {refused}
+        <MenuItem disabled>{failed ? t("picker.accountFailed") : "…"}</MenuItem>
+      </>
+    );
   // "" is the harness login: the chat follows its default binding, or none.
   const value = list.active ?? "";
   return (
     <>
+      {refused}
       <MenuRadioGroup value={value} onValueChange={(next) => next !== value && onPick(next || null)}>
         {/* Back to the default only unbinds the chat; a workspace or family route still applies. */}
         <MenuRadioItem
@@ -202,11 +244,12 @@ function AccountRows({
 }
 
 /// The chat's accounts, read each time the menu opens (acpmux holds them; nothing polls), and a
-/// pick that switches the chat and reads them again.
+/// pick that switches the chat. A refused switch (acpmux's route.unavailable, a route of another
+/// family) stays named on the Account row until a switch succeeds or the chat changes.
 function useAccountList(open: boolean, account: QuickMenu["account"]) {
   const [list, setList] = useState<ChatAccountList>();
   const [failed, setFailed] = useState(false);
-  const [version, setVersion] = useState(0);
+  const [switchFailed, setSwitchFailed] = useState(false);
   const sessionId = account?.sessionId;
   const accounts = account?.accounts;
   useEffect(() => {
@@ -220,9 +263,12 @@ function useAccountList(open: boolean, account: QuickMenu["account"]) {
     return () => {
       live = false;
     };
-  }, [open, sessionId, accounts, version]);
+  }, [open, sessionId, accounts]);
   // Another chat's accounts never show for this one.
-  useEffect(() => setList(undefined), [sessionId]);
+  useEffect(() => {
+    setList(undefined);
+    setSwitchFailed(false);
+  }, [sessionId]);
   const pick = (routeId: string | null) => {
     if (!sessionId || !accounts) return;
     setList((old) =>
@@ -231,13 +277,13 @@ function useAccountList(open: boolean, account: QuickMenu["account"]) {
         : old,
     );
     accounts.set(sessionId, routeId).then(
-      () => setVersion((n) => n + 1),
+      () => setSwitchFailed(false),
       () => {
-        setFailed(true);
+        setSwitchFailed(true);
+        // The next open reads where the chat really is.
         setList(undefined);
-        setVersion((n) => n + 1);
       },
     );
   };
-  return { list, failed, pick };
+  return { list, failed, switchFailed, pick };
 }

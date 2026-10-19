@@ -86,7 +86,7 @@ type Sent = { method: "model" | "effort" | "route"; value: string | null };
 
 /// A Claude chat on the compact menu, its accounts the routes `listed` (acpmux's reply), and the
 /// chat bound to `active`.
-async function mount(listed: unknown) {
+async function mount(listed: unknown, options: { fast?: boolean; refuse?: boolean } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -111,10 +111,11 @@ async function mount(listed: unknown) {
     },
     set: async (_sessionId: string, routeId: string | null) => {
       sent.push({ method: "route", value: routeId });
+      if (options.refuse) throw new Error("route.unavailable");
     },
   };
   function Host() {
-    const [state, setState] = useState({ model: "claude-opus-5-5", effort: "medium" });
+    const [state, setState] = useState({ model: "claude-opus-5-5", effort: "medium", fast: "off" });
     const snapshot: Snapshot = {
       type: "snapshot",
       protocolVersion: 1,
@@ -138,6 +139,19 @@ async function mount(listed: unknown) {
             currentValue: state.effort,
             options: ["low", "medium", "high"].map((value) => ({ value, name: value })),
           },
+          ...(options.fast
+            ? [
+                {
+                  id: "fast-mode",
+                  name: "Fast Mode",
+                  currentValue: state.fast,
+                  options: [
+                    { value: "off", name: "Off" },
+                    { value: "on", name: "On" },
+                  ],
+                },
+              ]
+            : []),
         ],
       },
     } as Snapshot;
@@ -151,9 +165,9 @@ async function mount(listed: unknown) {
           setState((current) => ({ ...current, model }));
         }}
         onMode={() => undefined}
-        onEffort={(_id, value) => {
+        onEffort={(id, value) => {
           sent.push({ method: "effort", value });
-          setState((current) => ({ ...current, effort: value }));
+          setState((current) => (id === "fast-mode" ? { ...current, fast: value } : { ...current, effort: value }));
         }}
         showPlan={false}
       />
@@ -292,4 +306,49 @@ test("More models opens the full picker, and typing in the menu searches it", as
   await settle();
   const search = doc().querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]');
   expect(search?.value).toBe("g");
+});
+
+// Review of #21853: the bolt leaves a narrow row, so fast mode must stay reachable from the menu.
+test("Effort also offers fast mode", async () => {
+  const { sent } = await mount({ routes: [] }, { fast: true });
+  await open();
+  const effort = await openSub("Effort");
+  expect(effort.textContent).toContain("Fast Mode");
+  const on = [...effort.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+    (item) => item.textContent?.replace("✓", "").trim() === "On",
+  )!;
+  await act(async () => on.click());
+  await settle();
+  expect(sent).toEqual([{ method: "effort", value: "on" }]);
+});
+
+test("a switch acpmux refuses is named on the Account row", async () => {
+  const { sent } = await mount(
+    { routes: [{ id: "work", name: "Work Max", serves: true }], family: "claude" },
+    { refuse: true },
+  );
+  await open();
+  const account = await openSub("Account");
+  const work = [...account.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+    (item) => item.textContent?.trim() === "Work Max",
+  )!;
+  await act(async () => work.click());
+  await settle();
+  expect(sent).toEqual([{ method: "route", value: "work" }]);
+  await open();
+  expect(itemsOf(menu()!).some((row) => row === "AccountCouldn’t switch account")).toBe(true);
+});
+
+test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", async () => {
+  await mount({ routes: [] });
+  await open();
+  expect(menu()).not.toBeNull();
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    );
+  });
+  await settle();
+  expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
+  expect(menu()).toBeNull();
 });

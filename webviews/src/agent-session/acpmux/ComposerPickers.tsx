@@ -604,11 +604,23 @@ export function ComposerPickers({
     chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
       ? { sessionId: summary.sessionId, accounts: chatAccounts }
       : undefined;
+  // Fast mode rides the Effort submenu as it rides the reasoning menu: the bolt leaves narrow rows.
+  const quickSpeed =
+    fastMode && fastOn && fastOff && (catalogModel?.fast !== false || fastMode.currentValue === fastMode.onValue)
+      ? speedSection(/codex/i.test(summary?.harness ?? ""), fastMode, fastOn, t)
+      : undefined;
   const quick: QuickMenuExtras | undefined = compact
-    ? { ...(quickEffort ? { effort: quickEffort } : {}), ...(quickAccount ? { account: quickAccount } : {}) }
+    ? {
+        ...(quickEffort ? { effort: { ...quickEffort, ...(quickSpeed ? { speed: quickSpeed } : {}) } } : {}),
+        ...(quickAccount ? { account: quickAccount } : {}),
+      }
     : undefined;
-  // The compact chip names the effort after the model ("Opus 5.5 Medium").
-  const quickDetail = compact ? (effortLabel ?? (awaiting ? pendingEffort : undefined)) : undefined;
+  // The compact chip names the effort after the model ("Opus 5.5 Medium"), and its short name for a
+  // narrow row ("Med"). Before the session reports, it names the held pick, as the held chip did.
+  const quickDetail = compact
+    ? (effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined))
+    : undefined;
+  const quickShort = compact ? (effortLabel ? effortShort : awaiting ? heldShort : undefined) : undefined;
   const usage = summary?.usage;
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -650,6 +662,7 @@ export function ComposerPickers({
           usage={usageNote}
           {...(quick ? { quick } : {})}
           {...(quickDetail ? { detail: quickDetail } : {})}
+          {...(quickShort && quickShort !== quickDetail ? { detailShort: quickShort } : {})}
         />
       ) : (
         // No harness installed (Leo 2026-10-14): the chip itself adds one, a plain button styled as

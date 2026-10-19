@@ -71,6 +71,8 @@ export type ModelPickerProps = {
   /// `agent.modelMenu`). Without it the chip opens the full picker at once. With it the chip draws
   /// `detail` (the effort) after the model and no chevron.
   quick?: QuickMenuExtras;
+  /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
+  detailShort?: string;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
