@@ -248,6 +248,7 @@ nonisolated enum AcpmuxServerPeer {
                       expectedUID: uid_t = getuid()) -> Result<Match, Refusal> {
         // The peer's facts on this very descriptor (UnixSocketPeer, shared with the CUA client).
         guard let peer = UnixSocketPeer(descriptor: descriptor) else { return .failure(.noPeer) }
+        guard peer.uid == expectedUID else { return .failure(.otherUser(peer.uid)) }
         let own = peer.runs(executable)
         // DEV (ad hoc): the path alone decides; another install is never accepted.
         guard let team = ownTeam else { return own ? .success(.own) : .failure(.otherExecutable(peer.executablePath)) }
