@@ -23,12 +23,27 @@ cargo fmt --check
 
 The tests need no network: they start a fake signaling server on loopback.
 
-- `cnx-link/tests/loopback.rs`: the same `Link` over WebRTC, WireGuard direct
-  and WireGuard through the relay frames (endpoints stripped), 200 KB echo,
-  `unknown_service` refusal, ping; dialing another user's Mac is refused.
-  WireGuard through an in-process TURN server: relay only settles on `turn`,
-  and a Mac whose OS refuses UDP to the phone's LAN address settles on the
-  phone's relayed address without the path flapping.
+- `cnx-link/tests/loopback.rs`: the same `Link` over WebRTC and WireGuard
+  direct (also with an older peer that sends no `version`), 200 KB echo,
+  `unknown_service` refusal, ping, and no relay frame ever sent; dialing
+  another user's Mac is refused. WireGuard through the in-process
+  `TestTurn` (UDP, TLS and TCP on loopback): relay only settles on `turn`
+  and opens no TLS connection; UDP blocked rides TURN over TLS (`turn-tls`
+  on both sides); with UDP to the TURN server dropped, relay only falls back
+  from TURN over UDP to TLS; a Mac with UDP blocked takes its own TLS
+  allocation; without TURN, relay only and UDP blocked fail at once; a Mac
+  whose OS refuses UDP to the phone's LAN address settles on the phone's
+  relayed address without the path flapping. The fake backend refuses an
+  older client's relay frames with one `relay_retired` per session and
+  keeps the socket.
+- `cnx-link/tests/roaming.rs`: roams (plain, address-restricted NAT, late
+  path update, airplane mode, a fresh TURN allocation over UDP and over
+  TLS, TURN over UDP to TURN over TLS when the new network drops UDP, a
+  dead TLS stream replaced, a new signaling socket) keep every byte and stay
+  under their stall bounds.
+- `cnx-link` `dial::turn::tests`: TURN URL choice (UDP, then TLS on 443,
+  then TLS, then TCP; defaults and IPv6), the no-TURN checks, and STUN and
+  padded ChannelData framing on a byte stream split at any point.
 - `cnx-link` `link::tests`: a ping overtakes 4 MiB of queued data on a slow
   stream, and the keepalive counts any inbound frame as life. During an
   8 MiB flood on a 1.6 MB/s stream, an input-lane echo and another bulk
@@ -38,10 +53,10 @@ The tests need no network: they start a fake signaling server on loopback.
 - `cnx-link/tests/loopback.rs` (input lane): over WebRTC and WireGuard an
   input channel rides its own data channel or TCP stream, and with a Mac
   without the lane it rides the main stream and still works.
-- `cnx-link` `send_queue::tests`: on a backed-up signaling socket a signal,
-  the reachability marker and a keystroke datagram queued behind 2000 bulk
-  relay frames leave first, in that order; relay classes stay within their
-  byte bounds and keep their newest frames.
+- `cnx-link` `class_queue::tests`: on a backed-up TURN stream a handshake
+  and a keystroke datagram queued behind 2000 bulk datagrams leave first;
+  classes stay within their byte bounds and keep their newest datagrams;
+  bulk and media share by bytes; stale media is dropped.
 - `cnx-link/tests/loopback.rs`: the fake backend keeps one socket per
   device (a reconnect closes the old one with 4000 `replaced`).
 - `cnx-hostd/tests/host.rs`: hostd over all three paths with every service
@@ -149,9 +164,12 @@ Developer). It skips every direct path. WebRTC uses ICE transport policy
 `relay` with the `/v1/ice` TURN servers, so the path is `turn`; with no TURN
 server the dial fails at once (`Transport`). WireGuard never sends plain UDP:
 with a TURN server it offers only its relayed address and the path is
-`turn`; without one it sends no endpoints, ignores the Mac's, and the path
-stays `relay` (the backend relay frames). The Mac side needs no change. Device ids must be UUIDs
-(WireGuard relay frames carry them as 16 bytes).
+`turn` (or `turn-tls` when UDP to the TURN server fails); without one the
+dial fails at once (the backend relay frames are retired). `blockUdp`
+(debug "Block UDP", or `CNX_DEV_BLOCK_UDP` in the environment) sends and
+accepts no plain UDP and skips TURN over UDP: WireGuard rides TURN over TLS
+on 443 (path `turnTls`). The path enum is `Direct`, `Turn`, `TurnTls`,
+`NoPath`.
 
 ## cnx-hostd
 
@@ -256,21 +274,21 @@ Services (default deny, `unknown_service` otherwise):
   a byte stream (writes split at 16 KiB). Trickle ICE through signaling; ICE
   servers from `GET /v1/ice`. The path is `turn` when the selected pair uses a
   relay candidate, otherwise `direct`.
-- WireGuard: a fresh Curve25519 key pair and UDP socket per session. Each side
-  sends its host and STUN-reflexive endpoints in `wg-init` / `wg-resp`; the
-  dialer also allocates a TURN relay (the first `turn:` UDP URL of
-  `/v1/ice`, 3 s budget, alongside STUN) and adds the relayed address. Until
-  the peer confirms a route, every WireGuard datagram goes through the
-  backend relay frames and is also sent to each peer endpoint (plain UDP, and
-  through TURN to the peer's public endpoints): the hole punch. Receiving the
-  peer's datagrams proves only one direction, so a side leaves the relay
-  (path `direct`, or `turn` when the route is the TURN allocation) only after
-  the peer confirms with the `0xff` relay marker. Plain UDP is preferred over
-  TURN while it keeps arriving. An address the OS refuses UDP to is never the
-  route again (no flapping between a refused LAN address and TURN). A
-  changed route needs a new confirmation. A refused send, or a route silent
-  for 14 s, falls back to `relay` (the peer's marker re-confirms the route
-  if it still works). The link is a smoltcp TCP stream to `overlayIP:7420`
+- WireGuard: a fresh Curve25519 key pair and UDP socket (2 MB buffers) per
+  session. Each side sends its host and STUN-reflexive endpoints in
+  `wg-init` / `wg-resp`; the dialer also allocates a TURN relay (UDP first;
+  TLS on 443 when UDP gets none, `dial/turn.rs`), alongside STUN, and adds
+  the relayed address; a Mac whose STUN gets no answer does the same. Until
+  the peer confirms a route, every WireGuard datagram goes on the route the
+  peer's datagrams arrive on and through TURN to the peer's public
+  endpoints (to every endpoint before any route): the hole punch. Receiving
+  the peer's datagrams proves only one direction, so a route is confirmed
+  only by the peer's in-tunnel `reach` message (an older peer's datagrams
+  count as one). Plain UDP is preferred over TURN while it keeps arriving.
+  An address the OS refuses UDP to is never the route again (no flapping
+  between a refused LAN address and TURN). A changed route needs a new
+  confirmation, and so does a route silent for 14 s. Datagrams queue toward
+  TURN by class (`class_queue.rs`). There is no backend relay. The link is a smoltcp TCP stream to `overlayIP:7420`
   (MTU 1280, 256 KiB socket buffers, Nagle off, CUBIC, WireGuard keepalive
   10 s).
 - Link keepalive: a ping every 15 s; pings and pongs go ahead of queued
@@ -292,8 +310,9 @@ Services (default deny, `unknown_service` otherwise):
   TURN URLs `/v1/ice` offered, and `daemon` identify.
   `--transport webrtc|wireguard` (repeatable), `--relay-only` (alias
   `--force-relay`: TURN-only ICE, or WireGuard through TURN only),
-  `--no-turn` (drop the TURN servers, so WireGuard relay only measures the
-  backend relay frames), `--exclude-cgnat` (never offer or use
+  `--block-udp` (WireGuard as on a network that drops UDP: TURN over TLS),
+  `--no-turn` (drop the TURN servers; with `--relay-only` or `--block-udp`
+  the dial then fails), `--exclude-cgnat` (never offer or use
   100.64.0.0/10 Tailscale addresses), `--bytes N`, `--daemon`.
 - `cnx-stub-tui <dir> [session]`: a stand-in cmux-tui socket that answers
   every line `ok`, for Macs without cmux-tui.
