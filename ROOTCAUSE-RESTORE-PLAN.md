@@ -349,8 +349,9 @@ still `com.danielraffel.tartci.reclaim`, with `LowPriorityIO=true` and
 The rescore shell PID `20151` is not currently doing filesystem work: its only
 child is `sleep 86400`, and it has near-zero CPU time after two days. That makes
 it a stale workspace/process to account for, but not the active wait point in
-the current storage failure. At sampling time, no process had yet been
-terminated.
+the current storage failure. A later recheck found and terminated the orphaned
+reclaim instance described below; the rescore shell remains untouched because
+it is sleeping and its ownership has not been resolved.
 
 The owned reclaim instance was then terminated with `SIGTERM` as a reversible,
 scoped cleanup. Launchd recorded exit 15 and did not immediately restart it.
@@ -376,6 +377,23 @@ A bounded `lsof /Volumes/Atelier` now returns, but it reports **229 PIDs across
 yet be treated as a routine repair. These are candidates for session-by-session
 retirement after ownership is confirmed; broad termination would risk active
 work and is not justified by the inventory alone.
+
+## M5S cleanup recheck (2026-10-19T14:42Z)
+
+The orphaned `disk_reclaim.py --json --fix` process was rechecked over SSH. It
+was owned by `danielraffel`, had parent PID 1, had been running for nearly an
+hour, and had no reported open file descriptors under `/Volumes/Atelier` before
+the probe itself stalled. It was terminated with `SIGTERM` as a scoped,
+reversible cleanup. A fresh bounded `os.listdir("/Volumes/Atelier")` immediately
+afterward still failed with `InterruptedError` after 5.5 seconds. This is a
+new confirmation that reclaim is an amplifier, not the underlying storage
+failure. No protected cmux process was signaled.
+
+The previously supplied M5S agent workspace reference
+`workspace:1000060000` is no longer present in the live cmux workspace list,
+so no message was sent to an unrelated workspace. Storage-dependent M5S
+validation remains paused until bounded list, write, fsync, and `loop.pid`
+probes pass; healthy-host Shipyard work is not blocked by this condition.
 
 OWC's current [Express 1M2 troubleshooting guide](https://eshop.macsales.com/manuals/OWC-Express-1M2-troubleshooting-guide)
 recommends isolating the enclosure on a direct USB-C/Thunderbolt port, removing
