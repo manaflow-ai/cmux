@@ -59,19 +59,23 @@ Scroll (strip and sidebar):
 
 - V1 clamped to the content; V2 the focused item is fully visible after settle when it
   must be revealed; V3 a focused item that stays focused and visible keeps its screen
-  position unless the clamp forces a move; the sidebar reveal-scrolls a moved row only
-  after the user's own move (a keyboard move, the Move Up/Down action, an explicit focus
-  change); it never reveal-scrolls on a drop (only the drag autoscroll moves the view
-  during and after a drop), and never on a change from another client; V4 a reveal aligns
+  position unless the clamp forces a move; the sidebar reveal-scrolls the focused row
+  whenever focus changes, the focused row moves (a drop, Move to Top, a sort, a regroup, a
+  keyboard move, a move from the CLI or another client), or a change pushes it out of view;
+  V4 a reveal aligns
   the nearer edge; V5 items removed, added or moved before the visible ones do not move
   what the user sees (the strip anchors on the focused column; the sidebar list anchors
   on the first visible row that did not move); V6 the same geometry settled again does not scroll (one scroll per
   change; animations interpolate to the computed target with the `.move`/`.scroll`
   Motion tokens, instant under Reduce Motion).
-  Rule changed 2026-10-16, chief approved, cx-ml98q.
-- Sidebar reveal happens when the active workspace changed, or when it was fully visible
-  before. A user who scrolled the list away from the active row keeps that view through
-  unrelated closes.
+  Rule changed 2026-10-16, chief approved, cx-ml98q; changed again 2026-10-19 (Lawrence:
+  "if we focus on workspace, or our focused workspace moves, invariant is it needs to
+  always be in user's sidebar, visible").
+- Sidebar reveal happens when the active workspace changed, moved by itself, or was fully
+  visible before. A new selection also opens a collapsed section (machine, Pinned, document
+  section) that hides it; a collapsed group draws its active member as its one row. A user
+  who scrolled the list away from the active row keeps that view through changes that do
+  not move it.
 - Docked columns are not in `ColumnStrip`, so they never enter strip scroll math.
 
 ## Entry points

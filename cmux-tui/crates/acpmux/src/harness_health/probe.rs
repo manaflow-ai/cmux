@@ -37,6 +37,10 @@ pub(super) fn run_for(
     }
     let (program, args) = argv.split_first().ok_or("no command")?;
     let mut cmd = Command::new(program);
+    // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
     crate::login_env::apply_std_for(&mut cmd, family, Some(env));
     crate::config::scrub_nested_claude_env_for(&mut cmd, family);
     cmd.envs(env).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
