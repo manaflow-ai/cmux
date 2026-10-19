@@ -657340,65 +657340,6 @@
         }
       }
     },
-    "leftSidebar.remote.error.appDelegateUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: App delegate not available"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خطأ: مفوض التطبيق (App delegate) غير متوفر"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "FEHLER: App-Delegate nicht verfügbar"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: delegado de la aplicación no disponible"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERREUR : App delegate indisponible"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ERROR: アプリデリゲートを利用できません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오류: 앱 대리자(App delegate)를 사용할 수 없습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "错误：App delegate 不可用"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "錯誤：App 代理程式無法使用"
-          }
-        }
-      }
-    },
     "cli.leftSidebar.error.unknownFlag": {
       "extractionState": "manual",
       "localizations": {

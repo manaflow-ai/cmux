@@ -481,7 +481,7 @@ extension TerminalController {
         }
 
         guard let app = AppDelegate.shared else {
-            return .failure(message: String(localized: "leftSidebar.remote.error.appDelegateUnavailable", defaultValue: "ERROR: App delegate not available"))
+            return .failure(message: String(localized: "leftSidebar.remote.error.unavailable", defaultValue: "ERROR: Left sidebar not available"))
         }
         switch app.applyLeftSidebarRemoteCommand(request.command, target: request.target) {
         case .ok:

@@ -499,7 +499,7 @@ extension ControlCommandCoordinator {
     /// `right_sidebar`'s, without `mode` because the left sidebar has none).
     func sidebarLeftSidebar(_ args: String) -> String {
         let resolution = sidebarContext?.controlSidebarApplyLeftSidebarRemoteCommand(tokens: sidebarTokenizeArgs(args))
-            ?? .failure(message: "ERROR: App delegate not available")
+            ?? .failure(message: "ERROR: Left sidebar not available")
         switch resolution {
         case .ok:
             return "OK"
