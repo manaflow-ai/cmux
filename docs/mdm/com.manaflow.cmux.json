@@ -724,7 +724,7 @@
       "type" : "boolean"
     },
     "appearance.focusIndicator" : {
-      "default" : "both",
+      "default" : "tabs",
       "description" : "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
       "enum" : [
         "border",

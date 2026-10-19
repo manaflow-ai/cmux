@@ -105,7 +105,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.columnGap` | real |  | 0 to 24 | Column Gap |
 | `appearance.metrics.titlebarHeight` | real |  | 24 to 56 | Titlebar Height |
 | `appearance.borders` | string | `"default"` | `default`, `none` | Borders. None removes every border, hairline and separator in the app. |
-| `appearance.focusIndicator` | string | `"both"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out: its border, subtler tabs in the other panes, both or neither. |
+| `appearance.focusIndicator` | string | `"tabs"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out: its border, subtler tabs in the other panes, both or neither. |
 | `focus.inactiveTabStyle` | string | `"fade"` | `fade`, `tonal`, `quiet` | Unfocused Pane Tabs. How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill. |
 | `ui.animationSpeed` | string | `"fast"` | `fast`, `normal`, `off` | Animations |
 | `appearance.chromeStyle` | string | `"flat-sidebar-line"` | `default`, `card`, `card-outlined`, `flat`, `flat-sidebar-line`, `bare`, `panes`, `two-tone`, `floating` | Window Style. The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them. |

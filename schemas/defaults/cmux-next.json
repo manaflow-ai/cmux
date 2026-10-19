@@ -261,7 +261,7 @@
     "setting.appearance.colorTransition.springResponse": 0.3,
     "setting.appearance.density": "compact",
     "setting.appearance.experimentalControls": false,
-    "setting.appearance.focusIndicator": "both",
+    "setting.appearance.focusIndicator": "tabs",
     "setting.appearance.glassTransparency": 0,
     "setting.appearance.hue": 0.5,
     "setting.appearance.interfaceScale": null,
