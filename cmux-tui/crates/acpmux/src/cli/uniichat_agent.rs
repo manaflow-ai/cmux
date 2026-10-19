@@ -584,8 +584,7 @@ async fn say(
         .build()
         .map_err(|e| (-32603, e.to_string()))?;
     let res = client
-        .post(format!("{}/api/act", endpoint.base))
-        .query(&[("$", "say"), ("sizes", sizes), ("id", act)])
+        .post(format!("{}/api/act?%24=say&sizes={sizes}&id={act}", endpoint.base))
         .bearer_auth(token)
         .body(body)
         .send()
