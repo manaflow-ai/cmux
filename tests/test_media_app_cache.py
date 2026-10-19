@@ -12,6 +12,7 @@ commit or tag, or a hostile archive path never yields an app.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -30,6 +31,7 @@ import media_app_cache  # noqa: E402
 TAG = "ci-media-slot0-base"
 SHA = "a" * 40
 XCODE = "17F113"
+RECIPE = "0123456789ab"
 
 
 def make_app(root: Path, tag: str = TAG) -> Path:
@@ -51,18 +53,29 @@ class FakeGitHub:
     def __init__(self) -> None:
         self.artifacts: list[dict] = []
         self.blobs: dict[str, bytes] = {}
+        self.runs: dict[int, dict] = {}
         self.requests: list[str] = []
 
-    def add(self, name: str, tar_path: Path, expired: bool = False, created: str = "2026-10-19T20:00:00Z") -> None:
+    def add(self, name: str, tar_path: Path, expired: bool = False, created: str = "2026-10-19T20:00:00Z",
+            fork: bool = False, workflow: str = ".github/workflows/cmux-next-media.yml",
+            digest: str | None = None) -> None:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as zf:
             zf.write(tar_path, tar_path.name)
         art_id = len(self.artifacts) + 1
         url = f"https://api.github.com/repos/o/r/actions/artifacts/{art_id}/zip"
         self.blobs[url] = buf.getvalue()
-        self.artifacts.append(
-            {"id": art_id, "name": name, "expired": expired, "created_at": created, "archive_download_url": url}
-        )
+        run_id = 1000 + art_id
+        self.runs[run_id] = {"id": run_id, "path": workflow, "event": "pull_request"}
+        self.artifacts.append({
+            "id": art_id, "name": name, "expired": expired, "created_at": created, "archive_download_url": url,
+            "digest": digest or "sha256:" + hashlib.sha256(buf.getvalue()).hexdigest(),
+            "workflow_run": {"id": run_id, "repository_id": 7, "head_repository_id": 8 if fork else 7},
+        })
+
+    def run(self, repo: str, run_id: int) -> dict:
+        self.requests.append(f"run {repo} {run_id}")
+        return self.runs[run_id]
 
     def list_artifacts(self, repo: str, name: str) -> list[dict]:
         self.requests.append(f"list {repo} {name}")
@@ -73,26 +86,32 @@ class FakeGitHub:
         dest.write_bytes(self.blobs[url])
 
 
-class MediaAppCacheTest(unittest.TestCase):
+class CacheCase(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         self.gh = FakeGitHub()
 
-    def pack(self, tag: str = TAG, sha: str = SHA, xcode: str = XCODE) -> Path:
-        src = self.tmp / f"src-{tag}-{sha[:4]}"
+    def pack(self, tag: str = TAG, sha: str = SHA, xcode: str = XCODE, recipe: str = RECIPE) -> Path:
+        src = self.tmp / f"src-{tag}-{sha[:4]}-{len(list(self.tmp.iterdir()))}"
         src.mkdir()
         app = make_app(src, tag)
-        out = self.tmp / f"{tag}-{sha[:4]}-{xcode}.tar"
-        media_app_cache.pack(app=app, tag=tag, sha=sha, xcode=xcode, out=out)
+        out = self.tmp / f"{src.name}.tar"
+        media_app_cache.pack(app=app, tag=tag, sha=sha, xcode=xcode, recipe=recipe, out=out)
         return out
+
+    def name(self) -> str:
+        return media_app_cache.artifact_name(TAG, SHA, XCODE, RECIPE)
 
     def fetch(self, dest: Path, tag: str = TAG, sha: str = SHA, xcode: str = XCODE):
         return media_app_cache.fetch(
-            repo="o/r", tag=tag, sha=sha, xcode=xcode, dest=dest, api=self.gh, verify=False
+            repo="o/r", tag=tag, sha=sha, xcode=xcode, recipe=RECIPE, dest=dest, api=self.gh, verify=False
         )
 
+
+
+class MediaAppCacheTest(CacheCase):
     def test_hit_lands_the_bundle_at_the_tag_product_path(self) -> None:
-        self.gh.add(media_app_cache.artifact_name(TAG, SHA, XCODE), self.pack())
+        self.gh.add(self.name(), self.pack())
         dest = self.tmp / "DerivedData" / f"cmux-{TAG}" / "Build" / "Products" / "Debug"
         dest.mkdir(parents=True)
         stale = make_app(dest)  # an older build of the tag sits there
@@ -109,24 +128,25 @@ class MediaAppCacheTest(unittest.TestCase):
     def test_miss_and_expired_artifacts_yield_no_app(self) -> None:
         dest = self.tmp / "products"
         self.assertIsNone(self.fetch(dest))
-        self.gh.add(media_app_cache.artifact_name(TAG, SHA, XCODE), self.pack(), expired=True)
+        self.gh.add(self.name(), self.pack(), expired=True)
         self.assertIsNone(self.fetch(dest))
         self.assertFalse(any(dest.glob("*.app")) if dest.exists() else False)
 
     def test_the_name_separates_tag_commit_and_xcode(self) -> None:
         names = {
-            media_app_cache.artifact_name(TAG, SHA, XCODE),
-            media_app_cache.artifact_name("ci-media-slot1-base", SHA, XCODE),
-            media_app_cache.artifact_name(TAG, "b" * 40, XCODE),
-            media_app_cache.artifact_name(TAG, SHA, "17F114"),
+            self.name(),
+            media_app_cache.artifact_name("ci-media-slot1-base", SHA, XCODE, RECIPE),
+            media_app_cache.artifact_name(TAG, "b" * 40, XCODE, RECIPE),
+            media_app_cache.artifact_name(TAG, SHA, "17F114", RECIPE),
+            media_app_cache.artifact_name(TAG, SHA, XCODE, "ba9876543210"),
         }
-        self.assertEqual(len(names), 4)
+        self.assertEqual(len(names), 5)
         for name in names:
             self.assertNotRegex(name, r'[":<>|*?\\/\r\n]')
 
     def test_an_archive_packed_for_another_commit_is_refused(self) -> None:
         # Uploaded under this commit's name, but the manifest inside says otherwise.
-        self.gh.add(media_app_cache.artifact_name(TAG, SHA, XCODE), self.pack(sha="b" * 40))
+        self.gh.add(self.name(), self.pack(sha="b" * 40))
         self.assertIsNone(self.fetch(self.tmp / "products"))
 
     def test_an_archive_with_a_path_outside_the_app_is_refused(self) -> None:
@@ -135,18 +155,61 @@ class MediaAppCacheTest(unittest.TestCase):
         (evil_root / "payload" / "x").write_text("x")
         tar = self.tmp / "evil.tar"
         manifest = evil_root / media_app_cache.MANIFEST
-        manifest.write_text(json.dumps({"tag": TAG, "sha": SHA, "xcode": XCODE, "app": f"cmux DEV {TAG}.app"}))
+        manifest.write_text(json.dumps({"tag": TAG, "sha": SHA, "xcode": XCODE, "recipe": RECIPE,
+                                        "app": f"cmux DEV {TAG}.app"}))
         subprocess.run(["tar", "-cf", str(tar), "-C", str(evil_root), media_app_cache.MANIFEST, "payload"], check=True)
-        self.gh.add(media_app_cache.artifact_name(TAG, SHA, XCODE), tar)
+        self.gh.add(self.name(), tar)
         dest = self.tmp / "products"
         self.assertIsNone(self.fetch(dest))
         self.assertFalse((dest / "payload").exists())
 
     def test_the_newest_live_artifact_wins(self) -> None:
-        name = media_app_cache.artifact_name(TAG, SHA, XCODE)
+        name = self.name()
         self.gh.add(name, self.pack(sha="b" * 40), created="2026-10-19T19:00:00Z")  # bad, older
         self.gh.add(name, self.pack(), created="2026-10-19T21:00:00Z")
         self.assertIsNotNone(self.fetch(self.tmp / "products"))
+
+
+class ProvenanceTest(CacheCase):
+    """Only an artifact the media tour itself uploaded from this repository counts."""
+
+    def test_an_artifact_from_a_fork_run_is_refused(self) -> None:
+        self.gh.add(self.name(), self.pack(), fork=True)
+        self.assertIsNone(self.fetch(self.tmp / "products"))
+
+    def test_an_artifact_from_another_workflow_is_refused(self) -> None:
+        self.gh.add(self.name(), self.pack(), workflow=".github/workflows/ci-guards.yml")
+        self.assertIsNone(self.fetch(self.tmp / "products"))
+
+    def test_a_download_that_does_not_match_the_digest_is_refused(self) -> None:
+        self.gh.add(self.name(), self.pack(), digest="sha256:" + "0" * 64)
+        self.assertIsNone(self.fetch(self.tmp / "products"))
+
+
+class PackageFrameworksTest(CacheCase):
+    """Debug Mach-Os search <DerivedData>/Build/Products/Debug/PackageFrameworks
+    before the bundle's own Frameworks, so a reused app must not land beside
+    package frameworks from another build, nor be packed from beside them."""
+
+    def test_a_consumer_with_package_frameworks_builds_instead(self) -> None:
+        self.gh.add(self.name(), self.pack())
+        dest = self.tmp / "products"
+        (dest / "PackageFrameworks" / "Pkg.framework").mkdir(parents=True)
+        self.assertIsNone(self.fetch(dest))
+
+    def test_an_app_beside_package_frameworks_is_not_packed(self) -> None:
+        src = self.tmp / "producer"
+        src.mkdir()
+        app = make_app(src)
+        (src / "PackageFrameworks" / "Pkg.framework").mkdir(parents=True)
+        with self.assertRaises(ValueError):
+            media_app_cache.pack(app=app, tag=TAG, sha=SHA, xcode=XCODE, recipe=RECIPE, out=self.tmp / "x.tar")
+
+    def test_an_empty_package_frameworks_dir_is_fine(self) -> None:
+        self.gh.add(self.name(), self.pack())
+        dest = self.tmp / "products"
+        (dest / "PackageFrameworks").mkdir(parents=True)
+        self.assertIsNotNone(self.fetch(dest))
 
 
 class WorkflowWiringTest(unittest.TestCase):
