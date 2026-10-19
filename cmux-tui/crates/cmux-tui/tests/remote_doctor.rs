@@ -76,3 +76,26 @@ fn remote_doctor_reports_not_on_tailnet_when_tailscale_is_missing() {
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["tailnet"], "unavailable", "{report}");
 }
+
+#[test]
+fn remote_doctor_probes_the_address_an_ssh_config_alias_points_at() {
+    let tools = tempfile::tempdir().unwrap();
+    let port = closed_port();
+    // `ssh -G ALIAS` prints the effective config; any other ssh call fails loudly.
+    write_tool(
+        tools.path(),
+        "ssh",
+        &format!(
+            "if [ \"$1\" = \"-G\" ]; then printf 'user leo\\nhostname 127.0.0.1\\nport {port}\\n'; exit 0; fi\necho 'ssh must not run when TCP fails' >&2; exit 99"
+        ),
+    );
+
+    let output = doctor(tools.path(), &["box-alias", "--json"]);
+
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["host"], "box-alias", "{report}");
+    assert_eq!(report["hostname"], "127.0.0.1", "{report}");
+    assert_eq!(report["port"], port, "{report}");
+    assert_eq!(report["tcp"], "refused", "{report}");
+    assert_eq!(report["diagnosis"], "ssh-off", "{report}");
+}
