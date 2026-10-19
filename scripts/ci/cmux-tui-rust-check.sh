@@ -14,6 +14,10 @@
 # rb-testhost: fmt, clippy and tests of cmux-tui/crates/cmux-remote-browser-testhost
 # (its own workspace), then its release binary at .build/artifacts/cmux-remote-browser-testhost
 # (macOS arm64; fetch it with --artifact) for the remote tab's GUI proofs.
+# screen: clippy and tests of cmux-screen (its own workspace: the WebRTC screen host and
+# cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
+# .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
+# step: the imported host code predates a cmux-screen rustfmt config.
 # optchat-chief: fmt, clippy and tests of Native/OptChat/optchat-chief (its own workspace)
 # on macOS, where the Chief host runs: its macOS-only code (the acpmux socket peer check,
 # cx-ggai: LOCAL_PEERPID, proc_pidpath, the Security framework) runs only here.
@@ -36,7 +40,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
@@ -706,6 +710,48 @@ if [[ "$mode" == rd-host ]]; then
   step "rd-host fmt" cargo fmt --check
   step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench -- -D warnings
   step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench ${filter:+"$filter"}
+  finish
+fi
+# Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
+# with GOTOOLCHAIN=auto (Go 1.21 or later) when it has one, else the pinned
+# release, checksummed, in the step's own .build. Go's module and build caches
+# also stay in .build, and toolchain downloads go only through the default
+# proxy with the checksum database on: nothing is installed on the host.
+ensure_screen_go() {
+  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS=
+  export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
+  local arch sum dir="$root/.build/go-1.27.1" tmp
+  if ! command -v go >/dev/null 2>&1; then
+    case "$(uname -m)" in
+      arm64) arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
+      x86_64) arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
+      *) echo "error: no pinned Go for $(uname -m)" >&2; return 3 ;;
+    esac
+    if [[ ! -x "$dir/go/bin/go" ]]; then
+      # Extract beside the target and rename, so a cut-off extract never looks complete.
+      tmp="$dir.partial"
+      rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
+      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go1.27.1.darwin-$arch.tar.gz" || return 3
+      echo "$sum  $tmp/go.tgz" | shasum -a 256 -c - || return 3
+      tar -xzf "$tmp/go.tgz" -C "$tmp" && rm -f "$tmp/go.tgz" && mv "$tmp" "$dir" || return 3
+    fi
+    export PATH="$dir/go/bin:$PATH"
+  fi
+  # libtailscale's go.mod selects Go 1.27.1; GOTOOLCHAIN=auto switches to it inside that folder.
+  go version || return 3
+}
+if [[ "$mode" == screen ]]; then
+  if [[ ! -f "$root/cmux-screen/Cargo.toml" ]]; then
+    echo "error: screen mode: no cmux-screen workspace at this commit" >&2
+    exit 2
+  fi
+  export CARGO_TARGET_DIR="$root/.build/cmux-screen-target"
+  cd "$root/cmux-screen"
+  warm_target_guard
+  step "screen go" ensure_screen_go
+  step "screen clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
+  step "screen test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
+  step "screen release build" cargo build --locked --release -p cmux-screen-host -p cmux-tailnet
   finish
 fi
 copy_testhost() {

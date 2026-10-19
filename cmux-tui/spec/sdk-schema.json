@@ -12870,6 +12870,17 @@
       "nullable": true,
       "default": null
      },
+     "pinned": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "pinned-dock-v1"
+     },
      "role": {
       "type": {
        "kind": "scalar",
@@ -12901,6 +12912,7 @@
    "constraints": [
     "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\"). role is \"agent_chat\" with dock-column-role-v1 (default none).",
     "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
+    "pinned: true (pinned-dock-v1) marks the column pinned (the Home dock); false or omitted keeps the current value, and allow_tabs changes only with column.update. A pinned column keeps its first tab, takes no other tab unless allow_tabs is on, and refuses an undock, edge change or replacement with error_code \"dock-column-pinned\".",
     "See spec/commands.md for the result object."
    ]
   },

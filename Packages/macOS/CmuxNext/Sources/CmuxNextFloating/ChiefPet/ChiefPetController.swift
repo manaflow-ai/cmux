@@ -30,7 +30,8 @@ public final class ChiefPetController {
     /// Finished notices' leave timers, by notification id (one-shot `DemandTimer`s).
     private var expiries: [UInt64: DemandTimer] = [:]
     private var watch: Task<Void, Never>?
-    private var isOn = false
+    /// `home.chiefPetEnabled` as last followed: off, arrivals are dropped.
+    public private(set) var isOn = false
     private(set) var mascot = ChiefPetMascot.initial
     /// The notices unfolded into a column (the rail's chevron); folded, a deck.
     private(set) var expanded = false

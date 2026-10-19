@@ -392,7 +392,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
         }
-        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, transaction } => {
+        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
                 mux,
                 client,
@@ -403,6 +403,7 @@ pub(super) fn handle_command_with_cancellation(
                 mode,
                 role,
                 permanent,
+                pinned,
                 transaction,
             )
         }

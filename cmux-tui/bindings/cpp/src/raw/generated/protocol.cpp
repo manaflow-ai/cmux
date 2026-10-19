@@ -28680,6 +28680,11 @@ Result<Json> Codec<SetColumnDockRequest>::encode(const SetColumnDockRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("permanent", std::move(encoded).value());
     }
+    if (!value.pinned.is_absent()) {
+        auto encoded = encode_value(value.pinned);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pinned", std::move(encoded).value());
+    }
     if (!value.role.is_absent()) {
         auto encoded = encode_value(value.role);
         if (!encoded) return std::move(encoded).error();
@@ -28743,6 +28748,16 @@ Result<SetColumnDockRequest> Codec<SetColumnDockRequest>::decode(const Json& val
             auto decoded = decode_value<bool>(*field_permanent);
             if (!decoded) return std::move(decoded).error();
             result.permanent = Field<bool>(std::move(decoded).value());
+        }
+    }
+    const Json* field_pinned = value.find("pinned");
+    if (field_pinned) {
+        if (field_pinned->is_null()) {
+            result.pinned = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_pinned);
+            if (!decoded) return std::move(decoded).error();
+            result.pinned = Field<bool>(std::move(decoded).value());
         }
     }
     const Json* field_role = value.find("role");
@@ -40649,7 +40664,8 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand213FieldRequirements{{
     {"display_name", 12U, "shared-sizing-v1"},
     {"user_id", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand215FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand215FieldRequirements{{
+    {"pinned", 12U, "pinned-dock-v1"},
     {"role", 12U, "dock-column-role-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 7> kCommand216FieldRequirements{{

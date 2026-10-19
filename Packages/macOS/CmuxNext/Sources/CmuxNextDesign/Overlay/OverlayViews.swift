@@ -46,7 +46,7 @@ final class OverlayScrimView: NSView {
         updateLayer()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         let alpha = performWithTheme { (ThemeContext.active ?? ThemeScope.app.tokens).scrimAlpha }

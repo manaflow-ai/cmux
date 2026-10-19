@@ -42,6 +42,7 @@ pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
+pub(crate) mod mutation_ledger_retention;
 mod open_guard;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
@@ -3769,10 +3770,11 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
 ];
 
 /// Idempotency ledgers: one row per committed mutation, holding its result
-/// for a retry of the same `(origin, mutation_id)`. They grow with every
-/// write (a nightly's `projection_mutations` reached 1 GB of history
-/// results) and are read only by that key, so the open-time check skips them
-/// like journal history and touches their newest row and key instead.
+/// for a retry of the same `(origin, mutation_id)`. They are read only by
+/// that key and could reach 1 GB (a nightly's `projection_mutations`), so the
+/// open-time check skips them like journal history and touches their newest
+/// row and key instead; the maintenance worker bounds and scans them
+/// (`mutation_ledger_retention`).
 /// `resource_mutations` is not one of them: it is pruned on open and its
 /// terminal-defaults rows are restored state.
 const MUTATION_LEDGER_TABLES: [&str; 3] =
@@ -3792,7 +3794,9 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     let skipped = |table: &str| {
-        JOURNAL_HISTORY_TABLES.contains(&table) || MUTATION_LEDGER_TABLES.contains(&table)
+        JOURNAL_HISTORY_TABLES.contains(&table)
+            || MUTATION_LEDGER_TABLES.contains(&table)
+            || mutation_ledger_retention::is_quarantined_ledger(table)
     };
     for table in tables.iter().filter(|table| !skipped(table.as_str())) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
