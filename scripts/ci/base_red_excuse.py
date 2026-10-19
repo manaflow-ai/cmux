@@ -33,6 +33,7 @@ import argparse
 import importlib.util
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file__).with_name("main_fix_evidence.py"))
@@ -63,6 +64,8 @@ CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper di
 LINT = re.compile(r"god[ -]?files?|l10n|locali[sz]ation|concurrency", re.IGNORECASE)
 # Per-run noise in what a step prints: mktemp names and commit or object hashes.
 RUN_NOISE = re.compile(r"\btmp\.[A-Za-z0-9]{6,}|\b[0-9a-f]{7,40}\b")
+# check-l10n.sh prints its first 200 errors, then this.
+CUT_SHORT = re.compile(r"^\.\.\. \d+ more$")
 ANSI = re.compile(r"\x1b\[[0-9;]*m|\^\[\[[0-9;]*m")
 CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper died on signal|"
                         r"no \"Test run with\" summary line")
@@ -92,17 +95,20 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     return steps, tests, errors
 
 
-def printed(job: dict, log: str) -> set[str]:
-    """What the job's failed steps printed, numbers masked: each step's output after the
-    `##[group]` echo of its script and environment, without warnings or the exit-code line.
-    A step that continues on error reports success but logs its `##[error]`; it counts."""
+def printed(job: dict, log: str) -> Counter[str]:
+    """What the job's failed steps printed, each line counted, with numbers masked
+    unless a letter leads them (a line number, total or duration; never `step2`): each
+    step's output after the `##[group]` echo of its script and environment, without
+    warnings or the exit-code line. A step that continues on error reports success but
+    logs its `##[error]`; it counts. Output a checker cut short refuses: what it hid
+    cannot be compared."""
     failed = {step["name"] for step in job.get("steps") or []
               if step.get("conclusion") not in (None, "success", "skipped")}
     for line in log.splitlines():
         parts = line.split("\t", 2)
         if len(parts) == 3 and "##[error]" in parts[2]:
             failed.add(parts[1])
-    found: set[str] = set()
+    found: Counter[str] = Counter()
     echo: set[str] = set()
     for line in log.splitlines():
         parts = line.split("\t", 2)
@@ -117,7 +123,10 @@ def printed(job: dict, log: str) -> set[str]:
             continue
         if step in echo or not text or WARNING.search(text) or GENERIC.search(text):
             continue
-        found.add(re.sub(r"\d+", "#", RUN_NOISE.sub("…", text.replace("##[error]", "").strip())))
+        if CUT_SHORT.match(text):
+            raise Refused(f"'{job.get('name')}': step '{step}' printed output cut short ({text}); "
+                          "the findings it hid cannot be compared with the base")
+        found[re.sub(r"(?<![A-Za-z_])\d+", "#", RUN_NOISE.sub("…", text.replace("##[error]", "").strip()))] += 1
     return found
 
 
@@ -206,7 +215,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         head_steps, head_tests, head_errors = signature(job, head_log)
         head_crash = crash_signals(head_log)
         lint = bool(LINT.search(name))
-        head_printed = printed(job, head_log) if lint else set()
+        head_printed = printed(job, head_log) if lint else Counter()
         if lint and not head_printed:
             raise Refused(f"'{name}': its failed steps printed nothing to compare with the base")
         if not lint and not head_tests and not head_errors and not head_crash:
@@ -218,7 +227,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           f"and {base} run {base_run['id']} did not")
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
         if lint:
-            compared.append(("findings", head_printed, printed(base_job, base_log)))
+            # By count: one more copy of a base finding (a second blocking call) is the head's.
+            compared.append(("findings", set(head_printed - printed(base_job, base_log)), set()))
         elif not head_tests:
             compared.append(("errors", head_errors, base_errors))
         for kind, head, seen in compared:
