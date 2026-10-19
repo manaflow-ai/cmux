@@ -212,6 +212,8 @@ extension SettingsSchema {
         "browser.remoteLocalhost": .network,
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
+        // Off, a person no longer sees what an agent clicks and types: an agent must not hide itself.
+        "browser.showAgentCursor": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openLinksInCmuxBrowser": .privacy,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,

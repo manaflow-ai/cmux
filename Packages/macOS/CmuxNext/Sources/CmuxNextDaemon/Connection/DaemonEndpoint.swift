@@ -65,11 +65,11 @@ public struct DaemonCapabilities: Sendable {
     public let workspaceNameSource = "workspace-name-source-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
+    public let frontendBrowserTabKeys = "frontend-browser-tab-keys-v1" // idempotency_key on new-frontend-browser-tab
     /// A frontend browser tab's back/forward entries and scroll positions,
     /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
     public let frontendBrowserHistory = "frontend-browser-history-v1"
-    /// `profile_id` on `update-frontend-browser-tab`: a browser tab moves to
-    /// another browser profile in place (same tab id and position).
+    /// `profile_id` on `update-frontend-browser-tab`: the tab moves to another browser profile in place.
     public let frontendBrowserTabProfile = "frontend-browser-tab-profile-v1"
     public let tabDrag = "tab-drag-v1"
     /// `set-size-counts` (protocol 12): a hidden view keeps its lease and stops counting toward
@@ -445,7 +445,7 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, workspaceNameSource, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread, tabMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
@@ -475,7 +475,8 @@ public struct DaemonCapabilities: Sendable {
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).
-    /// `sharedSizing` is not either: the GUI only reads it from `identify`.
+    /// `sharedSizing` is not either: a terminal attachment that names its device adds it
+    /// (`TerminalAttachment.attach(device:)`); other connections only read it from `identify`.
     public var advertised: [String] {
         // `placementShift` only with the sidebar document (`handshakeCapabilities`).
         (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration && $0 != placementShift && $0 != sharedSizing }

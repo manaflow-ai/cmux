@@ -121583,6 +121583,399 @@
           }
         }
       }
+    },
+    "settings.group.agentInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Input"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إدخال الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unos agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentinput"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenteneingaben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrada del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saisie de l’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Input dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの入力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបញ្ចូលរបស់ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 입력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentinndata"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dane wejściowe agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrada do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ввод агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อินพุตของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan girdisi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Введення агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thao tác của tác nhân"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理輸入"
+          }
+        }
+      }
+    },
+    "settings.browser.showAgentCursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Cursor"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار مؤشر الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži kursor agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis agentens markør"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten-Zeiger anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar el cursor del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le curseur de l’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra il cursore dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントのカーソルを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញទស្សន៍ទ្រនិចរបស់ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 커서 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis agentens markør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż kursor agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar o cursor do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать курсор агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงเคอร์เซอร์ของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan imlecini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати курсор агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện con trỏ của tác nhân"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示代理光标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示代理游標"
+          }
+        }
+      }
+    },
+    "settings.browser.showAgentCursor.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما يتحكم وكيل في علامة تبويب المتصفح، يظهر مؤشره ونقراته والمفاتيح التي يكتبها على الصفحة. تظهر حقول كلمات المرور نقاطًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada agent upravlja karticom preglednika, na stranici se prikazuju njegov kursor, klikovi i otkucane tipke. Polja za lozinku prikazuju tačke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når en agent styrer en browserfane, vises dens markør, klik og indtastede taster på siden. Adgangskodefelter viser prikker."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn ein Agent einen Browser-Tab steuert, werden sein Zeiger, seine Klicks und getippten Tasten auf der Seite angezeigt. Passwortfelder zeigen Punkte."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando un agente controla una pestaña del navegador, muestra en la página su cursor, sus clics y las teclas que escribe. Los campos de contraseña muestran puntos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand un agent pilote un onglet du navigateur, son curseur, ses clics et les touches qu’il tape s’affichent sur la page. Les champs de mot de passe affichent des points."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando un agente controlla una scheda del browser, mostra sulla pagina il suo cursore, i clic e i tasti digitati. I campi password mostrano dei puntini."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントがブラウザタブを操作しているとき、そのカーソル、クリック、入力したキーをページ上に表示します。パスワード欄はドットで表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅពេលភ្នាក់ងារបញ្ជាផ្ទាំងកម្មវិធីរុករក បង្ហាញទស្សន៍ទ្រនិច ការចុច និងគ្រាប់ចុចដែលវាវាយនៅលើទំព័រ។ វាលពាក្យសម្ងាត់បង្ហាញជាចំណុច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 브라우저 탭을 조작할 때 커서, 클릭, 입력한 키를 페이지에 표시합니다. 암호 필드는 점으로 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når en agent styrer en nettleserfane, vises markøren, klikkene og tastene den skriver på siden. Passordfelt viser prikker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy agent steruje kartą przeglądarki, na stronie widać jego kursor, kliknięcia i wpisywane klawisze. Pola haseł pokazują kropki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando um agente controla uma aba do navegador, mostra na página o cursor, os cliques e as teclas digitadas. Campos de senha mostram pontos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда агент управляет вкладкой браузера, на странице видны его курсор, щелчки и набранные клавиши. Поля паролей показывают точки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อเอเจนต์ควบคุมแท็บเบราว์เซอร์ จะแสดงเคอร์เซอร์ การคลิก และปุ่มที่พิมพ์บนหน้า ช่องรหัสผ่านจะแสดงเป็นจุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir ajan bir tarayıcı sekmesini yönettiğinde imleci, tıklamaları ve yazdığı tuşlar sayfada gösterilir. Parola alanları nokta gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли агент керує вкладкою браузера, на сторінці видно його курсор, клацання та набрані клавіші. Поля паролів показують крапки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi tác nhân điều khiển một thẻ trình duyệt, hiện con trỏ, các lần nhấp và phím đã gõ của nó trên trang. Ô mật khẩu hiện dấu chấm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理操作浏览器标签页时，在页面上显示其光标、点击和输入的按键。密码字段显示为圆点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理操作瀏覽器分頁時，在頁面上顯示其游標、點按和輸入的按鍵。密碼欄位顯示為圓點。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
