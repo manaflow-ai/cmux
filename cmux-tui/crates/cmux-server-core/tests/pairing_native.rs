@@ -20,39 +20,62 @@ fn frame() -> Value {
 
 #[test]
 fn server_pairing_native_requires_the_private_grant_for_a_network_reservation() {
-    let mut value = frame(); value.as_object_mut().unwrap().remove("network_enrollment");
-    assert!(read_frame(&value.to_string()).is_err(), "a reserved network was silently treated as completed basic pairing");
+    let mut value = frame();
+    value.as_object_mut().unwrap().remove("network_enrollment");
+    assert!(
+        read_frame(&value.to_string()).is_err(),
+        "a reserved network was silently treated as completed basic pairing"
+    );
 }
 
 #[test]
 fn server_pairing_native_requires_public_reservation_metadata_for_a_private_grant() {
-    let mut value = frame(); value.as_object_mut().unwrap().remove("network");
+    let mut value = frame();
+    value.as_object_mut().unwrap().remove("network");
     assert!(read_frame(&value.to_string()).is_err());
 }
 
 #[test]
 fn server_pairing_native_refuses_confused_tenant_mesh_and_device_locators() {
     for field in ["tenant", "mesh", "device"] {
-        let mut value = frame(); value["network"][field] = json!("another-identity");
-        assert!(read_frame(&value.to_string()).is_err(), "accepted a mismatched {field}");
+        let mut value = frame();
+        value["network"][field] = json!("another-identity");
+        assert!(
+            read_frame(&value.to_string()).is_err(),
+            "accepted a mismatched {field}"
+        );
     }
 }
 
 #[test]
 fn server_pairing_native_refuses_non_https_or_non_origin_api_targets() {
-    for origin in ["http://vm.example.test", "https://user@vm.example.test", "https://vm.example.test/elsewhere", "https://vm.example.test?code=secret"] {
-        let mut value = frame(); value["network_enrollment"]["origin"] = json!(origin);
-        assert!(read_frame(&value.to_string()).is_err(), "accepted an unsafe API origin");
+    for origin in [
+        "http://vm.example.test",
+        "https://user@vm.example.test",
+        "https://vm.example.test/elsewhere",
+        "https://vm.example.test?code=secret",
+    ] {
+        let mut value = frame();
+        value["network_enrollment"]["origin"] = json!(origin);
+        assert!(
+            read_frame(&value.to_string()).is_err(),
+            "accepted an unsafe API origin"
+        );
     }
 }
 
 #[test]
 fn server_pairing_native_refuses_gateway_codes_and_invalid_public_bindings() {
-    for (field, bad) in [("code", "mec_00000000000000000000000000"), ("expiresAt", "never")] {
-        let mut value = frame(); value["network_enrollment"][field] = json!(bad);
+    for (field, bad) in [
+        ("code", "mec_00000000000000000000000000"),
+        ("expiresAt", "never"),
+    ] {
+        let mut value = frame();
+        value["network_enrollment"][field] = json!(bad);
         assert!(read_frame(&value.to_string()).is_err());
     }
-    let mut value = frame(); value["network_enrollment"]["binding"]["name"] = json!("server:injected");
+    let mut value = frame();
+    value["network_enrollment"]["binding"]["name"] = json!("server:injected");
     assert!(read_frame(&value.to_string()).is_err());
 }
 
