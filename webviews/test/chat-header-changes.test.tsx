@@ -78,15 +78,13 @@ test("Changes shows with the chat's changes or its open diff, and lights while t
   expect(changes()).toBeNull();
 });
 
-// Lucas 2026-10-19: with the chat's viewer (labs chatViewer) Files and Changes open beside the chat,
-// not in a split the host lights; the App says which is open, and its button lights so it reads as
-// the way to close it.
-test("Files and Changes light while the chat's viewer shows them", async () => {
+// Files lights for the chat viewer. Changes follows only the host's split state.
+test("Files lights for the viewer while Changes follows the host", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
-  configureQuickActions({ quickActions: ["terminal", "browser", "changes", "files", "newTab"] });
+  act(() => configureQuickActions({ quickActions: ["terminal", "browser", "changes", "files", "newTab"] }));
   applyHostEvent({ kind: "headerState", value: { lit: [] } });
   act(() => root?.unmount());
   root = createRoot(host);
@@ -112,7 +110,7 @@ test("Files and Changes light while the chat's viewer shows them", async () => {
   expect(button("Files")?.getAttribute("aria-pressed")).toBe("true");
   expect(button("Changes")?.getAttribute("aria-pressed")).toBe("false");
   render([HEADER_ACTIONS.changes]);
-  expect(button("Changes")?.getAttribute("aria-pressed")).toBe("true");
+  expect(button("Changes")?.getAttribute("aria-pressed")).toBe("false");
   expect(button("Files")?.getAttribute("aria-pressed")).toBe("false");
   // The tray header styles (Lucas's is quiet) draw their own buttons and light them the same way.
   const { configureHeaderStyle } = await import("../src/agent-session/acpmux/header/headerStyle");
@@ -121,7 +119,7 @@ test("Files and Changes light while the chat's viewer shows them", async () => {
   const tray = (label: string) => host.querySelector(`.acpmux-header-tray button[aria-label="${label}"]`);
   expect(tray("Files")?.getAttribute("aria-pressed")).toBe("true");
   render([HEADER_ACTIONS.changes]);
-  expect(tray("Changes")?.getAttribute("aria-pressed")).toBe("true");
+  expect(tray("Changes")?.getAttribute("aria-pressed")).toBe("false");
   expect(tray("Files")?.getAttribute("aria-pressed")).not.toBe("true");
   act(() => configureHeaderStyle({}));
 });

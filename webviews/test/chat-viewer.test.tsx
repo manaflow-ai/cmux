@@ -24,6 +24,10 @@ const keys = [
   "requestAnimationFrame",
   "cancelAnimationFrame",
   "localStorage",
+  "sessionStorage",
+  "location",
+  "HTMLInputElement",
+  "HTMLTextAreaElement",
   "customElements",
   "ShadowRoot",
   "CSSStyleSheet",
@@ -34,6 +38,9 @@ const keys = [
   "KeyboardEvent",
   "MouseEvent",
   "CustomEvent",
+  "dispatchEvent",
+  "addEventListener",
+  "removeEventListener",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -75,6 +82,10 @@ beforeAll(() => {
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
+    sessionStorage: window.sessionStorage,
+    location: window.location,
+    HTMLInputElement: window.HTMLInputElement,
+    HTMLTextAreaElement: window.HTMLTextAreaElement,
     customElements: window.customElements,
     ShadowRoot: window.ShadowRoot,
     CSSStyleSheet: window.CSSStyleSheet,
@@ -85,6 +96,9 @@ beforeAll(() => {
     KeyboardEvent: window.KeyboardEvent,
     MouseEvent: window.MouseEvent,
     CustomEvent: window.CustomEvent,
+    dispatchEvent: window.dispatchEvent.bind(window),
+    addEventListener: window.addEventListener.bind(window),
+    removeEventListener: window.removeEventListener.bind(window),
   });
   host = window.document.getElementById("root")!;
 });
@@ -371,52 +385,6 @@ test("Files shows its existing failure note when a listed file cannot be read", 
   }
 });
 
-test("Changes shows its existing failed-open message when a changed file cannot be read", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { DiffPanel } = await import("../src/agent-session/acpmux/DiffPanel");
-  const { useChatViewer } = await import("../src/agent-session/acpmux/useChatViewer");
-  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
-  const read = async () => undefined;
-  setChipHost(async () => {
-    throw new Error("pathInvalid");
-  });
-  function Changes() {
-    const viewer = useChatViewer("A", "/chat", () => {}, read);
-    return (
-      <DiffPanel
-        files={[
-          {
-            path: "/chat/note.txt",
-            displayPath: "note.txt",
-            edits: [{ toolId: "edit", numbered: false, hunks: [{ lines: [{ type: "add", text: "hello" }] }] }],
-            additions: 1,
-            deletions: 0,
-            created: false,
-          },
-        ]}
-        onClose={() => {}}
-        onOpenFile={(path) => viewer.viewFile(path)}
-      />
-    );
-  }
-  try {
-    root = createRoot(host);
-    await act(async () => root!.render(<Changes />));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="More actions for note.txt"]')!.click());
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-      (item) => item.textContent === "Open file in a tab",
-    );
-    expect(item !== undefined).toBe(true);
-    await act(async () => item!.click());
-    expect(host.querySelector(".acpmux-diff-notice-text")?.textContent).toBe("pathInvalid");
-    expect(host.querySelector(".acpmux-diff-panel") !== null).toBe(true);
-  } finally {
-    setChipHost(undefined);
-  }
-});
-
 for (const kind of ["files", "link"] as const) {
   for (const dismissal of ["X", "Escape"] as const) {
     test(`${kind} returns focus to its opener after unmounting through ${dismissal}`, async () => {
@@ -440,13 +408,13 @@ for (const kind of ["files", "link"] as const) {
   }
 }
 
-test("transcript Changes closes Thread details permanently through the shared opening path", async () => {
+test("transcript Changes preserves Thread details when the diff closes", async () => {
   const view = await viewerHarness();
   expect(host.querySelector("aside")?.textContent).toBe("Thread details");
   await view.click("changes");
   await act(async () => host.querySelector<HTMLButtonElement>("#diff button")!.click());
   expect(host.querySelector("#diff") === null).toBe(true);
-  expect(host.querySelector("aside") === null).toBe(true);
+  expect(host.querySelector("aside")?.textContent).toBe("Thread details");
 });
 
 for (const operation of ["file.list", "file.search"]) {
@@ -477,3 +445,138 @@ for (const operation of ["file.list", "file.search"]) {
     }
   });
 }
+
+async function changesHarness(chatViewer: boolean, ran = true, failFileOpen = false) {
+  const { createRoot } = await import("react-dom/client");
+  const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
+  const { configureLabs } = await import("../src/agent-session/acpmux/labs");
+  const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
+  const { configureHeaderStyle } = await import("../src/agent-session/acpmux/header/headerStyle");
+  configureLabs({ labs: { chatViewer } });
+  configureQuickActions({ quickActions: ["changes", "files"] });
+  configureHeaderStyle({ headerStyle: "buttons" });
+  const calls: [string, Record<string, unknown>][] = [];
+  window.webkit = {
+    messageHandlers: {
+      agentSession: {
+        postMessage: async ({ method, params }: { method: string; params: Record<string, unknown> }) => {
+          calls.push([method, params]);
+          if (method === "file.open" && failFileOpen) return { ok: false, error: { userMessage: "pathInvalid" } };
+          const value = method === "ready" ? { protocolVersion: 1 } : method === "pane.action" ? { ran } : {};
+          return { ok: true, value };
+        },
+      },
+    },
+  } as typeof window.webkit;
+  root = createRoot(host);
+  await act(async () => root!.render(<AcpmuxApp />));
+  await act(async () =>
+    window.cmuxAcpmuxBridge!.receive({
+      type: "snapshot",
+      protocolVersion: 1,
+      sessionId: "A",
+      summary: { sessionId: "A", cwd: "/chat", title: "Changes regression", harness: "claude", status: "idle" },
+      rows: [
+        { id: "prompt", kind: "user", text: "Edit note", version: 1, at: 1 },
+        {
+          id: "edit",
+          kind: "activity",
+          version: 1,
+          at: 2,
+          items: [
+            {
+              kind: "tool",
+              text: "Edit note",
+              tool: {
+                id: "e1",
+                title: "Edit note",
+                status: "completed",
+                kind: "edit",
+                diffs: [{ path: "/chat/note.txt", oldText: "old", newText: "new" }],
+              },
+            },
+          ],
+        },
+        { id: "end", kind: "turnSummary", status: "completed", version: 1, at: 3 },
+      ],
+      sessions: [],
+      connection: "connected",
+      isWorking: false,
+      queue: [],
+      catalog: [],
+      canLoadOlder: false,
+    }),
+  );
+  calls.length = 0;
+  return calls;
+}
+
+for (const chatViewer of [false, true]) {
+  test(`header Changes runs the production action with chatViewer ${chatViewer ? "on" : "off"}`, async () => {
+    const calls = await changesHarness(chatViewer);
+    const changes = host.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Changes"]');
+    expect(changes).not.toBeNull();
+    await act(async () => changes!.click());
+    expect(calls.filter(([method]) => method === "pane.action")).toEqual([
+      ["pane.action", { id: "openDiffViewer", cwd: "/chat", mode: "toggle" }],
+    ]);
+    expect(host.querySelector(".acpmux-diff-panel")).toBeNull();
+    expect(changes!.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  test(`transcript View changes opens the production diff with chatViewer ${chatViewer ? "on" : "off"}`, async () => {
+    const calls = await changesHarness(chatViewer);
+    const changes = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "View changes",
+    );
+    expect(changes).toBeDefined();
+    await act(async () => changes!.click());
+    expect(calls.filter(([method]) => method === "pane.action")).toEqual([
+      ["pane.action", { id: "openDiffViewer", cwd: "/chat", mode: "open" }],
+    ]);
+    expect(host.querySelector(".acpmux-diff-panel")).toBeNull();
+  });
+}
+
+for (const chatViewer of [false, true]) {
+  test(`unsupported host falls back to the turn diff and opens files in a tab with chatViewer ${chatViewer ? "on" : "off"}`, async () => {
+    const calls = await changesHarness(chatViewer, false);
+    const changes = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "View changes",
+    )!;
+    await act(async () => changes.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(host.querySelector(".acpmux-diff-panel")).not.toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="More actions for note.txt"]')!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === "Open file in a tab",
+    );
+    expect(item).toBeDefined();
+    await act(async () => item!.click());
+    expect(calls.filter(([method]) => method === "file.open")).toEqual([
+      ["file.open", { path: "/chat/note.txt", where: "tab" }],
+    ]);
+    expect(host.querySelector(".acpmux-file-viewer")).toBeNull();
+  });
+}
+
+test("Changes shows its existing failed-open message when the host cannot open a changed file", async () => {
+  const calls = await changesHarness(true, false, true);
+  const changes = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === "View changes",
+  )!;
+  await act(async () => changes.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="More actions for note.txt"]')!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent === "Open file in a tab",
+  )!;
+  await act(async () => item.click());
+  expect(calls.filter(([method]) => method === "file.open")).toEqual([
+    ["file.open", { path: "/chat/note.txt", where: "tab" }],
+  ]);
+  expect(host.querySelector(".acpmux-diff-notice-text")?.textContent).toBe("pathInvalid");
+  expect(host.querySelector(".acpmux-diff-panel")).not.toBeNull();
+});
