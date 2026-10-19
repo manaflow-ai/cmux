@@ -81,6 +81,15 @@ enum SessionPersistencePolicy {
         return String(text[safeStart...])
     }
 
+    /// Bounds one terminal's scrollback for a session snapshot.
+    ///
+    /// The character tail stays in `truncatedScrollback` so ANSI-safe clipping
+    /// (#15649) is unchanged. `wasTruncated` is false until a caller records
+    /// that the line or character cap actually dropped older output.
+    static func persistedScrollback(_ text: String?) -> SessionPersistedScrollback {
+        SessionPersistedScrollback(text: truncatedScrollback(text), wasTruncated: false)
+    }
+
     /// If truncation starts in the middle of an ANSI control sequence, advance
     /// past its terminator so replay never begins with a partial escape payload.
     private static let maxAnsiStringSequenceScanCharacters = 1_024
@@ -206,6 +215,11 @@ enum SessionPersistencePolicy {
         }
         return nil
     }
+}
+
+struct SessionPersistedScrollback: Equatable, Sendable {
+    var text: String?
+    var wasTruncated: Bool
 }
 
 enum SessionRestorePolicy {
@@ -1556,6 +1570,10 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// projected request while its coordinator still owns the request.
     var fontSizeChangeTokens: [UUID]?
     var scrollback: String?
+    /// True when `scrollback` keeps only a tail because the terminal exceeded
+    /// the session snapshot line or character cap. Nil on snapshots written
+    /// before this marker existed.
+    var scrollbackWasTruncated: Bool?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
     var hibernation: SessionAgentHibernationSnapshot?
@@ -1583,6 +1601,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         fontSize: Float? = nil,
         fontSizeChangeTokens: [UUID]? = nil,
         scrollback: String? = nil,
+        scrollbackWasTruncated: Bool? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
         hibernation: SessionAgentHibernationSnapshot? = nil,
@@ -1600,6 +1619,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.fontSize = fontSize
         self.fontSizeChangeTokens = fontSizeChangeTokens
         self.scrollback = scrollback
+        self.scrollbackWasTruncated = scrollbackWasTruncated
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
         self.hibernation = hibernation
@@ -2032,11 +2052,27 @@ enum SessionScrollbackReplayStore {
     }
     nonisolated static func replayFileURL(
         for scrollback: String?,
+        scrollbackWasTruncated: Bool = false,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> URL? {
         guard let replayText = normalizedScrollback(scrollback) else { return nil }
+        // `scrollbackWasTruncated` is accepted so restore can pass the snapshot
+        // marker. The replay notice is added with the truncation fix.
+        _ = scrollbackWasTruncated
         return writeReplayFile(contents: replayText, tempDirectory: tempDirectory)
     }
+    /// One plain line shown above a restored scrollback tail.
+    nonisolated static func truncationNoticeLine() -> String {
+        String.localizedStringWithFormat(
+            String(
+                localized: "session.scrollback.truncatedRestoreNotice",
+                defaultValue: "[cmux] Older terminal output was omitted from this restore. Snapshots keep the latest %lld lines or %lld characters."
+            ),
+            Int64(SessionPersistencePolicy.maxScrollbackLinesPerTerminal),
+            Int64(SessionPersistencePolicy.maxScrollbackCharactersPerTerminal)
+        )
+    }
+
     nonisolated static func replayEnvironment(forFileURL replayFileURL: URL?) -> [String: String] {
         guard let replayFileURL else { return [:] }
         return [environmentKey: replayFileURL.path]
