@@ -61,7 +61,7 @@ function fakeGitleaks(b: Box) {
   writeFileSync(
     file,
     '#!/bin/sh\nfor a; do repo="$a"; case "$a" in --log-opts=*) range="${a#--log-opts=}";; esac; done\n' +
-      'git -C "$repo" diff --name-only $(echo "$range" | sed "s/\\.\\./ /") | grep -qx leak.txt && exit 1\nexit 0\n',
+      'git -C "$repo" log --format= --name-only $range | grep -qx leak.txt && exit 1\nexit 0\n',
     { mode: 0o755 },
   );
   return bin;
@@ -146,6 +146,35 @@ describe("cmux-worktree-reaper", () => {
     expect(line(out, work)).toMatch(why);
     expect(existsSync(path.join(work, file))).toBe(true);
     expect(await git(b.remote, ["for-each-ref", "refs/heads/wip/"])).toBe("");
+  });
+
+  test("scans unpushed commits too: refuses a backup when a token sits in a local-only commit", async () => {
+    const b = await box();
+    const work = await worktree(b, "work", false);
+    writeFileSync(path.join(work, "notes.txt"), `gh token ghp_${"a".repeat(36)}\n`);
+    await git(work, ["add", "notes.txt"]);
+    await git(work, ["commit", "-q", "-m", "local only"]);
+    const out = await reap(b, ["--apply", "--backup"], fakeGitleaks(b));
+    expect(line(out, work)).toMatch(/^hold\s+secret.*content:notes\.txt/);
+    expect(existsSync(path.join(work, "notes.txt"))).toBe(true);
+    expect(await git(b.remote, ["for-each-ref", "refs/heads/wip/"])).toBe("");
+  });
+
+  test("keeps a worktree holding a nested repository or gitignored work", async () => {
+    const b = await box();
+    const nested = await worktree(b, "nested");
+    writeFileSync(path.join(nested, ".gitignore"), "vendor/\n");
+    await git(nested, ["init", "-q", path.join(nested, "vendor", "lib")]);
+    const ignored = await worktree(b, "ignored");
+    writeFileSync(path.join(ignored, ".gitignore"), ".env.local\nbuild/\n");
+    writeFileSync(path.join(ignored, ".env.local"), "X=1\n");
+    mkdirSync(path.join(ignored, "build"));
+    writeFileSync(path.join(ignored, "build", "out.js"), "1\n");
+    const out = await reap(b, ["--apply"]);
+    expect(line(out, nested)).toMatch(/^skip\s+nested-repo:vendor\/lib/);
+    expect(line(out, ignored)).toMatch(/^skip\s+ignored-file:\.env\.local/);
+    expect(existsSync(path.join(nested, "vendor", "lib", ".git"))).toBe(true);
+    expect(existsSync(path.join(ignored, ".env.local"))).toBe(true);
   });
 
   test("refuses every backup when gitleaks is not installed", async () => {

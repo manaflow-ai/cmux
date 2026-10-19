@@ -19,8 +19,11 @@
 #            build output) or its transcript changed within --ttl-hours (3).
 #   keep     someone pinned it (keep): never reclaimed, only reported.
 #   skip     ambiguous: locked, a rebase/merge/cherry-pick/bisect in
-#            progress, a dirty submodule, too many untracked bytes, or no
-#            remote to back up to. Reported, never touched.
+#            progress, a dirty submodule, too many untracked bytes, no
+#            remote to back up to, a repository nested inside that is not a
+#            submodule, or a gitignored file outside build output and caches
+#            (a remove would delete it and a backup never carries it).
+#            Reported, never touched.
 #   reap     the owner is gone and nothing is unpushed: `git worktree remove`
 #            takes the worktree and its build output. Branches, stashes and
 #            the main checkout stay.
@@ -40,6 +43,8 @@
 
 set -u
 export LC_ALL=C
+# Never prompt from a timer: no credential or ssh questions.
+export GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}"
 # Timers and hooks may run without HOME; bash resolves ~ from the passwd entry.
 HOME="${HOME:-$(cd ~ 2>/dev/null && pwd)}"
 
@@ -82,16 +87,18 @@ while [ $# -gt 0 ]; do
     --apply) mode=apply ;;
     --backup) do_backup=1 ;;
     --show-files) show_files=1 ;;
-    --root) shift; roots+=("${1:-}") ;;
+    --root) shift; [ -n "${1:-}" ] || { echo "--root needs a directory" >&2; exit 2; }; roots+=("$1") ;;
     --ttl-hours) shift; ttl_hours="${1:-}" ;;
     --max-untracked-mb) shift; max_untracked_mb="${1:-}" ;;
     --remote) shift; remote="${1:-}" ;;
-    -h|--help) sed -n '2,38p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
 done
-case "$ttl_hours$max_untracked_mb" in *[!0-9]*|"") echo "--ttl-hours and --max-untracked-mb are whole numbers" >&2; exit 2 ;; esac
+for n in "$ttl_hours" "$max_untracked_mb"; do
+  case "$n" in *[!0-9]*|"") echo "--ttl-hours and --max-untracked-mb are whole numbers" >&2; exit 2 ;; esac
+done
 [ "$(id -u)" = 0 ] && { echo "refusing to run as root" >&2; exit 3; }
 [ ${#roots[@]} -eq 0 ] && roots=("$HOME/Projects")
 
@@ -121,6 +128,8 @@ elif command -v lsof >/dev/null 2>&1; then
 else
   echo "no /proc and no lsof: cannot tell live worktrees; nothing to do" >&2; exit 5
 fi
+# This run holds its own lock file open, so an empty list means the scan failed.
+[ -s "$held" ] || { echo "could not list open files: cannot tell live worktrees; nothing to do" >&2; exit 5; }
 listed_under() { HP="$1" awk 'BEGIN{p=ENVIRON["HP"]} $0==p || index($0,p"/")==1 {f=1; exit} END{exit !f}' "$2"; }
 
 # Live Claude sessions: "<sessionId>\t<cwd>" for each ~/.claude/sessions file whose pid runs.
@@ -163,7 +172,7 @@ live_reason() { # wt gitdir -> prints a reason when live
   pid="$(sed -n 's/^pid=//p' "$gitdir/cmux-owner" 2>/dev/null | head -n 1)"
   if [ -n "$pid" ] && [ "$(sed -n 's/^host=//p' "$gitdir/cmux-owner" | head -n 1)" = "$host" ] \
      && kill -0 "$pid" 2>/dev/null; then echo "owner-pid:$pid"; return; fi
-  if awk -F'\t' -v p="$wt" '$2==p || index($2,p"/")==1 {f=1; exit} END{exit !f}' "$claude_live"; then
+  if HP="$wt" awk -F'\t' 'BEGIN{p=ENVIRON["HP"]} $2==p || index($2,p"/")==1 {f=1; exit} END{exit !f}' "$claude_live"; then
     echo "claude-session"; return
   fi
   listed_under "$wt" "$held" && { echo "process-inside"; return; }
@@ -189,11 +198,37 @@ skip_reason() { # wt gitdir
   fi
   git -C "$wt" remote get-url "$remote" >/dev/null 2>&1 || { echo "no-remote:$remote"; return; }
   holds_other "$wt" && { echo "holds-another-worktree"; return; }
+  f="$(nested_repo "$wt")"; [ -n "$f" ] && { echo "nested-repo:$f"; return; }
+  f="$(ignored_work "$wt")"; [ -n "$f" ] && { echo "ignored-file:$f"; return; }
+}
+
+# A repository inside the worktree that is not one of its submodules: neither
+# a backup (git add stores only a gitlink) nor a remove would keep its work.
+nested_repo() { # wt
+  local wt="$1" d rel
+  while IFS= read -r -d '' d; do
+    rel="${d#"$wt"/}"; rel="${rel%/.git}"
+    git -C "$wt" ls-files --error-unmatch -s -- "$rel" 2>/dev/null | grep -q '^160000' && continue
+    echo "$rel"; return
+  done < <(find "$wt" -mindepth 2 \( -name node_modules -o -name target -o -name .build \
+      -o -name DerivedData \) -prune -o -name .git -print0 -prune 2>/dev/null)
+}
+
+# Gitignored files outside build output and caches. A remove deletes them
+# and a backup never carries them, so they keep the worktree.
+ignored_work() { # wt
+  git -C "$1" ls-files -o -i --exclude-standard --directory 2>/dev/null | awk '
+    { n = split($0, part, "/"); keep = 0
+      for (i = 1; i <= n; i++) {
+        c = part[i]
+        if (c ~ /^(node_modules|target|\.build|DerivedData|\.next|\.turbo|dist|build|out|coverage|__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.venv|venv|\.gradle|\.parcel-cache|\.svelte-kit|\.nuxt|\.cache|\.zig-cache|zig-out|\.swiftpm|\.DS_Store)$/ || c ~ /\.(log|pyc|o|tsbuildinfo)$/) keep = 1
+      }
+      if (!keep) { print; exit } }'
 }
 
 untracked_kb() {
   git -C "$1" ls-files -o --exclude-standard -z 2>/dev/null \
-    | (cd "$1" && xargs -0 du -sk -- 2>/dev/null) | awk '{s+=$1} END{print s+0}'
+    | (cd "$1" && xargs -0 -r du -sk -- 2>/dev/null) | awk '{s+=$1} END{print s+0}'
 }
 
 # Files a backup would carry: changed and untracked (gitignored files never),
@@ -206,8 +241,9 @@ backup_files() { # wt
 
 # Names and contents that look like credentials. Prints the first hit.
 secret_pattern='(-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35})'
-secret_hit() { # wt sha base
-  local wt="$1" sha="$2" base="$3" f
+# Scans every commit the push would publish: all of $sha not on the remote.
+secret_hit() { # wt sha
+  local wt="$1" sha="$2" f
   while IFS= read -r f; do
     case "${f##*/}" in
       .env|.env.*|*.pem|*.key|*.p12|*.pfx|id_rsa*|id_ed25519*|id_ecdsa*|*credentials*|*.keystore|.netrc|.npmrc|.pypirc)
@@ -216,9 +252,9 @@ secret_hit() { # wt sha base
     if git -C "$wt" cat-file -p "$sha:$f" 2>/dev/null | head -c 2000000 | grep -Eq "$secret_pattern"; then
       echo "content:$f"; return
     fi
-  done < <(git -C "$wt" diff --name-only --diff-filter=AM "$base" "$sha" 2>/dev/null)
+  done < <(git -C "$wt" log --format= --name-only --no-renames --diff-filter=AM "$sha" --not --remotes="$remote" 2>/dev/null | awk 'NF && !seen[$0]++')
   command -v gitleaks >/dev/null 2>&1 || { echo "no-gitleaks"; return; }
-  if ! gitleaks git --no-banner --log-level error --redact --log-opts="$base..$sha" "$wt" >/dev/null 2>&1; then
+  if ! gitleaks git --no-banner --log-level error --redact --log-opts="$sha --not --remotes=$remote" "$wt" >/dev/null 2>&1; then
     echo "gitleaks"; return
   fi
 }
@@ -226,7 +262,7 @@ secret_hit() { # wt sha base
 # Commit the worktree's state from a copy of its index, secret-scan it and
 # push it. Prints the pushed sha and ref; on refusal prints "refused <why>".
 backup() { # wt gitdir branchname session
-  local wt="$1" gitdir="$2" branch="$3" session="$4" idx tree sha ref head base hit
+  local wt="$1" gitdir="$2" branch="$3" session="$4" idx tree sha ref head hit
   head="$(git -C "$wt" rev-parse HEAD)" || return 1
   idx="$(mktemp "$state_dir/index.XXXXXX")" || return 1
   cp "$gitdir/index" "$idx" 2>/dev/null || { rm -f "$idx"; return 1; }
@@ -240,14 +276,11 @@ backup() { # wt gitdir branchname session
     sha="$(git -C "$wt" -c user.name="cmux worktree reaper" -c user.email="reaper@cmux.invalid" \
       commit-tree "$tree" -p "$head" -m "wip backup of $wt (session $session, $host)")" || return 1
   fi
-  # Scan everything the push would publish: from the newest commit the remote has.
-  base="$(git -C "$wt" rev-list -n 1 HEAD --remotes="$remote" 2>/dev/null)"
-  base="$(git -C "$wt" merge-base HEAD "${base:-HEAD}" 2>/dev/null || echo "$head")"
-  hit="$(secret_hit "$wt" "$sha" "$base")"
+  hit="$(secret_hit "$wt" "$sha")"
   [ -n "$hit" ] && { echo "refused $hit"; return 2; }
   ref="refs/heads/wip/$session/$branch"
-  git -C "$wt" push -q "$remote" "$sha:$ref" >/dev/null 2>&1 || return 1
-  [ "$(git -C "$wt" ls-remote "$remote" "$ref" | awk '{print $1}')" = "$sha" ] || return 1
+  git -C "$wt" push -q "$remote" "$sha:$ref" </dev/null >/dev/null 2>&1 || return 1
+  [ "$(git -C "$wt" ls-remote "$remote" "$ref" </dev/null | awk '{print $1}')" = "$sha" ] || return 1
   echo "$sha $ref"
 }
 
@@ -275,6 +308,8 @@ for root in "${roots[@]}"; do
       case "$wt" in "$HOME"/*) ;; *) continue ;; esac
       [ "$(stat -c %u "$wt" 2>/dev/null || stat -f %u "$wt")" = "$(id -u)" ] || continue
       gitdir="$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null)" || continue
+      # A main checkout (its git dir is the common dir) is never a candidate.
+      [ "$gitdir" = "$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ] && continue
       if [ -f "$gitdir/cmux-keep" ]; then
         report keep "$(sed -n 's/^reason=//p' "$gitdir/cmux-keep" | head -n 1 | cut -c1-40)" "$wt"; continue
       fi
