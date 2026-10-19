@@ -217,4 +217,79 @@ struct RapidWorkspaceCreateTests {
         #expect(gaps.isEmpty, "rows left the sidebar: \(gaps)")
         #expect(failures.isEmpty, "failed: \(failures)")
     }
+
+    /// Lawrence 2026-10-18 (NIGHTLY): with a group first in the list, a Cmd-N row drew at its
+    /// `workspaces.newPlacement` slot (above the group), then jumped below the group once the
+    /// daemon reported the workspace: on the sidebar document the placement went to the personal
+    /// order, which the document does not show, and the daemon's sync from that order put it
+    /// after the group. The row stays where it drew at the press, in every sample, until well
+    /// after it is the workspace's own.
+    @Test func cmdNRowStaysWhereItDrewAtThePressBesideAGroup() async throws {
+        let launched = try await Self.launch()
+        let services = launched.services
+        let state = try #require(services.windows.active?.state)
+        let window = state.id
+        let sidebar = try #require(services.windows.controller(for: window)?.sidebar.model)
+        func live(_ id: String) -> Bool { sidebar.allWorkspaces.contains { $0.id.rawValue == id && $0.rowState == .live } }
+        func layout() -> String {
+            sidebar.sections.flatMap(\.nodes).map { node in
+                if case let .group(group) = node { return "[\(group.name): \(group.workspaces.map(\.title).joined(separator: ", "))]" }
+                return node.workspaces.map(\.title).joined(separator: ", ")
+            }.joined(separator: " | ")
+        }
+        // The list as in the report: a group first, the shown workspace loose after it.
+        let loose = try #require(services.windows.registry.members(of: window).first)
+        await Self.wait(within: .seconds(30)) { live(loose) }
+        var seed: [ActionWork] = services.registry.capturingWork {
+            _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("grouped")]))
+        }
+        await Self.wait(within: .seconds(30)) { sidebar.allWorkspaces.contains { $0.title == "grouped" && $0.rowState == .live } }
+        let grouped = try #require(sidebar.allWorkspaces.first { $0.title == "grouped" }?.id.rawValue)
+        await Self.wait(within: .seconds(10)) { state.workspaceID == grouped }
+        seed += services.registry.capturingWork {
+            _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(arguments: ["name": .string("Accounts")]))
+        }
+        func groupFirst() -> Bool {
+            guard case let .group(group)? = sidebar.sections.first(where: { $0.machine != nil })?.nodes.first else { return false }
+            return group.workspaces.map(\.id.rawValue) == [grouped]
+        }
+        await Self.wait(within: .seconds(30)) { groupFirst() }
+        services.windows.select(loose, in: state)
+        await Self.wait(within: .seconds(10)) { state.workspaceID == loose }
+        for task in seed { _ = await task.value }
+        let ready = groupFirst() && state.workspaceID == loose
+        let before = Set(sidebar.allWorkspaces.map(\.id.rawValue))
+        let start = layout()
+        let onDocument = SidebarDocWiring.isActive
+
+        let work = services.registry.capturingWork {
+            _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("slot-01")]))
+        }
+        // Each place the new row takes, in order: one place is no jump.
+        var added: String?
+        var places: [Int] = []
+        var settledAt: ContinuousClock.Instant?
+        let giveUp = ContinuousClock.now + .seconds(30)
+        // Samples until 2 s after the row is the listed workspace's own (late echoes land in that time).
+        while ContinuousClock.now < (settledAt.map { $0 + .seconds(2) } ?? giveUp) {
+            let shown = sidebar.allWorkspaces
+            if added == nil { added = shown.first { !before.contains($0.id.rawValue) }?.id.rawValue }
+            if let added, let index = shown.firstIndex(where: { $0.id.rawValue == added }), places.last != index { places.append(index) }
+            if settledAt == nil, let added, services.windows.registry.members(of: window).contains(added), live(added) {
+                settledAt = .now
+            }
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        var failures: [String] = []
+        for task in work { if let failure = await task.value { failures.append(failure.message) } }
+        let end = layout()
+        print("cmdN-beside-group: document=\(onDocument) places=\(places) before: \(start) after: \(end)")
+        await launched.stop()
+
+        #expect(ready, "setup: no group first with the shown workspace loose after it: \(start)")
+        #expect(added != nil, "no new row")
+        #expect(settledAt != nil, "never the workspace's own row: \(end)")
+        #expect(places.count == 1, "the new row moved through \(places) (sidebar document: \(onDocument)): \(start) -> \(end)")
+        #expect(failures.isEmpty, "failed: \(failures)")
+    }
 }
