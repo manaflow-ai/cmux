@@ -15,7 +15,8 @@
 //     history) and from then on saves, watches (`changes` for that path) and resolves links for it;
 //   - `cmux.markdown.openLink {path, href, kind, target?}` opens what the page does not show
 //     itself: `kind` "external" (http(s): a cmux browser tab), "file" (another file, `target` its
-//     resolved path: the file viewer) or "mail" (mailto:/tel:: the system handler);
+//     resolved path: the file viewer), "mail" (mailto:/tel:: the system handler) or "app" (a cmux
+//     link, `cmux://workspace/ws_…` and the other deep links: opened inside cmux, never the system);
 //   - `cmux.markdown.resolveLinks {from, paths}` answers `{links: {[path]: ResolvedLink}}` for
 //     relative link targets (decoded, no fragment) of the file `from`: whether each exists, its
 //     absolute path and kind. The page batches and caches the calls;
@@ -44,6 +45,12 @@ export const MARKDOWN_LOOK = "cmux.markdown.look";
 export const MARKDOWN_CONFLICT = "cmux.markdown.conflict";
 export const MARKDOWN_READ_ONLY = "cmux.markdown.read_only";
 
+/**
+ * Why a file opens read only (FileReadOnlyReason in the host): not valid UTF-8, binary, not
+ * writable, or a chat transcript the host opens read only. `outside` comes only from an older host.
+ */
+export type MarkdownReadOnlyReason = "outside" | "encoding" | "binary" | "permission" | "transcript";
+
 export interface MarkdownConfig {
   /** The file's absolute path. */
   path: string;
@@ -53,8 +60,10 @@ export interface MarkdownConfig {
   hash: string;
   /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
   githubRepository?: string;
-  /** The page may not save: the file is outside every workspace root (or not writable). */
+  /** The page may not save: see `readOnlyReason`. */
   readOnly?: boolean;
+  /** Why the page may not save; the page names it. */
+  readOnlyReason?: MarkdownReadOnlyReason;
   /**
    * A recovered crash draft of this file (R96), sent once: the page loads it as unsaved edits on
    * `hash`. Ignored when read only or equal to `text`.
@@ -115,6 +124,7 @@ export interface MarkdownFile {
   /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
   githubRepository?: string;
   readOnly?: boolean;
+  readOnlyReason?: MarkdownReadOnlyReason;
   assetBase?: string;
 }
 
