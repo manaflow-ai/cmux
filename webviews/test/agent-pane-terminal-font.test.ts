@@ -38,9 +38,9 @@ const theme: AgentSessionTheme = {
 };
 
 /** The host's script for one theme change: the shared web theme, then the pane's. */
-function hostApplies(fontFamily: string | null) {
+function hostApplies(fontFamily: string | null, codeFontFamily: string | null = fontFamily) {
   const terminal = { type: "dark", background: "#101018", foreground: "#e8e8f0", palette: {}, fontFamily };
-  (window as ThemeWindow).cmuxTheme = { current: { variables: {}, colorScheme: "dark", terminal } };
+  (window as ThemeWindow).cmuxTheme = { current: { variables: {}, colorScheme: "dark", terminal, codeFontFamily } };
   applyAgentTheme(theme);
 }
 
@@ -72,5 +72,11 @@ describe("the agent pane's code follows the terminal font", () => {
   test("a face name with quotes stays one family", () => {
     hostApplies('My "Odd" Mono');
     expect(variable("--cv-code-font").startsWith('"My \\"Odd\\" Mono",')).toBe(true);
+  });
+
+  test("the code font setting wins over the terminal's face (appearance.fonts.code)", () => {
+    hostApplies("Fira Code", "Iosevka");
+    expect(variable("--cmux-diff-code-font-family").startsWith('"Iosevka",')).toBe(true);
+    expect(variable("--cv-code-font").startsWith('"Iosevka",')).toBe(true);
   });
 });

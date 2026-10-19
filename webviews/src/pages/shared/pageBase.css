@@ -34,7 +34,7 @@ body {
   margin: 0;
   background: transparent;
   color: var(--page-text);
-  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: 13px var(--cmux-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif);
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
