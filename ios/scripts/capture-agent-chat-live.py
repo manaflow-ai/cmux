@@ -231,6 +231,9 @@ def choose_session(sessions: list[dict[str, Any]], provider: str, requested_id: 
             f"no live {provider} Agent Chat session was published by mobile.chat.sessions; "
             "provider setup or hook discovery is missing (fixtures are not a fallback)"
         )
+    live_candidates = [item for item in candidates if str(item.get("state") or "").casefold() != "ended"]
+    if live_candidates:
+        candidates = live_candidates
     candidates.sort(key=lambda item: str(item.get("last_activity_at") or item.get("last_activity") or ""), reverse=True)
     selected = candidates[0]
     session_id = selected.get("id") or selected.get("session_id")
