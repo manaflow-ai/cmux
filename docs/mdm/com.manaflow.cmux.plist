@@ -752,6 +752,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.</string>
+			<key>pfm_name</key>
+			<string>mobile.allowIPhoneConnections</string>
+			<key>pfm_title</key>
+			<string>Allow iPhone Connections</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>even</string>
 			<key>pfm_description</key>
 			<string>Even gives every pane in the column the same size after a split.</string>

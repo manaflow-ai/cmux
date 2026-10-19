@@ -1847,6 +1847,12 @@
       "title" : "MinimumVersion",
       "type" : "string"
     },
+    "mobile.allowIPhoneConnections" : {
+      "default" : false,
+      "description" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.",
+      "title" : "Allow iPhone Connections",
+      "type" : "boolean"
+    },
     "navigation.history.scope" : {
       "default" : "workspaces",
       "description" : "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace.",

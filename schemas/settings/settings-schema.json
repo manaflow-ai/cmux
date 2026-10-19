@@ -948,6 +948,38 @@
       },
       {
         "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mobile",
+            "rows" : [
+              "mobile.allowIPhoneConnections"
+            ],
+            "title" : {
+              "key" : "settings.group.mobile",
+              "text" : "iPhone"
+            }
+          }
+        ],
+        "id" : "mobile",
+        "lead" : [
+
+        ],
+        "symbol" : "iphone",
+        "title" : {
+          "key" : "settings.category.mobile",
+          "text" : "Mobile"
+        },
+        "trail" : [
+          "mobile"
+        ]
+      },
+      {
+        "actions" : [
           "advanced"
         ],
         "aliases" : [
@@ -3986,6 +4018,57 @@
       "title" : {
         "key" : "settings.phone.keepAwake",
         "text" : "Keep Mac Awake for Your Phone"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.mobile",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.mobile.allowIPhoneConnections.help",
+        "text" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "mobile.allowIPhoneConnections",
+      "keywords" : [
+        "iphone",
+        "phone",
+        "mobile",
+        "remote",
+        "connect"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "mobile",
+        "allowIPhoneConnections"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : {
+        "key" : "settings.mobile.allowIPhoneConnections.summary",
+        "text" : "Lets your iPhone reach this Mac"
+      },
+      "title" : {
+        "key" : "settings.mobile.allowIPhoneConnections",
+        "text" : "Allow iPhone Connections"
       },
       "validation" : "portable"
     },
@@ -25537,7 +25620,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f5119e2c9dc4d35636278485f5c5f917acddeb28852bdf4b6333a676002f5da0",
+  "schema_hash" : "1751e346a92f486bffbed922734194a3a55f9c3423bffe7fcdf3066af5d6ce81",
   "sections" : [
     {
       "id" : "general",

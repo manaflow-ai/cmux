@@ -63,6 +63,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `phone.allowConnections` | boolean | `false` |  | Let Your Phone Use This Mac. So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. |
 | `phone.startSessions` | boolean | `true` |  | Let Your Phone Start New Workspaces. Off, your phone can still follow, type into and answer what's already running. |
 | `phone.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake for Your Phone. A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep. |
+| `mobile.allowIPhoneConnections` | boolean | `false` |  | Allow iPhone Connections. Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
 | `layout.newColumnWidth` | string | `"matchCurrent"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
 | `layout.dockColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Dock Column Edge |
