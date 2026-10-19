@@ -14,6 +14,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// Half the grab area on each side of the 1 pt divider.
     public static let grab: CGFloat = 4
     private var placed = false
+    /// This view moves the divider itself (a clamp, a reset): not the user's width to keep.
+    private var placing = false
     /// The list's own limits (MessagesLab's `minimumWidth`, `preferredWidth`).
     public let minimum: CGFloat
     public let standard: CGFloat
@@ -55,17 +57,24 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         clamp(widths.width(window: windowKey()) ?? standard)
     }
 
-    private func clamp(_ width: CGFloat) -> CGFloat { HomeSidebarWidth.clamp(width, window: bounds.width, minimum: minimum) }
+    private func clamp(_ width: CGFloat) -> CGFloat {
+        HomeSidebarWidth.clamp(width, window: bounds.width - dividerThickness, minimum: minimum)
+    }
+
+    /// The transcript's width now (tests and `debug.home page`).
+    public var transcriptWidth: CGFloat { arrangedSubviews.last?.frame.width ?? 0 }
 
     override public func layout() {
         super.layout()
         guard bounds.width > 0 else { return }
-        if !placed {
+        // One rule on every size change (live resize, split drag, fullscreen, a dock that
+        // shrank): the list shows the saved width as far as this width allows, so it shrinks to
+        // leave the transcript its minimum and grows back when there is room again. The saved
+        // width is kept; only a drag of this divider changes it.
+        let target = wantedWidth
+        if !placed || abs(sidebarWidth - target) > 0.5 {
             placed = true
-            setPosition(wantedWidth, ofDividerAt: 0)
-        } else if sidebarWidth > clamp(sidebarWidth) {
-            // The window shrank: the sidebar stays within half of it (the saved width is kept).
-            setPosition(clamp(sidebarWidth), ofDividerAt: 0)
+            place(target)
         }
     }
 
@@ -81,7 +90,13 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// Back to the standard width (the divider's double-click).
     public func resetWidth() {
         widths.reset(window: windowKey())
-        setPosition(clamp(standard), ofDividerAt: 0)
+        place(clamp(standard))
+    }
+
+    private func place(_ width: CGFloat) {
+        placing = true
+        defer { placing = false }
+        setPosition(width, ofDividerAt: 0)
     }
 
     // MARK: NSSplitViewDelegate
@@ -108,7 +123,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
 
     public func splitViewDidResizeSubviews(_ notification: Notification) {
         // Only the user's drag is kept (AppKit names the divider it moved).
-        guard placed, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
+        guard placed, !placing, notification.userInfo?["NSSplitViewDividerIndex"] != nil else { return }
         widths.save(sidebarWidth, window: windowKey())
     }
 }

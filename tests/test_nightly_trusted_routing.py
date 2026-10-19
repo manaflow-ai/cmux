@@ -123,20 +123,41 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertNotEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
         self.assertNotEqual(group('main'), group('nightly-next', '39124573091'))
 
-    def test_every_run_gets_its_own_build_slot(self):
-        # A shared nightly-next slot (#21917) turned pushes into cancelled runs while its
-        # holder waited for a runner that never came (2026-10-19: six runs cancelled).
-        # Each run now has its own group (de5912c9fe41); the dedicated trusted runner
-        # serializes them, and a running build always finishes.
+    def test_warm_next_pushes_share_one_slot_and_every_other_route_has_its_own(self):
+        # Per-run slots (de5912c9fe41) queued every push FIFO on the one warm runner;
+        # waits past the rescue's 930 s limit moved builds to Blacksmith (2026-10-19:
+        # 39318999424, 39320477722, 39329116254). Attempt 1 of a warm-routed nightly-next
+        # push now shares one slot (one runs, the newest waits). Every route that can
+        # land on Blacksmith keeps a slot per run, so a stuck hosted holder (#21917)
+        # never blocks the warm slot.
         job = DOC['jobs']['build-nightly-app']
-        def group(branch, event='push', run_id='1'):
-            context = {'github.ref': f'refs/heads/{branch}', 'github.event_name': event, 'github.run_id': run_id}
+        def group(**changes):
+            context = {
+                'github.repository': 'manaflow-ai/cmux', 'github.event_name': 'push',
+                'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1, 'github.run_id': '1',
+                'needs.decide.outputs.fast_build': 'false', 'vars.CI_PR_POOL_OWNED': '1',
+                'vars.CI_NIGHTLY_NEXT_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
+                'vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER': 'glaeda-runner-next-glaeda',
+            }
+            context.update(changes)
             return re.sub(r'\$\{\{(.*?)\}\}',
                           lambda match: str(evaluate(parse_expression(match[1]), context)),
                           job['concurrency']['group'])
-        self.assertNotEqual(group('nightly-next', run_id='1'), group('nightly-next', run_id='2'))
-        self.assertNotEqual(group('nightly-next', 'workflow_dispatch', '1'), group('nightly-next', 'workflow_dispatch', '2'))
-        self.assertNotEqual(group('main', run_id='1'), group('main', run_id='2'))
+        self.assertEqual(group(), 'nightly-next-build-app-warm')
+        self.assertEqual(group(**{'github.run_id': '2'}), group())
+        # The shared slot exists exactly when runs-on picks the warm runner.
+        self.assertIn('glaeda-trusted-next-nightly', select())
+        hosted = [
+            {'github.run_attempt': 2}, {'github.event_name': 'workflow_dispatch'},
+            {'needs.decide.outputs.fast_build': 'true'}, {'vars.CI_PR_POOL_OWNED': '0'},
+            {'vars.CI_NIGHTLY_NEXT_TRUSTED_POOL': ''}, {'vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER': ''},
+            {'github.ref': 'refs/heads/main'}, {'github.repository': 'manaflow-ai/another'},
+        ]
+        for changes in hosted:
+            with self.subTest(changes=changes):
+                self.assertNotIn('glaeda-trusted-next-nightly', select(**changes))
+                self.assertEqual(group(**changes), 'nightly-build-app-1')
+                self.assertNotEqual(group(**changes), group(**{**changes, 'github.run_id': '2'}))
         self.assertFalse(job['concurrency']['cancel-in-progress'])
 
     def test_a_superseded_next_run_never_enters_the_build_slot(self):
