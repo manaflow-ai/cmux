@@ -189,12 +189,24 @@ with 4001 `moved`.
   that receives its peer's datagrams on a route does not yet know its own
   reach the peer. Until it does, it sends every datagram on that route and
   through its TURN allocation too (and to every candidate when it has no
-  route). The confirmation is an overlay UDP datagram to port 7421 of the
-  peer, JSON `{"t":"reach"}` ("your datagrams reach me"), sent by a
-  version-2 side when an authenticated datagram from its peer arrives:
-  at once on a new route, then 100, 300 and 1000 ms later while datagrams
-  keep arriving, then at most every 3 s. A confirmed route that is silent
-  for 14 s is no longer trusted (every route again until a new `reach`).
+  route; and every 100 ms to each of the peer's other endpoints, its
+  relayed addresses among them). The confirmation is an overlay UDP
+  datagram to port 7421 of the peer, JSON
+  `{"t":"reach","from":"ip:port","via":"udp"|"turn"}` ("your datagrams
+  reach me": they arrived from `from`, your address as seen here, on my
+  plain UDP socket or my TURN allocation), sent by a version-2 side when an
+  authenticated datagram from its peer arrives: at once on a new route,
+  then 100, 300 and 1000 ms later while datagrams keep arriving, then at
+  most every 3 s. `from` names the carrier that works (the receiver's TURN
+  when it is its relayed address, else plain UDP) and `via` whether it
+  reached the peer's relayed address. The current route is confirmed only
+  when it is that pair; otherwise the side switches to that pair (for
+  example plain UDP to the peer's relayed address when its own UDP to the
+  peer's LAN address is lost) and keeps it while `reach` keeps naming it,
+  even though the peer's datagrams arrive on another route, and for 7 s
+  after the last one. A confirmed route that is silent for 14 s is no longer
+  trusted (every route again until a new `reach`). A bare `{"t":"reach"}`
+  confirms the current route.
   An older peer (version 0) sends its confirmation through the retired
   relay, where it is lost, and never sends `reach`: with such a peer a
   side takes the peer's authenticated datagrams as the confirmation. An
