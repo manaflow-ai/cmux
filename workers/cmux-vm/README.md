@@ -72,7 +72,7 @@ creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
 | `src/limits/` | per-tenant Durable Object: rate limits, quota reservations, idempotency keys |
 | `src/policy.ts` | dev/test tenants, quotas, rate limits, upload size |
 | `src/upstream/` | provider client (proof-gated); `exec-stream.ts` filters exec output as it streams |
-| `migrations/` | SQL for schema `cmux_vm`: `resources`, `api_keys`, `audit_log` (additive) |
+| `migrations/` | SQL for schema `cmux_vm`: ownership, API keys, audit, mesh, and access-token tables (additive) |
 | `upstream/` | pinned provider OpenAPI document and SDK type surface (`PINNED.json`) |
 
 ## Checks

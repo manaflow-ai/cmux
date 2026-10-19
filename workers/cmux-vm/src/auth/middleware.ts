@@ -112,10 +112,11 @@ export const authenticationLayer = Layer.effect(
     const fromAccessToken = (token: string): Effect.Effect<Principal, Unauthorized | ServiceUnavailable> => {
       const now = new Date(Date.now());
       if (Option.isNone(accessTokens)) return Effect.fail(unavailable());
-      return accessTokens.value.verify(Redacted.make(token), now).pipe(
-        Effect.map((verified) => ({
+      return Effect.gen(function* () {
+        const verified = yield* accessTokens.value.verify(Redacted.make(token), now);
+        const principal: Principal = {
           tenantId: verified.tenantId,
-          actor: { kind: "access-token" as const, tokenId: verified.id, principal: verified.principal },
+          actor: { kind: "access-token", tokenId: verified.id, principal: verified.principal },
           scopes: scopeSetOf([
             ...(verified.scopes.includes("exec") ? ["vm:exec" as const] : []),
             ...(verified.scopes.includes("pty") ? ["vm:terminal" as const] : []),
@@ -123,9 +124,9 @@ export const authenticationLayer = Layer.effect(
           ]),
           resourceAllowlist: new Set(verified.vmIds),
           credentialExpiresAt: verified.expiresAt,
-          accessTokenScopes: verified.scopes,
-          accessTokenLinuxUser: verified.linuxUser,
-        })),
+        };
+        return { ...principal, accessTokenProof: verified.proof };
+      }).pipe(
         Effect.catchTags({
           AccessTokenRejected: () => Effect.fail(unauthorized()),
           AccessTokenUnavailable: () => Effect.fail(unavailable()),

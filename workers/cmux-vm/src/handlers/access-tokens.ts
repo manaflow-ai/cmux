@@ -2,7 +2,7 @@ import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { name } from "@gdp-ts/core";
 import { Clock, Effect, Option } from "effect";
 import { CreatedAccessToken, AccessTokenList, SshAccess, type CreateAccessTokenRequest } from "../access-tokens/api.ts";
-import { AccessTokenStore, AccessTokens, type AccessTokenRecord, type AccessTokenScope } from "../access-tokens/tokens.ts";
+import { AccessTokenStore, type AccessTokenRecord, type AccessTokenScope } from "../access-tokens/tokens.ts";
 import { AccessTokenId } from "../access-tokens/tokens.ts";
 import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import { badRequest, Forbidden, NotFound, unavailable, missingScope } from "../errors.ts";
@@ -11,10 +11,12 @@ import { TenantLimits } from "../limits/service.ts";
 import { tenantOwnsVm } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamAccessTokens } from "../upstream/access-tokens.ts";
 import { CmuxVmApi } from "../api.ts";
-import { audited } from "./common.ts";
+import { audited, rateLimit } from "./common.ts";
 
 const managementScope = "access-token:create" as const;
 const scopeSet = (scopes: ReadonlyArray<AccessTokenScope>) => new Set(scopes);
+const issuerScope = (scope: AccessTokenScope): "vm:exec" | "vm:terminal" | "vm:files" | "vm:read" =>
+  scope === "exec" ? "vm:exec" : scope === "pty" ? "vm:terminal" : scope === "files:read" || scope === "files:write" ? "vm:files" : "vm:read";
 
 const view = (record: AccessTokenRecord) => ({
   id: record.id,
@@ -46,29 +48,22 @@ const recordFor = (tenantId: Principal["tenantId"], raw: string) => {
   return id === null ? Effect.succeed(null) : Effect.flatMap(AccessTokenStore, (store) => store.find(tenantId, id).pipe(Effect.mapError(() => unavailable())));
 };
 
-const tokenVmProof = (record: AccessTokenRecord) =>
-  Effect.sync(() => {
-    const synthetic: Principal = {
-      tenantId: record.tenantId,
-      actor: { kind: "access-token", tokenId: record.id, principal: record.principal },
-      scopes: new Set(),
-      resourceAllowlist: new Set(record.vmIds),
-      credentialExpiresAt: record.expiresAt,
-      accessTokenScopes: record.scopes,
-      accessTokenLinuxUser: record.linuxUser,
-    };
-    return synthetic;
-  });
-
 const create = (payload: CreateAccessTokenRequest) =>
-  Effect.gen(function* () {
+  audited("access-token.create", null, Effect.gen(function* () {
     const principal = yield* CurrentPrincipal;
     if (principal.actor.kind === "access-token") return yield* Effect.fail(new Forbidden({ message: "Access tokens cannot mint or manage access tokens" }));
     if (!principal.scopes.has(managementScope)) return yield* Effect.fail(missingScope(managementScope));
+    for (const scope of payload.scopes) {
+      const required = issuerScope(scope);
+      if (!principal.scopes.has(required)) return yield* Effect.fail(missingScope(required));
+    }
     const store = yield* AccessTokenStore;
     const signer = yield* AccessTokens;
     const now = new Date(yield* Clock.currentTimeMillis);
-    const expiresAt = new Date(now.getTime() + (payload.ttlSeconds ?? 3600) * 1000);
+    const requestedExpiry = new Date(now.getTime() + (payload.ttlSeconds ?? 3600) * 1000);
+    const expiresAt = principal.credentialExpiresAt !== null && principal.credentialExpiresAt < requestedExpiry ? principal.credentialExpiresAt : requestedExpiry;
+    if (expiresAt <= now) return yield* Effect.fail(badRequest("The access token expiry must be after the caller's expiry"));
+    yield* rateLimit(principal, "write");
     const vmIds = [...new Set(payload.vmIds)];
     if (vmIds.length !== payload.vmIds.length) return yield* Effect.fail(badRequest("vmIds must not contain duplicates"));
     const parsedVmIds = vmIds.map(parseVm);
@@ -99,16 +94,17 @@ const create = (payload: CreateAccessTokenRequest) =>
     };
     yield* store.insert(record).pipe(Effect.mapError(() => unavailable()));
     return new CreatedAccessToken({ id: created.id, token: created.token, expiresAt: expiresAt.toISOString() });
-  });
+  }), (result) => result.id);
 
-const list = Effect.gen(function* () {
+const list = audited("access-token.list", null, Effect.gen(function* () {
   const principal = yield* CurrentPrincipal;
   if (principal.actor.kind === "access-token") return yield* Effect.fail(new Forbidden({ message: "Access tokens cannot mint or manage access tokens" }));
   if (!principal.scopes.has(managementScope)) return yield* Effect.fail(missingScope(managementScope));
+  yield* rateLimit(principal, "read");
   const store = yield* AccessTokenStore;
   const records = yield* store.list(principal.tenantId, 100).pipe(Effect.mapError(() => unavailable()));
   return new AccessTokenList({ items: records.map(view) });
-});
+}));
 
 const revoke = (rawId: string) =>
   audited(
@@ -118,18 +114,20 @@ const revoke = (rawId: string) =>
       const principal = yield* CurrentPrincipal;
       if (principal.actor.kind === "access-token") return yield* Effect.fail(new Forbidden({ message: "Access tokens cannot mint or manage access tokens" }));
       if (!principal.scopes.has(managementScope)) return yield* Effect.fail(missingScope(managementScope));
+      yield* rateLimit(principal, "write");
       const id = parseTokenId(rawId);
       if (id === null) return yield* Effect.fail(new NotFound({ message: "Access token not found" }));
       const store = yield* AccessTokenStore;
       const at = new Date(yield* Clock.currentTimeMillis);
-      const record = yield* store.revoke(principal.tenantId, id, at).pipe(Effect.mapError(() => unavailable()));
+      const record = yield* store.find(principal.tenantId, id).pipe(Effect.mapError(() => unavailable()));
       if (record === null) return yield* Effect.fail(new NotFound({ message: "Access token not found" }));
       const limits = yield* TenantLimits;
       yield* limits.revokeAccessToken(principal.tenantId, record.id, record.expiresAt.getTime()).pipe(Effect.mapError(() => unavailable()));
       if (record.providerIdentityId !== null) {
         const upstream = yield* UpstreamAccessTokens;
-        yield* upstream.revokeIdentity(record.providerIdentityId).pipe(Effect.ignore);
+        yield* upstream.revokeIdentity(record.providerIdentityId).pipe(Effect.mapError(() => unavailable()));
       }
+      yield* store.revoke(principal.tenantId, id, at).pipe(Effect.mapError(() => unavailable()));
       return HttpServerResponse.empty({ status: 204 });
     }),
   );
@@ -140,8 +138,16 @@ const ssh = (rawId: string) =>
     rawId,
     Effect.gen(function* () {
       const principal = yield* CurrentPrincipal;
-      if (principal.actor.kind === "access-token") return yield* Effect.fail(new Forbidden({ message: "Access tokens cannot mint delegated credentials" }));
-      if (!principal.scopes.has(managementScope)) return yield* Effect.fail(missingScope(managementScope));
+      if (principal.actor.kind !== "access-token") return yield* Effect.fail(new Forbidden({ message: "Delegated SSH requires the access token bearer" }));
+      if (principal.actor.tokenId !== rawId) return yield* Effect.fail(new NotFound({ message: "Access token not found" }));
+      const accessProof = principal.accessTokenProof;
+      if (accessProof === undefined || !accessProof.scopes.includes("ssh")) return yield* Effect.fail(new Forbidden({ message: "This access token lacks the ssh scope" }));
+      yield* rateLimit(principal, "write");
+      const limits = yield* TenantLimits;
+      const holder = crypto.randomUUID();
+      const locked = yield* limits.lock(principal.tenantId, `access-token-ssh:${rawId}`, holder, 30_000).pipe(Effect.mapError(() => unavailable()));
+      if (!locked) return yield* Effect.fail(unavailable());
+      return yield* Effect.gen(function* () {
       const record = yield* recordFor(principal.tenantId, rawId);
       if (record === null) return yield* Effect.fail(new NotFound({ message: "Access token not found" }));
       const now = new Date(yield* Clock.currentTimeMillis);
@@ -151,20 +157,19 @@ const ssh = (rawId: string) =>
       if (vmRaw === undefined) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
       const parsed = parseVm(vmRaw);
       if (parsed === null) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
-      const synthetic = yield* tokenVmProof(record);
-      const verifier = yield* AccessTokens;
       const upstream = yield* UpstreamAccessTokens;
-      const delegated = yield* name(synthetic, <C>(caller: import("@gdp-ts/core").Named<C, Principal>) =>
+      const delegated = yield* name(principal, <C>(caller: import("@gdp-ts/core").Named<C, Principal>) =>
         name(parsed, <V>(vm: import("@gdp-ts/core").Named<V, import("../lib/ids.ts").VmId>) =>
           Effect.flatMap(tenantOwnsVm(caller, vm), (owns): Effect.Effect<import("../upstream/access-tokens.ts").DelegatedSsh, NotFound | import("../upstream/client.ts").UpstreamError> =>
             owns === null
               ? Effect.fail(new NotFound({ message: "VM not found" }))
-              : upstream.mintSsh(vm, { owns, allows: verifier.proofFor(caller, record) }, record.linuxUser),
+              : upstream.mintSsh(vm, { owns, allows: accessProof }, record.linuxUser, record.providerIdentityId ?? undefined, record.expiresAt),
           ),
         ),
       ).pipe(Effect.mapError((error) => error instanceof NotFound ? error : unavailable()));
       yield* (yield* AccessTokenStore).setProviderIdentity(principal.tenantId, record.id, delegated.identityId).pipe(Effect.mapError(() => unavailable()));
       return new SshAccess({ host: delegated.host, user: delegated.user, password: delegated.password });
+      }).pipe(Effect.ensuring(limits.unlock(principal.tenantId, `access-token-ssh:${rawId}`, holder)));
     }),
   );
 

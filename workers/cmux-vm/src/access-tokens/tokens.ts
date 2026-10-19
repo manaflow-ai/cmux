@@ -1,10 +1,9 @@
 import { Context, Data, Effect, Redacted, Schema } from "effect";
-import type { Named } from "@gdp-ts/core";
 import { compactVerify, CompactSign, importJWK, type JWK } from "jose";
 import { TenantId, UserId, VmId, type TenantId as TenantIdType, type UserId as UserIdType, type VmId as VmIdType } from "../lib/ids.ts";
 import type { Principal } from "../domain/principal.ts";
 import { type TenantLimitsService } from "../limits/service.ts";
-import { accessTokenAllowsForPrincipal, mintAccessTokenAllows, type AccessTokenAllows } from "../proofs/access-token-allows.ts";
+import { verifierAccessTokenProof, type AccessTokenAllows } from "../proofs/access-token-allows.ts";
 
 export const ACCESS_TOKEN_PREFIX = "cmux_at_";
 const TOKEN_ID_PATTERN = /^at_[0-9A-HJKMNP-TV-Z]{26}$/u;
@@ -36,6 +35,8 @@ export interface AccessTokenStoreService {
   readonly list: (tenantId: TenantIdType, limit: number) => Effect.Effect<ReadonlyArray<AccessTokenRecord>, AccessTokenStoreError>;
   readonly revoke: (tenantId: TenantIdType, id: AccessTokenId, at: Date) => Effect.Effect<AccessTokenRecord | null, AccessTokenStoreError>;
   readonly setProviderIdentity: (tenantId: TenantIdType, id: AccessTokenId, identityId: string) => Effect.Effect<void, AccessTokenStoreError>;
+  readonly listProviderIdentities: (now: Date) => Effect.Effect<ReadonlyArray<AccessTokenRecord>, AccessTokenStoreError>;
+  readonly clearProviderIdentity: (tenantId: TenantIdType, id: AccessTokenId, identityId: string) => Effect.Effect<void, AccessTokenStoreError>;
 }
 
 export class AccessTokenStore extends Context.Tag("cmux-vm/AccessTokenStore")<AccessTokenStore, AccessTokenStoreService>() {}
@@ -62,8 +63,19 @@ export const parseAccessTokenKeys = (raw: string | undefined): ReadonlyArray<Acc
   try {
     const parsed: unknown = JSON.parse(raw);
     const values = Schema.decodeUnknownSync(Schema.Array(KeyConfig))(parsed);
-    return values.flatMap((value) => (isJwk(value.privateJwk) && isJwk(value.publicJwk) ? [{ kid: value.kid, privateJwk: value.privateJwk, publicJwk: value.publicJwk, active: value.active }] : []));
+    const kids = new Set<string>();
+    const keys = values.flatMap((value) => {
+      if (!isJwk(value.privateJwk) || !isJwk(value.publicJwk) || kids.has(value.kid)) return [];
+      kids.add(value.kid);
+      return [{ kid: value.kid, privateJwk: value.privateJwk, publicJwk: value.publicJwk, active: value.active }];
+    });
+    if (keys.length !== values.length) {
+      console.error(JSON.stringify({ event: "cmux_vm_access_token_keys_invalid", reason: "duplicate_or_invalid_kid" }));
+      return [];
+    }
+    return keys;
   } catch {
+    console.error(JSON.stringify({ event: "cmux_vm_access_token_keys_invalid", reason: "parse" }));
     return [];
   }
 };
@@ -139,7 +151,6 @@ export interface AccessTokenService {
     readonly expiresAt: Date;
   }) => Effect.Effect<{ readonly id: AccessTokenId; readonly token: string }, AccessTokenUnavailable>;
   readonly verify: (token: Redacted.Redacted<string>, now: Date) => Effect.Effect<VerifiedAccessToken, AccessTokenRejected | AccessTokenUnavailable>;
-  readonly proofFor: <C>(caller: Named<C, Principal>, record: Pick<AccessTokenRecord, "id" | "tenantId" | "vmIds" | "principal">) => AccessTokenAllows<C>;
 }
 
 export class AccessTokens extends Context.Tag("cmux-vm/AccessTokens")<AccessTokens, AccessTokenService>() {}
@@ -198,7 +209,7 @@ export const makeAccessTokenService = (keys: ReadonlyArray<AccessTokenKeys>, lim
         });
         const claims = yield* Schema.decodeUnknown(Claims)(payload).pipe(Effect.mapError(() => new AccessTokenRejected({ reason: "claims" })));
         const expiresAt = new Date(claims.exp * 1000);
-        if (!Number.isFinite(expiresAt.getTime()) || claims.exp <= Math.floor(now.getTime() / 1000) || claims.iat > Math.floor(now.getTime() / 1000) + 60) {
+        if (!Number.isFinite(expiresAt.getTime()) || claims.exp <= Math.floor(now.getTime() / 1000) || claims.iat > Math.floor(now.getTime() / 1000) + 60 || claims.exp - claims.iat > 86400) {
           return yield* Effect.fail(new AccessTokenRejected({ reason: "time" }));
         }
         const revoked = yield* limits.isAccessTokenRevoked(claims.tenant, claims.jti, now.getTime()).pipe(Effect.mapError(() => new AccessTokenUnavailable({ reason: "revocation" })));
@@ -209,12 +220,9 @@ export const makeAccessTokenService = (keys: ReadonlyArray<AccessTokenKeys>, lim
           scopes: new Set(),
           resourceAllowlist: new Set(claims.vmIds),
           credentialExpiresAt: expiresAt,
-          accessTokenScopes: claims.scopes,
-          accessTokenLinuxUser: claims.linuxUser,
         };
-        const proof = yield* accessTokenAllowsForPrincipal(principal, claims.jti, claims.tenant, claims.principal, claims.vmIds);
+        const proof = yield* verifierAccessTokenProof(principal, claims.jti, claims.tenant, claims.principal, claims.vmIds, claims.scopes, claims.linuxUser);
         return { id: claims.jti, tenantId: claims.tenant, principal: claims.principal, vmIds: claims.vmIds, scopes: claims.scopes, linuxUser: claims.linuxUser, issuedAt: new Date(claims.iat * 1000), expiresAt, proof };
       }),
-    proofFor: (caller, record) => mintAccessTokenAllows(caller, record.id, record.tenantId, record.principal, record.vmIds),
   };
 };

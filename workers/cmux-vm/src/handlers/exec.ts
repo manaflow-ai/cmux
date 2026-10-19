@@ -38,7 +38,7 @@ export const execHandlers = HttpApiBuilder.group(CmuxVmApi, "exec", (handlers) =
             );
           return HttpServerResponse.raw(body, { contentType: "application/json" });
         }),
-      ),
+      "exec"),
     ),
   ),
 );

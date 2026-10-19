@@ -41,19 +41,19 @@ export function makeUpstreamTerminals(config: UpstreamConfig): UpstreamTerminals
         "attachTerminal",
         `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", scope.linuxUser ?? user]])}`,
       ),
-    listTerminals: (_vm, { owns }, user) =>
+    listTerminals: (_vm, { owns, scope }, user) =>
       http
-        .json("listTerminals", "GET", `/v5/vms/${proofSegment(owns)}/pty/sessions${query([["linuxUser", user]])}`)
+        .json("listTerminals", "GET", `/v5/vms/${proofSegment(owns)}/pty/sessions${query([["linuxUser", scope.linuxUser ?? user]])}`)
         .pipe(
           Effect.flatMap(decodeAs(ListPtySessions, "listTerminals")),
           Effect.map((body) => body.sessions),
         ),
-    closeTerminal: (_vm, { owns }, session, user) =>
+    closeTerminal: (_vm, { owns, scope }, session, user) =>
       http
         .json(
           "closeTerminal",
           "DELETE",
-          `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", user]])}`,
+          `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", scope.linuxUser ?? user]])}`,
         )
         .pipe(Effect.flatMap(decodeAs(ClosedPtySession, "closeTerminal"))),
   };

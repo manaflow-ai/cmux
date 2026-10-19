@@ -24,7 +24,7 @@ import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
-import { AccessTokenStore, AccessTokens, makeAccessTokenService, type AccessTokenRecord } from "../../src/access-tokens/tokens.ts";
+import { AccessTokenStore, AccessTokens, makeAccessTokenService, type AccessTokenKeys, type AccessTokenRecord, type AccessTokenService } from "../../src/access-tokens/tokens.ts";
 import { UpstreamAccessTokens } from "../../src/upstream/access-tokens.ts";
 import { makeUpstreamAccessTokens } from "../../src/upstream/live-access-tokens.ts";
 
@@ -128,6 +128,9 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const { publicKey: accessPublicKey, privateKey: accessPrivateKey } = await generateKeyPair("Ed25519", { extractable: true });
   const accessPublicJwk = { ...(await exportJWK(accessPublicKey)), alg: "EdDSA", kid: "access-test" };
   const accessPrivateJwk = { ...(await exportJWK(accessPrivateKey)), alg: "EdDSA", kid: "access-test" };
+  const accessTokenKeyState: { keys: ReadonlyArray<AccessTokenKeys> } = {
+    keys: [{ kid: "access-test", privateJwk: accessPrivateJwk, publicJwk: accessPublicJwk, active: true }],
+  };
 
   const ownership = Layer.succeed(OwnershipStore, {
     find: (tenantId, kind, cmuxId) =>
@@ -240,10 +243,17 @@ export async function makeHarness(options: HarnessOptions = {}) {
         const record = index < 0 ? undefined : accessTokens[index];
         if (record !== undefined) accessTokens[index] = { ...record, providerIdentityId: identityId };
       }),
+      listProviderIdentities: (now) => Effect.sync(() => accessTokens.filter((record) => record.providerIdentityId !== null && (record.expiresAt <= now || record.revokedAt !== null))),
+      clearProviderIdentity: (tenantId, id, identityId) => Effect.sync(() => {
+        const index = accessTokens.findIndex((record) => record.tenantId === tenantId && record.id === id && record.providerIdentityId === identityId);
+        const record = index < 0 ? undefined : accessTokens[index];
+        if (record !== undefined) accessTokens[index] = { ...record, providerIdentityId: null };
+      }),
     }),
-    Layer.effect(AccessTokens, Effect.map(TenantLimits, (tenantLimits) => makeAccessTokenService([
-      { kid: "access-test", privateJwk: accessPrivateJwk, publicJwk: accessPublicJwk, active: true },
-    ], tenantLimits))).pipe(Layer.provide(limits)),
+    Layer.effect(AccessTokens, Effect.map(TenantLimits, (tenantLimits): AccessTokenService => ({
+      mint: (input) => makeAccessTokenService(accessTokenKeyState.keys, tenantLimits).mint(input),
+      verify: (token, now) => makeAccessTokenService(accessTokenKeyState.keys, tenantLimits).verify(token, now),
+    }))).pipe(Layer.provide(limits)),
     Layer.succeed(UpstreamAccessTokens, makeUpstreamAccessTokens({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch })),
     Layer.succeed(
       UpstreamClient,
@@ -470,6 +480,12 @@ export async function makeHarness(options: HarnessOptions = {}) {
       const set = members.get(tenant) ?? new Set<string>();
       set.add(user);
       members.set(tenant, set);
+    },
+    accessTokenKeys(): ReadonlyArray<AccessTokenKeys> {
+      return accessTokenKeyState.keys;
+    },
+    setAccessTokenKeys(keys: ReadonlyArray<AccessTokenKeys>) {
+      accessTokenKeyState.keys = keys;
     },
     async sessionToken(user: string, options: { readonly expiresIn?: string; readonly key?: SigningKey } = {}): Promise<string> {
       return new SignJWT({ project_id: STACK_PROJECT_ID })

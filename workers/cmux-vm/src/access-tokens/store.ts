@@ -71,6 +71,16 @@ export const sqlAccessTokenStoreLayer: Layer.Layer<AccessTokenStore, never, SqlC
           Effect.asVoid,
           Effect.mapError((cause) => new AccessTokenStoreError({ operation: "access_tokens.identity", cause })),
         ),
+      listProviderIdentities: (now) =>
+        sql.query("access_tokens.identities", `SELECT ${columns} FROM cmux_vm.access_tokens WHERE provider_identity_id IS NOT NULL AND (expires_at <= $1::timestamptz OR revoked_at IS NOT NULL) ORDER BY expires_at ASC, id ASC`, [now.toISOString()]).pipe(
+          Effect.mapError((cause) => new AccessTokenStoreError({ operation: "access_tokens.identities", cause })),
+          Effect.flatMap((rows) => decode("access_tokens.identities", rows)),
+        ),
+      clearProviderIdentity: (tenantId, id, identityId) =>
+        sql.query("access_tokens.clearIdentity", `UPDATE cmux_vm.access_tokens SET provider_identity_id = NULL WHERE tenant_id = $1 AND id = $2 AND provider_identity_id = $3`, [tenantId, id, identityId]).pipe(
+          Effect.asVoid,
+          Effect.mapError((cause) => new AccessTokenStoreError({ operation: "access_tokens.clearIdentity", cause })),
+        ),
     };
     return service;
   }),

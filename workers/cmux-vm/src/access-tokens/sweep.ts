@@ -1,19 +1,23 @@
 import { Clock, Effect } from "effect";
 import { AccessTokenStore } from "./tokens.ts";
 import { UpstreamAccessTokens } from "../upstream/access-tokens.ts";
-import type { TenantId } from "../lib/ids.ts";
 
-/** Wave 2 cron hook: revoke provider identities whose cmux token expired. */
-export const sweepExpiredAccessTokenIdentities = (tenantId: TenantId) =>
+/** Scheduled cleanup: revoke provider identities whose cmux token expired or was revoked. */
+export const sweepExpiredAccessTokenIdentities =
   Effect.gen(function* () {
     const store = yield* AccessTokenStore;
     const upstream = yield* UpstreamAccessTokens;
     const now = new Date(yield* Clock.currentTimeMillis);
-    const records = yield* store.list(tenantId, 1000);
-    const expired = records.flatMap((record) => record.expiresAt <= now && record.providerIdentityId !== null ? [{ identityId: record.providerIdentityId }] : []);
+    const records = yield* store.listProviderIdentities(now);
+    const pending = records.flatMap((record) => record.providerIdentityId !== null ? [{ identityId: record.providerIdentityId }] : []);
     yield* Effect.forEach(
-      expired,
-      (record) => upstream.revokeIdentity(record.identityId).pipe(Effect.ignore),
+      pending,
+      (record) => {
+        const found = records.find((candidate) => candidate.providerIdentityId === record.identityId);
+        return found === undefined
+          ? Effect.void
+          : upstream.revokeIdentity(record.identityId).pipe(Effect.zipRight(store.clearProviderIdentity(found.tenantId, found.id, record.identityId)), Effect.ignore);
+      },
       { concurrency: 8 },
     );
   });

@@ -14,6 +14,7 @@ import { bridgeTerminal } from "../lib/terminal-bridge.ts";
 import type { UpstreamError } from "../upstream/client.ts";
 import { UpstreamTerminals, type UpstreamPtySession } from "../upstream/terminals.ts";
 import { audited, withOwnedVm } from "./common.ts";
+import { TenantLimits } from "../limits/service.ts";
 
 const terminalNotFound = () => new NotFound({ message: "Terminal session not found" });
 
@@ -57,7 +58,7 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
       Effect.gen(function* () {
         const upstream = yield* UpstreamTerminals;
         const request = yield* HttpServerRequest.HttpServerRequest;
-        return yield* withOwnedVm(path.vmId, "vm:terminal", "exec", (_caller, vm, proofs) =>
+        return yield* withOwnedVm(path.vmId, "vm:terminal", "exec", (caller, vm, proofs) =>
           Effect.gen(function* () {
             if (!isWebSocketUpgrade(request)) return yield* Effect.fail(upgradeRequired());
             const socket = yield* audited(
@@ -74,16 +75,23 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
                 })
                 .pipe(Effect.mapError(mapUpstream(vmNotFound))),
             );
-            return switchingProtocols(bridgeTerminal(socket));
+            const limits = yield* TenantLimits;
+            const shouldClose = caller.value.actor.kind === "access-token"
+              ? () => Effect.runPromise(limits.isAccessTokenRevoked(caller.value.tenantId, caller.value.actor.tokenId, Date.now())).catch(() => true)
+              : undefined;
+            return switchingProtocols(bridgeTerminal(socket, {
+              ...(caller.value.credentialExpiresAt === null ? {} : { expiresAt: caller.value.credentialExpiresAt }),
+              ...(shouldClose === undefined ? {} : { shouldClose }),
+            }));
           }),
-        );
+          "pty-open");
       }),
     )
     .handle("attachTerminal", ({ path, urlParams }) =>
       Effect.gen(function* () {
         const upstream = yield* UpstreamTerminals;
         const request = yield* HttpServerRequest.HttpServerRequest;
-        return yield* withOwnedVm(path.vmId, "vm:terminal", "exec", (_caller, vm, proofs) =>
+        return yield* withOwnedVm(path.vmId, "vm:terminal", "exec", (caller, vm, proofs) =>
           Effect.gen(function* () {
             const selector = parseSelector(path.terminal);
             if (selector === null) return yield* Effect.fail(terminalNotFound());
@@ -93,20 +101,27 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
               vm.value,
               upstream.attachTerminal(vm, proofs, selector, urlParams.user).pipe(Effect.mapError(mapUpstream(terminalNotFound))),
             );
-            return switchingProtocols(bridgeTerminal(socket));
+            const limits = yield* TenantLimits;
+            const shouldClose = caller.value.actor.kind === "access-token"
+              ? () => Effect.runPromise(limits.isAccessTokenRevoked(caller.value.tenantId, caller.value.actor.tokenId, Date.now())).catch(() => true)
+              : undefined;
+            return switchingProtocols(bridgeTerminal(socket, {
+              ...(caller.value.credentialExpiresAt === null ? {} : { expiresAt: caller.value.credentialExpiresAt }),
+              ...(shouldClose === undefined ? {} : { shouldClose }),
+            }));
           }),
-        );
+          "pty-attach");
       }),
     )
     .handle("listTerminals", ({ path, urlParams }) =>
       Effect.gen(function* () {
         const upstream = yield* UpstreamTerminals;
-        return yield* withOwnedVm(path.vmId, "vm:terminal", "read", (_caller, vm, proofs) =>
+        return yield* audited("terminal.list", path.vmId, withOwnedVm(path.vmId, "vm:terminal", "read", (_caller, vm, proofs) =>
           upstream.listTerminals(vm, proofs, urlParams.user).pipe(
             Effect.map((sessions) => new TerminalSessionList({ items: sessions.map(toSession) })),
             Effect.mapError((error) => (error.status === 404 ? vmNotFound() : unavailable())),
           ),
-        );
+          "pty-list"));
       }),
     )
     .handle("closeTerminal", ({ path, urlParams }) =>
@@ -123,7 +138,7 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
             );
             return new ClosedTerminal({ sessionId: closed.sessionId, exitCode: closed.exitCode ?? null });
           }),
-        );
+          "pty-close");
       }),
     ),
 );

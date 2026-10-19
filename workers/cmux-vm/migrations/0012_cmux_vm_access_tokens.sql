@@ -16,5 +16,9 @@ CREATE TABLE IF NOT EXISTS cmux_vm.access_tokens (
 CREATE INDEX IF NOT EXISTS access_tokens_tenant_created_idx
   ON cmux_vm.access_tokens (tenant_id, created_at DESC, id DESC);
 
+CREATE INDEX IF NOT EXISTS access_tokens_expiry_identity_idx
+  ON cmux_vm.access_tokens (expires_at)
+  WHERE provider_identity_id IS NOT NULL;
+
 -- The operator grants SELECT, INSERT and UPDATE to the Worker role alongside
 -- the other cmux_vm tables.

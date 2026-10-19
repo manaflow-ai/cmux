@@ -96,7 +96,10 @@ const sendQuietly = (socket: WebSocket, data: string | ArrayBuffer, onFailure: (
  * Accepts `upstream`, pairs it with a new socket for the client, and returns
  * the client's end, to be handed back in the 101 response.
  */
-export function bridgeTerminal(upstream: WebSocket): WebSocket {
+export function bridgeTerminal(
+  upstream: WebSocket,
+  options: { readonly expiresAt?: Date | null; readonly shouldClose?: () => Promise<boolean> } = {},
+): WebSocket {
   const pair = new WebSocketPair();
   const client = pair[0];
   const server = pair[1];
@@ -111,6 +114,21 @@ export function bridgeTerminal(upstream: WebSocket): WebSocket {
   const fail = () => {
     closeQuietly(server, 1011, "terminal connection lost");
     closeQuietly(upstream, 1011, "client connection lost");
+  };
+
+  const expiryTimer = options.expiresAt === undefined || options.expiresAt === null
+    ? undefined
+    : setTimeout(fail, Math.max(0, options.expiresAt.getTime() - Date.now()));
+  const denyTimer = options.shouldClose === undefined
+    ? undefined
+    : setInterval(() => {
+        void options.shouldClose?.().then((close) => {
+          if (close) fail();
+        });
+      }, 30_000);
+  const clearTimers = () => {
+    if (expiryTimer !== undefined) clearTimeout(expiryTimer);
+    if (denyTimer !== undefined) clearInterval(denyTimer);
   };
 
   upstream.addEventListener("message", (event) => {
@@ -133,10 +151,12 @@ export function bridgeTerminal(upstream: WebSocket): WebSocket {
   // Each close is answered on the socket that started it (finishing its closing
   // handshake) and passed on to the other side.
   upstream.addEventListener("close", (event) => {
+    clearTimers();
     closeQuietly(upstream, event.code, "");
     closeQuietly(server, event.code, "");
   });
   server.addEventListener("close", (event) => {
+    clearTimers();
     closeQuietly(server, event.code, "");
     closeQuietly(upstream, event.code, "");
   });

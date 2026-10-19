@@ -282,10 +282,10 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
         ),
       )),
 
-    readFile: (_vm, { owns }, path, range) =>
+    readFile: (_vm, { owns, scope }, path, range) =>
       Effect.flatMap(idOf(owns), (id) => send("readFile", vmPath(id, "/fs/read"), {
         method: "GET",
-        query: { path },
+        query: { path, ...(scope.linuxUser === undefined ? {} : { linuxUser: scope.linuxUser }) },
         ...(range === undefined ? {} : { headers: { range } }),
         timeoutMs: TRANSFER_TIMEOUT_MS,
       }).pipe(
@@ -303,17 +303,17 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
         }),
       )),
 
-    writeFile: (_vm, { owns }, file) =>
+    writeFile: (_vm, { owns, scope }, file) =>
       Effect.flatMap(idOf(owns), (id) => send("writeFile", vmPath(id, "/fs/write"), {
         method: "PUT",
-        query: file.mode === undefined ? { path: file.path } : { path: file.path, mode: String(file.mode) },
+        query: { ...(file.mode === undefined ? { path: file.path } : { path: file.path, mode: String(file.mode) }), ...(scope.linuxUser === undefined ? {} : { linuxUser: scope.linuxUser }) },
         body: { stream: file.body, length: file.length },
         timeoutMs: TRANSFER_TIMEOUT_MS,
       }).pipe(Effect.flatMap(drain))),
 
-    listFiles: (_vm, { owns }, path) =>
+    listFiles: (_vm, { owns, scope }, path) =>
       Effect.flatMap(idOf(owns), (id) =>
-        send("listFiles", vmPath(id, "/fs/dir"), { method: "GET", query: { path } }).pipe(
+        send("listFiles", vmPath(id, "/fs/dir"), { method: "GET", query: { path, ...(scope.linuxUser === undefined ? {} : { linuxUser: scope.linuxUser }) } }).pipe(
           Effect.flatMap(json("listFiles", DirListing)),
           Effect.map((listing) => listing.entries),
         ),

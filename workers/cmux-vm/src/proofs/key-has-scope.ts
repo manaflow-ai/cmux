@@ -11,11 +11,11 @@ import type { Scope } from "../domain/scopes.ts";
 /** The credential behind caller `C` carries scope `S`. */
 export interface KeyHasScope<C, S extends Scope> extends Proof<`KeyHasScope:${S}`, [C]> {
   /** The verifier's Linux-user restriction, when this is an access-token proof. */
-  readonly linuxUser?: string;
+  readonly linuxUser: string | undefined;
 }
 
 export function keyHasScope<C, const S extends Scope>(caller: Named<C, Principal>, scope: S): KeyHasScope<C, S> | null {
   if (!caller.value.scopes.has(scope)) return null;
   const KeyHasScope = defineProof(`KeyHasScope:${scope}`);
-  return Object.freeze({ ...KeyHasScope.prove(caller), ...(caller.value.accessTokenLinuxUser === undefined ? {} : { linuxUser: caller.value.accessTokenLinuxUser }) });
+  return Object.freeze({ ...KeyHasScope.prove(caller), linuxUser: caller.value.accessTokenProof?.linuxUser });
 }

@@ -7,7 +7,6 @@
  * caller's own tenant), then ownership (another tenant's resource is 404).
  */
 import { name, type Named } from "@gdp-ts/core";
-import { HttpServerRequest } from "@effect/platform";
 import { Clock, Effect, Option } from "effect";
 import { AuditStore } from "../db/stores.ts";
 import { auditActorOf, CurrentPrincipal, type Principal } from "../domain/principal.ts";
@@ -19,6 +18,9 @@ import { TenantLimits } from "../limits/service.ts";
 import { TenantPolicy } from "../policy.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
+import { accessTokenAllowsVm } from "../proofs/access-token-allows.ts";
+
+export type AccessTokenRoute = "other" | "exec" | "files-read" | "files-write" | "pty-open" | "pty-attach" | "pty-list" | "pty-close";
 
 /** Logs which dependency failed (an operation name only, never ids or causes) and answers 503. */
 export const dependencyDown =
@@ -82,22 +84,17 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
     vm: Named<V, VmId>,
     proofs: { readonly owns: TenantOwnsResource<C, V>; readonly scope: KeyHasScope<C, S> },
   ) => Effect.Effect<A, E, R>,
+  accessTokenRoute: AccessTokenRoute = "other",
 ) =>
   Effect.gen(function* () {
     const principal = yield* CurrentPrincipal;
-    const request = yield* HttpServerRequest.HttpServerRequest;
+    const accessProof = principal.actor.kind === "access-token" ? principal.accessTokenProof : undefined;
     if (principal.actor.kind === "access-token") {
-      const scopes = new Set(principal.accessTokenScopes ?? []);
-      const path = request.url;
-      if (requiredScope === "vm:exec" && !scopes.has("exec")) return yield* Effect.fail(new Forbidden({ message: "This access token lacks the exec scope" }));
-      const terminalAllowed = path.endsWith("/terminal") || (request.method === "GET" && /\/terminals\/[^/]+$/u.test(path));
-      if (requiredScope === "vm:terminal" && (!scopes.has("pty") || !terminalAllowed)) {
-        return yield* Effect.fail(new Forbidden({ message: "This access token may open or attach PTY sessions only" }));
-      }
-      if (requiredScope === "vm:files") {
-        const needed = request.method === "PUT" ? "files:write" : "files:read";
-        if (!scopes.has(needed)) return yield* Effect.fail(new Forbidden({ message: `This access token lacks the ${needed} scope` }));
-      }
+      const proof = accessProof;
+      if (proof === undefined) return yield* Effect.fail(new Forbidden({ message: "This access token is missing verifier evidence" }));
+      const scopes = new Set(proof.scopes);
+      const needed = accessTokenRoute === "exec" ? "exec" : accessTokenRoute === "files-read" ? "files:read" : accessTokenRoute === "files-write" ? "files:write" : accessTokenRoute.startsWith("pty-") ? "pty" : null;
+      if (needed === null || !scopes.has(needed)) return yield* Effect.fail(new Forbidden({ message: needed === null ? "This access token cannot use this endpoint" : `This access token lacks the ${needed} scope` }));
     }
     return yield* name(principal, rawId, (caller, raw) =>
       Effect.gen(function* () {
@@ -106,6 +103,9 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
         yield* rateLimit(principal, rateClass);
         const parsed = parseVmId(raw.value);
         if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
+        if (principal.actor.kind === "access-token" && (accessProof === undefined || !accessTokenAllowsVm(accessProof, parsed.value))) {
+          return yield* Effect.fail(vmNotFound());
+        }
         return yield* name(parsed.value, (vm) =>
           Effect.gen(function* () {
             const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")));

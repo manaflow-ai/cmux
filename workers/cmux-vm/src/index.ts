@@ -26,6 +26,7 @@ import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/iden
 import { sqlAccessTokenStoreLayer } from "./access-tokens/store.ts";
 import { AccessTokens, makeAccessTokenService, parseAccessTokenKeys } from "./access-tokens/tokens.ts";
 import { upstreamAccessTokensLayer } from "./upstream/live-access-tokens.ts";
+import { sweepExpiredAccessTokenIdentities } from "./access-tokens/sweep.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -142,9 +143,16 @@ const makeHandler = (env: Env): ((request: Request) => Promise<Response>) => {
   }
 };
 
+/** Separate scheduled step so another scheduled worker can compose it with one line. */
+export const accessTokenSweepStep = (services: ReturnType<typeof liveServices>): Promise<void> =>
+  Effect.runPromise(Effect.provide(sweepExpiredAccessTokenIdentities, services));
+
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     if (cached === undefined || cached.env !== env) cached = { env, handler: makeHandler(env) };
     return cached.handler(request);
+  },
+  scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): void {
+    context.waitUntil(accessTokenSweepStep(liveServices(env)));
   },
 } satisfies ExportedHandler<Env>;

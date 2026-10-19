@@ -5,6 +5,7 @@
 import { Context } from "effect";
 import type { ApiKeyId, TenantId, UserId } from "../lib/ids.ts";
 import type { Scope } from "./scopes.ts";
+import type { AccessTokenAllows } from "../proofs/access-token-allows.ts";
 
 export type Actor =
   | { readonly kind: "session"; readonly userId: UserId }
@@ -21,9 +22,7 @@ export interface Principal {
   readonly resourceAllowlist: ReadonlySet<string> | null;
   /** When the credential stops working: an API key's expiry; null for a session or a key without one. */
   readonly credentialExpiresAt: Date | null;
-  /** Access-token claims used by the brokered route gate. */
-  readonly accessTokenScopes?: ReadonlyArray<string>;
-  readonly accessTokenLinuxUser?: string;
+  readonly accessTokenProof?: AccessTokenAllows<Principal>;
   /**
    * Set when a device signed this request with its install key (mesh M3/M4):
    * the request runs as `actor` (the device's owner), and the audit log

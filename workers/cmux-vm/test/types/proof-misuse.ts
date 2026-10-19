@@ -11,6 +11,7 @@ import type { VmId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
 import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
+import type { AccessTokenAllows } from "../../src/proofs/access-token-allows.ts";
 
 export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
   Effect.gen(function* () {
@@ -65,3 +66,10 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
       ),
     );
   });
+
+declare const accessProofA: AccessTokenAllows<"caller-a">;
+declare const accessProofB: AccessTokenAllows<"caller-b">;
+const acceptsCallerA = (proof: AccessTokenAllows<"caller-a">) => proof;
+// @ts-expect-error access-token proof evidence is bound to its caller
+acceptsCallerA(accessProofB);
+acceptsCallerA(accessProofA);
