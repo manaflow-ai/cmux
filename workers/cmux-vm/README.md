@@ -81,6 +81,15 @@ creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
 integration tests (fake upstream), the PGlite store tests and the bundle size
 budget. CI runs the same in `.github/workflows/cmux-vm.yml`.
 
+## E2B provider adapter
+
+The E2B adapter lives under `src/providers/e2b/` and is intentionally not wired into the
+Worker router yet. It uses E2B platform REST for sandbox lifecycle and snapshots, and the
+secured envd HTTP API for Connect-framed exec/directory calls and file transfers. E2B pause
+preserves memory and is also the compatibility implementation of `shutdownVm`; E2B has no
+native stopped state, resize operation, or delegated end-user credential, so those capabilities
+remain explicit refusals in `E2B_CAPABILITIES`.
+
 ## Operations
 
 Entitlement until billing exists (`src/proofs/tenant-may-create.ts`): outside
