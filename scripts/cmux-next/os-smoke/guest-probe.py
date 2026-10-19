@@ -251,6 +251,10 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"), "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"),
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+# A release build keeps Chromium's cookie key in the default keychain. Without one (HOME
+# pointed at an empty directory) the key's first write waits on a dialog and no Chromium page loads.
+keychain = subprocess.run(["/usr/bin/security", "default-keychain"], env=env, capture_output=True, text=True, timeout=30)
+step("keychain", keychain.returncode == 0, (keychain.stdout + keychain.stderr).strip()[:300])
 # The guest display before the app starts: shows what the image itself has open.
 subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "png", os.path.join(OUT, "baseline.png")], capture_output=True, timeout=60)
 # A fresh profile for the lazy-launch check: no record of an earlier Chromium tab (ChromiumUseRecord).
