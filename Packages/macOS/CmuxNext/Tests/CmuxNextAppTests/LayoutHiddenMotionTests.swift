@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// Lucas 2026-10-19: a workspace showed nothing, its pane parked one width off the left edge. Its
@@ -11,6 +12,65 @@ import Testing
 struct LayoutHiddenMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
+    }
+
+    final class Screens {
+        let provider = Panes()
+        let model = LayoutModel(screens: [LayoutScreen(id: "s1", name: "s1", layout: .splits(.leaf("p1"))),
+                                          LayoutScreen(id: "s2", name: "s2", layout: .splits(.leaf("p2")))],
+                                activeScreenID: "s1", focusedPane: "p1")
+        let root: LayoutRootView
+        let window: NSWindow
+
+        init() {
+            root = LayoutRootView(model: model, contentProvider: provider)
+            root.context.reduceMotionOverride = false
+            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+            window.contentView = root
+            root.layoutSubtreeIfNeeded()
+        }
+    }
+
+    @Test func showingAfterAnInterruptedScreenSwitchFinishesTheTransition() throws {
+        let fixture = Screens()
+        let root = fixture.root
+        let incoming = try #require(root.screenViews["s2"])
+        let outgoing = try #require(root.screenViews["s1"])
+        fixture.model.selectScreen("s2")
+        root.syncWithModel()
+        #expect(incoming.alphaValue == 0)
+        #expect(!incoming.hasMotion)
+        #expect(root.driver.isRunning)
+
+        // No frame or layout pass may finish the transition before the workspace parks.
+        root.isHidden = true
+        #expect(!root.driver.isRunning)
+        root.isHidden = false
+        #expect(root.isLive)
+        #expect(root.driver.isRunning, "the incoming screen needs scheduled frames even when its panes are settled")
+        let scheduler = FrameScheduler.forWindow(fixture.window)
+        for tick in 0..<240 {
+            if !root.driver.isRunning { break }
+            scheduler.frameDidFire(timestamp: Double(tick) / 120)
+        }
+        #expect(!incoming.isHidden)
+        #expect(incoming.alphaValue == 1)
+        #expect(incoming.frame.origin == root.bounds.origin)
+        #expect(outgoing.isHidden)
+        #expect(!root.driver.isRunning)
+    }
+
+    @Test func showingAnUnchangedSettledRootLeavesTheDriverIdle() {
+        let fixture = Screens()
+        let root = fixture.root
+        #expect(!root.screenViews.values.contains(where: \.hasMotion))
+        #expect(!root.driver.isRunning)
+        root.isHidden = true
+        root.isHidden = false
+        #expect(root.isLive)
+        #expect(root.driver.isAttached)
+        #expect(!root.driver.isRunning)
     }
 
     @Test func hidingTheLayoutEndsItsMotion() {
