@@ -10,6 +10,7 @@ import { withGrantClasses, withLiveSsoTeam } from "../src/auth.ts"
 import { approvalDigest } from "../src/integrations/approval-gate.ts"
 import { approvalByRequest, insertApproval, APPROVAL_TTL_MS } from "../src/integrations/approvals.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+import { ReplicaStore } from "../src/host-replica/store.ts"
 
 /**
  * cx-44j.47: removing a member from a team revokes that member's installs bound to the team and
@@ -222,6 +223,9 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
         ...hostUpsert({ id: laterHost, name: "later box", platform: "linux", owner_user: member.user, enrolled_by: "inst_box3", enrolled_at: now + 3_600_000, kind: "server" })
       ])
     })
+    // Each host has a stored replica stream (object-sync phase 3).
+    const hostDO = (id: string) => testEnv.HOST_DO.get(testEnv.HOST_DO.idFromName(id))
+    for (const id of [hostId, otherHost]) await inDO(hostDO(id), async (_i, st) => void new ReplicaStore(st.storage.sql).putSnapshot(`host:${id}/session`, 1, "{}"))
     const krlBefore = await inDO(team(owner.team), async (instance) => instance.boundEngine.currentState.ssh_krl?.version ?? 0)
     await removeMember(owner.team, member.user)
     const after = await inDO(team(owner.team), async (instance) => ({ krl: instance.boundEngine.currentState.ssh_krl?.version ?? 0, pending: instance.boundEngine.currentState.member_cleanup ?? {}, revoked: Object.keys(instance.boundEngine.currentState.ssh_revoked ?? {}), host: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, hostId), other: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, otherHost), later: hostOf(instance.boundEngine.currentState, instance.boundEngine.rows, laterHost) }))
@@ -234,11 +238,12 @@ describe("team member removal (cx-44j.47)", { timeout: 60_000 }, () => {
     // The host stays for an owner to reassign; it says whose it was.
     expect(after.host).toMatchObject({ id: hostId, owner_user: member.user, orphaned: { former_owner: member.user } })
     expect(after.other?.orphaned).toBeUndefined()
-    // The orphaned host's read replica is dropped (object-sync phase 3); another member's host keeps its replica.
+    // The orphaned host's replica is purged but not tombstoned (the former owner may enroll it again
+    // after rejoining); another member's host keeps its replica.
     await fireAlarm(team(owner.team))
-    const dropped = (id: string) => inDO(testEnv.HOST_DO.get(testEnv.HOST_DO.idFromName(id)), async (_i, st) => st.storage.sql.exec(`SELECT reason FROM replica_dropped`).toArray())
-    expect(await dropped(hostId)).toEqual([{ reason: "the host's owner left the team" }])
-    expect(await dropped(otherHost)).toEqual([])
+    const replica = (id: string) => inDO(hostDO(id), async (_i, st) => ({ streams: Object.keys(new ReplicaStore(st.storage.sql).heads()), dropped: st.storage.sql.exec(`SELECT 1 FROM sqlite_master WHERE name = 'replica_dropped'`).toArray().length > 0 ? st.storage.sql.exec(`SELECT reason FROM replica_dropped`).toArray() : [] }))
+    expect(await replica(hostId)).toEqual({ streams: [], dropped: [] })
+    expect(await replica(otherHost)).toEqual({ streams: [`host:${otherHost}/session`], dropped: [] })
   })
 
   it("ends the member's SSO sessions of the team, so no new install gets the team's SSO from them", async () => {

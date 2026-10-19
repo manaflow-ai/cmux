@@ -4,7 +4,7 @@ import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domai
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
-import { can, firstOwner, homeCoMembersOf, hostOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { can, firstOwner, homeCoMembersOf, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -205,7 +205,9 @@ export class TeamDO extends OwnerDO<TeamState> {
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
     const leaving = hostsLeavingOwner(op, frames)
     if (leaving.length > 0) {
-      this.replicaDrops.queue(leaving, op === "team.member.cleaned" ? "the host's owner left the team" : "the host was removed", Date.now())
+      this.replicaDrops.queue(leaving, Date.now())
+      // The alarm is armed before the call, so an eviction during it still retries.
+      this.scheduleAlarm()
       this.ctx.waitUntil(this.replicaDrops.flush(Date.now()).finally(() => this.scheduleAlarm()))
     }
     if (op === "team.member.remove") this.cleanupMembers()
@@ -384,6 +386,8 @@ export class TeamDO extends OwnerDO<TeamState> {
     const record = hostOf(this.bind(entity).currentState, this.rows, host)
     // An orphaned host (its owner left the team) has no owner to read it until a team owner reassigns it.
     if (!record || record.owner_user !== principal.user || record.orphaned) return null
+    // A removed member's hosts are orphaned by the cleanup a moment later; no socket opens in between.
+    if (!memberOf(this.bind(entity).currentState, this.rows, principal.user)) return null
     return principal.kind === "install" && principal.install === record.enrolled_by ? "publisher" : "reader"
   }
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending

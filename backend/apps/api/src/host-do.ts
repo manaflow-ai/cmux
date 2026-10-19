@@ -102,6 +102,11 @@ export class HostDO extends DurableObject<Env> {
     server.serializeAttachment({ role, principal, id, streams: [] } satisfies ReplicaAttachment)
     this.registerSocket(server, principal, host)
     await this.armExpiry()
+    // A drop that ran during the await closed this socket; touch nothing it purged.
+    if (this.replicaDropped() || server.readyState !== WebSocket.READY_STATE_OPEN) {
+      closeQuietly(server, 4403, "replica dropped")
+      return new Response("gone", { status: 410 })
+    }
     if (role === "publisher") wire.publisherOpened(server, id)
     else wire.readerOpened(server, principal)
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
@@ -127,10 +132,11 @@ export class HostDO extends DurableObject<Env> {
 
   /**
    * RPC from TeamDO (team-host-replica-drop.ts): the host was removed or its owner left the team.
-   * Forgets every stored stream and closes every replica socket; later upgrades get 410. Idempotent.
+   * Forgets every stored stream and closes every replica socket. A removed host (`tombstone`) also
+   * answers later upgrades 410; an orphaned one keeps its id and may be enrolled again. Idempotent.
    */
-  async dropReplica(reason: string): Promise<boolean> {
-    if (!this.replicaDropped()) this.ctx.storage.sql.exec(`INSERT INTO replica_dropped (id, at, reason) VALUES (1, ?, ?)`, Date.now(), reason.slice(0, 200))
+  async dropReplica(reason: string, tombstone: boolean): Promise<boolean> {
+    if (tombstone && !this.replicaDropped()) this.ctx.storage.sql.exec(`INSERT INTO replica_dropped (id, at, reason) VALUES (1, ?, ?)`, Date.now(), reason.slice(0, 200))
     new ReplicaStore(this.ctx.storage.sql).purge()
     for (const ws of this.ctx.getWebSockets()) if (isReplica(ws.deserializeAttachment())) closeQuietly(ws, 4403, reason.slice(0, 100))
     return true
