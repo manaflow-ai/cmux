@@ -177,13 +177,6 @@ export interface UpstreamClientService {
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> },
   ) => Effect.Effect<"deleted" | "gone", UpstreamError>;
-  /** Snapshots a VM for a fork. The snapshot's upstream name carries the tenant id and its cmux id. */
-  readonly snapshotForFork: <C, R>(
-    caller: Named<C, Principal>,
-    vm: Named<R, VmId>,
-    spec: { readonly cmuxId: SnapshotId },
-    proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C>; readonly mayCreate: TenantMayCreate<C, "vm"> },
-  ) => Effect.Effect<CreatedResource, UpstreamError>;
   /** Deletes a snapshot; "gone" when the provider no longer had it. */
   readonly deleteSnapshot: <C, S>(
     snapshot: Named<S, SnapshotId>,

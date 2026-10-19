@@ -8,6 +8,21 @@ import { snapshotNotFound, unavailable } from "../errors.ts";
 import { parseSnapshotId, type SnapshotId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import type { SnapshotCapture, SnapshotKeyFence } from "../limits/snapshot-capture.ts";
+import { scopedForkSnapshotKey } from "../auth/idempotency-key.ts";
+import type { KeyHasScope } from "./key-has-scope.ts";
+
+/** VM write authority delegated only to this fork's exact intermediate snapshot. */
+export interface ForkSnapshotAccess<C, S> extends Proof<"ForkSnapshotAccess", [C, S]> {}
+const ForkAccess = defineProof("ForkSnapshotAccess");
+export type CaptureWriteScope<C, S> = KeyHasScope<C, "snapshot:write"> | ForkSnapshotAccess<C, S>;
+export const forkSnapshotAccess = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, key: string, _scope: KeyHasScope<C, "vm:write">) => Effect.gen(function* () {
+  const parent = yield* (yield* TenantLimits).inspect(caller.value.tenantId, key).pipe(Effect.mapError(() => unavailable()));
+  const p = parent?.progress, principal = caller.value;
+  if (p?.phase !== "capturing" || p.snapshotId !== snapshot.value || p.captureKey !== (yield* scopedForkSnapshotKey(key))
+    || principal.resourceAllowlist !== null || !carriesRequiredLabels(principal, p.receipt.labels)
+    || (principal.actor.kind === "service" && actorRef(principal.actor) !== p.createdBy)) return yield* Effect.fail(snapshotNotFound());
+  return ForkAccess.prove(caller, snapshot);
+});
 
 export interface AuthorizedSnapshotCapture<C, S> extends Proof<"AuthorizedSnapshotCapture", [C, S]> {}
 const Authorized = defineProof("AuthorizedSnapshotCapture");

@@ -12,3 +12,9 @@ export const scopedSnapshotKey = (key: string) =>
   Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(["key", key])))).pipe(
     Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")),
   );
+
+/** Internal child namespace, disjoint from caller-provided snapshot keys. */
+export const scopedForkSnapshotKey = (parent: string) =>
+  Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(["fork-snapshot:v1", parent])))).pipe(
+    Effect.map((digest) => Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")),
+  );

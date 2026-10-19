@@ -1,3 +1,5 @@
+import { UpstreamSnapshots as importSnapshots } from "../../src/upstream/snapshots.ts";
+import { authorizedSnapshotCapture, forkSnapshotAccess } from "../../src/proofs/snapshot-capture.ts";
 import { pendingVmCreation, cancellingVmCreation } from "../../src/proofs/vm-creation.ts";
 /**
  * Compile-time checks, enforced by `tsc` (this file is in tsconfig's include).
@@ -235,3 +237,19 @@ captures.recoverCapture(captured, { scope: captureScope });
 // @ts-expect-error capture authority for another snapshot cannot authorize this lookup
 captures.recoverCapture(captured, { scope: captureScope, capture: wrongCapture });
 captures.recoverCapture(captured, { scope: captureScope, capture: captureProof });
+
+// Fork delegation cannot turn a general VM write key into snapshot write authority.
+export const forkSnapshotMisuse = (principal: Principal, first: import("../../src/lib/ids.ts").SnapshotId, second: import("../../src/lib/ids.ts").SnapshotId) => Effect.gen(function* () {
+  const snapshots = yield* importSnapshots;
+  yield* name(principal, first, second, (caller, a, b) => Effect.gen(function* () {
+    const scope = keyHasScope(caller, "vm:write");
+    if (scope === null) return;
+    const capture = yield* authorizedSnapshotCapture(caller, a);
+    const access = yield* forkSnapshotAccess(caller, a, "retained-fork", scope);
+    yield* snapshots.recoverCapture(a, { capture, scope: access });
+    // @ts-expect-error VM write scope does not authorize an arbitrary snapshot.
+    yield* snapshots.recoverCapture(a, { capture, scope });
+    // @ts-expect-error Fork A's delegation and capture proof cannot inspect snapshot B.
+    yield* snapshots.recoverCapture(b, { capture, scope: access });
+  }));
+});

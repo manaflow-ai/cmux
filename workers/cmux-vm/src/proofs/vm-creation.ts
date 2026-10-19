@@ -35,6 +35,11 @@ const lookup = <C>(caller: Named<C, Principal>, rawKey: string) => Effect.gen(fu
   const progress = record?.progress;
   const receipt = yield* (yield* OwnershipStore).findCreation(caller.value.tenantId, key).pipe(Effect.mapError(() => unavailable()));
   // A reused key may already have a new intent while an older SQL receipt still exists.
+  if (progress?.phase === "capturing") {
+    if (!allowed(caller.value, progress.vmId, progress.receipt.labels, progress.createdBy) || progress.receipt.id !== progress.vmId) return yield* Effect.fail(vmNotFound());
+    return { status: stateOf({ state: progress.cancelled ? "cancelled" : progress.cancelRequested ? "cancelling" : "pending",
+      id: progress.vmId, receipt: progress.receipt }), pending: null };
+  }
   const journalId = progress?.phase === "creating" || progress?.phase === "done" ? progress.vmId : null;
   if ((progress?.phase === "cancelled" || (progress?.phase === "creating" && progress.cancelRequested === true)) && progress.intent !== undefined) {
     if (!allowed(caller.value, progress.vmId, progress.intent.receipt.labels, progress.createdBy)

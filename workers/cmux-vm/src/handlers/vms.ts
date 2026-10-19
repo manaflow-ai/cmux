@@ -13,6 +13,8 @@
  */
 import { HttpApiBuilder } from "@effect/platform";
 import { creationResult, issueCreation } from "./generated-creation.ts";
+import { scopedForkSnapshotKey } from "../auth/idempotency-key.ts";
+import { acquireForkSnapshot } from "./fork-capture.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
 import { recoverWithdrawnImage } from "./image-recovery.ts";
 import { replayVm } from "./replay-vm.ts";
@@ -23,7 +25,7 @@ import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import { idempotent, requestFingerprint } from "./idempotency.ts";
 import type { VmCreationProbe, RetainedVmCreation } from "../domain/vm-creation.ts";
-import type { IdempotencyProgress } from "../limits/ledger.ts";
+import type { IdempotencyProgress, ForkCaptureProgress } from "../limits/ledger.ts";
 import { resizeVm } from "./resize.ts";
 import { toVm } from "./vm-view.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
@@ -158,12 +160,12 @@ const createRecorded = <C, S>(
     const upstream = yield* UpstreamClient;
     const store = yield* OwnershipStore;
     const policy = yield* TenantPolicy;
-    const parsed = attempt.prior?.phase === "creating" ? parseVmId(attempt.prior.vmId) : Option.some(newVmId());
+    const parsed = (attempt.prior?.phase === "creating" || attempt.prior?.phase === "capturing") ? parseVmId(attempt.prior.vmId) : Option.some(newVmId());
     if (Option.isNone(parsed)) return yield* Effect.fail(unavailable());
     const cmuxId = parsed.value;
-    const createdBy = attempt.prior?.phase === "creating" ? attempt.prior.createdBy : actorRef(caller.value.actor);
+    const createdBy = (attempt.prior?.phase === "creating" || attempt.prior?.phase === "capturing") ? attempt.prior.createdBy : actorRef(caller.value.actor);
     const limits = yield* TenantLimits;
-    const createdAt = new Date(yield* Clock.currentTimeMillis);
+    const createdAt = attempt.prior?.phase === "capturing" ? new Date(attempt.prior.createdAt) : new Date(yield* Clock.currentTimeMillis);
     let intent: RetainedVmCreation | undefined = attempt.prior?.phase === "creating" ? attempt.prior.intent : undefined;
     const dispatch = attempt.prior?.phase === "creating" ? attempt.prior.dispatch : { state: "ready" as const, token: crypto.randomUUID() };
     const journal = {
@@ -180,7 +182,7 @@ const createRecorded = <C, S>(
       rejected: (token: string) => limits.rejectCreateSend(caller.value.tenantId, attempt.key, cmuxId, token).pipe(Effect.mapError(() => new UpstreamError({ operation: "createSendReceipt", status: null }))),
       context: attempt.prior?.phase === "creating" ? attempt.prior.context : null,
       beforeSend: (context: string, probe: VmCreationProbe) => {
-        intent ??= { receipt: { id: cmuxId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds,
+        intent ??= { receipt: attempt.prior?.phase === "capturing" ? attempt.prior.receipt : { id: cmuxId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds,
           ...(proofs.image === undefined ? {} : { bootImage: vmImageEvidenceOf(proofs.image).receipt }),
           ...(proofs.network === undefined ? {} : { initialNetwork: vmNetworkEvidenceOf(proofs.network).receipt }),
         }, probe, floors: spec.size ?? {}, createdAt: createdAt.toISOString() };
@@ -246,7 +248,7 @@ const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScop
   return yield* replayVm(caller, scope, prior.vmId);
 });
 
-const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && prior?.phase === "creating" ? { key, vmId: prior.vmId } : undefined;
+const resumeSlot = (key: string | null, prior: IdempotencyProgress | null) => key !== null && (prior?.phase === "creating" || prior?.phase === "capturing") ? { key, vmId: prior.vmId } : undefined;
 
 const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) =>
   withCaller("vm:write", "write", (caller, scope) =>
@@ -350,8 +352,6 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
           payload.autoDeleteSeconds ?? null,
           sortedLabels(payload.labels),
         ];
-        const upstream = yield* UpstreamClient;
-        const store = yield* OwnershipStore;
         const limits = yield* TenantLimits;
         const generated = idempotencyKey === undefined ? yield* issueCreation(principal, "fork", payload, source.value) : undefined;
         const effectiveKey = generated?.key ?? idempotencyKey;
@@ -364,7 +364,7 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
             if (keyed === null) return yield* Effect.fail(unavailable());
             // Once a snapshot is retained, the source is no longer an input to this attempt.
             // Completed retries authorize the destination above; fresh forks still prove the source.
-            const retainedSnapshot = resumeFrom?.phase === "snapshotted" || resumeFrom?.phase === "creating";
+            const retainedSnapshot = resumeFrom?.phase === "snapshotted" || resumeFrom?.phase === "creating" || resumeFrom?.phase === "capturing";
             const sourceOwns = retainedSnapshot ? null : yield* tenantOwnsVm(caller, source).pipe(Effect.mapError(() => unavailable()));
             if (!retainedSnapshot && sourceOwns === null) return yield* Effect.fail(vmNotFound());
             yield* forbidAllowlisted(principal);
@@ -392,35 +392,19 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
                 } else if (resumeFrom?.phase === "snapshotted") {
                   snapshotId = resumeFrom.snapshotId;
                 } else {
-                  if (sourceOwns === null) return yield* Effect.fail(vmNotFound());
-                  const cmuxId = newSnapshotId();
-                  const taken = yield* upstream
-                    .snapshotForFork(caller, source, { cmuxId }, { owns: sourceOwns, scope, mayCreate })
-                    .pipe(Effect.mapError(onVm("Only a running or paused VM can be forked")));
-                  yield* store
-                    .record({
-                      tenantId: principal.tenantId,
-                      kind: "snapshot",
-                      cmuxId,
-                      upstreamId: taken.upstreamId,
-                      createdBy: actorRef(principal.actor),
-                      createdAt: new Date(yield* Clock.currentTimeMillis),
-                      displayName: null,
-                      // A service key's fork snapshot carries its labels, so its own keyed retry can resume from it.
-                      labels: principal.requiredLabels ?? {},
-                    })
-                    .pipe(
-                      Effect.tapError(() => taken.discard),
-                      Effect.mapError(() => unavailable()),
-                    );
-                  if (keyed !== null) {
-                    // Without this record a retry would take a second snapshot, so a failed write fails the fork;
-                    // the snapshot stays in the tenant's ownership rows.
-                    yield* limits
-                      .advance(principal.tenantId, keyed, { phase: "snapshotted", snapshotId: cmuxId })
-                      .pipe(Effect.mapError(() => unavailable()));
+                  let parent: ForkCaptureProgress;
+                  if (resumeFrom?.phase === "capturing") parent = resumeFrom;
+                  else {
+                    if (sourceOwns === null) return yield* Effect.fail(vmNotFound());
+                    const vmId = newVmId();
+                    parent = { phase: "capturing", vmId, sourceVmId: source.value, snapshotId: newSnapshotId(),
+                      captureKey: yield* scopedForkSnapshotKey(keyed), reservationId: mayCreate.reservationId,
+                      createdBy: actorRef(principal.actor), createdAt: new Date(yield* Clock.currentTimeMillis).toISOString(),
+                      receipt: { id: vmId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds } };
+                    yield* limits.advance(principal.tenantId, keyed, parent).pipe(Effect.mapError(() => unavailable()));
                   }
-                  snapshotId = cmuxId;
+                  snapshotId = yield* acquireForkSnapshot(caller, source, scope, keyed, parent);
+                  resumeFrom = parent;
                 }
                 const parsed = parseSnapshotId(snapshotId);
                 if (Option.isNone(parsed)) return yield* Effect.fail(unavailable());

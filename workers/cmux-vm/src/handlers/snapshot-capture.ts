@@ -8,8 +8,8 @@ import { actorRef, carriesRequiredLabels, type Principal } from "../domain/princ
 import { Conflict, Forbidden, PaymentRequired, QuotaExceeded, NotFound, ServiceUnavailable, snapshotNotFound, unavailable, vmNotFound } from "../errors.ts";
 import { newSnapshotId, parseSnapshotId, parseVmId, type SnapshotId, type VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
-import type { SnapshotCapture } from "../limits/snapshot-capture.ts";
-import { authorizedSnapshotCapture, legacySnapshotCaptureStatus, snapshotFenceAllowed, snapshotCaptureEvidenceOf, type AuthorizedSnapshotCapture } from "../proofs/snapshot-capture.ts";
+import type { SnapshotCapture, SnapshotCaptureResult } from "../limits/snapshot-capture.ts";
+import { authorizedSnapshotCapture, legacySnapshotCaptureStatus, snapshotFenceAllowed, snapshotCaptureEvidenceOf, type AuthorizedSnapshotCapture, type CaptureWriteScope } from "../proofs/snapshot-capture.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { tenantOwnsCapturedSnapshot, tenantOwnsSnapshot, tenantOwnsVm } from "../proofs/tenant-owns-resource.ts";
@@ -53,7 +53,7 @@ const commit = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId
   return toSnapshot(record, created);
 });
 
-const replay = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, scope: KeyHasScope<C, "snapshot:write">, capture?: AuthorizedSnapshotCapture<C, S>) => Effect.gen(function* () {
+const replay = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, scope: CaptureWriteScope<C, S>, capture?: AuthorizedSnapshotCapture<C, S>) => Effect.gen(function* () {
   const store = yield* SnapshotStore;
   const owns = yield* (capture === undefined ? tenantOwnsSnapshot(caller, snapshot) : tenantOwnsCapturedSnapshot(caller, snapshot, capture)).pipe(Effect.mapError(() => unavailable()));
   const row = yield* store.describe(caller.value.tenantId, snapshot.value).pipe(Effect.mapError(() => unavailable()));
@@ -63,7 +63,7 @@ const replay = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId
     ttlSeconds: live.ttlSeconds ?? null, autoDeleteSeconds: live.autoDeleteSeconds ?? null });
 });
 
-const runCapture = <C, V, S>(caller: Named<C, Principal>, vm: Named<V, VmId>, snapshot: Named<S, SnapshotId>, scope: KeyHasScope<C, "snapshot:write">) => Effect.gen(function* () {
+const runCapture = <C, V, S>(caller: Named<C, Principal>, vm: Named<V, VmId>, snapshot: Named<S, SnapshotId>, scope: CaptureWriteScope<C, S>) => Effect.gen(function* () {
   const capture = yield* authorizedSnapshotCapture(caller, snapshot), record = snapshotCaptureEvidenceOf(capture);
   if (record.state === "committed") return yield* replay(caller, snapshot, scope, capture);
   if (record.state !== "pending") return yield* Effect.fail(new Conflict({ message: "This snapshot capture cannot be sent", pendingSnapshotId: snapshot.value }));
@@ -76,6 +76,27 @@ const runCapture = <C, V, S>(caller: Named<C, Principal>, vm: Named<V, VmId>, sn
   const created = yield* upstream.capture(vm, snapshot, { owns, scope, mayCreate, capture }, caller.value.tenantId).pipe(Effect.mapError((error) =>
     error.status === 404 ? new NotFound({ message: "VM not found", pendingSnapshotId: snapshot.value }) : error.status === 409 ? new Conflict({ message: "The VM must be running or paused to snapshot it", pendingSnapshotId: snapshot.value }) : retained(snapshot.value)));
   return yield* commit(caller, snapshot, capture, created);
+});
+
+/** Shared admission and single-send path for ordinary captures and fork intermediates. */
+export const resumeSnapshotCapture = <C, V, S>(caller: Named<C, Principal>, vm: Named<V, VmId>, snapshot: Named<S, SnapshotId>, scope: CaptureWriteScope<C, S>, result: Extract<SnapshotCaptureResult, { state: "record" }>) => Effect.gen(function* () {
+  const limits = yield* TenantLimits;
+  yield* authorizedSnapshotCapture(caller, snapshot);
+  if (result.record.state === "claimed") {
+    if (!result.granted) return yield* Effect.fail(new Conflict({ message: "This snapshot capture is being prepared; retry shortly", pendingSnapshotId: snapshot.value }));
+    yield* Effect.gen(function* () {
+      const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+      if (owns === null) return yield* Effect.fail(vmNotFound());
+      const mayCreate = yield* slot(caller);
+      yield* Effect.gen(function* () {
+        const probe = yield* (yield* UpstreamSnapshots).prepareCapture(vm, { owns, scope }, result.record.intent).pipe(Effect.mapError(() => unavailable()));
+        const prepared = yield* limits.snapshotCapture(caller.value.tenantId, { op: "prepare", id: snapshot.value,
+          nonce: result.record.nonce, probe, reservationId: mayCreate.reservationId }).pipe(Effect.mapError(() => retained(snapshot.value)));
+        if (prepared.state !== "record" || !prepared.granted) return yield* Effect.fail(retained(snapshot.value));
+      }).pipe(Effect.ensuring(limits.release(caller.value.tenantId, mayCreate.reservationId)));
+    }).pipe(Effect.tapError(() => limits.snapshotCapture(caller.value.tenantId, { op: "yield", id: snapshot.value }).pipe(Effect.ignore)));
+  }
+  return yield* runCapture(caller, vm, snapshot, scope);
 });
 
 export const createSnapshotCapture = (rawVm: string, payload: CreateSnapshotRequest, rawKey: string | undefined) => withCaller("snapshot:write", "write", (caller, scope) => Effect.gen(function* () {
@@ -110,24 +131,7 @@ export const createSnapshotCapture = (rawVm: string, payload: CreateSnapshotRequ
       return yield* name(oldId.value, (snapshot) => replay(caller, snapshot, scope));
     }
     if (result.state !== "record") return yield* Effect.fail(unavailable());
-    return yield* name(result.record.intent.id, (snapshot) => audited("snapshot.create", vm.value, Effect.gen(function* () {
-      yield* authorizedSnapshotCapture(caller, snapshot);
-      if (result.record.state === "claimed") {
-        if (!result.granted) return yield* Effect.fail(new Conflict({ message: "This snapshot capture is being prepared; retry shortly", pendingSnapshotId: snapshot.value }));
-        yield* Effect.gen(function* () {
-          const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
-          if (owns === null) return yield* Effect.fail(vmNotFound());
-          const mayCreate = yield* slot(caller);
-          yield* Effect.gen(function* () {
-            const probe = yield* (yield* UpstreamSnapshots).prepareCapture(vm, { owns, scope }, result.record.intent).pipe(Effect.mapError(() => unavailable()));
-            const prepared = yield* limits.snapshotCapture(caller.value.tenantId, { op: "prepare", id: snapshot.value,
-              nonce: result.record.nonce, probe, reservationId: mayCreate.reservationId }).pipe(Effect.mapError(() => retained(snapshot.value)));
-            if (prepared.state !== "record" || !prepared.granted) return yield* Effect.fail(retained(snapshot.value));
-          }).pipe(Effect.ensuring(limits.release(caller.value.tenantId, mayCreate.reservationId)));
-        }).pipe(Effect.tapError(() => limits.snapshotCapture(caller.value.tenantId, { op: "yield", id: snapshot.value }).pipe(Effect.ignore)));
-      }
-      return yield* runCapture(caller, vm, snapshot, scope);
-    }), (value) => value.id));
+    return yield* name(result.record.intent.id, (snapshot) => audited("snapshot.create", vm.value, resumeSnapshotCapture(caller, vm, snapshot, scope, result), (value) => value.id));
   }));
 })).pipe(Effect.uninterruptible);
 
@@ -163,7 +167,7 @@ export const listSnapshotCaptures = (cursor: string | undefined, limit: number) 
   return new SnapshotCreationList({ items: items.filter((item) => item !== null), nextCursor: page.nextCursor });
 }));
 
-export const reconcileCapturedSnapshot = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, scope: KeyHasScope<C, "snapshot:write">) => Effect.gen(function* () {
+export const reconcileCapturedSnapshot = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, scope: CaptureWriteScope<C, S>) => Effect.gen(function* () {
   const capture = yield* authorizedSnapshotCapture(caller, snapshot), record = snapshotCaptureEvidenceOf(capture);
   if (record.state === "pending" || record.state === "cancelling") {
     const store = yield* SnapshotStore, upstream = yield* UpstreamSnapshots, limits = yield* TenantLimits;

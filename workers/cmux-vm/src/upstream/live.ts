@@ -28,7 +28,6 @@ import {
 import { execResultStream } from "./exec-stream.ts";
 import { upstreamName } from "./naming.ts";
 
-const CreatedSnapshot = Schema.Struct({ snapshotId: UpstreamId });
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
 });
@@ -77,7 +76,6 @@ const SLOW_TIMEOUT_MS = 120_000;
 const TRANSFER_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_EXEC_TIMEOUT_MS = 30_000;
 /** Snapshots taken for a fork are deleted after a successful fork; this is the backstop for failed ones. */
-const FORK_SNAPSHOT_AUTO_DELETE_SECONDS = 24 * 60 * 60;
 /** Provider metadata values are at most 63 characters. */
 
 interface SendInit {
@@ -199,7 +197,6 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     );
   };
 
-  const discardSnapshot = (id: UpstreamId) => deleteById("discardSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`).pipe(Effect.ignore);
 
   return {
     ...vmInstanceIdentity,
@@ -248,16 +245,6 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       )),
 
     deleteVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => deleteById("deleteVm", vmPath(id))),
-
-    snapshotForFork: (caller, _vm, spec, { owns }) =>
-      Effect.flatMap(idOf(owns), (id) => send("snapshotVm", vmPath(id, "/snapshot"), {
-        method: "POST",
-        json: { displayName: upstreamName(config.environment, caller.value.tenantId, spec.cmuxId), autoDeleteSeconds: FORK_SNAPSHOT_AUTO_DELETE_SECONDS },
-        timeoutMs: SLOW_TIMEOUT_MS,
-      }).pipe(
-        Effect.flatMap(json("snapshotVm", CreatedSnapshot)),
-        Effect.map(({ snapshotId }) => ({ upstreamId: snapshotId, discard: discardSnapshot(snapshotId) })),
-      )),
 
     deleteSnapshot: (_snapshot, { owns }) =>
       Effect.flatMap(idOf(owns), (id) => deleteById("deleteSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`)),

@@ -1,4 +1,5 @@
 /** Reconcile only an already admitted allocation; never create, grow or start a VM. */
+import { reconcileForkCapture } from "./fork-capture.ts";
 import { name, type Named } from "@gdp-ts/core";
 import { Effect } from "effect";
 import { OwnershipStore } from "../db/stores.ts";
@@ -12,6 +13,8 @@ import { scopedCreationKey } from "../auth/idempotency-key.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
 
 export const reconcileCreation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: string, expectedId?: string) => Effect.gen(function* () {
+  const fork = yield* reconcileForkCapture(caller, scope, key);
+  if (fork !== null) return fork;
   const status = yield* readVmCreation(caller, key);
   if (expectedId !== undefined && status.id !== expectedId) return yield* Effect.fail(unavailable());
   if (status.state === "cancelling" || status.state === "cancelled") return status;

@@ -177,6 +177,9 @@ jobs:
       - name: Snapshot key fences survive the previous capture engine
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun scripts/test-snapshot-key-fence-compat.ts
+      - name: Fork capture intent survives the previous ledger
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-fork-capture-compat.ts
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg

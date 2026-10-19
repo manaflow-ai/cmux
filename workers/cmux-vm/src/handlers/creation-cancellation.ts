@@ -1,3 +1,4 @@
+import { reconcileForkCapture } from "./fork-capture.ts";
 import { scopedCreationKey } from "../auth/idempotency-key.ts";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect } from "effect";
@@ -14,6 +15,8 @@ import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
 
 /** A prior cancellation is advanced only by verified identity, deletion and a durable tombstone. */
 export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: string) => Effect.gen(function* () {
+  const fork = yield* reconcileForkCapture(caller, scope, key);
+  if (fork !== null) return fork;
   const status = yield* readVmCreation(caller, key);
   if (status.state === "cancelled" && status.id !== null) {
     const record = yield* (yield* TenantLimits).inspect(caller.value.tenantId, yield* scopedCreationKey(caller.value, key)).pipe(Effect.mapError(() => unavailable()));
@@ -53,6 +56,13 @@ export const cancelVmCreation = (key: string) => withCaller("vm:write", "write",
   if (status.state === "deleted") return status;
   if (status.state === "cancelling" || status.state === "cancelled") return yield* continueCancellation(caller, scope, key);
   if (status.state !== "pending" || status.id === null) return yield* Effect.fail(conflict("Only a pending creation can be cancelled; delete a completed VM by its id"));
+  const limits = yield* TenantLimits, scoped = yield* scopedCreationKey(caller.value, key);
+  const prior = yield* limits.inspect(caller.value.tenantId, scoped).pipe(Effect.mapError(() => unavailable()));
+  if (prior?.progress.phase === "capturing" && prior.progress.vmId === status.id) {
+    yield* limits.cancelCreation(caller.value.tenantId, scoped, status.id).pipe(Effect.mapError(() => unavailable()));
+    const result = yield* reconcileForkCapture(caller, scope, key);
+    return result === null ? yield* Effect.fail(unavailable()) : result;
+  }
   yield* name(status.id, (vm) => Effect.gen(function* () {
     const pending = yield* pendingVmCreation(caller, vm, key);
     if (pending === null) return yield* Effect.fail(conflict("The creation changed; inspect its status"));

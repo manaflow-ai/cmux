@@ -5,7 +5,7 @@
  * provider id), the scope, and for creates the tenant's entitlement.
  * See upstream/PINNED.json for the pinned provider API surface.
  */
-import type { AuthorizedSnapshotCapture } from "../proofs/snapshot-capture.ts";
+import type { AuthorizedSnapshotCapture, CaptureWriteScope } from "../proofs/snapshot-capture.ts";
 import type { SnapshotCaptureIntent, SnapshotCaptureProbe } from "../limits/snapshot-capture.ts";
 import type { TenantLimits } from "../limits/service.ts";
 import type { Named } from "@gdp-ts/core";
@@ -32,9 +32,9 @@ export interface CreatedSnapshot {
 }
 
 export interface UpstreamSnapshotsService {
-  readonly prepareCapture: <C, V>(vm: Named<V, VmId>, proofs: { readonly owns: TenantOwnsResource<C, V>; readonly scope: KeyHasScope<C, "snapshot:write"> }, intent: SnapshotCaptureIntent) => Effect.Effect<SnapshotCaptureProbe, UpstreamError>;
-  readonly capture: <C, V, S>(vm: Named<V, VmId>, snapshot: Named<S, SnapshotId>, proofs: { readonly owns: TenantOwnsResource<C, V>; readonly scope: KeyHasScope<C, "snapshot:write">; readonly mayCreate: TenantMayCreate<C, "snapshot">; readonly capture: AuthorizedSnapshotCapture<C, S> }, tenantId: TenantId) => Effect.Effect<CreatedSnapshot, UpstreamError, TenantLimits>;
-  readonly recoverCapture: <C, S>(snapshot: Named<S, SnapshotId>, proofs: { readonly capture: AuthorizedSnapshotCapture<C, S>; readonly scope: KeyHasScope<C, "snapshot:read"> | KeyHasScope<C, "snapshot:write"> }) => Effect.Effect<CreatedSnapshot | null, UpstreamError>;
+  readonly prepareCapture: <C, V, S>(vm: Named<V, VmId>, proofs: { readonly owns: TenantOwnsResource<C, V>; readonly scope: CaptureWriteScope<C, S> }, intent: SnapshotCaptureIntent) => Effect.Effect<SnapshotCaptureProbe, UpstreamError>;
+  readonly capture: <C, V, S>(vm: Named<V, VmId>, snapshot: Named<S, SnapshotId>, proofs: { readonly owns: TenantOwnsResource<C, V>; readonly scope: CaptureWriteScope<C, S>; readonly mayCreate: TenantMayCreate<C, "snapshot">; readonly capture: AuthorizedSnapshotCapture<C, S> }, tenantId: TenantId) => Effect.Effect<CreatedSnapshot, UpstreamError, TenantLimits>;
+  readonly recoverCapture: <C, S>(snapshot: Named<S, SnapshotId>, proofs: { readonly capture: AuthorizedSnapshotCapture<C, S>; readonly scope: KeyHasScope<C, "snapshot:read"> | CaptureWriteScope<C, S> }) => Effect.Effect<CreatedSnapshot | null, UpstreamError>;
 
   /** Undoes a create whose ownership row could not be written. Accepts only a value the verified capture client returned. */
   readonly discardCreatedSnapshot: (created: CreatedSnapshot) => Effect.Effect<void, UpstreamError>;
@@ -43,12 +43,12 @@ export interface UpstreamSnapshotsService {
     snapshot: Named<S, SnapshotId>,
     proofs: {
       readonly owns: TenantOwnsResource<C, S>;
-      readonly scope: KeyHasScope<C, "snapshot:read"> | KeyHasScope<C, "snapshot:write">;
+      readonly scope: KeyHasScope<C, "snapshot:read"> | CaptureWriteScope<C, S>;
     },
   ) => Effect.Effect<UpstreamSnapshot, UpstreamError>;
   readonly deleteSnapshot: <C, S>(
     snapshot: Named<S, SnapshotId>,
-    proofs: { readonly owns: TenantOwnsResource<C, S>; readonly scope: KeyHasScope<C, "snapshot:write"> },
+    proofs: { readonly owns: TenantOwnsResource<C, S>; readonly scope: CaptureWriteScope<C, S> },
   ) => Effect.Effect<void, UpstreamError>;
 }
 
