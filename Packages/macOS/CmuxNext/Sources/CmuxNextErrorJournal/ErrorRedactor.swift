@@ -43,7 +43,7 @@ public struct ErrorRedactor {
             pattern: #"\b([A-Za-z_][A-Za-z0-9_-]*)((?:(?:\\+)?["'])?\s*[:=]\s*)"#
         )
         queryAssignments = try! NSRegularExpression( // swiftlint:disable:this force_try
-            pattern: #"(^|[?#&;\s])([^=?&#;\s]+)=([^&#;\s"']*)"#
+            pattern: #"(?=(^|[?#&;\s="'=(:,])([^=?&#;\s"']+)=)"#
         )
     }
 
@@ -82,10 +82,19 @@ public struct ErrorRedactor {
         let source = text as NSString
         let result = NSMutableString(string: text)
         let matches = queryAssignments.matches(in: text, range: NSRange(location: 0, length: source.length))
-        for match in matches.reversed() {
+        var ranges: [NSRange] = []
+        var coveredUntil = 0
+        for match in matches {
             let key = source.substring(with: match.range(at: 2))
             guard Self.isSensitiveQueryKey(key) else { continue }
-            result.replaceCharacters(in: match.range(at: 3), with: "<redacted>")
+            let valueStart = NSMaxRange(match.range(at: 2)) + 1
+            guard valueStart >= coveredUntil else { continue }
+            let valueEnd = Self.queryValueEnd(in: source, from: valueStart)
+            ranges.append(NSRange(location: valueStart, length: valueEnd - valueStart))
+            coveredUntil = valueEnd
+        }
+        for range in ranges.reversed() {
+            result.replaceCharacters(in: range, with: "<redacted>")
         }
         return result as String
     }
@@ -137,7 +146,12 @@ public struct ErrorRedactor {
         let quote = source.character(at: quoteIndex)
         guard quote == 34 || quote == 39 else {
             var end = start
-            while end < source.length, !isUnquotedBoundary(source.character(at: end)) { end += 1 }
+            while end < source.length, !isUnquotedBoundary(source.character(at: end)) {
+                if isHorizontalWhitespace(source.character(at: end)), hasAssignmentAfterWhitespace(in: source, from: end) {
+                    return end
+                }
+                end += 1
+            }
             return end
         }
 
@@ -162,7 +176,43 @@ public struct ErrorRedactor {
     }
 
     private static func isUnquotedBoundary(_ character: unichar) -> Bool {
+        character == 10 || character == 13 || character == 38 || character == 44 || character == 59 || character == 125
+    }
+
+    private static func hasAssignmentAfterWhitespace(in source: NSString, from start: Int) -> Bool {
+        var index = start
+        while index < source.length, isHorizontalWhitespace(source.character(at: index)) { index += 1 }
+        guard index < source.length, isAssignmentKeyStart(source.character(at: index)) else { return false }
+        index += 1
+        while index < source.length, isAssignmentKeyCharacter(source.character(at: index)) { index += 1 }
+        while index < source.length, isHorizontalWhitespace(source.character(at: index)) { index += 1 }
+        guard index < source.length else { return false }
+        let separator = source.character(at: index)
+        return separator == 58 || separator == 61
+    }
+
+    private static func isHorizontalWhitespace(_ character: unichar) -> Bool {
+        character == 9 || character == 11 || character == 12 || character == 32
+    }
+
+    private static func isAssignmentKeyStart(_ character: unichar) -> Bool {
+        (character >= 65 && character <= 90) || character == 95 || (character >= 97 && character <= 122)
+    }
+
+    private static func isAssignmentKeyCharacter(_ character: unichar) -> Bool {
+        isAssignmentKeyStart(character) || (character >= 48 && character <= 57)
+            || character == 45 || character == 46 || character == 91 || character == 93
+    }
+
+    private static func queryValueEnd(in source: NSString, from start: Int) -> Int {
+        var end = start
+        while end < source.length, !isQueryValueBoundary(source.character(at: end)) { end += 1 }
+        return end
+    }
+
+    private static func isQueryValueBoundary(_ character: unichar) -> Bool {
         character == 9 || character == 10 || character == 11 || character == 12 || character == 13 || character == 32
-            || character == 38 || character == 44 || character == 59 || character == 125
+            || character == 34 || character == 35 || character == 38 || character == 39 || character == 44
+            || character == 59 || character == 63 || character == 125
     }
 }
