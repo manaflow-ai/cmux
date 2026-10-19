@@ -220,6 +220,11 @@ def handle_prompt(rid, params):
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
     # with a transport error once per session; "net-down" fails it and every later prompt of
     # the session the same way. Any other prompt after a net-fail-once is answered as usual.
+    # "net-fail-then-exit" fails with that transport error, then the agent exits.
+    if text == "net-fail-then-exit":
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        time.sleep(0.05)
+        os._exit(0)
     # "net-refused-later" waits a moment, then fails with a refused connection.
     if text == "net-refused-later":
         time.sleep(0.5)
@@ -626,6 +631,13 @@ def handle_prompt(rid, params):
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
+# FAKE_PICKER_MODES=claude: each session's model (session/set_model), and the models it offers.
+PICKER_MODELS = {}
+PICKER_EFFORTS = {}
+CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("claude-sonnet-5-5", "Sonnet 5.5"),
+                 ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
+
+
 def main():
     global LAST_MCP_SERVERS
     # `--fake-login` (the terminal sign-in): sign in and exit.
@@ -666,22 +678,45 @@ def main():
             if os.environ.get("FAKE_CALLS") and m != "session/new":
                 with open(os.environ["FAKE_CALLS"], "a") as calls:
                     calls.write(json.dumps({"method": m, "params": params}) + "\n")
-            effort = {"id": "effort", "name": "Reasoning", "category": "thought_level", "type": "select", "currentValue": "high",
+            # =claude also reports the model it runs as Claude Code does, a "model" option, and
+            # tells the client when a set_model changes it; each session keeps its own effort.
+            claude_like = os.environ.get("FAKE_PICKER_MODES") == "claude"
+            sid = params.get("sessionId") or f"{SESSION_PREFIX}{sessions + 1}"
+            if m == "session/set_config_option" and params.get("configId") == "effort":
+                PICKER_EFFORTS[sid] = params.get("value")
+            effort = {"id": "effort", "name": "Reasoning", "category": "thought_level", "type": "select",
+                      "currentValue": PICKER_EFFORTS.get(sid, "high") if claude_like else "high",
                       "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]}
+            if m == "session/set_model" and params.get("modelId") != os.environ.get("FAKE_REFUSE_ID"):
+                PICKER_MODELS[sid] = params.get("modelId")
+            options = [effort] + ([{"id": "model", "name": "Model", "category": "model", "type": "select",
+                                    "currentValue": PICKER_MODELS.get(sid, "default"),
+                                    "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}] if claude_like else [])
             if m == "session/new":
                 sessions += 1
-                result = {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}
-                # FAKE_PICKER_MODES=1: the picker harness reports the two session modes too.
+                result = {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": options}
+                # FAKE_PICKER_MODES=1: the picker harness reports the two session modes too;
+                # =claude: Claude Code's modes, so acpmux's full-access start mode applies.
                 if os.environ.get("FAKE_PICKER_MODES") == "1":
                     result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
+                elif os.environ.get("FAKE_PICKER_MODES") == "claude":
+                    result["modes"] = {"currentModeId": "default", "availableModes": [
+                        {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
+                        {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
                 send({"jsonrpc": "2.0", "id": rid, "result": result})
             elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
             elif m == "session/set_model":
                 send({"jsonrpc": "2.0", "id": rid, "result": {}})
+                if claude_like:
+                    update(sid, {"sessionUpdate": "config_option_update", "configOptions": options})
+            elif params.get("configId") == "model" and claude_like:
+                PICKER_MODELS[sid] = params.get("value")
+                options[-1]["currentValue"] = params.get("value")
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": options}})
             else:
                 effort["currentValue"] = params.get("value")
-                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [effort]}})
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": options}})
             continue
         # FAKE_SETSID_CHILD=<path>: on session/new, start a child that leaves this
         # process group (setsid), as a harness that daemonizes a helper does, and
