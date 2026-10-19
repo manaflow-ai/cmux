@@ -181,6 +181,6 @@ public nonisolated struct SettingsPageLayout: Sendable {
             ]),
         CategorySpec(
             id: "development", title: section(.development), symbol: "hammer",
-            groups: [group("settings.group.macScreen")], aliases: [.development], devOnly: true),
+            groups: [group("settings.group.macScreen"), group("settings.group.deviceHub")], aliases: [.development], devOnly: true),
     ]
 }

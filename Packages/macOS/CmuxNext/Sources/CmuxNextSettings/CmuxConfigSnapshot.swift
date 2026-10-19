@@ -174,6 +174,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var macScreen = MacScreenSettings()
     /// `macScreen.debug.*`: the Development section's Mac Screen switches (DEV builds read them).
     public var macScreenDebug = MacScreenDebugSettings()
+    /// `deviceHub.*`: the Development section's device hub address (DEV builds read it).
+    public var deviceHub = DeviceHubSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -313,6 +315,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreen = MacScreenSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.macScreenDebug = MacScreenDebugSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.deviceHub = DeviceHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
