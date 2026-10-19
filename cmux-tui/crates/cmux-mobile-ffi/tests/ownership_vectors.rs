@@ -124,8 +124,8 @@ fn the_binding_replays_every_trace_of_the_typescript_client() {
         )
         .expect("initial JSON");
         let seen = Arc::new(Seen::default());
-        m.set_listener(Some(seen.clone()));
-        let mut before = m.view();
+        let mut before = m.set_listener(Some(seen.clone()));
+        assert_eq!(before, m.view(), "{name}: set_listener returns the view now");
         for (i, s) in case["steps"].as_array().expect("steps").iter().enumerate() {
             let got = Value::Array(step(&m, &s["in"]));
             let now = m.view();

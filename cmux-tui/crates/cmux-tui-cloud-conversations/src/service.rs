@@ -1193,10 +1193,11 @@ fn pump(
                         StreamAction::Forbidden => return Ended::Forbidden,
                     }
                 }
-                // A stream whose snapshots keep failing keeps its backoff, so
-                // its reconnects slow down; a snapshot that decodes or an
-                // event in order resets it.
-                if stream.is_live() && stream.is_healthy() {
+                // The backoff resets only when the stream works: a snapshot or
+                // an event reached clients and no snapshot is failing. A
+                // welcome alone, or a snapshot that keeps failing, keeps it,
+                // so those reconnects slow down.
+                if stream.take_progress() && stream.is_healthy() {
                     *backoff = inner.options.backoff_min;
                 }
             }

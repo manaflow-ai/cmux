@@ -464,15 +464,22 @@ impl<R: Reducer> StreamMirror<R> {
         SnapshotRetry::At(at)
     }
 
-    /// The caller could not use the snapshot this mirror just applied (a
-    /// relay whose translation failed). The position it gave is forgotten,
-    /// so a later resume subscribes fresh instead of skipping what the
-    /// caller never showed, and the snapshot counts as a failed one.
-    pub fn snapshot_unusable(&mut self, now: i64) -> SnapshotRetry {
+    /// The caller could not use a frame this mirror applied (a relay whose
+    /// translation failed): the position it gave is forgotten, so a later
+    /// resume subscribes fresh instead of skipping what the caller never
+    /// showed. Pair it with [`StreamMirror::resync`].
+    pub fn forget_position(&mut self) {
         self.seq = 0;
         self.positioned = false;
         self.resumed = false;
         self.buffered.clear();
+    }
+
+    /// The caller could not use the snapshot this mirror just applied: its
+    /// position is forgotten ([`StreamMirror::forget_position`]) and it
+    /// counts as a failed snapshot, after the failures before it.
+    pub fn snapshot_unusable(&mut self, now: i64) -> SnapshotRetry {
+        self.forget_position();
         self.snapshot_failures = self.failures_before_snapshot;
         self.snapshot_failed(now)
     }

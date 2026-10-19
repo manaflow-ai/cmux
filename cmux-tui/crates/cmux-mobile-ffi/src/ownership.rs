@@ -61,7 +61,8 @@ pub struct OwnershipIntent {
 /// The mirror as a view renders it.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct OwnershipMirrorView {
-    /// Grows by one with every change the listener is told about; when
+    /// Grows by one with every change the listener is told about (without a
+    /// listener it may also grow on a call that left the view equal); when
     /// several threads call one mirror, keep the view with the highest.
     pub generation: u64,
     pub seq: u64,
@@ -232,7 +233,10 @@ impl OwnershipMirror {
                 Moved::Applied(false) | Moved::Marked => Mark::of(&inner.mirror) != before,
             };
             let mut delivery = None;
-            if maybe {
+            if maybe && inner.listener.is_none() {
+                // Nobody to tell: no view is built under the lock.
+                inner.generation += 1;
+            } else if maybe {
                 let view = view_of(&inner.mirror, inner.generation + 1);
                 let same = inner.told.as_ref().is_some_and(|told| {
                     OwnershipMirrorView { generation: view.generation, ..told.clone() } == view
@@ -277,12 +281,18 @@ impl OwnershipMirror {
         view_of(&inner.mirror, inner.generation)
     }
 
-    /// Replaces the listener; `None` removes it. It is told about changes
-    /// after this call, not about the view now (read [`Self::view`]).
-    pub fn set_listener(&self, listener: Option<Arc<dyn OwnershipMirrorListener>>) {
+    /// Replaces the listener (`None` removes it) and returns the view now:
+    /// render it, and the listener is told every change after it, so no
+    /// change falls between the two.
+    pub fn set_listener(
+        &self,
+        listener: Option<Arc<dyn OwnershipMirrorListener>>,
+    ) -> OwnershipMirrorView {
         let mut inner = self.lock();
-        inner.told = listener.as_ref().map(|_| view_of(&inner.mirror, inner.generation));
+        let now = view_of(&inner.mirror, inner.generation);
+        inner.told = listener.as_ref().map(|_| now.clone());
         inner.listener = listener;
+        now
     }
 
     /// One owner frame of this stream (route frames by `stream`: one mirror

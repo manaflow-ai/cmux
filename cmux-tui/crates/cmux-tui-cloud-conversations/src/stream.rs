@@ -232,6 +232,9 @@ pub(crate) struct StreamState {
     user: Option<String>,
     /// This connection's `welcome` came and the subscribe went out.
     subscribed: bool,
+    /// A snapshot or an event reached clients since the last
+    /// [`StreamState::take_progress`].
+    progressed: bool,
 }
 
 impl StreamState {
@@ -241,7 +244,13 @@ impl StreamState {
         let mirror = StreamMirror::with_reducer(PositionOnly, "daemon-proxy", Value::Null)
             .without_rows()
             .with_snapshot_backoff(backoff);
-        Self { target, mirror, user: None, subscribed: false }
+        Self { target, mirror, user: None, subscribed: false, progressed: false }
+    }
+
+    /// True once after a snapshot or an event reached clients: the stream
+    /// works (a welcome alone does not count).
+    pub(crate) fn take_progress(&mut self) -> bool {
+        std::mem::take(&mut self.progressed)
     }
 
     /// No snapshot failed since the last one that decoded.
@@ -434,10 +443,15 @@ impl StreamState {
         }
         for applied in received.applied {
             match self.translate(applied) {
-                Translated::Emit(event) => actions.push(StreamAction::Emit(event)),
-                Translated::Nothing => {}
-                // The events after it are covered by the snapshot asked for.
+                Translated::Emit(event) => {
+                    self.progressed = true;
+                    actions.push(StreamAction::Emit(event));
+                }
+                Translated::Nothing => self.progressed = true,
+                // The events after it are covered by the snapshot asked for;
+                // a resume before it comes must not skip them.
                 Translated::Resync => {
+                    self.mirror.forget_position();
                     let out = self.mirror.resync();
                     actions.extend(self.send(out));
                     break;

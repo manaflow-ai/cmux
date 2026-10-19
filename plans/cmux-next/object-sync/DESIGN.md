@@ -315,14 +315,17 @@ Per stream: `confirmed {state, seq}`, loaded rows, `pending` intents (ordered), 
   then), so the UI never flickers back to pre-op state.
 - Snapshot: replace confirmed state and rows when `snap.seq >= confirmed.seq`, drop decided keys
   from `pending` and `expired`, then replay buffered events.
-- A snapshot that does not decode (or that the relay cannot use): stay awaiting, keep the buffered
-  events, and send `snapshot.request` again after a backoff (6 attempts after 250 ms, 500 ms, 1 s,
+- A snapshot that does not decode: stay awaiting, keep the buffered events, and send `snapshot.request` again after a backoff (6 attempts after 250 ms, 500 ms, 1 s,
   2 s, 4 s and 8 s; the delay is capped at 30 s). After the last attempt the connection is dropped
   and the next one subscribes again. The failure count carries over (except when another principal
-  signs in, which resets the mirror) until a snapshot is used or an event applies in order, so an
+  signs in, which resets the mirror) until a snapshot decodes or an event applies in order, so an
   owner that keeps sending a bad snapshot is asked once per connection and the transport's
-  reconnect backoff paces it. A snapshot the relay could not use gives no position: the next
-  connection subscribes fresh. An event that does not decode asks for a snapshot at once.
+  reconnect backoff paces it. A snapshot that decodes but that the relay cannot use counts as a
+  failed one after the failures before it; it and an event the relay cannot use give no position
+  (the buffered events they released are dropped, the next snapshot covers them), so the next
+  connection subscribes fresh. An event that does not decode asks for a snapshot at once. The
+  daemon's reconnect backoff resets only after a snapshot or event reached clients with no
+  snapshot failing, not on `welcome`.
 - Reconnect: resend every pending intent with its original key, then request a snapshot. Intents
   older than 24 h expire and are shown, never resent (owners keep decided keys 7 days).
 - Visible state = confirmed + pending intents rendered from their params (a pending bubble, a
@@ -596,7 +599,7 @@ Phase 1, slice 2 (built 2026-10-19):
 - Next slice: the phone's Cloud Chief uses `OwnershipMirror` (phase 2, iOS lane) instead of its
   Swift stream code.
 
-Phase 1, slice 3 (2026-10-18):
+Phase 1, slice 3 (2026-10-19):
 
 - A snapshot that does not decode no longer leaves a stream stuck. `StreamMirror::receive_value`
   handles a known frame whose fields do not decode: an event resyncs, a snapshot is asked for again
@@ -611,8 +614,9 @@ Phase 1, slice 3 (2026-10-18):
   reports `snapshot_retry_at_ms` and `reconnect`, and `snapshot_retry_due` sends the request.
 - The phone observes the mirror, it does not poll: `OwnershipMirrorListener` (uniffi foreign trait,
   `on_change(view)`) set with `OwnershipMirror::set_listener` is told once after every call that
-  changed the view, after the lock is released, and never for a call that did not. The view has a
-  `generation` (one more per change). `tests/ownership_vectors.rs` checks both rules on every step
+  changed the view, after the lock is released, and never for a call that did not. `set_listener`
+  returns the view at that moment, so no change falls between reading and listening. The view has a
+  `generation` (one more per change; keep the highest when several threads call). `tests/ownership_vectors.rs` checks both rules on every step
   of every vector.
 
 Each phase deletes what it replaces in the same change (no twins). Each phase lands on
