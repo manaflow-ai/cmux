@@ -9082,6 +9082,40 @@ Failures have an `agent_inventory.*` error code: `not_trusted`, `bad_request`,
 negotiated view), `owner_mismatch`, `busy` or `invalid_response`. An unavailable remote owner is
 never replaced with this computer's inventory.
 
+### Explicit registry refresh
+
+`agent-inventory-refresh-v1` adds the internal native carrier
+`{id, cmd:"agent-inventory-refresh", expected_machine_id:"machine_…"}`.
+The canonical owner condition is required, checked before socket lookup or
+worker admission, and never selects another machine. Trust and relay admission
+precede params. Successful replies use the same sanitized partial-cache shape
+as `agent-inventory`, with an additional `machine` echo from the handling daemon.
+This is a machine identity condition, not a daemon-incarnation or job receipt.
+
+On its captured acpmux link, the daemon requires `harnessInventoryRefresh`, then
+calls exactly `_acpmux/harness/inventory/refresh {}`. No caller params reach
+acpmux, and no legacy health fallback, acpmux start or handoff is allowed.
+Both carriers and watch handshakes share the eight-worker budget. The refresh
+RPC waits at most 25 seconds; its acpmux operation is bounded at 20 seconds and
+refuses overlapping health checks/refreshes without queueing.
+
+The raw operation is local-socket-only, accepts only an empty object, and is
+never forwarded to a peer. It asks the owner's fixed registries for the
+installations already represented in the visible cached inventory, deduplicating
+URLs with at most four requests in flight. It never runs a CLI or auth check,
+reads sign-in files, rescans profiles, changes auto-update preferences or
+schedules an update. Empty caches remain unknown. Failed sources retain their
+older latest version and timestamp; only successful comparable answers update
+`latest`, `latestCheckedAt` and `outdated`. Installed-version/auth observations
+and `checkedAt` remain cached, so `cached:true` remains accurate. A configuration
+replacement refuses an answer from its former source.
+
+This carrier supports the existing proposed app operation
+`agent_cli.list {check_latest:true}`; it is not a separate generic SDK, CLI or
+MCP command. App/provider wiring still requires its own verification. Ordinary
+reads and subscription invalidations stay cache-only and never request this
+refresh implicitly. Registry observations cannot complete an execution job.
+
 ## Agent CLI updates
 
 `agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted
