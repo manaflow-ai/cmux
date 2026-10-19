@@ -13,8 +13,10 @@ use image::{DynamicImage, ImageFormat, ImageReader, Limits, RgbImage};
 /// of a Retina screenshot legible after that scaling.
 pub const MAX_EDGE: u32 = 2000;
 
-/// Largest original this decodes: a 6K Retina screenshot PNG is ~20 MB.
-pub const MAX_SOURCE_BYTES: u64 = 48_000_000;
+/// Largest original this decodes: Home's upload cap (`HomeAttachmentPolicy.maxBytes`),
+/// so every image a person can attach gets a copy. A 6K Retina screenshot
+/// PNG is 10-30 MB; a busy one can be ~65 MB.
+pub const MAX_SOURCE_BYTES: u64 = 100_000_000;
 /// Widest and tallest image decoded (keeps a decompression bomb out).
 pub const MAX_SIDE: u32 = 16_384;
 /// Most memory the decoder may take (a 16384 px square RGBA is 1 GiB; a
