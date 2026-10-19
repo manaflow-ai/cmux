@@ -34,10 +34,11 @@ cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 # Generated files that two branches always collide in. Line merging cannot
 # combine two builds; the only right result is a rebuild of the merged sources.
 # `cmux-generated-v1` keeps the current branch's copy so the merge finishes,
-# then scripts/cmux-next/regenerate-web-bundles.sh rebuilds the still-committed
-# strings tables and CI's checks fail until it has.
+# then scripts/cmux-next/regenerate-web-bundles.sh rebuilds what is still
+# committed and CI's checks fail until it has.
 # The web bundles themselves (agent pane, Activity, palette ranker, webviews app,
-# pages) are build output since cx-vn5 and gitignored; their lines stay so the
+# pages) are build output since cx-vn5 and gitignored, and the strings tables
+# since #21946; their lines stay so the
 # generated catch-up still treats a merge with an older branch, whose only
 # conflicts are those deleted bundles, as generated (regenerate-web-bundles.sh
 # removes them from the index). The driver command is `true`, a git
@@ -56,7 +57,8 @@ Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1
 # The React pages (build-pages-web.sh) and the strings tables it generates from the
 # xcstrings catalogs. Only generated output; the page sources merge normally.
 Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/** merge=cmux-generated-v1
-# gen-strings.mjs writes every strings table, the agent pane's included.
+# gen-strings.mjs writes every strings table, the agent pane's included (build
+# output since #21946).
 webviews/src/**/generated/strings.json merge=cmux-generated-v1
 # The other exports scripts/ci/next_batch.py's merger rebuilds (its
 # SWIFT_GENERATED and SDK_GENERATED; tests/test_install_git_hooks.py checks

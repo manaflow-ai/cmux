@@ -11,8 +11,9 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8" });
 
 function outputs(): string[] {
-  return Object.values(PAGES).flatMap((page) => {
-    const out = page.out as string;
+  const pages = Object.values(PAGES) as { out: string; splitLocales?: boolean }[];
+  return pages.flatMap((page) => {
+    const out = page.out;
     if (!page.splitLocales) return [out];
     const dir = path.posix.dirname(out);
     return [out, `${dir}/localeLoaders.ts`, ...LOCALES.map((locale) => `${dir}/locales/${locale}.json`)];
