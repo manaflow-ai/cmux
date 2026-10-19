@@ -273,7 +273,8 @@ class IOSChangeDetectionTests(unittest.TestCase):
     """Runs the detect step's script in a depth-2 clone of a pull request's
     merge commit, the way actions/checkout leaves it."""
 
-    def detect(self, pr_files: dict[str, str], base_files: dict[str, str] | None = None) -> dict[str, str]:
+    def detect(self, pr_files: dict[str, str], base_files: dict[str, str] | None = None,
+               head_sha: str | None = None) -> dict[str, str]:
         temp = Path(tempfile.mkdtemp(prefix="ios-detect."))
         self.addCleanup(subprocess.run, ["rm", "-rf", str(temp)])
         origin = temp / "origin"
@@ -317,7 +318,7 @@ class IOSChangeDetectionTests(unittest.TestCase):
         output = temp / "out"
         output.write_text("")
         done = subprocess.run(["bash", "-c", script], cwd=work, capture_output=True, text=True,
-                              env={**os.environ, "BASE_SHA": base, "HEAD_SHA": head, "GITHUB_OUTPUT": str(output),
+                              env={**os.environ, "BASE_SHA": base, "HEAD_SHA": head_sha or head, "GITHUB_OUTPUT": str(output),
                                    "GIT_CONFIG_GLOBAL": os.devnull})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return dict(line.split("=", 1) for line in output.read_text().splitlines())
@@ -332,6 +333,10 @@ class IOSChangeDetectionTests(unittest.TestCase):
     def test_a_base_only_ios_change_is_not_the_pull_requests(self) -> None:
         self.assertEqual(self.detect({"docs/note.md": "x\n"}, base_files={"ios/Base.swift": "x\n"}),
                          {"should_run": "false", "should_lint": "false"})
+
+    def test_a_checkout_that_is_not_the_pull_requests_merge_runs_everything(self) -> None:
+        self.assertEqual(self.detect({"docs/note.md": "x\n"}, head_sha="0" * 40),
+                         {"should_run": "true", "should_lint": "true"})
 
 
 if __name__ == "__main__":
