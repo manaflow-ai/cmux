@@ -152,6 +152,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SUBSESSION_SEND, Request),
         untyped(method::MUX_SUBSESSION_START, Request),
         untyped(method::MUX_SUBSESSION_STOP, Request),
+        // Forum announcements (`server/forum.rs`).
+        untyped(method::MUX_FORUM_ACK, Request),
+        untyped(method::MUX_FORUM_ANNOUNCE, Request),
+        untyped(method::MUX_FORUM_RULES, Request),
         untyped(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
         untyped(method::MUX_STATS, Request),
