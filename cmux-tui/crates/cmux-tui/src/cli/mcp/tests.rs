@@ -1287,3 +1287,4 @@ mod agent_wait;
 
 mod catalog;
 mod machine_catalog;
+mod render_preview;

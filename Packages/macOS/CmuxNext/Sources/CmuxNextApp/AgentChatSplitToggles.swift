@@ -83,7 +83,15 @@ final class AgentChatSplitToggles {
         // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
         opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
         opened.append((id: AgentChatTerminalAdds().logged(id), baseline: Set(tabs.map(\.id))))
-        Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: anchor?.id, actions: actions)
+        // Panels as tabs (`agentChat.panelTabs`): any pane beside the chat takes the new tab, not only one this header opened.
+        let target = anchor ?? (Self.panelTabs(id) ? tabs.first { $0.id != chat && Self.beside(chat, $0, in: store) } : nil)
+        Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: target?.id, actions: actions)
+    }
+
+    /// Whether header action `id` opens as a tab in the pane beside the chat rather than as another
+    /// split (Debug Settings `agentChat.panelTabs`): Terminal and Browser.
+    private static func panelTabs(_ id: String) -> Bool {
+        AgentPaneTunables.panelTabs.value && (id == "splitRight" || id == "splitBrowserRight")
     }
 
     /// Runs header action `id` on tab `target` (the last panel beside the chat), or on the chat.
@@ -101,6 +109,12 @@ final class AgentChatSplitToggles {
         case preview:
             guard let url else { return }
             actions.runBeside("openBrowser", arguments: ["url": .string(url)], on: target)
+        case "splitRight" where target != nil && panelTabs(id):
+            // A terminal tab in the panel's pane, in the chat's folder.
+            actions.run("newSurface", cwd: cwd ?? store?.tab(id: chat)?.cwd, on: target)
+        case "splitBrowserRight" where target != nil && panelTabs(id):
+            // A browser tab in the panel's pane, as Preview's opens.
+            actions.runBeside("openBrowser", arguments: [:], on: target)
         default:
             // Split Right takes its folder from the tab it splits: from beside another split, the chat's.
             actions.run(id, cwd: target == nil ? cwd : cwd ?? store?.tab(id: chat)?.cwd, on: target)

@@ -13,6 +13,8 @@ export interface DialogProps {
   className?: string;
   backdropClassName?: string;
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
+  /** Explicit return target for controls outside Base UI's Trigger. */
+  finalFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Keys of the dialog's own content. The popup takes focus when a press inside lands on no
    * focusable element, so a handler on an inner element would miss them. */
   onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void;
@@ -26,6 +28,7 @@ export function Dialog({
   className,
   backdropClassName,
   initialFocus,
+  finalFocus,
   onKeyDown,
   children,
 }: DialogProps) {
@@ -48,6 +51,7 @@ export function Dialog({
           className={cx("ui-dialog", className)}
           aria-label={label}
           initialFocus={initialFocus}
+          finalFocus={finalFocus}
           onKeyDown={onKeyDown}
           onKeyDownCapture={(event) => {
             // Cmd/Ctrl/Option chords belong to the host dispatcher, even while a dialog is open.
