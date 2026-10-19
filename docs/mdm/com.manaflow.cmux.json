@@ -2360,6 +2360,12 @@
       "title" : "Pinned Folders",
       "type" : "array"
     },
+    "remoteHosting.enabled" : {
+      "default" : false,
+      "description" : "Your other computers on your private network can open this Mac's workspaces and terminals while cmux is running. Only devices signed in as you can connect.",
+      "title" : "Let Your Other Devices Use This Mac",
+      "type" : "boolean"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
