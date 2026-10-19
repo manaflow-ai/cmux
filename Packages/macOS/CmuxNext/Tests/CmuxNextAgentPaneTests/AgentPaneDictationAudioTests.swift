@@ -52,6 +52,7 @@ struct AgentPaneDictationAudioTests {
         let input = [Float](repeating: 0.5, count: 8_000)
         input.withUnsafeBufferPointer { recording.append($0, sampleRate: 8_000) }
         #expect(recording.wav() == nil)
+        #expect(recording.omission == .narrowband)
     }
 
     @Test func aRecordingPastTheLimitGoesAsTextAlone() {
@@ -61,7 +62,10 @@ struct AgentPaneDictationAudioTests {
             second.withUnsafeBufferPointer { recording.append($0, sampleRate: 16_000) }
         }
         #expect(recording.wav() == nil)
+        #expect(recording.omission == .tooLong)
+        // A silent session has nothing to send, and nothing left out.
         #expect(DictationAudioRecording().wav() == nil)
+        #expect(DictationAudioRecording().omission == nil)
     }
 
     @Test func theLastUpdateCarriesTheRecordingToThePage() throws {
@@ -71,5 +75,12 @@ struct AgentPaneDictationAudioTests {
         #expect(sent["mimeType"] as? String == "audio/wav")
         #expect(sent["data"] as? String == audio.base64EncodedString())
         #expect(AgentPaneDictation.payload(DictationUpdate(phase: .idle, text: "fix the build"))["audio"] == nil)
+    }
+
+    @Test func theLastUpdateSaysWhyTheRecordingWasLeftOut() {
+        let payload = AgentPaneDictation.payload(DictationUpdate(phase: .idle, text: "fix the build", audioOmitted: .tooLong))
+        #expect(payload["audioOmitted"] as? String == "tooLong")
+        #expect(payload["audio"] == nil)
+        #expect(AgentPaneDictation.payload(DictationUpdate(phase: .idle, text: "fix the build"))["audioOmitted"] == nil)
     }
 }

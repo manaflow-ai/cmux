@@ -40,6 +40,13 @@ pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
+
+/// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
+/// hosting, every platform), on the `cmux` surface only, like the other
+/// `host` verbs.
+pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
+    Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
+}
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;

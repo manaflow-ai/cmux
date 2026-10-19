@@ -238,10 +238,30 @@ fn action_run_maps_flags_to_target_and_arguments() {
 #[test]
 fn app_requests_wait_for_the_app_to_catch_up_with_the_daemon() {
     assert_eq!(
-        with_read_barrier(json!({ "action": "x" })),
+        with_read_barrier("action.run", json!({ "action": "x" })),
         json!({ "action": "x", "after": "sync" })
     );
-    assert_eq!(with_read_barrier(json!({ "after": 12 })), json!({ "after": 12 }));
+    assert_eq!(with_read_barrier("snapshot.get", json!({ "after": 12 })), json!({ "after": 12 }));
+}
+
+#[test]
+fn liveness_probes_do_not_wait_for_the_daemon() {
+    assert_eq!(with_read_barrier("system.ping", json!({})), json!({}));
+    assert_eq!(with_read_barrier("system.capabilities", json!({})), json!({}));
+    assert_eq!(with_read_barrier("system.identify", json!({})), json!({ "after": "sync" }));
+}
+
+#[test]
+fn only_reads_are_asked_again_after_a_timeout() {
+    for read in ["system.ping", "snapshot.get", "workspace.list", "action.describe"] {
+        assert!(is_retryable_read(read), "{read}");
+    }
+    for write in ["action.run", "workspace.create", "browser.open_split", "settings.set"] {
+        assert!(!is_retryable_read(write), "{write}");
+    }
+    assert!(timed_out(&Err(json!({ "code": "timeout", "message": "x" }))));
+    assert!(!timed_out(&Err(json!({ "code": "busy", "message": "x" }))));
+    assert!(!timed_out(&Ok(json!({}))));
 }
 
 #[test]
