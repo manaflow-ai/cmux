@@ -77,7 +77,7 @@ function LoadingGrid({ strings }: { strings: Strings }) {
       <span className="apps-state-mark" aria-hidden="true">
         …
       </span>
-      <strong>{strings.t("store.updates.loading")}</strong>
+      <strong>{strings.t("store.detail.loading")}</strong>
     </output>
   );
 }

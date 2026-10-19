@@ -41,7 +41,7 @@ export function AppDetailView({
               <span className="apps-state-mark" aria-hidden="true">
                 …
               </span>
-              <strong>{t("store.updates.loading")}</strong>
+              <strong>{t("store.detail.loading")}</strong>
             </output>
           </div>
         </div>
@@ -56,7 +56,7 @@ export function AppDetailView({
               <span className="apps-state-mark" aria-hidden="true">
                 !
               </span>
-              <strong>{state === "not-found" ? t("store.empty.noMatches") : t("store.error.load")}</strong>
+              <strong>{state === "not-found" ? t("store.detail.notFound") : t("store.error.load")}</strong>
               {snap.detailError && <span className="selectable">{snap.detailError}</span>}
               <span className="apps-detail-state-actions">
                 <button type="button" className="apps-button" onClick={() => void store.retryDetail()}>
