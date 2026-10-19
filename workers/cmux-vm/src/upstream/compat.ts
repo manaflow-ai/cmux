@@ -4,7 +4,10 @@ import type { Principal } from "../domain/principal.ts";
 import type { IdentityId, SnapshotId, VmId } from "../lib/ids.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
+import type { Scope } from "../domain/scopes.ts";
+import type { CompatCreatedResource } from "../proofs/compat-created-resource.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
+import { upstreamIdOfCreated } from "../proofs/compat-created-resource.ts";
 import type { UpstreamConfig } from "./live.ts";
 
 export class CompatUpstreamError extends Data.TaggedError("CompatUpstreamError")<{
@@ -24,15 +27,16 @@ export interface CompatUpstreamService {
   readonly forwardSnapshot: <C, R extends SnapshotId>(proof: TenantOwnsResource<C, R>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
   readonly forwardIdentity: <C, R extends IdentityId>(proof: TenantOwnsResource<C, R>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
   readonly forwardGrant: <C, I extends IdentityId, V extends VmId>(identityProof: TenantOwnsResource<C, I>, vmProof: TenantOwnsResource<C, V>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
-  readonly forwardCreatedVm: <C>(caller: Named<C, Principal>, proof: TenantMayCreate<C, "vm">, upstreamId: string, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
-  readonly discardCreatedVm: <C>(caller: Named<C, Principal>, proof: TenantMayCreate<C, "vm">, upstreamId: string) => Effect.Effect<void, CompatUpstreamError>;
-  readonly discardCreatedIdentity: (upstreamId: string) => Effect.Effect<void, CompatUpstreamError>;
+  readonly forwardCreatedVm: <C>(caller: Named<C, Principal>, proof: CompatCreatedResource<C, "vm">, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
+  readonly discardCreatedVm: <C>(caller: Named<C, Principal>, proof: CompatCreatedResource<C, "vm">) => Effect.Effect<void, CompatUpstreamError>;
+  readonly discardCreatedSnapshot: <C>(caller: Named<C, Principal>, proof: CompatCreatedResource<C, "snapshot">) => Effect.Effect<void, CompatUpstreamError>;
+  readonly discardCreatedIdentity: <C>(caller: Named<C, Principal>, proof: CompatCreatedResource<C, "identity">) => Effect.Effect<void, CompatUpstreamError>;
+  readonly forwardAuthorized: <C, S extends Scope>(caller: Named<C, Principal>, proof: KeyHasScope<C, S>, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
   readonly forwardCreate: <C, K extends "vm" | "snapshot">(
     caller: Named<C, Principal>,
     proof: TenantMayCreate<C, K>,
     input: CompatRequest,
   ) => Effect.Effect<Response, CompatUpstreamError>;
-  readonly forwardAuthorized: <C>(caller: Named<C, Principal>, proof: KeyHasScope<C, "vm:write">, input: CompatRequest) => Effect.Effect<Response, CompatUpstreamError>;
 }
 
 export class CompatUpstream extends Context.Tag("cmux-vm/CompatUpstream")<CompatUpstream, CompatUpstreamService>() {}
@@ -79,11 +83,12 @@ export const makeCompatUpstream = (config: UpstreamConfig): CompatUpstreamServic
     forwardSnapshot: (proof, input) => forward({ ...input, template: pathFor(input.template, upstreamIdOf(proof)) }, input.identityAccessToken === undefined ? providerAuth : `Bearer ${input.identityAccessToken}`),
     forwardIdentity: (proof, input) => forward({ ...input, template: pathFor(input.template, upstreamIdOf(proof)) }, input.identityAccessToken === undefined ? providerAuth : `Bearer ${input.identityAccessToken}`),
     forwardGrant: (identityProof, vmProof, input) => forward({ ...input, template: pathForGrant(input.template, upstreamIdOf(identityProof), upstreamIdOf(vmProof)) }, providerAuth),
-    forwardCreatedVm: (_caller, _proof, upstreamId, input) => forward({ ...input, template: pathFor(input.template, upstreamId) }, providerAuth),
-    discardCreatedVm: (_caller, _proof, upstreamId) => forward({ request: new Request("https://compat.invalid", { method: "DELETE" }), template: `/v5/vms/${encodeURIComponent(upstreamId)}`, operation: "discardCreatedVm" }, providerAuth).pipe(Effect.asVoid),
-    discardCreatedIdentity: (upstreamId) => forward({ request: new Request("https://compat.invalid", { method: "DELETE" }), template: `/v5/identities/${encodeURIComponent(upstreamId)}`, operation: "discardCreatedIdentity" }, providerAuth).pipe(Effect.asVoid),
+    forwardCreatedVm: <C>(_caller: Named<C, Principal>, proof: CompatCreatedResource<C, "vm">, input: CompatRequest) => forward({ ...input, template: pathFor(input.template, upstreamIdOfCreated(proof)) }, providerAuth),
+    discardCreatedVm: <C>(_caller: Named<C, Principal>, proof: CompatCreatedResource<C, "vm">) => forward({ request: new Request("https://compat.invalid", { method: "DELETE" }), template: `/v5/vms/${encodeURIComponent(upstreamIdOfCreated(proof))}`, operation: "discardCreatedVm" }, providerAuth).pipe(Effect.asVoid),
+    discardCreatedSnapshot: <C>(_caller: Named<C, Principal>, proof: CompatCreatedResource<C, "snapshot">) => forward({ request: new Request("https://compat.invalid", { method: "DELETE" }), template: `/v5/snapshots/${encodeURIComponent(upstreamIdOfCreated(proof))}`, operation: "discardCreatedSnapshot" }, providerAuth).pipe(Effect.asVoid),
+    discardCreatedIdentity: <C>(_caller: Named<C, Principal>, proof: CompatCreatedResource<C, "identity">) => forward({ request: new Request("https://compat.invalid", { method: "DELETE" }), template: `/v5/identities/${encodeURIComponent(upstreamIdOfCreated(proof))}`, operation: "discardCreatedIdentity" }, providerAuth).pipe(Effect.asVoid),
     forwardCreate: (_caller, _proof, input) => forward(input, providerAuth),
-    forwardAuthorized: (_caller, _proof, input) => forward(input, providerAuth),
+    forwardAuthorized: <C, S extends Scope>(_caller: Named<C, Principal>, _proof: KeyHasScope<C, S>, input: CompatRequest) => forward(input, providerAuth),
   };
 };
 

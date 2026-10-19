@@ -32,7 +32,7 @@ import {
   type NotFound,
   type ServiceUnavailable,
 } from "../errors.ts";
-import { newSnapshotId, newVmId, parseSnapshotId, parseVmId, TenantId, type SnapshotId, type VmId } from "../lib/ids.ts";
+import { newSnapshotId, newVmId, parseSnapshotId, parseVmId, TenantId, type IdentityId, type SnapshotId, type VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import type { IdempotencyProgress } from "../limits/ledger.ts";
 import { resolveIdleTimeout, TenantPolicy } from "../policy.ts";
@@ -627,7 +627,19 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             for (const grant of grants) {
               const identity = parseIdentityId(grant.identityCmuxId);
               if (Option.isSome(identity)) {
-                yield* name(identity.value, (namedIdentity) => tenantOwnsIdentity(caller, namedIdentity).pipe(Effect.flatMap((identityOwns) => identityOwns === null ? Effect.void : compatUpstream.forwardGrant(identityOwns, proofs.owns, { request: new Request("https://vm.test", { method: "DELETE" }), template: "/v5/identities/{identity}/permissions/vm/{vm}", operation: "v1.vm.delete.revokeGrant" }).pipe(Effect.asVoid)))).pipe(Effect.mapError(() => unavailable()));
+                const revoke = <C2, V2 extends VmId, I extends IdentityId>(caller2: Named<C2, Principal>, vmProof: TenantOwnsResource<C2, V2>, namedIdentity: Named<I, IdentityId>) =>
+                  tenantOwnsIdentity(caller2, namedIdentity).pipe(
+                    Effect.flatMap((identityOwns) =>
+                      identityOwns === null
+                        ? Effect.void
+                        : compatUpstream.forwardGrant<C2, I, V2>(identityOwns, vmProof, {
+                            request: new Request("https://vm.test", { method: "DELETE" }),
+                            template: "/v5/identities/{identity}/permissions/vm/{vm}",
+                            operation: "v1.vm.delete.revokeGrant",
+                          }).pipe(Effect.flatMap((response) => response.ok ? Effect.void : Effect.fail(unavailable()))),
+                    ),
+                  );
+                yield* name(identity.value, <I extends IdentityId>(namedIdentity: Named<I, IdentityId>) => revoke(caller, proofs.owns, namedIdentity)).pipe(Effect.mapError(() => unavailable()));
               }
             }
             yield* identityStore.revokeGrantsForVm(caller.value.tenantId, vm.value, now).pipe(Effect.mapError(() => unavailable()));

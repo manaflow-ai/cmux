@@ -1,17 +1,13 @@
-/* oxlint-disable gdp-ts/no-type-assertion */
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Layer, Option } from "effect";
 import { authenticateCompat } from "../auth/middleware.ts";
-import { AuditStore, OwnershipStore, type OwnedResource, type OwnershipStoreService, type AuditStoreService, ApiKeyStore } from "../db/stores.ts";
-import { ServiceKeys } from "../auth/service-keys.ts";
-import { SessionVerifier, TeamMembership } from "../auth/credentials.ts";
+import { AuditStore, OwnershipStore, type OwnedResource, type OwnershipStoreService, type AuditStoreService } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { IdentityId, newIdentityId, newSnapshotId, newVmId, parseIdentityId, parseSnapshotId, parseVmId, UpstreamId, UserId, type ResourceKind, type VmId, type SnapshotId } from "../lib/ids.ts";
 import { keyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreate } from "../proofs/tenant-may-create.ts";
-import { Entitlements } from "../proofs/tenant-may-create.ts";
 import { resolveIdleTimeout, TenantPolicy } from "../policy.ts";
 import { tenantOwnsIdentity, tenantOwnsSnapshot, tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { CompatUpstream } from "../upstream/compat.ts";
@@ -19,8 +15,9 @@ import { IdentityStore, type IdentityStoreService } from "./identity-store.ts";
 import type { CompatUpstreamService } from "../upstream/compat.ts";
 import { UsageRecorder } from "../metering/recorder.ts";
 import { rateLimit } from "../handlers/common.ts";
+import type { Services } from "../app.ts";
+import { mintCreatedIdentity, mintCreatedSnapshot, mintCreatedVm } from "../proofs/compat-created-resource.ts";
 
-type CompatServices = CompatUpstream | OwnershipStore | AuditStore | IdentityStore | TenantLimits | Entitlements | TenantPolicy | ApiKeyStore | ServiceKeys | SessionVerifier | TeamMembership | UsageRecorder;
 const error = (status: number, code: string, message: string) => Response.json({ code, message }, { status });
 const notFound = (message = "Not found") => error(404, "NOT_FOUND", message);
 const forbidden = (message = "Forbidden") => error(403, "FORBIDDEN", message);
@@ -30,12 +27,18 @@ const providerError = (status: number | null): Response =>
   status === 404 ? notFound() : status === 400 ? error(400, "BAD_REQUEST", "The request was not accepted") : status === 401 ? error(401, "UNAUTHORIZED", "The upstream credential was rejected") : status === 402 ? error(402, "PAYMENT_REQUIRED", "This team is not entitled to create VMs") : status === 409 ? error(409, "CONFLICT", "The resource is not in a state that permits this operation") : status === 429 ? error(429, "RATE_LIMITED", "Too many requests; retry later") : unavailable();
 const copyResponse = (response: Response): Response => {
   if (response.status === 101 && response.webSocket !== null) return new Response(null, { status: 101, webSocket: response.webSocket });
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  const headers = new Headers();
+  for (const key of ["content-type", "content-length", "content-range", "location", "retry-after", "etag", "last-modified", "upgrade", "sec-websocket-protocol"]) {
+    const value = response.headers.get(key);
+    if (value !== null) headers.set(key, value);
+  }
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 };
+const objectValue = (value: unknown): Record<string, unknown> | null => typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : null;
 const parseJson = async (response: Response): Promise<Record<string, unknown> | null> => {
   try {
     const value: unknown = await response.clone().json();
-    return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+    return objectValue(value);
   } catch {
     return null;
   }
@@ -43,12 +46,13 @@ const parseJson = async (response: Response): Promise<Record<string, unknown> | 
 const parseRequestJson = async (request: Request): Promise<Record<string, unknown> | null> => {
   try {
     const value: unknown = await request.clone().json();
-    return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+    return objectValue(value);
   } catch {
     return null;
   }
 };
 const stringField = (value: Record<string, unknown> | null, key: string): string | null => (typeof value?.[key] === "string" ? value[key] : null);
+const jsonUnknown = (response: Response): Promise<unknown> => response.clone().json();
 const hash = (value: string) => Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))).pipe(Effect.map((bytes) => Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("")));
 const idFrom = (prefix: string) => `${prefix}${crypto.randomUUID()}`;
 const hasField = (value: unknown, field: string): boolean => {
@@ -70,6 +74,31 @@ const findResourceRefs = (value: unknown): ReadonlyArray<{ readonly kind: "vm" |
   walk(value);
   return found;
 };
+const validateVmOptions = (body: Record<string, unknown>): Response | null => {
+  if (typeof body.idleTimeoutSeconds === "number" && (!Number.isInteger(body.idleTimeoutSeconds) || body.idleTimeoutSeconds < -1 || body.idleTimeoutSeconds > 604800)) return error(400, "BAD_REQUEST", "idleTimeoutSeconds is invalid");
+  if (typeof body.maxRunSeconds === "number" && (!Number.isInteger(body.maxRunSeconds) || body.maxRunSeconds < -1 || body.maxRunSeconds > 2592000)) return error(400, "BAD_REQUEST", "maxRunSeconds is invalid");
+  if (typeof body.autoDeleteSeconds === "number" && (!Number.isInteger(body.autoDeleteSeconds) || body.autoDeleteSeconds < -1 || body.autoDeleteSeconds > 31536000)) return error(400, "BAD_REQUEST", "autoDeleteSeconds is invalid");
+  const resources = objectValue(body.resources);
+  if (resources === null) return body.resources === undefined ? null : error(400, "BAD_REQUEST", "VM resources are invalid");
+  const limits: Readonly<Record<string, readonly [number, number]>> = { vcpus: [2, 32], memoryMib: [4096, 65536], diskMib: [16384, 131072] };
+  if (Object.entries(resources).some(([key, value]) => {
+    const bounds = limits[key];
+    return bounds === undefined || typeof value !== "number" || !Number.isInteger(value) || value < bounds[0] || value > bounds[1];
+  })) return error(400, "BAD_REQUEST", "VM resources are invalid");
+  return null;
+};
+const validateResize = (body: Record<string, unknown>): Response | null => {
+  const limits: Readonly<Record<string, readonly [number, number]>> = { cpu: [2, 32], memory: [4096, 65536], storage: [16384, 131072] };
+  if (Object.entries(body).some(([key, value]) => {
+    const bounds = limits[key];
+    return bounds === undefined || typeof value !== "number" || !Number.isInteger(value) || value < bounds[0] || value > bounds[1];
+  })) return error(400, "BAD_REQUEST", "VM resources are invalid");
+  return null;
+};
+const labelsOf = (value: unknown): Readonly<Record<string, string>> => {
+  const object = objectValue(value);
+  return object === null ? {} : Object.fromEntries(Object.entries(object).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+};
 const scopeFor = (method: string, parts: ReadonlyArray<string>): Scope | null => {
   if (parts[0] === "vms") {
     if (parts.length === 1) return method === "GET" ? "vm:read" : "vm:write";
@@ -81,8 +110,10 @@ const scopeFor = (method: string, parts: ReadonlyArray<string>): Scope | null =>
   }
   if (parts[0] === "snapshots") return method === "GET" ? "snapshot:read" : "snapshot:write";
   if (parts[0] === "identities") {
-    if (parts.includes("permissions") || parts.includes("tokens") || parts.length === 1) return method === "GET" ? "vm:read" : "vm:exec";
-    return method === "GET" ? "vm:read" : "vm:exec";
+    if (method === "GET") return "vm:read";
+    if (parts.includes("permissions")) return "vm:exec";
+    if (parts.includes("tokens") && method === "POST") return "vm:exec";
+    return method === "POST" && parts.length === 1 ? "vm:exec" : "vm:write";
   }
   return null;
 };
@@ -92,9 +123,9 @@ const authError = (cause: unknown): Response => {
   return error(401, "UNAUTHORIZED", "A valid API key or Stack access token is required");
 };
 
-export const makeFreestyleCompatHandler = (services: Layer.Layer<CompatServices>, options: { readonly publicSnapshotIds: ReadonlyArray<string> }) => async (request: Request): Promise<Response> => Effect.runPromise(Effect.provide(handle(request, options), services) as Effect.Effect<Response, unknown, never>).catch(() => unavailable());
+export const makeFreestyleCompatHandler = (services: Layer.Layer<Services>, options: { readonly publicSnapshotIds: ReadonlyArray<string> }) => async (request: Request): Promise<Response> => Effect.runPromise(Effect.provide(handle(request, options), services)).catch(() => unavailable());
 
-const handle = (request: Request, options: { readonly publicSnapshotIds: ReadonlyArray<string> }): Effect.Effect<Response, unknown, unknown> => Effect.gen(function* () {
+const handle = (request: Request, options: { readonly publicSnapshotIds: ReadonlyArray<string> }): Effect.Effect<Response, unknown, Services> => Effect.gen(function* () {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/v5/")) return notAvailable();
   if (url.pathname.startsWith("/v5/background-requests")) return notFound();
@@ -108,7 +139,7 @@ const handle = (request: Request, options: { readonly publicSnapshotIds: Readonl
   const usage = yield* UsageRecorder;
   const now = new Date(yield* Clock.currentTimeMillis);
   if (identityToken !== null) {
-    if ((scope !== "vm:exec" && scope !== "vm:terminal") || parts[0] !== "vms" || parts[1] === undefined) return notFound();
+    if (scope !== "vm:exec" || parts[0] !== "vms" || parts[1] === undefined || parts[2] !== "exec-await") return notFound();
     return yield* identityExec(request, parts, identityToken, upstream, ownership, identities, audit, usage, now);
   }
   const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/u)?.[1];
@@ -128,15 +159,15 @@ const handle = (request: Request, options: { readonly publicSnapshotIds: Readonl
   return notAvailable();
 }).pipe(Effect.catchAll(() => Effect.succeed(unavailable())));
 
-type OwnedVmVisitor = <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, owns: TenantOwnsResource<C, V>, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
-type OwnedSnapshotVisitor = <C, V>(caller: Named<C, Principal>, snapshot: Named<V, SnapshotId>, owns: TenantOwnsResource<C, V>, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
+type OwnedVmVisitor = <C, V extends VmId>(caller: Named<C, Principal>, vm: Named<V, VmId>, owns: TenantOwnsResource<C, V>, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
+type OwnedSnapshotVisitor = <C, V extends SnapshotId>(caller: Named<C, Principal>, snapshot: Named<V, SnapshotId>, owns: TenantOwnsResource<C, V>, row: OwnedResource) => Effect.Effect<Response, unknown, unknown>;
 const withOwnedVmCompat = (principal: Principal, upstreamId: string, visit: OwnedVmVisitor): Effect.Effect<Response, unknown, unknown> => Effect.gen(function* () {
   const store = yield* OwnershipStore;
   const row = yield* store.findByUpstream(principal.tenantId, "vm", upstreamId);
   if (Option.isNone(row)) return notFound();
   const parsed = parseVmId(row.value.cmuxId);
   if (Option.isNone(parsed)) return notFound();
-  return yield* name(principal, <C>(caller: Named<C, Principal>) => name(parsed.value, <V>(vm: Named<V, VmId>) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : visit(caller, vm, owns, row.value)))));
+  return yield* name(principal, <C>(caller: Named<C, Principal>) => name(parsed.value, <V extends VmId>(vm: Named<V, VmId>) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : visit(caller, vm, owns, row.value)))));
 });
 const withOwnedSnapshotCompat = (principal: Principal, upstreamId: string, visit: OwnedSnapshotVisitor): Effect.Effect<Response, unknown, unknown> => Effect.gen(function* () {
   const store = yield* OwnershipStore;
@@ -150,7 +181,7 @@ const allOwnedRows = (principal: Principal, kind: ResourceKind, ownership: Owner
   const rows: OwnedResource[] = [];
   let after: { readonly createdAt: Date; readonly cmuxId: string } | null = null;
   while (true) {
-    const page: ReadonlyArray<OwnedResource> = yield* ownership.listPage(principal.tenantId, kind, { limit: 1000, after, only: principal.resourceAllowlist, labels: null });
+    const page: ReadonlyArray<OwnedResource> = yield* ownership.listPage(principal.tenantId, kind, { limit: 1000, after, only: principal.resourceAllowlist, labels: principal.requiredLabels ?? null });
     rows.push(...page);
     if (page.length < 1000) break;
     const last: OwnedResource | undefined = page.at(-1);
@@ -162,13 +193,13 @@ const allOwnedRows = (principal: Principal, kind: ResourceKind, ownership: Owner
 
 const listVms = (request: Request, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService) => Effect.gen(function* () {
   const rows = yield* allOwnedRows(principal, "vm", ownership);
-  const vms: unknown[] = [];
-  for (const row of rows) {
-    const parsed = parseVmId(row.cmuxId);
-    if (Option.isNone(parsed)) continue;
-    const result = yield* name(principal, (caller) => name(parsed.value, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(null) : upstream.forwardVm(owns, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/vms/{id}", operation: "list_vms" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => response.json() as Promise<unknown>) : Effect.succeed(null)))))));
-    if (result !== null) vms.push(result);
-  }
+  const listed = yield* name(principal, <C>(caller: Named<C, Principal>) => {
+    const proof = keyHasScope(caller, "vm:read");
+    return proof === null ? Effect.succeed(null) : upstream.forwardAuthorized(caller, proof, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/vms", operation: "list_vms" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => jsonUnknown(response)) : Effect.succeed(null)));
+  });
+  const providerRows = objectValue(listed)?.vms;
+  const providerById = new Map<string, unknown>(Array.isArray(providerRows) ? providerRows.flatMap((value) => { const object = objectValue(value); const id = stringField(object, "id"); if (id === null) return []; const pair: readonly [string, unknown] = [id, value]; return [pair]; }) : []);
+  const vms: unknown[] = rows.flatMap((row) => { const value = providerById.get(String(row.upstreamId)); return value === undefined ? [] : [value]; });
   const stateCount = (state: string) => vms.filter((vm) => typeof vm === "object" && vm !== null && Reflect.get(vm, "state") === state).length;
   const offset = Math.max(0, Number(request.url ? new URL(request.url).searchParams.get("offset") ?? "0" : "0") || 0);
   const limit = Math.min(100, Math.max(0, Number(new URL(request.url).searchParams.get("limit") ?? "100") || 100));
@@ -176,13 +207,13 @@ const listVms = (request: Request, principal: Principal, upstream: CompatUpstrea
 });
 const listSnapshots = (request: Request, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService) => Effect.gen(function* () {
   const rows = yield* allOwnedRows(principal, "snapshot", ownership);
-  const snapshots: unknown[] = [];
-  for (const row of rows) {
-    const parsed = parseSnapshotId(row.cmuxId);
-    if (Option.isNone(parsed)) continue;
-    const value = yield* name(principal, (caller) => name(parsed.value, (snapshot) => tenantOwnsSnapshot(caller, snapshot).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(null) : upstream.forwardSnapshot(owns, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/snapshots/{id}", operation: "list_snapshots" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => response.json() as Promise<unknown>) : Effect.succeed(null)))))));
-    if (value !== null) snapshots.push(value);
-  }
+  const listed = yield* name(principal, <C>(caller: Named<C, Principal>) => {
+    const proof = keyHasScope(caller, "snapshot:read");
+    return proof === null ? Effect.succeed(null) : upstream.forwardAuthorized(caller, proof, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/snapshots", operation: "list_snapshots" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => jsonUnknown(response)) : Effect.succeed(null)));
+  });
+  const providerRows = objectValue(listed)?.snapshots;
+  const providerById = new Map<string, unknown>(Array.isArray(providerRows) ? providerRows.flatMap((value) => { const object = objectValue(value); const id = stringField(object, "id") ?? stringField(object, "snapshotId"); if (id === null) return []; const pair: readonly [string, unknown] = [id, value]; return [pair]; }) : []);
+  const snapshots: unknown[] = rows.flatMap((row) => { const value = providerById.get(String(row.upstreamId)); return value === undefined ? [] : [value]; });
   const params = new URL(request.url).searchParams;
   const offset = Math.max(0, Number(params.get("offset") ?? "0") || 0);
   const limit = Math.min(100, Math.max(0, Number(params.get("limit") ?? "100") || 100));
@@ -194,7 +225,8 @@ const createVm = (request: Request, principal: Principal, upstream: CompatUpstre
   yield* rateLimit(principal, "write");
   const limits = yield* TenantLimits;
   const idempotencyKey = request.headers.get("idempotency-key");
-  const scopedKey = idempotencyKey === null ? null : yield* fingerprint([principal.actor.kind, principal.actor.kind === "service" ? principal.actor.serviceId : "", idempotencyKey]);
+  const actorScope = principal.actor.kind === "service" ? ["service", principal.actor.serviceId] : principal.actor.kind === "api_key" ? ["key", principal.actor.keyId] : ["session", principal.actor.userId];
+  const scopedKey = idempotencyKey === null ? null : yield* fingerprint([...actorScope, idempotencyKey]);
   if (scopedKey !== null) {
     const claim = yield* limits.begin(principal.tenantId, scopedKey, yield* fingerprint(["v5.createVm", yield* Effect.promise(() => request.clone().text())]));
     if (claim.state === "mismatch") return error(409, "CONFLICT", "This Idempotency-Key was already used with a different request");
@@ -202,16 +234,20 @@ const createVm = (request: Request, principal: Principal, upstream: CompatUpstre
     if (claim.state === "resume" && claim.progress.phase === "done") {
       const parsed = parseVmId(claim.progress.vmId);
       if (Option.isNone(parsed)) return notFound();
-      return yield* name(principal, (caller) => name(parsed.value, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : upstream.forwardVm(owns, { request: new Request(request.url, { method: "GET" }), template: "/v5/vms/{id}", operation: "create_vm.replay" }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)))))));
+      return yield* name(principal, <C>(caller: Named<C, Principal>) => name(parsed.value, <V extends VmId>(vm: Named<V, VmId>) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : upstream.forwardVm(owns, { request: new Request(request.url, { method: "GET" }), template: "/v5/vms/{id}", operation: "create_vm.replay" }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)))))));
     }
   }
-  const body = (yield* Effect.promise(() => request.clone().json().catch(() => ({})))) as Record<string, unknown>;
+  const body = yield* Effect.promise(() => parseRequestJson(request).then((value) => value ?? {}));
+  const invalidOptions = validateVmOptions(body);
+  if (invalidOptions !== null) return invalidOptions;
   const snapshotId = typeof body.snapshotId === "string" ? body.snapshotId : null;
+  let upstreamSnapshotId: string | null = null;
   if (snapshotId !== null) {
     const owned = snapshotId.startsWith("sh-") ? yield* ownership.findByUpstream(principal.tenantId, "snapshot", snapshotId) : Option.none();
     const publicBase = /^(?:freestyle\/ubuntu(?:-sm|-lg|-xl|-2xl|-3xl)?|freestyle\/busybox)$/u.test(snapshotId);
     if (Option.isSome(owned) && !carriesRequiredLabels(principal, owned.value.labels)) return notFound();
-    if (Option.isNone(owned) && !publicBase && !publicSnapshotIds.includes(snapshotId)) return notFound();
+    if (Option.isNone(owned) && (!publicBase && !publicSnapshotIds.includes(snapshotId) || principal.requiredLabels !== undefined)) return notFound();
+    if (Option.isSome(owned)) upstreamSnapshotId = String(owned.value.upstreamId);
   }
   if (body.reassignSlug === true) return error(400, "BAD_REQUEST", "reassignSlug is not available");
   if (body.tls !== undefined) return notFound();
@@ -223,8 +259,9 @@ const createVm = (request: Request, principal: Principal, upstream: CompatUpstre
     const found = yield* ownership.findByUpstream(principal.tenantId, kind, ref.id);
     if (Option.isNone(found) || !carriesRequiredLabels(principal, found.value.labels)) return notFound();
   }
-  const requestBody = { ...body, metadata: { ...(typeof body.metadata === "object" && body.metadata !== null ? body.metadata : {}), cmuxTenant: principal.tenantId } };
-  return yield* name(principal, (caller) => {
+  if (!carriesRequiredLabels(principal, objectValue(body.labels) ?? {})) return forbidden("This service key is limited to labelled resources");
+  const requestBody = { ...body, ...(upstreamSnapshotId === null ? {} : { snapshotId: upstreamSnapshotId }), metadata: { ...(objectValue(body.metadata) ?? {}), cmuxTenant: principal.tenantId } };
+  return yield* name(principal, <C>(caller: Named<C, Principal>) => {
     const scope = keyHasScope(caller, "vm:write");
     if (scope === null) return Effect.succeed(forbidden("This credential lacks the vm:write scope"));
     return Effect.gen(function* () {
@@ -233,14 +270,15 @@ const createVm = (request: Request, principal: Principal, upstream: CompatUpstre
       if (decision._tag === "over_quota") return error(429, "QUOTA_EXCEEDED", "This team has reached its VM quota");
       const limits = yield* TenantLimits;
       const response = yield* upstream.forwardCreate(caller, decision.proof, { request: new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(requestBody) }), template: "/v5/vms", operation: "create_vm" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
-      if (!response.ok) { yield* limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore); return response.status === 409 ? error(400, "BAD_REQUEST", "The VM could not be created as requested") : providerError(response.status); }
+      if (!response.ok) { yield* limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore); if (scopedKey !== null) yield* limits.abandon(principal.tenantId, scopedKey).pipe(Effect.ignore); return response.status === 409 ? error(400, "BAD_REQUEST", "The VM could not be created as requested") : providerError(response.status); }
       const data = yield* Effect.promise(() => parseJson(response));
       const providerId = stringField(data, "id");
-      if (providerId === null) { yield* limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore); return unavailable(); }
+      if (providerId === null) { yield* limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore); if (scopedKey !== null) yield* limits.abandon(principal.tenantId, scopedKey).pipe(Effect.ignore); return unavailable(); }
       const cmuxId = newVmId();
-      yield* ownership.record({ tenantId: principal.tenantId, kind: "vm", cmuxId, upstreamId: UpstreamId.make(providerId), createdBy: actorRef(principal.actor), createdAt: now, displayName: typeof data?.displayName === "string" ? data.displayName : null, labels: {} }).pipe(Effect.mapError(() => unavailable()), Effect.tapError(() => upstream.discardCreatedVm(caller, decision.proof, providerId).pipe(Effect.ignore)), Effect.tapError(() => limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore)));
+      const createdProof = mintCreatedVm(caller, UpstreamId.make(providerId));
+      yield* ownership.record({ tenantId: principal.tenantId, kind: "vm", cmuxId, upstreamId: UpstreamId.make(providerId), createdBy: actorRef(principal.actor), createdAt: now, displayName: typeof data?.displayName === "string" ? data.displayName : null, labels: labelsOf(body.labels) }).pipe(Effect.mapError(() => unavailable()), Effect.tapError(() => upstream.discardCreatedVm(caller, createdProof).pipe(Effect.ignore)), Effect.tapError(() => limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore)));
       yield* limits.release(principal.tenantId, decision.proof.reservationId).pipe(Effect.ignore);
-      const resources = typeof data?.resources === "object" && data.resources !== null ? data.resources as Record<string, unknown> : {};
+      const resources = objectValue(data?.resources) ?? {};
       yield* usage.record({ kind: "vm_started", tenantId: principal.tenantId, upstreamVmId: providerId, at: now, vcpus: typeof resources.cpu === "number" ? resources.cpu : 0, memoryMb: typeof resources.memory === "number" ? resources.memory : 0, storageMb: typeof resources.storage === "number" ? resources.storage : 0 }).pipe(Effect.ignore);
       yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: "v5.vm.create", cmuxId, outcome: "ok", at: now }).pipe(Effect.ignore);
       if (scopedKey !== null) yield* limits.advance(principal.tenantId, scopedKey, { phase: "done", vmId: cmuxId }).pipe(Effect.ignore);
@@ -267,17 +305,20 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
   let forwardRequest = request;
   if (request.method === "PATCH" && suffix === "") {
     const body = yield* Effect.promise(() => parseRequestJson(request));
+    const invalidOptions = validateVmOptions(body ?? {});
+    if (invalidOptions !== null) return invalidOptions;
     if (body?.reassignSlug === true) return error(400, "BAD_REQUEST", "reassignSlug is not available");
     if (body?.tls !== undefined || body?.vpcs !== undefined || body?.networks !== undefined) return notFound();
     if (typeof body?.idleTimeoutSeconds === "number") {
       const idle = resolveIdleTimeout(yield* TenantPolicy, principal.tenantId, body.idleTimeoutSeconds);
       if (!idle.ok) return error(400, "BAD_REQUEST", idle.message);
     }
-    if (body?.resources !== undefined && typeof body.resources === "object" && body.resources !== null) {
-      const resources = body.resources as Record<string, unknown>;
-      if (Object.entries(resources).some(([key, value]) => !["vcpus", "memoryMib", "diskMib"].includes(key) || typeof value !== "number" || !Number.isInteger(value))) return error(400, "BAD_REQUEST", "VM resources are invalid");
-    }
     forwardRequest = new Request(request.url, { method: request.method, headers: request.headers, body: JSON.stringify({ ...body, metadata: { ...(typeof body?.metadata === "object" && body.metadata !== null ? body.metadata : {}), cmuxTenant: principal.tenantId } }) });
+  }
+  if (request.method === "POST" && suffix === "resize") {
+    const resizeBody = yield* Effect.promise(() => parseRequestJson(request));
+    const invalidResize = validateResize(resizeBody ?? {});
+    if (invalidResize !== null) return invalidResize;
   }
   let snapshotReservation: string | null = null;
   if (parts[1] === "snapshot" && request.method === "POST") {
@@ -293,7 +334,7 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
       if (Option.isSome(identityRow)) {
         const identityId = parseIdentityId(identityRow.value.cmuxId);
         if (Option.isSome(identityId)) {
-          yield* name(identityId.value, (identity) => tenantOwnsIdentity(caller, identity).pipe(
+          yield* name(identityId.value, <I extends IdentityId>(identity: Named<I, IdentityId>) => tenantOwnsIdentity(caller, identity).pipe(
               Effect.flatMap((identityOwns) => identityOwns === null ? Effect.void :
                 tenantOwnsVm(caller, vm).pipe(
                   Effect.flatMap((vmOwns) => vmOwns === null ? Effect.void : upstream.forwardGrant(identityOwns, vmOwns, {
@@ -313,7 +354,7 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
   if (response.status === 409 && parts[1] === "exec-await") {
     const started = yield* upstream.forwardVm(owns, { request: new Request(request.url, { method: "POST", headers: request.headers }), template: "/v5/vms/{id}/start", operation: "v5.vm.start" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
     const startData = yield* Effect.promise(() => parseJson(started));
-    const startResources = typeof startData?.resources === "object" && startData.resources !== null ? startData.resources as Record<string, unknown> : {};
+    const startResources = objectValue(startData?.resources) ?? {};
     yield* usage.record({ kind: "vm_started", tenantId: principal.tenantId, upstreamVmId: row.upstreamId, at: now, vcpus: typeof startResources.cpu === "number" ? startResources.cpu : 0, memoryMb: typeof startResources.memory === "number" ? startResources.memory : 0, storageMb: typeof startResources.storage === "number" ? startResources.storage : 0 }).pipe(Effect.ignore);
     response = yield* upstream.forwardVm(owns, { request: forwardRequest, template, operation: "v5.vm.exec-await.retry" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   }
@@ -323,16 +364,16 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
     const snapshotId = stringField(data, "snapshotId");
     if (snapshotId !== null) {
       const cmuxId = newSnapshotId();
-      yield* ownership.record({ tenantId: principal.tenantId, kind: "snapshot", cmuxId, upstreamId: UpstreamId.make(snapshotId), createdBy: actorRef(principal.actor), createdAt: now, displayName: null, labels: {} }).pipe(Effect.mapError(() => unavailable()));
+      const createdProof = mintCreatedSnapshot(caller, UpstreamId.make(snapshotId));
+      yield* ownership.record({ tenantId: principal.tenantId, kind: "snapshot", cmuxId, upstreamId: UpstreamId.make(snapshotId), createdBy: actorRef(principal.actor), createdAt: now, displayName: null, labels: row.labels }).pipe(Effect.mapError(() => unavailable()), Effect.tapError(() => upstream.discardCreatedSnapshot(caller, createdProof).pipe(Effect.ignore)));
       yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: "v5.snapshot.create", cmuxId, outcome: "ok", at: now }).pipe(Effect.ignore);
     }
   }
-  if (snapshotReservation !== null) yield* TenantLimits.pipe(Effect.flatMap((limits) => limits.release(principal.tenantId, snapshotReservation as string))).pipe(Effect.ignore);
   if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "vm", row.cmuxId, now).pipe(Effect.ignore);
   if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: `v5.vm.${request.method.toLowerCase()}`, cmuxId: row.cmuxId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
   if (response.ok && ["start", "pause", "resize"].includes(parts[1] ?? "")) {
     const data = yield* Effect.promise(() => parseJson(response));
-    const resources = typeof data?.resources === "object" && data.resources !== null ? data.resources as Record<string, unknown> : {};
+    const resources = objectValue(data?.resources) ?? {};
     const vcpus = typeof resources.cpu === "number" ? resources.cpu : 0;
     const memoryMb = typeof resources.memory === "number" ? resources.memory : 0;
     const storageMb = typeof resources.storage === "number" ? resources.storage : 0;
@@ -342,7 +383,10 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
   }
   if (response.ok && request.method === "DELETE") yield* usage.record({ kind: "vm_stopped", tenantId: principal.tenantId, upstreamVmId: row.upstreamId, at: now, reason: "delete" }).pipe(Effect.ignore);
   return copyResponse(response);
-  }));
+  }).pipe(Effect.ensuring(Effect.gen(function* () {
+    const reservation = snapshotReservation;
+    if (reservation !== null) yield* TenantLimits.pipe(Effect.flatMap((limits) => limits.release(principal.tenantId, reservation))).pipe(Effect.ignore);
+  }))));
 };
 const snapshotResource = (request: Request, id: string, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   return yield* withOwnedSnapshotCompat(principal, id, (_caller, _snapshot, owns, row) => Effect.gen(function* () {
@@ -355,18 +399,19 @@ const snapshotResource = (request: Request, id: string, principal: Principal, up
 const identityCollection = (request: Request, principal: Principal, upstream: CompatUpstreamService, ownership: OwnershipStoreService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   if (request.method === "GET") {
     const rows = yield* allOwnedRows(principal, "identity", ownership);
-    const values: unknown[] = [];
-    for (const row of rows) {
-      const parsed = parseIdentityId(row.cmuxId);
-      if (Option.isNone(parsed)) continue;
-      const value = yield* name(principal, (caller) => name(parsed.value, (identity) => tenantOwnsIdentity(caller, identity).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(null) : upstream.forwardIdentity(owns, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/identities/{id}", operation: "list_identities" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => response.json() as Promise<unknown>) : Effect.succeed(null)))))));
-      if (value !== null) values.push(value);
-    }
+    const listed = yield* name(principal, <C>(caller: Named<C, Principal>) => {
+      const proof = keyHasScope(caller, "vm:read");
+      return proof === null ? Effect.succeed(null) : upstream.forwardAuthorized(caller, proof, { request: new Request("https://vm.test", { method: "GET" }), template: "/v5/identities", operation: "list_identities" }).pipe(Effect.flatMap((response) => response.ok ? Effect.promise(() => jsonUnknown(response)) : Effect.succeed(null)));
+    });
+    const providerRows = objectValue(listed)?.identities;
+    const providerById = new Map<string, unknown>(Array.isArray(providerRows) ? providerRows.flatMap((value) => { const object = objectValue(value); const id = stringField(object, "id"); if (id === null) return []; const pair: readonly [string, unknown] = [id, value]; return [pair]; }) : []);
+    const values = rows.flatMap((row) => { const value = providerById.get(String(row.upstreamId)); return value === undefined ? [] : [value]; });
     return Response.json({ identities: values, total: values.length });
   }
-  return yield* name(principal, (caller) => {
-    const proof = keyHasScope(caller, "vm:write");
-    if (proof === null) return Effect.succeed(forbidden("This credential lacks the vm:write scope"));
+  return yield* name(principal, <C>(caller: Named<C, Principal>) => {
+    if (!carriesRequiredLabels(caller.value, {})) return Effect.succeed(forbidden("This service key is limited to labelled resources"));
+    const proof = keyHasScope(caller, "vm:exec");
+    if (proof === null) return Effect.succeed(forbidden("This credential lacks the vm:exec scope"));
     return Effect.gen(function* () {
       const response = yield* upstream.forwardAuthorized(caller, proof, { request, template: "/v5/identities", operation: "create_identity" }).pipe(Effect.mapError((failure) => providerError(failure.status)));
       if (!response.ok) return copyResponse(response);
@@ -374,7 +419,8 @@ const identityCollection = (request: Request, principal: Principal, upstream: Co
       const providerId = stringField(data, "id");
       if (providerId === null) return unavailable();
       const cmuxId = newIdentityId();
-      yield* ownership.record({ tenantId: principal.tenantId, kind: "identity", cmuxId, upstreamId: UpstreamId.make(providerId), createdBy: actorRef(principal.actor), createdAt: now, displayName: null, labels: {} }).pipe(Effect.mapError(() => unavailable()), Effect.tapError(() => upstream.discardCreatedIdentity(providerId).pipe(Effect.ignore)));
+      const createdProof = mintCreatedIdentity(caller, UpstreamId.make(providerId));
+      yield* ownership.record({ tenantId: principal.tenantId, kind: "identity", cmuxId, upstreamId: UpstreamId.make(providerId), createdBy: actorRef(principal.actor), createdAt: now, displayName: null, labels: {} }).pipe(Effect.mapError(() => unavailable()), Effect.tapError(() => upstream.discardCreatedIdentity(caller, createdProof).pipe(Effect.ignore)));
       yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: "v5.identity.create", cmuxId, outcome: "ok", at: now }).pipe(Effect.ignore);
       return copyResponse(response);
     });
@@ -388,7 +434,7 @@ const identityResource = (request: Request, parts: ReadonlyArray<string>, princi
   if (Option.isNone(row)) return notFound();
   const parsed = parseIdentityId(row.value.cmuxId);
   if (Option.isNone(parsed)) return notFound();
-  return yield* name(principal, (caller) => name(parsed.value, (identity) => Effect.gen(function* () {
+  return yield* name(principal, <C>(caller: Named<C, Principal>) => name(parsed.value, <I extends IdentityId>(identity: Named<I, IdentityId>) => Effect.gen(function* () {
     const owns = yield* tenantOwnsIdentity(caller, identity);
     if (owns === null) return notFound();
     const tail = parts.slice(1);
@@ -400,7 +446,7 @@ const identityResource = (request: Request, parts: ReadonlyArray<string>, princi
   })));
 });
 
-const identityPermission = <C, R>(request: Request, parts: ReadonlyArray<string>, principal: Principal, caller: Named<C, Principal>, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, ownership: OwnershipStoreService, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
+const identityPermission = <C, R extends IdentityId>(request: Request, parts: ReadonlyArray<string>, principal: Principal, caller: Named<C, Principal>, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, ownership: OwnershipStoreService, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   if ((request.method === "POST" || request.method === "PATCH") && principal.resourceAllowlist !== null) return forbidden("A key limited to specific resources cannot grant identity access");
   if (parts.length === 0 && request.method === "GET") {
     const grants = yield* identities.listGrants(principal.tenantId, identityId);
@@ -417,12 +463,12 @@ const identityPermission = <C, R>(request: Request, parts: ReadonlyArray<string>
   const vmParsed = parseVmId(vmRow.value.cmuxId);
   if (Option.isNone(vmParsed)) return notFound();
   const template = parts.length === 0 ? "/v5/identities/{id}/permissions/vm" : `/v5/identities/{id}/permissions/vm/${encodeURIComponent(resolvedVmId)}`;
-  const vmOwns = yield* name(vmParsed.value, (vm) => tenantOwnsVm(caller, vm));
+  const vmOwns = yield* name(vmParsed.value, <V extends VmId>(vm: Named<V, VmId>) => tenantOwnsVm(caller, vm));
   if (vmOwns === null) return notFound();
   const response = yield* upstream.forwardGrant(identityProof, vmOwns, { request, template: template.replace("{id}", "{identity}").replace(resolvedVmId, "{vm}"), operation: `identity.permission.${request.method.toLowerCase()}` }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)));
   if (response.status === 404) return response;
   if (response.status >= 500) return unavailable();
-  if (response.ok && request.method === "POST") {
+  if (response.ok && (request.method === "POST" || request.method === "PATCH")) {
     const data = yield* Effect.promise(() => parseJson(response));
     yield* identities.recordGrant({ id: stringField(data, "id") ?? idFrom("vmp-"), tenantId: principal.tenantId, identityCmuxId: identityId, vmCmuxId: vmParsed.value, upstreamId: vmRow.value.upstreamId, allowedLinuxUsers: Array.isArray(data?.allowedLinuxUsers) ? data.allowedLinuxUsers.filter((value): value is string => typeof value === "string") : null, grantedAt: now, grantedBy: principal.tenantId }).pipe(Effect.tapError(() => upstream.forwardGrant(identityProof, vmOwns, { request: new Request("https://vm.test", { method: "DELETE" }), template: "/v5/identities/{identity}/permissions/vm/{vm}", operation: "grant.recordFailure.revoke" }).pipe(Effect.ignore)), Effect.mapError(() => unavailable()));
   }
@@ -431,14 +477,17 @@ const identityPermission = <C, R>(request: Request, parts: ReadonlyArray<string>
   return response;
 });
 
-const identityToken = <C, R>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
+const identityToken = <C, R extends IdentityId>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   const tokenPath = parts[0] === undefined ? "/v5/identities/{id}/tokens" : `/v5/identities/{id}/tokens/${encodeURIComponent(parts[0])}`;
   const response = yield* upstream.forwardIdentity(identityProof, { request, template: tokenPath, operation: `identity.token.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   if (response.ok && request.method === "POST") {
     const data = yield* Effect.promise(() => parseJson(response));
     const token = stringField(data, "token");
     const tokenId = stringField(data, "id");
-    if (token !== null && tokenId !== null) yield* hash(token).pipe(Effect.flatMap((tokenHash) => identities.recordToken({ id: tokenId, tenantId: principal.tenantId, identityCmuxId: identityId, tokenHash, createdAt: now })), Effect.ignore);
+    if (token !== null && tokenId !== null) {
+      const revokePath = `/v5/identities/{id}/tokens/${encodeURIComponent(tokenId)}`;
+      yield* hash(token).pipe(Effect.flatMap((tokenHash) => identities.recordToken({ id: tokenId, tenantId: principal.tenantId, identityCmuxId: identityId, tokenHash, createdAt: now })), Effect.tapError(() => upstream.forwardIdentity(identityProof, { request: new Request(request.url, { method: "DELETE" }), template: revokePath, operation: "token.recordFailure.revoke" }).pipe(Effect.ignore)), Effect.mapError(() => unavailable()));
+    }
   }
   if (response.ok && request.method === "DELETE" && parts[0] !== undefined) yield* identities.revokeToken(principal.tenantId, identityId, parts[0], now).pipe(Effect.ignore);
   yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: `v5.identity.token.${request.method.toLowerCase()}`, cmuxId: identityId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
@@ -456,7 +505,7 @@ const identityExec = (request: Request, parts: ReadonlyArray<string>, token: str
   const grant = yield* identities.findGrant(tokenRow.value.tenantId, identity.value, vm.value).pipe(Effect.orElseSucceed(() => Option.none()));
   if (Option.isNone(grant)) return notFound();
   const principal: Principal = { tenantId: tokenRow.value.tenantId, actor: { kind: "session", userId: UserId.make("identity") }, scopes: new Set(["vm:exec", "vm:terminal"]), resourceAllowlist: new Set([vmRow.value.cmuxId]), credentialExpiresAt: null };
-  const response = yield* name(principal, (caller) => name(vm.value, (namedVm) => tenantOwnsVm(caller, namedVm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : upstream.forwardVm(owns, { request, template: `/v5/vms/{id}/${parts.slice(2).map(encodeURIComponent).join("/")}`, operation: "identity.exec", identityAccessToken: token }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)))))));
+  const response = yield* name(principal, <C>(caller: Named<C, Principal>) => name(vm.value, <V extends VmId>(namedVm: Named<V, VmId>) => tenantOwnsVm(caller, namedVm).pipe(Effect.flatMap((owns) => owns === null ? Effect.succeed(notFound()) : upstream.forwardVm(owns, { request, template: `/v5/vms/{id}/${parts.slice(2).map(encodeURIComponent).join("/")}`, operation: "identity.exec", identityAccessToken: token }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status)))))));
   yield* audit.append({ tenantId: principal.tenantId, actor: "identity-token", ownerActor: null, action: "v5.identity.exec", cmuxId: vmRow.value.cmuxId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
   if (response.ok) yield* usage.record({ kind: "vm_woken_by_identity", tenantId: principal.tenantId, upstreamVmId: parts[1] ?? "", at: now }).pipe(Effect.ignore);
   return response;

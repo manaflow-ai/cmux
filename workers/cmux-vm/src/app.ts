@@ -1,4 +1,3 @@
-/* oxlint-disable gdp-ts/no-type-assertion, gdp-ts/no-proof-assertion */
 /**
  * Composition: the API, its handlers, and the service Layers they need. The
  * Worker entry (index.ts) supplies live Layers; tests supply fakes.
@@ -121,7 +120,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     perRequest === undefined ? {} : { middleware: (app) => perRequest(app) },
   );
   const runtime = ManagedRuntime.make(services);
-  const freestyle = makeFreestyleCompatHandler(services as unknown as Layer.Layer<CompatUpstream | OwnershipStore | AuditStore | IdentityStore | TenantLimits | Entitlements | TenantPolicy | ApiKeyStore | ServiceKeys | SessionVerifier | TeamMembership | UsageRecorder>, { publicSnapshotIds: options.freestylePublicSnapshotIds ?? [] });
+  const freestyle = makeFreestyleCompatHandler(services, { publicSnapshotIds: options.freestylePublicSnapshotIds ?? [] });
   const perWebhook = options.perWebhook ?? (<A, E, R>(effect: Effect.Effect<A, E, R>) => effect);
   const webhook = (request: Request): Promise<Response> =>
     runtime.runPromise(perWebhook(handleStackWebhook(request, options.stackWebhookSecret))).catch(() =>

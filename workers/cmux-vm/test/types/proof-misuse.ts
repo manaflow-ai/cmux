@@ -5,13 +5,14 @@
  * Never executed.
  */
 import { name } from "@gdp-ts/core";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { Principal } from "../../src/domain/principal.ts";
-import type { VmId } from "../../src/lib/ids.ts";
+import { parseIdentityId, UpstreamId, type VmId } from "../../src/lib/ids.ts";
 import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
-import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
+import { tenantOwnsIdentity, tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { CompatUpstream } from "../../src/upstream/compat.ts";
+import { mintCreatedVm } from "../../src/proofs/compat-created-resource.ts";
 
 export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
   Effect.gen(function* () {
@@ -24,6 +25,11 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         const write = keyHasScope(caller, "vm:write");
         const ownsA = yield* tenantOwnsVm(caller, a);
         if (read === null || write === null || ownsA === null) return;
+
+        const created = mintCreatedVm(caller, UpstreamId.make("vm-created"));
+        yield* compat.forwardCreatedVm(caller, created, { request: new Request("https://vm.test"), template: "/v5/vms/{id}", operation: "created" });
+        // @ts-expect-error a raw provider id is not a created-resource proof
+        yield* compat.forwardCreatedVm(caller, "vm-created", { request: new Request("https://vm.test"), template: "/v5/vms/{id}", operation: "created" });
 
         // The honest call compiles.
         yield* upstream.getVm(a, { owns: ownsA, scope: read });
@@ -57,6 +63,18 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         yield* compat.forwardIdentity(a, { request: new Request("https://vm.test"), template: "/v5/identities/{id}", operation: "misuse" });
       }),
     );
+
+    const parsedIdentity = parseIdentityId(`idn_${"a".repeat(26)}`);
+    if (Option.isSome(parsedIdentity)) {
+      yield* name(principal, parsedIdentity.value, (caller, namedIdentity) =>
+        Effect.gen(function* () {
+          const ownsIdentity = yield* tenantOwnsIdentity(caller, namedIdentity);
+          if (ownsIdentity === null) return;
+          // @ts-expect-error an identity proof cannot authorize a VM forward
+          yield* compat.forwardVm(ownsIdentity, { request: new Request("https://vm.test"), template: "/v5/vms/{id}", operation: "misuse" });
+        }),
+      );
+    }
 
     // Proofs about another caller do not mix: a second name for the same principal is a different caller.
     yield* name(principal, vmA, (first, a) =>

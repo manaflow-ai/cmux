@@ -40,6 +40,8 @@ export type UpstreamOperation =
   | "create"
   | "get"
   | "list"
+  | "snapshotList"
+  | "identityList"
   | "delete"
   | "start"
   | "pause"
@@ -117,6 +119,10 @@ export function makeFakeUpstream(apiKey: string) {
     switch (operation) {
       case "list":
         return Response.json({ vms: [...vms.values()].map(vmBody) });
+      case "snapshotList":
+        return Response.json({ snapshots: [...snapshots.values()].map((snapshot) => ({ id: snapshot.id, sourceVmId: snapshot.sourceVmId, public: false, createdAt: "2026-10-03T00:00:00Z", updatedAt: "2026-10-03T00:00:00Z" })) });
+      case "identityList":
+        return Response.json({ identities: [...identities.values()].map(identityBody) });
       case "identityCreate": {
         const identity = { id: `idn-${crypto.randomUUID()}`, managed: false };
         identities.set(identity.id, identity);
@@ -298,7 +304,7 @@ export function makeFakeUpstream(apiKey: string) {
   };
 
   const operationOf = (method: string, url: URL): { operation: UpstreamOperation; vmId: string | null } | null => {
-    if (url.pathname === "/v5/identities" && method === "POST") return { operation: "identityCreate", vmId: null };
+    if (url.pathname === "/v5/identities") return { operation: method === "POST" ? "identityCreate" : "identityList", vmId: null };
     if (IDENTITY_PATH.test(url.pathname)) {
       const match = IDENTITY_PATH.exec(url.pathname);
       const rest = match?.[2] ?? "";
@@ -307,6 +313,7 @@ export function makeFakeUpstream(apiKey: string) {
       if (rest.startsWith("tokens")) return { operation: method === "POST" ? "tokenCreate" : method === "GET" ? "tokenList" : "tokenDelete", vmId: null };
     }
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
+    if (url.pathname === "/v5/snapshots" && method === "GET") return { operation: "snapshotList", vmId: null };
     if (SNAPSHOT_PATH.test(url.pathname) && method === "DELETE") return { operation: "deleteSnapshot", vmId: null };
     const match = VM_PATH.exec(url.pathname);
     if (match?.[1] === undefined) return null;
