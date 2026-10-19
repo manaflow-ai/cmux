@@ -46,8 +46,8 @@ extension SidebarGroupLine {
         return headers.compactMap { id, header in
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
-            let bar = header.isThinHeader ? 0 : SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
-            let top = head.midY + bar / 2 + (bar > 0 ? Metrics.space1 : 0), bottom = tail.maxY - Metrics.space1
+            let bar = SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
+            let top = head.midY + bar / 2 + Metrics.space1, bottom = tail.maxY - Metrics.space1
             guard bottom > top else { return nil }
             return SidebarGroupLine(group: id, frame: CGRect(x: head.minX + SidebarStyle.groupBarX, y: top, width: width, height: bottom - top),
                                     color: colors[id]?.tint ?? .palette(end.groupColor ?? .grey))
