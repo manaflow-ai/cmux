@@ -44,6 +44,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Operate Cloud machines and their persistent workspaces | [cmux-cloud-vm](cmux-cloud-vm/SKILL.md) |
 | Native computer use when requested | [cmux-cua](cmux-cua/SKILL.md) |
 | Settings values and validation | [cmux-settings](cmux-settings/SKILL.md) |
+| Long-term memory shared by agent sessions, on one machine or several | [cmux-agent-memory](cmux-agent-memory/SKILL.md) |
 | Shortcuts, key bindings and templates | [cmux-keyboard-shortcuts](cmux-keyboard-shortcuts/SKILL.md) |
 | Actions, commands and layouts | [cmux-customization](cmux-customization/SKILL.md) |
 | Diagnose installed hooks, settings, restore or socket access | [cmux-diagnostics](cmux-diagnostics/SKILL.md) |
