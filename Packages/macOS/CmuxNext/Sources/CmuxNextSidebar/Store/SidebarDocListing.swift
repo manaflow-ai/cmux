@@ -54,7 +54,12 @@ extension SidebarDocProjection {
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
         arranged.insert(contentsOf: before, at: at)
         arranged += after
-        return Self.withMemberItems(arranged, projection, drag: drag)
+        // A group's nested totals count every machine's workspaces once its pieces are one group again.
+        return Self.withMemberItems(arranged, projection, drag: drag).map { section in
+            var section = section
+            section.nodes = section.nodes.fillingNestedWorkspaces()
+            return section
+        }
     }
 
     /// `sections` with each group's url, tab and app members (`SidebarGroup.items`): a member follows the
@@ -130,7 +135,7 @@ extension SidebarDocProjection {
     /// A kept group with no open member (Pinned keeps it): its header alone.
     private static func emptyGroup(_ group: Group) -> SidebarGroup {
         var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: group.collapsed,
-                                icon: group.icon.flatMap { WorkspaceIcon.parse($0) }, workspaces: [])
+                                icon: group.icon.flatMap { WorkspaceIcon.parse($0) }, parent: group.parent.map { GroupID($0) }, workspaces: [])
         if let color = group.color, let tint = GroupTint(wire: color) { made.tint = tint }
         return made
     }

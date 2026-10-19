@@ -117,7 +117,9 @@ public nonisolated enum SidebarEdits {
             let member = group.members.firstIndex { if case let .workspace(ws) = $0 { ws.id == id } else { false } } ?? 0
             return DropPosition(section: section.id, group: group.id, index: member)
         }
-        return DropPosition(section: section.id, index: loc.node)
+        // A top-level index: a nested group lists in its parent's slot.
+        let nested = section.nodes[..<loc.node].count { if case let .group(group) = $0 { group.parent != nil } else { false } }
+        return DropPosition(section: section.id, index: loc.node - nested)
     }
 
     /// The given ids in visual (tree) order, dropping unknown ids.
@@ -215,6 +217,18 @@ public nonisolated enum SidebarEdits {
     static func ungroup(_ id: GroupID, in sections: inout [SidebarSection]) -> Bool {
         guard let (s, n) = locateGroup(id, in: sections),
               case let .group(group) = sections[s].nodes[n] else { return false }
+        // Its nested groups and workspaces move up into its own parent (`workspace-group-nest-v1`).
+        sections[s].nodes = sections[s].nodes.map { node in
+            guard case var .group(child) = node, child.parent == id else { return node }
+            child.parent = group.parent
+            return .group(child)
+        }
+        if let parent = group.parent, let (ps, pn) = locateGroup(parent, in: sections), case var .group(owner) = sections[ps].nodes[pn] {
+            owner.workspaces += group.workspaces
+            sections[ps].nodes[pn] = .group(owner)
+            sections[s].nodes.remove(at: n)
+            return true
+        }
         sections[s].nodes.replaceSubrange(n...n, with: group.workspaces.map(SidebarNode.workspace))
         return true
     }
@@ -222,6 +236,20 @@ public nonisolated enum SidebarEdits {
     static func closeGroup(_ id: GroupID, in sections: inout [SidebarSection]) -> Bool {
         guard let (s, n) = locateGroup(id, in: sections),
               case var .group(group) = sections[s].nodes[n] else { return false }
+        // Its nested groups close with it: their workspaces close too.
+        let nested = Set(SidebarGroup.descendants(of: id, in: sections[s].nodes.compactMap { node -> SidebarGroup? in
+            if case let .group(group) = node { group } else { nil }
+        }))
+        if !nested.isEmpty {
+            sections[s].nodes.removeAll { if case let .group(child) = $0 { nested.contains(child.id) } else { false } }
+            guard let index = sections[s].nodes.firstIndex(where: { $0.id == .group(id) }) else { return false }
+            return closeGroup(at: s, index, group, in: &sections)
+        }
+        return closeGroup(at: s, n, group, in: &sections)
+    }
+
+    private static func closeGroup(at s: Int, _ n: Int, _ group: SidebarGroup, in sections: inout [SidebarSection]) -> Bool {
+        var group = group
         if group.isPinned {
             group.workspaces = []
             group.isCollapsed = true

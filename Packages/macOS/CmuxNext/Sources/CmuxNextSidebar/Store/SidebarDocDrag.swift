@@ -67,7 +67,12 @@ public struct SidebarDocDrag {
                 guard let id = item(row.key) else { continue }
                 var parent: String?
                 var kind = SidebarDragGeometry.Slot.Kind.row
-                if case .group = row.key { kind = .group } else { parent = row.group.flatMap { item(.group($0)) } }
+                if case .group = row.key {
+                    kind = .group
+                    parent = row.parentGroup.flatMap { item(.group($0)) } // a nested group's header sits in its parent
+                } else {
+                    parent = row.group.flatMap { item(.group($0)) }
+                }
                 slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind))
                 rows[id] = row
             case .section, .emptySection:
@@ -117,7 +122,7 @@ public struct SidebarDocDrag {
             shown.nodes.compactMap { node in
                 switch node {
                 case .workspace(let workspace): workspaceItem(workspace.id)
-                case .group(let group): group.id.rawValue
+                case .group(let group): group.parent == nil ? group.id.rawValue : nil // a nested group is no top-level slot
                 case .item(let listed): listed.id
                 }
             }
@@ -162,6 +167,8 @@ public struct SidebarDocDrag {
         case (_, .section(let section)), (_, .emptySection(let section)):
             return .position(DropPosition(section: section, index: 0))
         case (_, .group):
+            // Before or after a nested group's header is a place in its parent: the parent takes the highlight.
+            if let parent = row.parentGroup { return .intoGroup(parent) }
             return .position(DropPosition(section: row.section, index: row.siblingIndex + (hit.zone == .after ? 1 : 0)))
         default:
             return .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex + (hit.zone == .after ? 1 : 0)))

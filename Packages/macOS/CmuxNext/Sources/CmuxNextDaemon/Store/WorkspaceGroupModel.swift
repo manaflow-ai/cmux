@@ -16,8 +16,11 @@ public final class WorkspaceGroupModel: Identifiable {
     public internal(set) var icon: String?
     /// Pinned (saved) group (`workspace-group-pin-v1`).
     public internal(set) var pinned: Bool
+    /// The group this group sits in (`workspace-group-nest-v1`).
+    public internal(set) var parentGroup: WorkspaceGroupID?
 
     init(_ s: WorkspaceGroupSnapshot) {
+        parentGroup = s.parentGroup
         id = s.id
         name = s.name
         color = s.color
@@ -36,6 +39,7 @@ public final class WorkspaceGroupModel: Identifiable {
         if topIndex != s.topIndex { topIndex = s.topIndex }
         if icon != s.icon { icon = s.icon }
         if pinned != s.pinned { pinned = s.pinned }
+        if parentGroup != s.parentGroup { parentGroup = s.parentGroup }
     }
 
     func setCollapsed(_ value: Bool) { if collapsed != value { collapsed = value } }

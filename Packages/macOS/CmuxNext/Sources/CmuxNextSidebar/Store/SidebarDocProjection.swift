@@ -31,6 +31,9 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var memberItems: [String] = []
         /// The url, tab and app members (any item that is not a workspace or a group), in order.
         public var listed: [Listed] = []
+        /// The document item id of the group it sits in (`workspace-group-nest-v1`); nil at the top level.
+        /// A nested group is its own node, after its parent's node; its members are its own.
+        public var parent: String?
 
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {
@@ -111,10 +114,12 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             }
             guard let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
             if let ref = item.body.workspace { items[ref] = id } // members of a pinned group too: they list once
-            if case let .group(name, color, icon, collapsed) = item.body, row.depth == 0 {
-                bandGroups.append(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id))
-            } else if row.depth > 0, let last = bandGroups.indices.last, bandGroups[last].id == (row.parent ?? item.parent) {
-                bandGroups[last].add(id, item) // a workspace, link, tab or app member: a member row in the list
+            let parent = row.depth > 0 ? row.parent ?? item.parent : nil
+            if case let .group(name, color, icon, collapsed) = item.body, row.depth == 0 || parent != nil {
+                bandGroups.append(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id,
+                                        parent: parent))
+            } else if let parent, let owner = bandGroups.lastIndex(where: { $0.id == parent }) {
+                bandGroups[owner].add(id, item) // a workspace, link, tab or app member: a member row in the list
             } else if row.depth == 0 {
                 sections[index].items.append(Self.layoutItem(item))
             }
@@ -137,29 +142,32 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             if let ref = row.ref { unplaced.append(ref) }
             return
         }
+        let parent = row.depth > 0 ? row.parent ?? item.parent : nil
         switch item.body {
         case .workspace(let ref):
             items[ref] = id
-            if let parent = row.parent ?? item.parent, row.depth > 0 {
-                guard var nodes = machines[session], let last = nodes.indices.last, case .group(var group) = nodes[last], group.id == parent else { return }
-                group.add(id, item)
-                nodes[last] = .group(group)
-                machines[session] = nodes
+            if let parent {
+                addMember(id, item, to: parent, in: &machines[session, default: []])
             } else {
                 machines[session, default: []].append(.workspace(ref, item: id))
             }
         case let .group(name, color, icon, collapsed):
+            // A nested group is its own node after its parent's (the rows come depth first).
             machines[session, default: []].append(.group(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [],
-                                                                section: row.section)))
+                                                                section: row.section, parent: parent)))
         case .url, .tab, .app, .builtin, .room, .savedGroup, .ref, .other:
             // Any item may sit in a machine section: it lists as a row, a group's member row inside a group.
-            guard row.depth > 0 else { return machines[session, default: []].append(.link(Self.listItem(item))) }
-            guard let parent = row.parent ?? item.parent, var nodes = machines[session], let last = nodes.indices.last,
-                  case .group(var group) = nodes[last], group.id == parent else { return }
-            group.add(id, item)
-            nodes[last] = .group(group)
-            machines[session] = nodes
+            guard let parent else { return machines[session, default: []].append(.link(Self.listItem(item))) }
+            addMember(id, item, to: parent, in: &machines[session, default: []])
         }
+    }
+
+    /// Adds a member row to the group node `parent` (the nearest one back: a nested group's node follows its parent's).
+    private static func addMember(_ id: String, _ item: SidebarDocItem, to parent: String, in nodes: inout [Node]) {
+        guard let index = nodes.lastIndex(where: { if case .group(let group) = $0 { group.id == parent } else { false } }),
+              case .group(var group) = nodes[index] else { return }
+        group.add(id, item)
+        nodes[index] = .group(group)
     }
 
     static func section(_ record: SidebarDocSection) -> LayoutSection {

@@ -119,6 +119,18 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
         var firstSection = true
         for section in sections {
+            // Nested groups (`workspace-group-nest-v1`) list under their parent's header, not as top-level nodes:
+            // by parent, in order, with their visible workspaces. A dragged group takes its nest with it.
+            let groupsHere = Set(section.nodes.compactMap { node -> GroupID? in if case let .group(group) = node { group.id } else { nil } })
+            var nested: [GroupID: [(group: SidebarGroup, children: [SidebarWorkspace])]] = [:]
+            for node in section.nodes {
+                guard case let .group(group) = node, let parent = group.parent, groupsHere.contains(parent), group.id != o.excludedGroup else { continue }
+                nested[parent, default: []].append((group, group.workspaces.filter(visible)))
+            }
+            // The visible workspaces of the groups nested in `id` (every level), with the group each sits in.
+            func nestedWorkspaces(_ id: GroupID) -> [(workspace: SidebarWorkspace, group: GroupID)] {
+                (nested[id] ?? []).flatMap { child in child.children.map { ($0, child.group.id) } + nestedWorkspaces(child.group.id) }
+            }
             // Nodes that remain, with their visible children.
             var nodes: [(node: SidebarNode, children: [SidebarWorkspace])] = []
             for node in section.nodes {
@@ -127,10 +139,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     if visible(ws) { nodes.append((node, [ws])) }
                 case let .group(group):
                     if group.id == o.excludedGroup { continue }
+                    if let parent = group.parent, groupsHere.contains(parent) { continue }
                     let children = group.workspaces.filter(visible)
                     // A group emptied by the drag keeps its header (it is a
-                    // valid target); a group emptied by the filter hides.
-                    if filtering && children.isEmpty { continue }
+                    // valid target); a group emptied by the filter hides
+                    // (one with a match in a nested group stays).
+                    if filtering && children.isEmpty && nestedWorkspaces(group.id).isEmpty { continue }
                     nodes.append((node, children))
                 case let .item(item):
                     // A link or app row matches no workspace filter.
@@ -204,6 +218,103 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 continue
             }
 
+            // A group's header, its nested groups (each at its own level), then its member rows. `index` is the
+            // group's index among its siblings, `path` the groups it sits in (outermost first).
+            func emitGroup(_ index: Int, _ group: SidebarGroup, _ children: [SidebarWorkspace], path: [GroupID], parentIndex: Int?) {
+                // The member rows in document order: workspaces with the group's link, tab and app items
+                // (an item matches no workspace filter; a dragged item leaves its slot).
+                let shown = Set(children.map(\.id))
+                let members = group.members.filter { member in
+                    switch member {
+                    case let .workspace(ws): shown.contains(ws.id)
+                    case let .item(item): !filtering && item.id != o.excludedItem
+                    }
+                }
+                // Its nested groups list first, under its header (`workspace-group-nest-v1`); a filter hides one
+                // with no match at any level.
+                let inner = (nested[group.id] ?? []).filter { !filtering || !$0.children.isEmpty || !nestedWorkspaces($0.group.id).isEmpty }
+                let below = nestedWorkspaces(group.id)
+                let inside = path + [group.id]
+                let groupCollapsed = group.isCollapsed && !filtering
+                // A collapsed header counts the workspaces of every level.
+                let header = SidebarRow(
+                    key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
+                    group: group.id, siblingIndex: index, parentIndex: parentIndex, isLastInGroup: false,
+                    isCollapsed: groupCollapsed, childCount: members.count + below.count, groupColor: group.color,
+                    groupPath: path
+                )
+                rows.append(header)
+                y += m.groupHeaderHeight + m.rowSpacing
+                if groupCollapsed {
+                    // Keep the selected workspace as the one visible member
+                    // of a collapsed group. This preserves orientation and
+                    // selection without reopening the rest of the group.
+                    // A nested group's selected workspace shows too, in its own group.
+                    guard let activeID = o.activeWorkspaceID else { return }
+                    let owner: (ws: SidebarWorkspace, group: GroupID, index: Int)
+                    if let childIndex = members.firstIndex(where: { if case let .workspace(ws) = $0 { ws.id == activeID } else { false } }),
+                       let ws = children.first(where: { $0.id == activeID }) {
+                        owner = (ws, group.id, childIndex)
+                    } else if let nestedActive = below.first(where: { $0.workspace.id == activeID }) {
+                        owner = (nestedActive.workspace, nestedActive.group, 0)
+                    } else { return }
+                    let ws = owner.ws
+                    let content = o.rowContent(ws, machine: machineLabel)
+                    let h = m.height(for: content)
+                    rows.append(SidebarRow(
+                        key: .workspace(ws.id), y: y, height: h, section: section.id,
+                        group: owner.group, siblingIndex: owner.index, parentIndex: index,
+                        isLastInGroup: true, isCollapsed: false, childCount: 0,
+                        groupColor: group.color, tabDisclosure: disclosure(ws), content: content, groupPath: inside
+                    ))
+                    y += h + m.rowSpacing
+                    return
+                }
+                for (childIndex, child) in inner.enumerated() {
+                    emitGroup(childIndex, child.group, child.children, path: inside, parentIndex: index)
+                }
+                for (childIndex, member) in members.enumerated() {
+                    openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
+                    guard case let .workspace(ws) = member else {
+                        guard case let .item(item) = member else { continue }
+                        // A link, tab or app member: the listed item's row (`.item`), indented under the group's line.
+                        let content = WorkspaceRowContent()
+                        let h = m.height(for: content)
+                        rows.append(SidebarRow(
+                            key: .item(item.id), y: y, height: h, section: section.id,
+                            group: group.id, siblingIndex: childIndex, parentIndex: index,
+                            isLastInGroup: childIndex == members.count - 1,
+                            isCollapsed: false, childCount: 0, groupColor: group.color, content: content, groupPath: inside
+                        ))
+                        y += h + m.rowSpacing
+                        continue
+                    }
+                    let content = o.rowContent(ws, machine: machineLabel)
+                    let h = m.height(for: content)
+                    rows.append(SidebarRow(
+                        key: .workspace(ws.id), y: y, height: h, section: section.id,
+                        group: group.id, siblingIndex: childIndex, parentIndex: index,
+                        isLastInGroup: childIndex == members.count - 1,
+                        isCollapsed: false, childCount: 0, groupColor: group.color,
+                        tabDisclosure: disclosure(ws), content: content, groupPath: inside
+                    ))
+                    y += h + m.rowSpacing
+                    if listsTabs(ws) {
+                        for tab in ws.tabs {
+                            rows.append(SidebarRow(
+                                key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
+                                group: group.id, workspace: ws.id, siblingIndex: childIndex, parentIndex: index,
+                                isLastInGroup: false, isCollapsed: false, childCount: 0,
+                                groupColor: group.color, tabKind: tab.kind, groupPath: inside
+                            ))
+                            y += m.tabRowHeight + m.rowSpacing
+                        }
+                    }
+                }
+                openGapIfNeeded(section: section.id, group: group.id, index: members.count)
+                y += m.groupBottomPadding
+            }
+
             // One node at its model index (drops resolve by it, whatever the drawn order).
             func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace])) {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
@@ -239,81 +350,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     ))
                     y += h + m.rowSpacing
                 case let .group(group):
-                    // The member rows in document order: workspaces with the group's link, tab and app items
-                    // (an item matches no workspace filter; a dragged item leaves its slot).
-                    let shown = Set(entry.children.map(\.id))
-                    let members = group.members.filter { member in
-                        switch member {
-                        case let .workspace(ws): shown.contains(ws.id)
-                        case let .item(item): !filtering && item.id != o.excludedItem
-                        }
-                    }
-                    let groupCollapsed = group.isCollapsed && !filtering
-                    let header = SidebarRow(
-                        key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
-                        group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
-                        isCollapsed: groupCollapsed, childCount: members.count, groupColor: group.color
-                    )
-                    rows.append(header)
-                    y += m.groupHeaderHeight + m.rowSpacing
-                    if groupCollapsed {
-                        // Keep the selected workspace as the one visible member
-                        // of a collapsed group. This preserves orientation and
-                        // selection without reopening the rest of the group.
-                        guard let activeID = o.activeWorkspaceID,
-                              let childIndex = members.firstIndex(where: { if case let .workspace(ws) = $0 { ws.id == activeID } else { false } }),
-                              let ws = entry.children.first(where: { $0.id == activeID }) else { return }
-                        let content = o.rowContent(ws, machine: machineLabel)
-                        let h = m.height(for: content)
-                        rows.append(SidebarRow(
-                            key: .workspace(ws.id), y: y, height: h, section: section.id,
-                            group: group.id, siblingIndex: childIndex, parentIndex: index,
-                            isLastInGroup: true, isCollapsed: false, childCount: 0,
-                            groupColor: group.color, tabDisclosure: disclosure(ws), content: content
-                        ))
-                        y += h + m.rowSpacing
-                        return
-                    }
-                    for (childIndex, member) in members.enumerated() {
-                        openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
-                        guard case let .workspace(ws) = member else {
-                            guard case let .item(item) = member else { continue }
-                            // A link, tab or app member: the listed item's row (`.item`), indented under the group's line.
-                            let content = WorkspaceRowContent()
-                            let h = m.height(for: content)
-                            rows.append(SidebarRow(
-                                key: .item(item.id), y: y, height: h, section: section.id,
-                                group: group.id, siblingIndex: childIndex, parentIndex: index,
-                                isLastInGroup: childIndex == members.count - 1,
-                                isCollapsed: false, childCount: 0, groupColor: group.color, content: content
-                            ))
-                            y += h + m.rowSpacing
-                            continue
-                        }
-                        let content = o.rowContent(ws, machine: machineLabel)
-                        let h = m.height(for: content)
-                        rows.append(SidebarRow(
-                            key: .workspace(ws.id), y: y, height: h, section: section.id,
-                            group: group.id, siblingIndex: childIndex, parentIndex: index,
-                            isLastInGroup: childIndex == members.count - 1,
-                            isCollapsed: false, childCount: 0, groupColor: group.color,
-                            tabDisclosure: disclosure(ws), content: content
-                        ))
-                        y += h + m.rowSpacing
-                        if listsTabs(ws) {
-                            for tab in ws.tabs {
-                                rows.append(SidebarRow(
-                                    key: .tab(ws.id, tab.id), y: y, height: m.tabRowHeight, section: section.id,
-                                    group: group.id, workspace: ws.id, siblingIndex: childIndex, parentIndex: index,
-                                    isLastInGroup: false, isCollapsed: false, childCount: 0,
-                                    groupColor: group.color, tabKind: tab.kind
-                                ))
-                                y += m.tabRowHeight + m.rowSpacing
-                            }
-                        }
-                    }
-                    openGapIfNeeded(section: section.id, group: group.id, index: members.count)
-                    y += m.groupBottomPadding
+                    emitGroup(index, group, entry.children, path: [], parentIndex: nil)
                 }
             }
             // Group by Folder lists groups and document items (links, tabs, apps) as they are.

@@ -57,6 +57,23 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var tabDisclosure: SidebarTabDisclosure? = nil
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil
+    /// The groups that hold this row, outermost first (`workspace-group-nest-v1`): a member's ends with its own
+    /// group; a header's ends with the group it is nested in (empty at the top level).
+    public var groupPath: [GroupID] = []
+    /// The row's nesting level, as group gutters to indent by: a top-level header 0, its member 1. A member row
+    /// made without a path (the Rust list) is 1.
+    public var depth: Int {
+        if !groupPath.isEmpty { return groupPath.count }
+        switch key {
+        case .workspace, .tab, .item: return group == nil ? 0 : 1
+        default: return 0
+        }
+    }
+    /// The group a header is nested in; nil at the top level and for other rows.
+    public var parentGroup: GroupID? {
+        guard case .group = key else { return nil }
+        return groupPath.last
+    }
     /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.
     public var tabCount: Int? { content?.tabCount }
     /// A workspace row's second line.

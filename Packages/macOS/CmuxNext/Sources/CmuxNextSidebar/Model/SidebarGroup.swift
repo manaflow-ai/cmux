@@ -20,6 +20,13 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     /// The group's url, tab and app members (sidebar-v2), each placed after
     /// the workspace member it follows in the document (`members`).
     public var items: [SidebarGroupItem] = []
+    /// The group this group sits in (`workspace-group-nest-v1`); nil at the
+    /// top level. A nested group is its own node, after its parent's node in
+    /// the section; the layout draws it under the parent.
+    public var parent: GroupID?
+    /// The workspaces of the groups nested in this one (every level), for
+    /// the activity and unread totals a collapsed header shows.
+    public var nestedWorkspaces: [SidebarWorkspace] = []
 
     /// Every member in document order: the workspaces, with each item after
     /// the workspace it follows (first when it follows none; last when that
@@ -71,8 +78,10 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         isCollapsed: Bool = false,
         isPinned: Bool = false,
         icon: WorkspaceIcon? = nil,
+        parent: GroupID? = nil,
         workspaces: [SidebarWorkspace]
     ) {
+        self.parent = parent
         self.isPinned = isPinned
         self.icon = icon
         self.id = id
@@ -94,7 +103,7 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
 
     /// Aggregate unread count shown on a collapsed group header.
     public var unreadTotal: Int {
-        workspaces.reduce(0) { total, ws in
+        (workspaces + nestedWorkspaces).reduce(0) { total, ws in
             switch ws.unread {
             case .none: total
             case .dot: total + 1
@@ -105,7 +114,35 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
 
     /// Strongest activity among children, shown on a collapsed group header.
     public var aggregateActivity: StatusIndicatorState {
-        StatusStack.resolve(workspaces.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
+        StatusStack.resolve((workspaces + nestedWorkspaces).map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
+    }
+}
+
+nonisolated extension SidebarGroup {
+    /// The ids of the groups nested in `id` (every level) among `groups`.
+    public static func descendants(of id: GroupID, in groups: some Collection<SidebarGroup>) -> [GroupID] {
+        var out: [GroupID] = []
+        var frontier = [id]
+        while let parent = frontier.popLast(), out.count < groups.count {
+            let children = groups.filter { $0.parent == parent && $0.id != id && !out.contains($0.id) }.map(\.id)
+            out += children
+            frontier += children
+        }
+        return out
+    }
+}
+
+nonisolated extension [SidebarNode] {
+    /// The nodes with each group's ``SidebarGroup/nestedWorkspaces`` filled from the groups nested in it.
+    public func fillingNestedWorkspaces() -> [SidebarNode] {
+        let groups = compactMap { node -> SidebarGroup? in if case let .group(group) = node { group } else { nil } }
+        guard groups.contains(where: { $0.parent != nil }) else { return self }
+        let byID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return map { node in
+            guard case var .group(group) = node else { return node }
+            group.nestedWorkspaces = SidebarGroup.descendants(of: group.id, in: groups).flatMap { byID[$0]?.workspaces ?? [] }
+            return .group(group)
+        }
     }
 }
 

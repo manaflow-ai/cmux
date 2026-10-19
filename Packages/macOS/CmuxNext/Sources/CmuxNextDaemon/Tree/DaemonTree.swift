@@ -119,9 +119,14 @@ public struct WorkspaceGroupSnapshot: Sendable, Hashable, Decodable, Identifiabl
     /// Pinned (saved) group (`workspace-group-pin-v1`): kept as an empty
     /// saved group when its workspaces close.
     public var pinned: Bool
+    /// The group this group sits in (`workspace-group-nest-v1`); nil at
+    /// the top level.
+    public var parentGroup: WorkspaceGroupID?
 
     public init(id: WorkspaceGroupID, name: String, color: String? = nil, collapsed: Bool = false, index: Int = 0,
-                profile: ProfileID? = nil, topIndex: Int? = nil, icon: String? = nil, pinned: Bool = false) {
+                profile: ProfileID? = nil, topIndex: Int? = nil, icon: String? = nil, pinned: Bool = false,
+                parentGroup: WorkspaceGroupID? = nil) {
+        self.parentGroup = parentGroup
         self.id = id
         self.name = name
         self.color = color
@@ -134,8 +139,9 @@ public struct WorkspaceGroupSnapshot: Sendable, Hashable, Decodable, Identifiabl
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, color, collapsed, index, profile, icon, pinned
+        case id, name, color, collapsed, index, profile, icon, pinned, parent
         case topIndex = "top_index"
+        case parentGroup = "parent_group"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -149,5 +155,8 @@ public struct WorkspaceGroupSnapshot: Sendable, Hashable, Decodable, Identifiabl
         topIndex = try c.decodeIfPresent(Int.self, forKey: .topIndex)
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        // `parent_group` on the v2 snapshot, `parent` in raw `list-personal`.
+        parentGroup = try c.decodeIfPresent(WorkspaceGroupID.self, forKey: .parentGroup)
+            ?? c.decodeIfPresent(WorkspaceGroupID.self, forKey: .parent)
     }
 }

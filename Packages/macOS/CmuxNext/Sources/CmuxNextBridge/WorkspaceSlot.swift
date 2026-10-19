@@ -31,8 +31,10 @@ public enum WorkspaceSlot: Hashable, Sendable {
     /// (`DropPosition`). Nil when the anchor or group is not listed there.
     public func position(moving: Set<String>, section: SectionID, in sections: [SidebarRowSection]) -> DropPosition? {
         guard let listed = sections.first(where: { $0.id == section }) else { return nil }
+        // Top-level slots: a nested group lists in its parent's slot (`workspace-group-nest-v1`).
         let nodes = listed.nodes.filter { node in
             if case let .workspace(workspace) = node { return !moving.contains(workspace.id.rawValue) }
+            if case let .group(group) = node { return group.parent == nil }
             return true
         }
         switch self {

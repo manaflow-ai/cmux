@@ -45,6 +45,17 @@ extension SidebarDocStore {
             adopt += anchored.adopt.map { ref -> [String: Any] in ["op": "adopt", "refs": [ref]] }
             move(moving, to: anchored.target, title: title)
         case .reorderGroup(let group, let index):
+            if let parent = model.group(group)?.parent {
+                // A nested group moves among the groups nested in its parent (they list before its workspaces).
+                guard let section = records.items[group.rawValue]?.section else { return false }
+                let siblings = model.sections.flatMap(\.nodes).compactMap { node -> String? in
+                    guard case let .group(sibling) = node, sibling.parent == parent else { return nil }
+                    return sibling.id.rawValue
+                }
+                move([group.rawValue], to: SidebarDocStore.target(section: section, parent: parent.rawValue, index: index, siblings: siblings,
+                                                                   moving: [group.rawValue]), title: title)
+                return true
+            }
             guard let section = model.sections.first(where: { $0.nodes.contains { $0.id == .group(group) } }),
                   let anchored = drag.anchoredTarget(DropPosition(section: section.id, index: index), moving: [group.rawValue], model: model)
             else { return false }

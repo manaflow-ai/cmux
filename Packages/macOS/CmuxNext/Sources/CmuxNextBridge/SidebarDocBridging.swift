@@ -106,6 +106,8 @@ public final class SidebarDocSections {
         var sections: [CmuxNextDaemon.SidebarSection] = []
         var loose: [WorkspaceModel] = []
         var listed = Set<String>()
+        // The groups listed here: a group nested in one that is not lists at the top level.
+        var groupsListed = Set<String>()
         func flush() {
             if !loose.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: loose)) }
             loose = []
@@ -123,7 +125,10 @@ public final class SidebarDocSections {
                 guard !members.isEmpty || group.members.isEmpty else { continue }
                 flush()
                 listed.formUnion(members.map(\.id))
-                sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))
+                var shown = group
+                if let parent = group.parent, !groupsListed.contains(parent) { shown.parent = nil }
+                groupsListed.insert(group.id)
+                sections.append(CmuxNextDaemon.SidebarSection(group: model(shown), workspaces: members))
             case .link:
                 continue // a link row has no workspace; the sidebar model lists it (`SidebarDocProjection.arrange`)
             }
@@ -131,9 +136,16 @@ public final class SidebarDocSections {
         // A group of Pinned or a custom section is mapped with its machine's rows; the sidebar
         // model lists it in that section (`SidebarDocProjection.arrange`).
         flush()
+        // A band group lists with a member here, and so does each group it sits in (`workspace-group-nest-v1`).
+        let parents = Dictionary(projection.bandGroups.map { ($0.id, $0.parent) }, uniquingKeysWith: { first, _ in first })
+        var shown = Set<String>()
+        for group in projection.bandGroups where group.members.contains(where: { $0.sessionID == session && byResource[$0.workspaceID] != nil }) {
+            var next: String? = group.id
+            while let id = next, shown.insert(id).inserted { next = parents[id] ?? nil }
+        }
         for group in projection.bandGroups {
             let members = group.members.filter { $0.sessionID == session }.compactMap { byResource[$0.workspaceID] }
-            guard !members.isEmpty else { continue }
+            guard shown.contains(group.id) else { continue }
             listed.formUnion(members.map(\.id))
             sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))
         }
@@ -147,7 +159,8 @@ public final class SidebarDocSections {
 
     private func model(_ group: SidebarDocProjection.Group) -> WorkspaceGroupModel {
         let snapshot = WorkspaceGroupSnapshot(id: WorkspaceGroupID(rawValue: group.id), name: group.name, color: group.color,
-                                              collapsed: group.collapsed, icon: group.icon, pinned: false)
+                                              collapsed: group.collapsed, icon: group.icon, pinned: false,
+                                              parentGroup: group.parent.map(WorkspaceGroupID.init(rawValue:)))
         if let model = groups[group.id] {
             model.apply(document: snapshot)
             return model

@@ -30,6 +30,7 @@ public struct WorkspaceOrdering {
             // workspace keeps its slot; only a moved loose workspace leaves its own.
             containers = section.nodes.compactMap { node in
                 if case let .workspace(workspace) = node, moved.contains(workspace.id) { return nil }
+                if case let .group(group) = node, group.parent != nil { return nil } // a nested group lists in its parent's slot
                 return node.workspaces.map(\.id).filter { !moved.contains($0) }
             }
         }
