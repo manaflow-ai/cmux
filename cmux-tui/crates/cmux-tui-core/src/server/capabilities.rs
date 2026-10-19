@@ -40,6 +40,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(tab_restart::CAPABILITY);
     #[cfg(unix)]
+    capabilities.push(tab_restart::KEPT_LAYOUT_CAPABILITY);
+    #[cfg(unix)]
     capabilities.push(AGENT_CLI_APP_PROVIDER_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
@@ -151,6 +153,7 @@ pub(super) fn advertised_capabilities(
         EDGE_DOCKS_CAPABILITY,
         DOCK_COLUMN_ROLE_CAPABILITY,
         PERMANENT_DOCK_CAPABILITY,
+        PINNED_DOCK_CAPABILITY,
         ROWS_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
@@ -193,6 +196,7 @@ pub(super) fn advertised_capabilities(
         AGENT_PRESENCE_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
+        TAB_MARK_UNREAD_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,

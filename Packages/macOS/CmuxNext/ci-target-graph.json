@@ -109,6 +109,7 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
+        "CmuxNextErrorJournal",
         "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextWakeups"
@@ -180,6 +181,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDiff",
+        "CmuxNextErrorJournal",
         "CmuxNextFeed",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -195,6 +197,7 @@
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
+        "CmuxNextPhoneAccess",
         "CmuxNextPopups",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
@@ -572,6 +575,21 @@
       ],
       "packages": []
     },
+    "CmuxNextErrorJournal": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal",
+      "targets": [],
+      "packages": []
+    },
+    "CmuxNextErrorJournalTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextErrorJournalTests",
+      "targets": [
+        "CmuxNextErrorJournal"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextFeed": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
@@ -745,6 +763,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextErrorJournal",
         "CmuxNextSettings"
       ],
       "packages": []
@@ -778,6 +797,29 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
         "CmuxNextPalette"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextPhoneAccess": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextKeepAwake",
+        "CmuxNextMobile",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextPhoneAccessTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneAccessTests",
+      "targets": [
+        "CmuxNextPhoneAccess"
       ],
       "packages": [],
       "reads": []
