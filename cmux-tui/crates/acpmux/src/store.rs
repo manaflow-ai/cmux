@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -495,6 +495,7 @@ impl LocalStore {
     pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
         crate::config::private_state_dir(&root)
             .with_context(|| format!("create private store {}", root.display()))?;
+        migrate_existing_state(&root)?;
         Ok(Self {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
@@ -512,11 +513,13 @@ impl LocalStore {
         let Ok(rd) = std::fs::read_dir(&dir) else {
             return Ok(out);
         };
-        for entry in rd.flatten() {
+        for entry in rd {
+            let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
             if let Some(stem) = name.strip_suffix(".ndjson")
                 && let Ok(idx) = stem.parse::<u32>()
             {
+                drop(crate::config::private_state_file(&entry.path())?);
                 out.push((idx, entry.path()));
             }
         }
@@ -541,7 +544,7 @@ impl LocalStore {
 
 /// The seq of a segment's first readable record.
 fn first_seq(path: &Path) -> Result<Option<u64>> {
-    for line in BufReader::new(File::open(path)?).lines() {
+    for line in BufReader::new(crate::config::private_state_file(path)?).lines() {
         let line = line?;
         if let Ok(rec) = serde_json::from_str::<EventRecord>(&line) {
             return Ok(Some(rec.seq));
@@ -556,9 +559,19 @@ impl Store for LocalStore {
         let Ok(rd) = std::fs::read_dir(&self.root) else {
             return Ok(out);
         };
-        for entry in rd.flatten() {
+        for entry in rd {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_symlink() {
+                anyhow::bail!("session entry {} is a link", entry.path().display());
+            }
+            if !kind.is_dir() {
+                continue;
+            }
             let path = entry.path().join("session.json");
-            if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(file) = crate::config::private_state_file(&path) {
+                let mut text = String::new();
+                BufReader::new(file).read_to_string(&mut text)?;
                 match serde_json::from_str::<SessionMeta>(&text) {
                     Ok(meta) => out.push(meta),
                     Err(e) => tracing::warn!("skip {}: {e}", path.display()),
@@ -573,7 +586,8 @@ impl Store for LocalStore {
         if !path.exists() {
             return Ok(None);
         }
-        let text = std::fs::read_to_string(&path)?;
+        let mut text = String::new();
+        BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
         Ok(Some(serde_json::from_str(&text)?))
     }
 
@@ -604,7 +618,7 @@ impl Store for LocalStore {
 
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         for (_, path) in self.segments(id)? {
-            let file = File::open(&path)?;
+            let file = crate::config::private_state_file(&path)?;
             for line in BufReader::new(file).lines() {
                 let line = line?;
                 if line.trim().is_empty() {
@@ -633,7 +647,8 @@ impl Store for LocalStore {
             if first_seq(&path)?.is_some_and(|first| first >= before) {
                 continue;
             }
-            let text = std::fs::read_to_string(&path)?;
+            let mut text = String::new();
+            BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
             for line in text.lines().rev() {
                 if line.trim().is_empty() {
                     continue;
@@ -660,7 +675,7 @@ impl Store for LocalStore {
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let mut out = Vec::new();
         for (_, path) in self.segments(id)? {
-            let file = File::open(&path)?;
+            let file = crate::config::private_state_file(&path)?;
             for line in BufReader::new(file).lines() {
                 let line = line?;
                 if line.trim().is_empty() {
@@ -711,6 +726,42 @@ impl Store for LocalStore {
     fn handoff_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("handoffs"))
     }
+}
+
+/// Migrate every existing durable leaf before any session is loaded. A link
+/// or non-owned state path fails startup rather than retaining an attacker-
+/// writable namespace from an older permissive state tree.
+fn migrate_existing_state(root: &Path) -> Result<()> {
+    let entries = std::fs::read_dir(root)?;
+    for entry in entries {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            anyhow::bail!("session entry {} is a link", entry.path().display());
+        }
+        if !kind.is_dir() {
+            continue;
+        }
+        let session = entry.path();
+        crate::config::private_state_dir(&session)?;
+        let metadata = session.join("session.json");
+        if std::fs::symlink_metadata(&metadata).is_ok() {
+            drop(crate::config::private_state_file(&metadata)?);
+        }
+        let events = session.join("events");
+        match std::fs::symlink_metadata(&events) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+            Ok(_) => crate::config::private_state_dir(&events)?,
+        }
+        for event in std::fs::read_dir(&events)? {
+            let event = event?;
+            if event.path().extension().and_then(|value| value.to_str()) == Some("ndjson") {
+                drop(crate::config::private_state_file(&event.path())?);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Open one event segment for append, owner-only from creation and after an

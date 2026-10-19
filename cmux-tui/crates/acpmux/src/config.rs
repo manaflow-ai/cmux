@@ -59,6 +59,32 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Open an existing state file without following a final symlink, verify its
+/// owner and type, and narrow an older file to mode 0600 before reading it.
+#[cfg(unix)]
+pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    let metadata = file.metadata()?;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    anyhow::ensure!(
+        metadata.is_file() && metadata.uid() == uid,
+        "{} is not a state file owned by this user",
+        path.display()
+    );
+    if metadata.mode() & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("make {} owner-only", path.display()))?;
+    }
+    Ok(file)
+}
+
 /// Windows: owner-only DACL on the directory and children, including a
 /// directory an older build made with inherited wider permissions.
 #[cfg(windows)]
@@ -67,6 +93,11 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     crate::owner_only::restrict(dir)?;
     crate::owner_only::private_dir(dir)?;
     Ok(())
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_read(path)?)
 }
 
 /// Unix socket path, by the rule every host and client shares

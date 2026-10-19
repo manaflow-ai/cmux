@@ -20,7 +20,7 @@ use std::os::windows::io::FromRawHandle;
 use std::path::Path;
 use std::ptr::null_mut;
 use windows_sys::Win32::Foundation::{
-    ERROR_SUCCESS, GENERIC_WRITE, INVALID_HANDLE_VALUE, LocalFree,
+    ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE, LocalFree,
 };
 use windows_sys::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
@@ -34,7 +34,7 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::Storage::FileSystem::{
     CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
     FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    OPEN_ALWAYS,
+    OPEN_ALWAYS, OPEN_EXISTING,
 };
 
 /// SIDs whose rights do not make a file shared: SYSTEM, Administrators and
@@ -139,6 +139,29 @@ pub(crate) fn open_append(path: &Path) -> io::Result<File> {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("{} is a link, not a log file", path.display()),
+        ));
+    }
+    if !only_owner_reads(path)? {
+        restrict(path)?;
+    }
+    Ok(file)
+}
+
+/// Open an existing state file for reading without following a reparse point,
+/// narrowing a wider DACL before its contents are consumed.
+pub(crate) fn open_read(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::MetadataExt;
+
+    let file = open_owner_only(
+        path,
+        OPEN_EXISTING,
+        GENERIC_READ | 0x80,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    )?;
+    if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is a link, not a state file", path.display()),
         ));
     }
     if !only_owner_reads(path)? {

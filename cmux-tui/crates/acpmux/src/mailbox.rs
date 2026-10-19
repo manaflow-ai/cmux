@@ -149,7 +149,11 @@ impl Mailbox {
             .with_context(|| format!("create private mailbox {}", root.display()))?;
         let path = root.join("mailbox.json");
         let state = if path.exists() {
-            let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            crate::config::private_state_file(&path)?
+                .read_to_end(&mut bytes)
+                .with_context(|| format!("read {}", path.display()))?;
             let state: PersistedState = serde_json::from_slice(&bytes)
                 .with_context(|| format!("parse {}", path.display()))?;
             if state.schema != SCHEMA {
