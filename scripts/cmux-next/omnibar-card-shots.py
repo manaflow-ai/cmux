@@ -11,6 +11,8 @@ suggestion card shows (`MODE-open.png`), plus `MODE.json`: the
 `debug.omnibar` reports (pointer frames, card and bar rects). The pixels
 are measured afterwards (the card's corner radii and insets, and whether
 the reload button's pixels change when the card opens).
+The theme and density it changes (in the host user's config file) are put
+back at the end.
 """
 import argparse, json, os, socket, sys, time
 
@@ -85,39 +87,50 @@ if not wait(lambda: "error" not in omnibar(window), 90):
 settle()
 
 failures = 0
-for mode in ("dark", "compact", "light"):
-    # compact: dark at compact density (the tighter tab gap above the bar); light at the default.
-    if mode != "dark":
-        density = "compact" if mode == "compact" else "comfortable"
-        print("density", density, rpc("settings.set", {"path": "appearance.density", "value": density}), flush=True)
-    looks = rpc("debug.appearance", {"mode": "dark" if mode == "compact" else mode})
-    print(mode, "appearance", looks, flush=True)
-    background = (looks or {}).get("terminal_background") if isinstance(looks, dict) else None
-    if mode == "light" and isinstance(background, str) and background.startswith("#"):
-        r, g, b = (int(background[i:i + 2], 16) for i in (1, 3, 5))
-        if r + g + b < 384:  # the default theme has no light side: a light theme
-            print("light theme", rpc("settings.set", {"path": "appearance.theme", "value": "Catppuccin Latte"}), flush=True)
-    close_card(window)
-    settle()
-    report = {"mode": mode, "appearance": looks, "closed": omnibar(window)}
-    print("snapshot closed", rpc("debug.window_snapshot", {"window": window, "path": os.path.join(opts.out, f"{mode}-closed.png")}), flush=True)
-    for attempt in range(3):  # a focus change can close the card before the capture: type again
-        typed = rpc("debug.omnibar_type", {"window": window, "text": opts.text, "commit": False})
-        print("typed", (typed or {}).get("typed"), (typed or {}).get("phase"), flush=True)
-        wait(lambda: omnibar(window).get("card"), 15)
-        settle()
-        report["open"] = omnibar(window)
-        if report["open"].get("card"):
-            break
+# The settings this script changes live in the host user's config file: put them back after.
+TOUCHED = ("appearance.theme", "appearance.density")
+saved = {path: rpc("settings.get", {"path": path}) or {} for path in TOUCHED}
+print("saved settings", saved, flush=True)
+try:
+    for mode in ("dark", "compact", "light"):
+        # compact: dark at compact density (the tighter tab gap above the bar); light at the default.
+        if mode != "dark":
+            density = "compact" if mode == "compact" else "comfortable"
+            print("density", density, rpc("settings.set", {"path": "appearance.density", "value": density}), flush=True)
+        looks = rpc("debug.appearance", {"mode": "dark" if mode == "compact" else mode})
+        print(mode, "appearance", looks, flush=True)
+        background = (looks or {}).get("terminal_background") if isinstance(looks, dict) else None
+        if mode == "light" and isinstance(background, str) and background.startswith("#"):
+            r, g, b = (int(background[i:i + 2], 16) for i in (1, 3, 5))
+            if r + g + b < 384:  # the default theme has no light side: a light theme
+                print("light theme", rpc("settings.set", {"path": "appearance.theme", "value": "Catppuccin Latte"}), flush=True)
         close_card(window)
-    if not report["open"].get("card"):
-        print(f"FAIL no card in {mode}: {report['open'].get('phase')}", flush=True)
-        failures += 1
-    print("card", report["open"].get("card"), "frames", (report["open"].get("pointer") or {}).get("frames"), flush=True)
-    print("snapshot open", rpc("debug.window_snapshot", {"window": window, "path": os.path.join(opts.out, f"{mode}-open.png")}), flush=True)
-    with open(os.path.join(opts.out, f"{mode}.json"), "w") as f:
-        json.dump(report, f, indent=1, default=str)
-    close_card(window)
+        settle()
+        report = {"mode": mode, "appearance": looks, "closed": omnibar(window)}
+        print("snapshot closed", rpc("debug.window_snapshot", {"window": window, "path": os.path.join(opts.out, f"{mode}-closed.png")}), flush=True)
+        for attempt in range(3):  # a focus change can close the card before the capture: type again
+            typed = rpc("debug.omnibar_type", {"window": window, "text": opts.text, "commit": False})
+            print("typed", (typed or {}).get("typed"), (typed or {}).get("phase"), flush=True)
+            wait(lambda: omnibar(window).get("card"), 15)
+            settle()
+            report["open"] = omnibar(window)
+            if report["open"].get("card"):
+                break
+            close_card(window)
+        if not report["open"].get("card"):
+            print(f"FAIL no card in {mode}: {report['open'].get('phase')}", flush=True)
+            failures += 1
+        print("card", report["open"].get("card"), "frames", (report["open"].get("pointer") or {}).get("frames"), flush=True)
+        print("snapshot open", rpc("debug.window_snapshot", {"window": window, "path": os.path.join(opts.out, f"{mode}-open.png")}), flush=True)
+        with open(os.path.join(opts.out, f"{mode}.json"), "w") as f:
+            json.dump(report, f, indent=1, default=str)
+        close_card(window)
+finally:
+    for path, before in saved.items():
+        if before.get("exists"):
+            print("restore", path, rpc("settings.set", {"path": path, "value": before.get("value")}), flush=True)
+        else:
+            print("restore (unset)", path, rpc("settings.unset", {"path": path}), flush=True)
 
 print(f"{failures} failure(s); shots in {opts.out}")
 sys.exit(1 if failures else 0)
