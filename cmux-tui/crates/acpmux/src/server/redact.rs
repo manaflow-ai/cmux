@@ -105,3 +105,31 @@ fn url_without_secrets(url: &str) -> String {
     let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
     format!("{scheme}://{host}{path}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn remote_harness_view_hides_nested_commands_and_raw_failures() {
+        const SENTINEL: &str = "remote-private-harness-detail";
+        let mut reply = json!({
+            "harnesses": {"private": {
+                "argv": ["agent", SENTINEL],
+                "env": {"PRIVATE_TOKEN": SENTINEL},
+                "sessions": {"adapter": "jsonl", "resume": {"argv": ["agent", SENTINEL]}},
+                "unavailable": format!("launcher failed: {SENTINEL}"),
+                "probeError": format!("probe failed: {SENTINEL}"),
+            }},
+            "defaults": {"private": {"env": {"PRIVATE_TOKEN": SENTINEL}}},
+        });
+        redact_for_remote("_acpmux/harnesses", &mut reply);
+        let text = reply.to_string();
+        assert!(!text.contains(SENTINEL), "remote harness view leaked process details: {text}");
+        let profile = &reply["harnesses"]["private"];
+        assert_eq!(profile["hasSessions"], true);
+        assert_eq!(profile["unavailable"], "unavailable");
+        assert_eq!(profile["probeError"], "unavailable");
+    }
+}
