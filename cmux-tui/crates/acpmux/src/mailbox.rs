@@ -524,6 +524,21 @@ mod tests {
         assert_eq!(row.message.id, "m1");
         assert_eq!(row.delivery.state, DeliveryState::Acknowledged);
     }
+    #[cfg(unix)]
+    #[test]
+    fn persistent_mailbox_narrows_its_directory_and_state_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let d = TempDir::new();
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let b = Mailbox::open(d.path()).unwrap();
+        b.send(input("m1", "b", "private message")).unwrap();
+        let mode = |path: &std::path::Path| {
+            std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
+        };
+        assert_eq!(mode(d.path()), 0o700);
+        assert_eq!(mode(&d.path().join("mailbox.json")), 0o600);
+    }
     #[test]
     fn repeated_ack_is_idempotent() {
         let b = Mailbox::memory();

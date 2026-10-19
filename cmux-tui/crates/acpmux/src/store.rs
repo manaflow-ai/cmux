@@ -710,3 +710,61 @@ impl Store for LocalStore {
         self.root.parent().map(|home| home.join("handoffs"))
     }
 }
+
+#[cfg(all(test, unix))]
+mod permission_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "acpmux-store-permissions-{}-{}",
+                std::process::id(),
+                uuid::Uuid::now_v7()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn mode(path: &Path) -> u32 {
+        std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn local_store_makes_existing_state_private_and_writes_private_events() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        store
+            .append(
+                "session-1",
+                &EventRecord {
+                    seq: 1,
+                    at: 1,
+                    dir: "mux".into(),
+                    kind: "test".into(),
+                    msg: serde_json::json!({"text": "private"}),
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(mode(&root), 0o700, "the sessions root contains every chat");
+        assert_eq!(mode(&root.join("session-1")), 0o700);
+        assert_eq!(mode(&root.join("session-1/events")), 0o700);
+        assert_eq!(mode(&root.join("session-1/events/000001.ndjson")), 0o600);
+    }
+}
