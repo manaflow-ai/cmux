@@ -948,13 +948,31 @@ class LandingRetry(unittest.TestCase):
         def fake_run(command, **_):
             calls.append(command)
             if "--override" not in command:
-                return subprocess.CompletedProcess(command, 1, "", "not green: 'cmux-next swift test' is not successful on abc\n")
+                return subprocess.CompletedProcess(command, 1, "", "not green: 'cmux-next swift test' on abc1234, not excused by feat-cmux-next (x)\n")
             return subprocess.CompletedProcess(command, 0, "", "")
 
         with mock.patch.object(nb.subprocess, "run", fake_run):
             outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
         self.assertTrue(outcome.startswith("landed"))
         self.assertIn("https://example.test/run/1", calls[-1][calls[-1].index("--override") + 1])
+
+    def test_waives_only_lanes_the_stack_passed(self):
+        controller = nb.Controller.__new__(nb.Controller)
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
+                                   heavy_passed=["cmux-next swift test", "cmux app scheme compile (Debug)"])
+        controller.failed_jobs = lambda run_id: {1: ["cmux-next swift test"], 2: ["cmux-next daemon tests"]}[run_id]
+        tail = " on abc1234, not excused by feat-cmux-next (no match)"
+        cases = {
+            "'cmux-next swift test'; 'cmux app scheme compile (Debug)'": True,
+            "cmux-next run 1 attempt 1 (pull_request) is failure; 'cmux-next swift test'": True,
+            "cmux-next run 2 attempt 1 (pull_request) is failure; 'cmux-next swift test'": False,
+            "'cmux-next swift test'; 'ci-status'": False,
+            "'cmux-next Release compile (Xcode 26)'": False,
+        }
+        for lanes, expected in cases.items():
+            with self.subTest(lanes=lanes):
+                self.assertEqual(controller.waivable("not green: " + lanes + tail, validation), expected)
+        self.assertFalse(controller.waivable("not green: cmux-next run still pending on abc1234", validation))
 
     def test_no_override_for_a_heavy_check_the_stack_did_not_pass(self):
         controller = nb.Controller.__new__(nb.Controller)
@@ -963,7 +981,7 @@ class LandingRetry(unittest.TestCase):
         controller.writer = nb.GitHub("o/r")
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
                                    heavy_passed=["cmux-next swift test"])
-        red = subprocess.CompletedProcess([], 1, "", "not green: 'cmux app scheme compile (Debug)' is not successful on abc\n")
+        red = subprocess.CompletedProcess([], 1, "", "not green: 'cmux app scheme compile (Debug)' on abc1234, not excused by feat-cmux-next (x)\n")
         with mock.patch.object(nb.subprocess, "run", return_value=red) as run:
             outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
         self.assertTrue(outcome.startswith("not landed"))
