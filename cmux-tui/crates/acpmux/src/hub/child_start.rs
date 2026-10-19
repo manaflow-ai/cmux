@@ -42,4 +42,16 @@ impl Hub {
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
         self.ensure_child(session, &spawn).await
     }
+
+    /// Undoes a start that failed after its agent began (initialize, `session/new`, a fork's
+    /// warm-up): the agent is ended, so the next start spawns afresh instead of reusing it.
+    pub(super) async fn drop_started_child(&self, session: &Session) {
+        if let Some(child) = session.child.lock().await.take() {
+            child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+        }
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        session.loading.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
 }

@@ -15,8 +15,10 @@
 //!   conversation (`adopt_live.rs`) it is refused with `adopt.live` unless `ifLive` is `fork`
 //!   (Claude Code: a new conversation branches off) or `open` (both apps on one conversation).
 //!   Take Over starts the harness on the conversation (`claude --resume`, Codex
-//!   `session/load`) before the watch ends; the history it shows is already there. When that
-//!   start fails the chat goes on viewing, and the refusal says `watch.resumeFailed`.
+//!   `session/load`) before the watch ends; the history it shows is already there. When the
+//!   agent does not start the chat goes on viewing, and the refusal says `watch.resumeFailed`
+//!   (a Codex rollout `session/load` cannot find still starts, on a fresh session, as any
+//!   adopted chat does). One take-over runs per chat at a time (`watch.takingOver`).
 //! - `watch_taken_over` carries `family` and `cwd`, so a client can say how the original app
 //!   goes on (`claude --resume <id>` in that folder, `codex resume <id>`).
 //! - The read position is saved with the session, so a watch goes on after a daemon restart
@@ -42,6 +44,28 @@ const MAX_BYTES: u64 = 64 << 20;
 
 /// Most bytes one read takes, so a big backlog is shown in steps.
 const MAX_READ: u64 = 4 << 20;
+
+/// The chats a take-over runs for now; the guard leaves the set when the take-over ends.
+static TAKING_OVER: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+struct TakeOverGuard(String);
+
+impl TakeOverGuard {
+    fn take(id: &str) -> Option<Self> {
+        let mut ids = TAKING_OVER.lock().unwrap_or_else(|e| e.into_inner());
+        if ids.iter().any(|t| t == id) {
+            return None;
+        }
+        ids.push(id.to_owned());
+        Some(Self(id.to_owned()))
+    }
+}
+
+impl Drop for TakeOverGuard {
+    fn drop(&mut self) {
+        TAKING_OVER.lock().unwrap_or_else(|e| e.into_inner()).retain(|t| *t != self.0);
+    }
+}
 
 /// What a prompt, or a change to the queue, gets while the chat is watched.
 pub(super) fn read_only() -> RpcError {
@@ -233,8 +257,14 @@ impl Hub {
         session: &Arc<Session>,
         if_live: IfLive,
     ) -> Result<Value, RpcError> {
+        // One take-over at a time per chat: the start below can take seconds.
+        let Some(_guard) = TakeOverGuard::take(&session.id) else {
+            return Err(RpcError::invalid_params("this chat is already being taken over")
+                .with_data(json!({"reason": "watch.takingOver"})));
+        };
         let Some(watching) = session.meta().watching else {
-            return Err(RpcError::invalid_params("this chat is not watching a conversation"));
+            return Err(RpcError::invalid_params("this chat is not watching a conversation")
+                .with_data(json!({"reason": "watch.notWatching"})));
         };
         let family = watching.family.clone();
         let Some(id) = session.meta().agent_session_id else {
@@ -273,12 +303,14 @@ impl Hub {
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_session_id = None;
         }
         if let Err(e) = self.start_child(session).await {
+            self.drop_started_child(session).await;
             if fork {
                 *session.fork_from.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_session_id =
                     Some(id.clone());
             }
-            self.append(session, "mux", "watch_take_over_failed", json!({"error": e.message}));
+            let failed = json!({"error": e.message, "family": family});
+            self.append(session, "mux", "watch_take_over_failed", failed);
             return Err(RpcError::invalid_params(format!(
                 "this {family} chat could not be resumed here: {}",
                 e.message
@@ -335,5 +367,14 @@ mod tests {
         std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
         assert_eq!(read_lines(&file, offset).unwrap().0, ["{}"]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn one_take_over_runs_per_chat_at_a_time() {
+        let first = TakeOverGuard::take("chat-a").expect("free");
+        assert!(TakeOverGuard::take("chat-a").is_none(), "a second take-over waits its turn");
+        assert!(TakeOverGuard::take("chat-b").is_some(), "another chat is not held up");
+        drop(first);
+        assert!(TakeOverGuard::take("chat-a").is_some(), "the guard ends with its take-over");
     }
 }

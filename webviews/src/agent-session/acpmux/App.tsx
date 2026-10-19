@@ -5239,7 +5239,7 @@ function AcpmuxPane() {
             const send = async () => {
               // Replying to a View Only chat takes it over first (`takeOver`); while the app that
               // runs it still does, the pane asks how, and the composer keeps the message.
-              if (snapshot.summary?.watching && !(await directClient.current?.takeOver())) {
+              if (directClient.current && !(await directClient.current.replyTakeOver())) {
                 throw new Error("watch.notTakenOver");
               }
               if (projectDraft && !snapshot.sessionId)

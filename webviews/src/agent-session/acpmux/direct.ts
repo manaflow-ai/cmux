@@ -1766,6 +1766,12 @@ export class AcpmuxDirectClient {
         const line = watchGoBack(msg);
         const id = `notice-watch-back-${event.seq ?? 0}`;
         if (line) this.rows.set(id, { id, version: 1, at: event.at ?? Date.now(), kind: "notice", text: line });
+      } else if (event.kind === "watch_take_over_failed") {
+        // Take Over could not resume the conversation here: the chat stays View Only, and says why.
+        const id = `notice-watch-failed-${event.seq ?? 0}`;
+        const why = typeof msg.error === "string" ? msg.error : "";
+        const line = watchResumeFailed(typeof msg.family === "string" ? msg.family : "", why);
+        this.rows.set(id, { id, version: 1, at: event.at ?? Date.now(), kind: "notice", text: line });
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
@@ -2898,6 +2904,23 @@ export class AcpmuxDirectClient {
   /// the pane offers Open Anyway and, for Claude Code, Fork It, which call this with `ifLive`.
   /// Resolves true once the chat runs the conversation, false when it still only views it.
   async takeOver(ifLive?: "fork" | "open"): Promise<boolean> {
+    // One take-over at a time: a reply sent while the banner's Take Over runs waits for it.
+    if (this.takingOver) return this.takingOver;
+    const run = this.takeOverOnce(ifLive);
+    this.takingOver = run;
+    void run.finally(() => {
+      if (this.takingOver === run) this.takingOver = undefined;
+    });
+    return run;
+  }
+  /// The reply path: a message sent from a View Only chat takes it over first; true when the chat
+  /// runs the conversation (now, or already). Reads the live summary, not a render's.
+  replyTakeOver(): Promise<boolean> {
+    if (!this.summary?.watching && !this.takingOver) return Promise.resolve(true);
+    return this.takeOver();
+  }
+  private takingOver: Promise<boolean> | undefined;
+  private async takeOverOnce(ifLive?: "fork" | "open"): Promise<boolean> {
     const sessionId = this.selectedSessionId;
     if (!sessionId) return false;
     const live = this.liveTakeOverFor === sessionId ? this.liveTakeOver : undefined;
@@ -2914,14 +2937,10 @@ export class AcpmuxDirectClient {
         this.emit();
         return false;
       }
-      // The resume failed: the chat still views the conversation, and says why.
-      if (error instanceof AcpmuxRpcError && error.reason === "watch.resumeFailed") {
-        const why = (error.data as { error?: unknown } | undefined)?.error;
-        this.notice(
-          watchResumeFailed(text(this.summary?.watching) ?? "", typeof why === "string" ? why : error.message),
-        );
-        return false;
-      }
+      // The resume failed: the chat still views the conversation; its `watch_take_over_failed`
+      // record draws why. A chat that no longer views one runs it already.
+      if (error instanceof AcpmuxRpcError && error.reason === "watch.resumeFailed") return false;
+      if (error instanceof AcpmuxRpcError && error.reason === "watch.notWatching") return true;
       this.notice(error instanceof Error && error.message ? error.message : String(error));
       return false;
     }
