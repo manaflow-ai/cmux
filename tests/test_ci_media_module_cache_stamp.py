@@ -85,8 +85,11 @@ def make_source(path, pin):
     git(path, "add", "-A")
 
 
+BUILD_DESCRIPTION = "Build/Intermediates.noindex/XCBuildData"
+
+
 def make_derived(path):
-    for relative in (MODULES, "ModuleCache.noindex", "Build/Products/Debug/app.app"):
+    for relative in (MODULES, "ModuleCache.noindex", BUILD_DESCRIPTION, "Build/Products/Debug/app.app"):
         os.makedirs(os.path.join(path, relative))
         write(os.path.join(path, relative, "file"), "x")
 
@@ -134,6 +137,12 @@ def scenario_script():
         result = run("clear", source, derived)
         print(result.stdout + result.stderr)
         _check(not modules_present(derived), "a new binary target checksum drops the precompiled modules")
+        # Xcode's build description still lists the dropped modules as built,
+        # so the next build asked clang for a Darwin pcm that no longer existed
+        # ("module file ... ExplicitPrecompiledModules/Darwin-*.pcm not found",
+        # 14 of 22 failed tours on 10-19, e.g. job 118285853270).
+        _check(not os.path.exists(os.path.join(derived, BUILD_DESCRIPTION)),
+               "dropping the modules also drops the build description that lists them")
 
         make_derived_modules_again(derived)
         run("record", source, derived)
