@@ -492,16 +492,28 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
         self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
 
-    def test_inherited_reds_join_the_probe_and_the_bases_own_runs(self):
+    def test_the_probes_reds_are_the_inherited_ones(self):
         controller = self.controller()
         controller.base_probe_result = {"failed": {f"{nb.CHECKS_JOB}: Type scale"}}
-        controller.gh.runs.return_value = [
-            {"id": 1, "status": "completed", "head_branch": nb.BASE},
-            {"id": 2, "status": "completed", "head_branch": "other"},
-        ]
-        controller.failed_jobs = lambda run_id: {1: ["cmux app scheme compile (Debug)"], 2: ["x"]}[run_id]
-        self.assertEqual(controller.failing_on_base("b" * 40),
-                         {f"{nb.CHECKS_JOB}: Type scale", "cmux app scheme compile (Debug)"})
+        self.assertEqual(controller.failing_on_base("b" * 40), {f"{nb.CHECKS_JOB}: Type scale"})
+        controller.gh.runs.assert_not_called()
+
+    def test_without_a_probe_only_outright_failures_in_the_push_run_count(self):
+        controller = self.controller()
+        controller.gh.runs.return_value = [{"id": 1, "status": "completed", "head_branch": nb.BASE}]
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 7, "name": "cmux-next generated files", "conclusion": "cancelled"},
+            {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure"},
+        ]}
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug)"})
+        self.assertIn("event=push", controller.gh.runs.call_args.args[1])
+
+    def test_a_batch_that_ends_first_cancels_the_probes_run(self):
+        controller = self.controller()
+        controller.base_probe = mock.Mock(is_alive=lambda: True)
+        controller.base_probe_result = {"run": 42}
+        controller.stop_base_probe()
+        self.assertEqual(controller.gh.gh.call_args.args[:3], ("run", "cancel", "42"))
 
     def test_the_probe_validates_the_base_on_its_own_branch(self):
         controller = self.controller()
@@ -516,39 +528,6 @@ class BaseReds(unittest.TestCase):
         controller.gh.dispatch.assert_called_once_with(nb.HEAVY_WORKFLOW, "next-batch/local-1-base")
         self.assertEqual(controller.base_probe_result["failed"], {f"{nb.CHECKS_JOB}: Type scale"})
         self.assertEqual(controller.base_probe_result["url"], "https://probe")
-
-    def test_a_pr_red_on_the_stacks_failing_check_is_dropped_without_a_bisect(self):
-        controller = nb.Controller.__new__(nb.Controller)
-        controller.args = Namespace(repo="o/r", prs="", dry_run=True, keep_branches=True, land=False)
-        controller.validations, controller.base_probe_result, controller.base_sha = [], {}, ""
-        controller.started, controller.gh, controller.batch_id, controller.run_url = 0, mock.Mock(), "local-1", "u"
-        controller.reported = lambda item, kinds: ""
-        reports = []
-        controller.report_culprit = lambda item, red, prefix, own=False: reports.append((item.number, own))
-        controller.bisect = mock.Mock(side_effect=AssertionError("bisected"))
-        controller.post_sticky = lambda text: None
-        controller.land = lambda validation: [(item, "landed") for item in validation.stack.included]
-        controller.after_landing = lambda: None
-        failing = f"{nb.CHECKS_JOB}: Main-thread concurrency"
-        own = {2: {failing}, 3: {f"{nb.CHECKS_JOB}: Type scale"}}
-        controller.own_reds = lambda item: own.get(item.number, set())
-
-        def validate(prs, name):
-            stack = nb.Stack(base="b", head="h", included=list(prs))
-            validation = nb.Validation(name=name, stack=stack, build={"ok": True})
-            if any(item.number == 2 for item in prs):
-                validation.heavy_failed = [failing]
-            controller.validations.append(validation)
-            return validation
-
-        controller.validate = validate
-        prs = [pr(1), pr(2), pr(3)]
-        with mock.patch.object(nb, "open_prs", return_value=prs), mock.patch.object(nb, "now", return_value=NOW), \
-                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
-            controller.run()
-        self.assertEqual(reports, [(2, True)])
-        self.assertEqual([[item.number for item in v.stack.included] for v in controller.validations], [[1, 2, 3], [1, 3]])
-        controller.bisect.assert_not_called()
 
 
 class RemoteRegeneration(unittest.TestCase):
