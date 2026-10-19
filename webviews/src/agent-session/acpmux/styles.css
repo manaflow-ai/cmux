@@ -14,7 +14,7 @@
    the bridge's accent text, which AgentPaneTheme.swift sets to the page color made
    opaque (the accent is the text color). A host that sends a different accent text must
    change this base too; without the bridge the base is the system Canvas. */
-.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger));--acpmux-send-off-bg:color-mix(in srgb,var(--agent-text) 18%,transparent);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 60%,transparent);--acpmux-send-fill:rgb(2 132 254);--acpmux-send-ink:#fff}
+.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-base));--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-warning,var(--agent-danger));--acpmux-send-off-bg:color-mix(in srgb,var(--agent-text) 18%,transparent);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 60%,transparent);--acpmux-send-fill:var(--cmux-messages-blue);--acpmux-send-ink:var(--cmux-on-messages-blue)}
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the solid popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
 .ui-positioner{--ui-popup-fg:var(--agent-text)}
@@ -125,7 +125,7 @@
 .acpmux-context-compact:disabled{opacity:.5}
 .acpmux-context-compact:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* Send is the row's height, not taller: a 28px circle with a 16px arrow. */
-/* Send is iMessage's send button on every theme: Messages' measured blue (rgb 2 132 254, the Home sent bubble's, HomeThemePalette.messagesBlue) with a white arrow. */
+/* Send is iMessage's send button on every theme: Messages' measured blue with a white arrow (theme/messages.css, the Home sent bubble's colors). */
 .acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--acpmux-send-fill);color:var(--acpmux-send-ink)}
 .acpmux-send .acpmux-icon{width:16px;height:16px}
 /* The one off look, for an empty draft and for Send turned off (composerStates.css): 18% text over the composer surface, so the disc stays a visible step off the near-white light field and off the dark composer fill (9% vanished in both), with a 60% arrow. A draft brings the blue back (.acpmux-send-ready). */
@@ -291,6 +291,10 @@
 .acpmux-project-badge::after{content:"";position:absolute;right:-1px;bottom:-1px;width:5px;height:5px;border:1px solid var(--acpmux-composer-base,var(--agent-base));border-radius:50%;background:var(--agent-muted)}
 .acpmux-project-badge[data-project-kind="remote"]::after{border-radius:1px;background:var(--agent-accent);transform:rotate(45deg)}
 .acpmux-project-badge[data-project-kind="home"]::after{border-radius:2px;background:var(--agent-text)}
+/* A project's own favicon (projectIcon.ts) on a quiet neutral tile, so a dark or a white icon reads in
+   either theme; the kind dot stays. */
+.acpmux-project-badge[data-project-icon]{background:color-mix(in srgb,var(--agent-text) 7%,transparent)}
+.acpmux-project-badge>img{display:block;width:16px;height:16px;border-radius:3px;object-fit:contain}
 .acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}
@@ -424,6 +428,9 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-turn-preview-address:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px;border-radius:3px}
 .acpmux-turn-preview-frame{position:relative;height:180px;overflow:hidden;cursor:pointer;background:var(--agent-page-bg)}
 .acpmux-turn-preview-frame iframe{position:absolute;top:0;left:0;width:400%;height:400%;border:0;transform:scale(.25);transform-origin:0 0;pointer-events:none;background:var(--agent-page-bg)}
+/* A gallery stage (previewUrl.ts isGalleryFrame): one component at its own size, usable in place. */
+.acpmux-turn-preview-frame--live{height:360px;cursor:auto;resize:vertical}
+.acpmux-turn-preview-frame--live iframe{width:100%;height:100%;transform:none;pointer-events:auto}
 .cv-link-preview{min-width:280px;max-width:min(520px,calc(100vw - 24px));padding:0;overflow:hidden;border-radius:9px;background:var(--surface-popup,var(--agent-page-bg));color:var(--agent-text);box-shadow:var(--elevation-2);pointer-events:auto}
 .cv-link-preview__head{display:flex;align-items:center;gap:9px;min-height:42px;padding:7px 9px;border-bottom:1px solid var(--agent-border);background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
 .cv-link-preview__icon{display:flex;flex:none;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:var(--agent-page-bg);color:var(--agent-muted)}

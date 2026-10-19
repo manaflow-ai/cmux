@@ -176,6 +176,7 @@
         "CmuxNextCompat",
         "CmuxNextComputerUse",
         "CmuxNextControl",
+        "CmuxNextCookieImport",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
         "CmuxNextDaemonRecovery",
@@ -219,7 +220,8 @@
         "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
         "CmuxNextWakeups",
-        "CmuxNextWorkspaceNaming"
+        "CmuxNextWorkspaceNaming",
+        "CmuxNextWorkspaceRepair"
       ],
       "packages": [
         "CmuxAgentBrands",
@@ -253,6 +255,7 @@
         "CmuxNextBrowserHistory",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
+        "CmuxNextCookieImport",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
@@ -282,6 +285,7 @@
         "CmuxMessagesLab"
       ],
       "reads": [
+        "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "plans/cmux-next/",
         "schemas/keybindings/keybinding-vectors.json",
@@ -487,6 +491,18 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextCookieImport": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCookieImport",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextBrowser",
+        "CmuxNextBrowserImport",
+        "CmuxNextDesign",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
     },
     "CmuxNextCopyMode": {
       "kind": "regular",
@@ -1114,6 +1130,25 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests",
       "targets": [
         "CmuxNextWorkspaceNaming"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextWorkspaceRepair": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWorkspaceRepair",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon"
+      ],
+      "packages": []
+    },
+    "CmuxNextWorkspaceRepairTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceRepairTests",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextWorkspaceRepair"
       ],
       "packages": [],
       "reads": []

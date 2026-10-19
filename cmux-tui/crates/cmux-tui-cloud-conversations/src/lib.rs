@@ -13,6 +13,7 @@
 mod attachments;
 mod contract;
 mod error;
+mod host_replica;
 mod service;
 mod session;
 mod stream;
@@ -24,6 +25,10 @@ pub use contract::{
     CLOUD_INBOX_OP_KINDS, CLOUD_OP_KINDS, InboxOpRequest, OpRequest, Target, valid_conversation_id,
 };
 pub use error::CloudError;
+pub use host_replica::{
+    CLOUD_HOST_REPLICA_CAPABILITY, HostOpRefusal, HostReplica, HostReplicaOptions,
+    HostReplicaParams, HostSource, valid_host_id,
+};
 pub use service::{
     CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply, RangeReply,
     RequestPermit, ServiceOptions, TransportError, WireRecv,
