@@ -74,7 +74,7 @@ import Testing
     }
 
     /// A dragged selected row keeps its selection fill on the lifted card.
-    @Test func aLiftedSelectedRowKeepsItsFill() async throws {
+    @Test func aLiftedSelectedRowKeepsItsFill() throws {
         let original = ThemeStore.shared.input
         defer { _ = ThemeStore.shared.apply(original) }
         let (list, window, ids) = try Self.sidebar("Clay Orange Light")
@@ -86,10 +86,11 @@ import Testing
         defer { list.finishDrag() }
         let lift = try #require(list.subviews.first { $0 is DragLiftView })
         let lifted = try #require(Self.rows(in: lift).first)
-        // The card paints on the next display pass (test harness: a few main-actor turns).
-        for _ in 0..<30 where !lifted.paintsFill { try await Task.sleep(for: .milliseconds(10)) }
         #expect(lifted.isSelected)
+        // Its display pass, run now: the fill it paints there.
+        lifted.updateLayer()
         #expect(lifted.paintsFill)
+        #expect(lift.accessibilityChildren()?.isEmpty == true, "the card shows no second selected row to VoiceOver")
     }
 
     private static func rows(in view: NSView) -> [WorkspaceRowView] {
