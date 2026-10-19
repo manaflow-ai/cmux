@@ -146,8 +146,10 @@ public nonisolated struct AcpmuxQuit {
             if keep == .chief { AcpmuxQuitProof.knownChief.withLock { $0 = Set(chief) } }
             try await AcpmuxStatusClient.shutdown(socketPath: socket, home: environment.home, endAgents: true, keepSessions: chief)
         } catch AcpmuxStatusClient.Failure.unreachable {
-            return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within,
-                                       socketWasSeenAtCensus: true)
+            // A socket file nobody answers on (a crash leaves one): the locks
+            // decide, and a free lock is no daemon. The sighting is spent.
+            _ = AcpmuxQuitProof.consumeCensusSocket(home: environment.home)
+            return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within)
         } catch {
             return .failed(String(describing: error))
         }

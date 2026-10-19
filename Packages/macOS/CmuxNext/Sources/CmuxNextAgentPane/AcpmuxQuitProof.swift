@@ -68,13 +68,16 @@ public nonisolated struct AcpmuxQuitProof {
 
     /// The result from the locks. `daemonExited`: this quit asked the daemon
     /// to end (or waited for a shutdown in progress) and saw daemon.lock free.
+    /// `socketWasSeenAtCensus`: a census of this quit saw the socket that is
+    /// now gone, so a free lock with no agent host left means that daemon
+    /// ended (`.ended`), not that none ran (`.noDaemon`). Both are success:
+    /// the locks are the proof, never the socket.
     public static func decide(_ facts: Facts, chief: Set<String>, daemonExited: Bool,
                               socketWasSeenAtCensus: Bool = false) -> AcpmuxQuit.EndResult {
         guard facts.daemon == .free else { return .shutdownInProgress(pid: facts.daemonPID) }
         let running = Set(facts.liveHostSessions + facts.unknownHostSessions).subtracting(chief).sorted()
         if !running.isEmpty { return .agentsStillRunning(running) }
-        if daemonExited { return .ended }
-        return socketWasSeenAtCensus ? .failed("acpmux socket disappeared during shutdown") : .noDaemon
+        return daemonExited || socketWasSeenAtCensus ? .ended : .noDaemon
     }
 
     /// Waits (bounded, no polling) until daemon.lock is free: the kernel exit
@@ -95,7 +98,8 @@ public nonisolated struct AcpmuxQuitProof {
 
     /// A quit census saw this home's socket before a later end attempt. The
     /// socket is removed at the start of shutdown, so a missing socket on
-    /// that same quit is not evidence that no daemon was running.
+    /// that same quit means the daemon went away, not that none ran; the
+    /// locks still decide whether its agents ended.
     static let knownSocket = Mutex<Set<String>>([])
 
     static func recordCensus(home: URL, socketPresent: Bool) {
