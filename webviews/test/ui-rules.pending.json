@@ -18,7 +18,6 @@
   "agent-session/acpmux/FileSearch.tsx": 5,
   "agent-session/acpmux/Inspector.tsx": 2,
   "agent-session/acpmux/ModelPicker.tsx": 1,
-  "agent-session/acpmux/ModelPickerShell.tsx": 3,
   "agent-session/acpmux/newtab/NewTabScreen.tsx": 4,
   "agent-session/acpmux/NewTabPage.tsx": 5,
   "agent-session/acpmux/paneSurface.ts": 1,
