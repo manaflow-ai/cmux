@@ -57,11 +57,23 @@ struct ErrorJournalTests {
 
     @Test func prefixedCredentialAssignmentsNeverReachTheJournal() async throws {
         let journal = ErrorJournal(directory: directory)
-        let values = ["ordinarySecret123", "ordinary-api-value", "ordinary-password"]
+        let values = ["ordinarySecret123", "ordinary-api-value", "ordinary-password", "camel-secret-value"]
         await journal.record(event(
-            "failed AWS_SECRET_ACCESS_KEY=\(values[0]) MY_API_KEY=\(values[1]) the_password=\(values[2])"
+            "failed AWS_SECRET_ACCESS_KEY=\(values[0]) MY_API_KEY=\(values[1]) "
+                + "the_password=\(values[2]) secretAccessKey=\(values[3])"
         ))
         await journal.flush()
+
+        let entry = try #require(await journal.entries().first)
+        for value in values {
+            #expect(!entry.sample.contains(value))
+        }
+    }
+
+    @Test func completeCookieHeadersNeverReachTheJournal() async throws {
+        let journal = ErrorJournal(directory: directory)
+        let values = ["first-cookie", "second-cookie"]
+        await journal.record(event("request failed Cookie: session=\(values[0]); csrf=\(values[1])"))
 
         let entry = try #require(await journal.entries().first)
         for value in values {
