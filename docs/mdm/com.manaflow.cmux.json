@@ -566,6 +566,12 @@
       "title" : "Background",
       "type" : "string"
     },
+    "appearance.backgroundAvoidPanes" : {
+      "default" : true,
+      "description" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them.",
+      "title" : "Keep Paintings Clear of Panes",
+      "type" : "boolean"
+    },
     "appearance.backgroundBlur" : {
       "description" : "Unset, the window follows Ghostty's background-opacity and background-blur.",
       "enum" : [
@@ -583,6 +589,27 @@
       "minimum" : 0,
       "title" : "Opacity",
       "type" : "number"
+    },
+    "appearance.backgroundVideo" : {
+      "default" : "play",
+      "description" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion.",
+      "enum" : [
+        "play",
+        "whenActive",
+        "still"
+      ],
+      "title" : "Video Background",
+      "type" : "string"
+    },
+    "appearance.backgroundVideoOnBattery" : {
+      "default" : "play",
+      "description" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it.",
+      "enum" : [
+        "play",
+        "pause"
+      ],
+      "title" : "On Battery",
+      "type" : "string"
     },
     "appearance.borders" : {
       "default" : "default",
@@ -1644,6 +1671,17 @@
       "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
       "title" : "Channels",
       "type" : "boolean"
+    },
+    "home.chiefPictureMotion" : {
+      "default" : "hover",
+      "description" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame.",
+      "enum" : [
+        "always",
+        "hover",
+        "never"
+      ],
+      "title" : "Animated Pictures",
+      "type" : "string"
     },
     "labs.classicHome" : {
       "default" : false,

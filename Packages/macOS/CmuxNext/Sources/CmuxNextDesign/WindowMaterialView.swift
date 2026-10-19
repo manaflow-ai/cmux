@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CoreImage
 
 /// The one material behind a window's content (``WindowMaterial``) and the
@@ -51,6 +52,8 @@ public final class WindowMaterialView: NSView {
     }
     /// The columns over the art by who reported them, in window coordinates (``setCover(_:for:)``).
     private var covers: [String: CGRect] = [:]
+    /// Follows `appearance.backgroundAvoidPanes` while in a window.
+    private var playbackWatch: Task<Void, Never>?
     /// Where the person put each background themselves (backgrounds plan phase 6).
     public var placements: BackdropPlacementStore = .shared {
         didSet { updateArtCrop() }
@@ -171,7 +174,12 @@ public final class WindowMaterialView: NSView {
         for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
         keyObservers = []
         resignedKey = false
+        playbackWatch?.cancel()
+        playbackWatch = nil
         guard let window else { return updateInactiveTint() }
+        playbackWatch = Task { [weak self] in
+            for await _ in ObservationStream({ DesignSettings.shared.backdropPlayback.avoidsPanes }) { self?.updateArtCrop(animated: true) }
+        }
         keyObservers.append(NotificationCenter.default.addObserver(forName: BackdropPlacementStore.didChange, object: nil, queue: .main) { [weak self] note in
             let store = (note.object as AnyObject?).map(ObjectIdentifier.init)
             let id = note.userInfo?["id"] as? String
@@ -361,7 +369,9 @@ public final class WindowMaterialView: NSView {
                                            dominantPalette: [], quietZone: .init(x: 0, y: 0, width: 1, height: 1),
                                            subjectBox: .init(minX: 0, minY: 0, maxX: 1, maxY: 1))
         }
-        let visible = BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns)
+        // `appearance.backgroundAvoidPanes` off: the art frames itself in the whole window.
+        let visible = DesignSettings.shared.backdropPlayback.avoidsPanes
+            ? BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns) : .whole
         let placement = shownID.flatMap(placements.placement(for:)).map {
             metadata.placement(forViewSize: bounds.size, imageSize: image.size, visible: visible, user: $0)
         } ?? metadata.placement(forViewSize: bounds.size, imageSize: image.size, visible: visible)
