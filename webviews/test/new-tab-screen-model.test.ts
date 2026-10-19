@@ -7,8 +7,8 @@ test("top-site open rows provide an inline completion", () => {
   );
 });
 
-test("history URL rows stay explicit picks and never become inline completions", () => {
-  expect(inlineCompletion("reddi", [{ type: "history", url: "https://reddit.com/" }])).toBeUndefined();
+test("history URL rows provide an inline completion", () => {
+  expect(inlineCompletion("reddi", [{ type: "history", url: "https://reddit.com/" }])).toBe("reddit.com");
 });
 
 test("prompt and search rows never become inline completions", () => {

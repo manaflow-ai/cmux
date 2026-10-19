@@ -179,7 +179,8 @@ test("Tab with suggestions showing but no keyboard-highlighted row moves focus o
   expect(calls).toEqual([]);
 });
 
-test("Right does not inline-accept a visited-page (history) row", async () => {
+// A visited page completes inline like Chrome's omnibox: Right fills the field and opens nothing.
+test("Right inline-accepts a visited-page (history) row without opening it", async () => {
   const calls: unknown[][] = [];
   await render(calls, [{ url: "https://zulip.example.com/" }]);
   const field = await type("zuli");
@@ -187,7 +188,7 @@ test("Right does not inline-accept a visited-page (history) row", async () => {
   field.focus();
   field.setSelectionRange(field.value.length, field.value.length);
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
-  expect(field.value).toBe("zuli");
+  expect(field.value).toBe("zulip.example.com");
   expect(calls).toEqual([]);
 });
 
