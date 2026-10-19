@@ -133,7 +133,7 @@ describe("cmux-worktree-reaper", () => {
     expect(log).toContain('"action":"removed"');
   });
 
-  test.each([
+  test.each<[string, string, string, RegExp]>([
     ["an env file", ".env", "TOKEN=x\n", /name:\.env/],
     ["a token in a file", "notes.txt", `gh token ghp_${"a".repeat(36)}\n`, /content:notes\.txt/],
     ["a gitleaks finding", "leak.txt", "x\n", /gitleaks/],
