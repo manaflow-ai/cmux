@@ -112,6 +112,48 @@ pub(super) fn handle_connection_frame(
     }
 }
 
+/// One binary input frame (`terminal-binary-frames-v1`): the `send` request
+/// it stands for, through the gates and the dispatch its JSON line takes.
+/// Only a local Unix client that negotiated the capability gets here
+/// (line_connection.rs); a frame never reaches the remote relay.
+pub(super) fn handle_input_frame(
+    mux: &Arc<Mux>,
+    client: u64,
+    frame: &mut crate::binary_frames::Frame,
+    writer: &MessageWriter,
+    scheduler: &Arc<ConnectionSurfaceScheduler>,
+) -> bool {
+    if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+        return false;
+    }
+    // The JSON path sends a remote client's lines to the relay; a frame from
+    // one is refused (fails closed, as `is_remote_client` does).
+    if mux.is_remote_client(client) {
+        return false;
+    }
+    let retained_bytes = frame.payload.len();
+    let Ok((id, surface, paste, bytes)) = frame.take_input() else { return false };
+    let request = Request {
+        id: Some(Value::from(id)),
+        cmd: Command::Send {
+            surface: Some(surface),
+            terminal_id: None,
+            text: None,
+            bytes: None,
+            paste,
+            raw: Some(bytes),
+        },
+    };
+    if mux.daemon_handoff_in_progress() {
+        return pending_handoff::reject_request_during_pending_handoff(request, writer);
+    }
+    let mut pending = Some(request);
+    match scheduler.dispatch(mux.clone(), client, &mut pending, retained_bytes, writer.clone()) {
+        Some(keep_open) => keep_open,
+        None => handle_request(mux, client, pending.take().unwrap(), writer),
+    }
+}
+
 pub(super) fn handle_request(
     mux: &Arc<Mux>,
     client: u64,

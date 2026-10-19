@@ -1127,14 +1127,26 @@ enum RemoteProgressTarget {
 
 struct InteractiveWrite {
     message: String,
+    /// A binary input frame (`terminal-binary-frames-v1`) sent instead of
+    /// `message`, which is then empty.
+    frame: Option<Vec<u8>>,
     enqueued_at: Instant,
     sequence: u64,
     measure_latency: bool,
 }
 
+impl InteractiveWrite {
+    fn wire_len(&self) -> usize {
+        self.frame.as_ref().map_or(self.message.len(), Vec::len)
+    }
+}
+
 impl Drop for InteractiveWrite {
     fn drop(&mut self) {
         zeroize_string(&mut self.message);
+        if let Some(frame) = self.frame.as_mut() {
+            frame.zeroize();
+        }
     }
 }
 
@@ -1287,9 +1299,29 @@ impl InteractiveWriter {
     }
 
     fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
-        let mut write =
-            InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
-        let message_bytes = write.message.len();
+        self.enqueue_write(InteractiveWrite {
+            message,
+            frame: None,
+            enqueued_at: Instant::now(),
+            sequence: 0,
+            measure_latency,
+        })
+    }
+
+    /// A binary input frame, ordered with every other write.
+    fn enqueue_frame(&self, frame: Vec<u8>, measure_latency: bool) -> io::Result<u64> {
+        self.enqueue_write(InteractiveWrite {
+            message: String::new(),
+            frame: Some(frame),
+            enqueued_at: Instant::now(),
+            sequence: 0,
+            measure_latency,
+        })
+    }
+
+    fn enqueue_write(&self, mut write: InteractiveWrite) -> io::Result<u64> {
+        let measure_latency = write.measure_latency;
+        let message_bytes = write.wire_len();
         let mut state = self
             .shared
             .state
@@ -1482,11 +1514,14 @@ fn interactive_writer_worker(
                 shared.changed.notify_all();
                 return;
             };
-            state.queued_bytes = state.queued_bytes.saturating_sub(write.message.len());
+            state.queued_bytes = state.queued_bytes.saturating_sub(write.wire_len());
             write
         };
 
-        let result = writer.send(&write.message);
+        let result = match write.frame.as_deref() {
+            Some(frame) => writer.send_frame(frame),
+            None => writer.send(&write.message),
+        };
         match result {
             Ok(()) => {
                 if write.measure_latency {
@@ -1626,6 +1661,13 @@ pub struct RemoteSession {
     provider_workspaces_guarded: AtomicBool,
     /// The daemon's sidebar document (`sidebar-doc-v1`), as a read model.
     sidebar_doc: sidebar_doc::RemoteSidebarDoc,
+    /// The pid at the other end of a local socket this session dialed by
+    /// path. Binary frames (`terminal-binary-frames-v1`) are negotiated only
+    /// when it is the daemon itself on this machine (`identify` `pid` and
+    /// `machine_name`): a relay or bridge socket in between carries lines.
+    socket_peer_pid: Option<u32>,
+    /// `terminal-binary-frames-v1` was negotiated: input goes as frames.
+    binary_frames: AtomicBool,
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -1641,6 +1683,16 @@ pub(super) enum RemoteSurfaceAttach {
 /// their native message boundaries.
 pub trait RemoteMessageReader: Send {
     fn receive(&mut self) -> io::Result<Option<String>>;
+
+    /// The next JSON message or binary frame (`terminal-binary-frames-v1`).
+    /// Only a byte stream to the local socket carries frames; every other
+    /// transport keeps this default.
+    fn receive_message_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(&[u8]),
+    ) -> io::Result<Option<RemoteMessage>> {
+        Ok(self.receive_with_progress(on_progress)?.map(RemoteMessage::Json))
+    }
 
     fn receive_with_progress(
         &mut self,
@@ -1675,10 +1727,22 @@ fn remote_progress_target(partial: &[u8]) -> Option<RemoteProgressTarget> {
     })
 }
 
+/// One message from the daemon.
+pub enum RemoteMessage {
+    Json(String),
+    Frame(cmux_tui_core::binary_frames::Frame),
+}
+
 /// Send complete JSON protocol messages over one transport.
 pub trait RemoteMessageWriter: Send {
     fn send(&mut self, message: &str) -> io::Result<()>;
     fn close(&mut self) -> io::Result<()>;
+
+    /// One whole binary input frame. Only the local socket's writer sends
+    /// frames; a session negotiates them only over that transport.
+    fn send_frame(&mut self, _frame: &[u8]) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "this transport sends no binary frames"))
+    }
 }
 
 /// Independently owned cancellation for a transport whose writer may be
@@ -1803,6 +1867,28 @@ impl RemoteMessageReader for JsonLineReader {
         self.receive_with_progress(&mut |_| {})
     }
 
+    fn receive_message_with_progress(
+        &mut self,
+        on_progress: &mut dyn FnMut(&[u8]),
+    ) -> io::Result<Option<RemoteMessage>> {
+        // A NUL never starts a JSON line: it starts a binary frame.
+        let first = loop {
+            match self.inner.fill_buf() {
+                Ok(buffered) => break buffered.first().copied(),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        };
+        if first == Some(cmux_tui_core::binary_frames::MARKER) {
+            return cmux_tui_core::binary_frames::read_frame(
+                &mut self.inner,
+                cmux_tui_core::binary_frames::MAX_DAEMON_FRAME_PAYLOAD_BYTES,
+            )
+            .map(|frame| Some(RemoteMessage::Frame(frame)));
+        }
+        Ok(self.receive_with_progress(on_progress)?.map(RemoteMessage::Json))
+    }
+
     fn receive_with_progress(
         &mut self,
         on_progress: &mut dyn FnMut(&[u8]),
@@ -1868,6 +1954,10 @@ impl RemoteMessageWriter for JsonLineWriter {
     fn send(&mut self, message: &str) -> io::Result<()> {
         self.inner.write_all(message.as_bytes())?;
         self.inner.write_all(b"\n")
+    }
+
+    fn send_frame(&mut self, frame: &[u8]) -> io::Result<()> {
+        self.inner.write_all(frame)
     }
 
     fn close(&mut self) -> io::Result<()> {
@@ -2470,6 +2560,8 @@ fn test_session_with_writer(
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
         sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
+        socket_peer_pid: None,
+        binary_frames: AtomicBool::new(false),
     })
 }
 

@@ -326,7 +326,8 @@ fn base64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
-/// The READY of a local-history resize: no history follows it.
+/// The READY of a local-history resize: no history follows it. Without
+/// `data`, which is `ready.frame.data`.
 fn local_snapshot_json(surface: SurfaceId, ready: &LocalReadySnapshot) -> Value {
     let mut value = snapshot_json(surface, &ready.frame);
     value["history"] = json!("local");
@@ -339,6 +340,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// A READY without `data`, which is `frame.data`.
 fn snapshot_json(surface: SurfaceId, frame: &TerminalSnapshotFrame) -> Value {
     json!({
         "event": "snapshot",
@@ -352,8 +354,34 @@ fn snapshot_json(surface: SurfaceId, frame: &TerminalSnapshotFrame) -> Value {
         "colors": terminal_colors_json(frame.colors, true),
         "marker_epoch": frame.marker_epoch,
         "active_top_marker": frame.active_top_marker,
-        "data": base64(&frame.data),
     })
+}
+
+/// A snapshot event with its `data`: one binary frame for a viewer that
+/// negotiated `terminal-binary-frames-v1`, else the JSON event with `data`
+/// in base64. `initial` sends it ahead of the attach reply.
+fn send_with_data(
+    writer: &MessageWriter,
+    stream: &OutboundStream,
+    binary: bool,
+    mut value: Value,
+    data: &[u8],
+    initial: bool,
+) -> std::io::Result<()> {
+    if binary {
+        let frame = writer.render_service.serialize_event_data_frame(&value, data);
+        return if initial {
+            writer.send_serialized_initial(frame, stream)
+        } else {
+            writer.send_serialized_stream_backpressured(frame, stream)
+        };
+    }
+    value["data"] = json!(base64(data));
+    if initial {
+        writer.send_initial(&value, stream)
+    } else {
+        writer.send_stream_backpressured(&value, stream)
+    }
 }
 
 /// The history and the images of one READY still to send.
@@ -380,20 +408,23 @@ impl PendingTail {
         }
     }
 
-    /// The next chunk event and whether it ends this READY's tail; `None`
-    /// when nothing is left. History goes first: a placement above the
-    /// active area needs its row.
-    fn next_chunk(&mut self, surface: SurfaceId) -> std::io::Result<Option<(Value, bool)>> {
+    /// The next chunk event (without `data`), its data, and whether it
+    /// ends this READY's tail; `None` when nothing is left. History goes
+    /// first: a placement above the active area needs its row.
+    fn next_chunk(
+        &mut self,
+        surface: SurfaceId,
+    ) -> std::io::Result<Option<(Value, Vec<u8>, bool)>> {
         if !self.history_done {
-            let value = self.next_history_chunk(surface)?;
+            let (value, data) = self.next_history_chunk(surface)?;
             let done = self.history_done && self.images.is_none();
-            return Ok(Some((value, done)));
+            return Ok(Some((value, data, done)));
         }
         let at = (self.generation, self.offset, self.version);
         Ok(self.images.as_mut().and_then(|images| images.next_chunk(surface, at)))
     }
 
-    fn next_history_chunk(&mut self, surface: SurfaceId) -> std::io::Result<Value> {
+    fn next_history_chunk(&mut self, surface: SurfaceId) -> std::io::Result<(Value, Vec<u8>)> {
         let end = (self.history_sent + HISTORY_CHUNK_BYTES).min(self.history.len());
         let done = end == self.history.len();
         let raw = &self.history[self.history_sent..end];
@@ -407,12 +438,11 @@ impl PendingTail {
             "version": self.version,
             "compression": "deflate",
             "raw_bytes": raw.len(),
-            "data": base64(&packed),
             "done": done,
         });
         self.history_sent = end;
         self.history_done = done;
-        Ok(value)
+        Ok((value, packed))
     }
 }
 
@@ -431,10 +461,14 @@ impl PendingImages {
         Self { data: images, sent: 0, finished: false, skipped_images }
     }
 
-    /// The next images chunk and whether it is the last one. The stream is
-    /// sent as is: its pixels are already zlib.
+    /// The next images chunk (without `data`), its data, and whether it is
+    /// the last one. The stream is sent as is: its pixels are already zlib.
     /// `at`: the READY's `(generation, offset, version)`.
-    fn next_chunk(&mut self, surface: SurfaceId, at: (u64, u64, u16)) -> Option<(Value, bool)> {
+    fn next_chunk(
+        &mut self,
+        surface: SurfaceId,
+        at: (u64, u64, u16),
+    ) -> Option<(Value, Vec<u8>, bool)> {
         let (generation, offset, version) = at;
         if self.finished {
             return None;
@@ -449,15 +483,15 @@ impl PendingImages {
             "generation": generation,
             "offset": offset,
             "version": version,
-            "data": base64(&stream[self.sent..end]),
             "done": done,
         });
         if done && self.skipped_images > 0 {
             value["skipped_images"] = json!(self.skipped_images);
         }
+        let data = stream[self.sent..end].to_vec();
         self.sent = end;
         self.finished = done;
-        Some((value, done))
+        Some((value, data, done))
     }
 }
 
@@ -497,6 +531,8 @@ fn digest_json(surface: SurfaceId, digest: &TerminalSnapshotDigest) -> Value {
 
 /// The `output`/`colors-changed` event of a snapshot viewer, or `None` for a
 /// frame a snapshot viewer never receives (grid changes become snapshots).
+/// A viewer with binary frames gets a plain `output` as an output frame
+/// instead (`SnapshotWorker::send_frame`).
 fn frame_json(
     surface: SurfaceId,
     frame: &AttachFrame,
@@ -548,16 +584,53 @@ struct SnapshotWorker {
     tail: Option<PendingTail>,
     /// The images cap when the viewer opted into images.
     images_cap: Option<u64>,
+    /// `terminal-binary-frames-v1`: output and snapshot data as binary frames.
+    binary: bool,
 }
 
 impl SnapshotWorker {
     fn send(&self, value: &Value) -> bool {
-        match self.writer.send_stream_backpressured(value, &self.outbound_stream) {
+        self.sent(self.writer.send_stream_backpressured(value, &self.outbound_stream))
+    }
+
+    fn sent(&self, result: std::io::Result<()>) -> bool {
+        match result {
             Ok(()) => true,
             Err(error) => {
                 handle_attach_send_error(&self.lifecycle, &error);
                 false
             }
+        }
+    }
+
+    fn send_data(&self, value: Value, data: &[u8]) -> bool {
+        self.sent(send_with_data(
+            &self.writer,
+            &self.outbound_stream,
+            self.binary,
+            value,
+            data,
+            false,
+        ))
+    }
+
+    /// One live frame at the viewer's position after it.
+    fn send_frame(&self, frame: &AttachFrame) -> bool {
+        if self.binary
+            && let AttachFrame::Output(output) = frame
+        {
+            let serialized = self.writer.render_service.serialize_output_frame(
+                self.surface_id,
+                Some((self.generation, self.offset)),
+                output,
+            );
+            return self.sent(
+                self.writer.send_serialized_stream_backpressured(serialized, &self.outbound_stream),
+            );
+        }
+        match frame_json(self.surface_id, frame, self.generation, self.offset) {
+            Some(value) => self.send(&value),
+            None => true,
         }
     }
 
@@ -570,7 +643,7 @@ impl SnapshotWorker {
                 log_skipped_images(self.surface_id, &frame);
                 // The older READY's history and images no longer apply.
                 self.tail = Some(PendingTail::of(&mut frame));
-                self.send(&snapshot_json(self.surface_id, &frame))
+                self.send_data(snapshot_json(self.surface_id, &frame), &frame.data)
             }
             Err(_) => {
                 // The unfinished escape sequence is longer than the snapshot
@@ -593,7 +666,7 @@ impl SnapshotWorker {
             return self.send_snapshot();
         }
         self.generation = ready.frame.generation;
-        self.send(&local_snapshot_json(self.surface_id, ready))
+        self.send_data(local_snapshot_json(self.surface_id, ready), &ready.frame.data)
     }
 
     /// One history or images chunk; the last one ends the pending tail. A
@@ -603,11 +676,11 @@ impl SnapshotWorker {
     fn send_tail_chunk(&mut self) -> bool {
         let Some(tail) = self.tail.as_mut() else { return true };
         match tail.next_chunk(self.surface_id) {
-            Ok(Some((value, done))) => {
+            Ok(Some((value, data, done))) => {
                 if done {
                     self.tail = None;
                 }
-                self.send(&value)
+                self.send_data(value, &data)
             }
             Ok(None) => {
                 self.tail = None;
@@ -655,10 +728,7 @@ impl SnapshotWorker {
                     if frame_output_len(&frame) > 0 {
                         digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
                     }
-                    match frame_json(self.surface_id, &frame, self.generation, self.offset) {
-                        Some(value) => self.send(&value),
-                        None => true,
-                    }
+                    self.send_frame(&frame)
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) if self.tail.is_some() => {
                     self.send_tail_chunk()
@@ -758,6 +828,8 @@ fn attach(
     local_history: bool,
     images_cap: Option<u64>,
 ) -> anyhow::Result<Value> {
+    // Read once: every frame of this attach has the same wire shape.
+    let binary = mux.control_clients.binary_frames(client);
     let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
         mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
     let stream = match surface.attach_snapshot_stream(lifecycle.clone(), backlog, local_history) {
@@ -779,7 +851,9 @@ fn attach(
             tail = Some(PendingTail::of(&mut first));
             stream.requests.sent(Instant::now());
             let initial = snapshot_json(surface_id, &first);
-            if let Err(error) = writer.send_initial(&initial, &outbound_stream) {
+            if let Err(error) =
+                send_with_data(writer, &outbound_stream, binary, initial, &first.data, true)
+            {
                 handle_attach_send_error(&lifecycle, &error);
                 rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
                 return Err(error.into());
@@ -823,6 +897,7 @@ fn attach(
         offset,
         tail,
         images_cap,
+        binary,
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =
@@ -940,7 +1015,7 @@ mod tests {
         let mut pending =
             PendingImages::of(Arc::new(SnapshotImages { data: stream.clone(), stats }));
         let (mut joined, mut events) = (Vec::new(), Vec::new());
-        while let Some((value, done)) = pending.next_chunk(3, (9, 77, 1)) {
+        while let Some((value, bytes, done)) = pending.next_chunk(3, (9, 77, 1)) {
             assert_eq!(value["phase"], "images");
             assert_eq!(
                 (value["generation"].as_u64(), value["offset"].as_u64()),
@@ -948,9 +1023,7 @@ mod tests {
             );
             assert!(value.get("compression").is_none(), "{value}");
             assert_eq!(value["version"], 1);
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(value["data"].as_str().unwrap())
-                .unwrap();
+            assert!(value.get("data").is_none(), "data travels beside the event: {value}");
             assert!(bytes.len() <= IMAGES_CHUNK_BYTES);
             joined.extend_from_slice(&bytes);
             assert_eq!(value["done"], done);

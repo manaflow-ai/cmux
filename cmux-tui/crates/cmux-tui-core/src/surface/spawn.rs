@@ -339,7 +339,7 @@ impl Surface {
                             }
                             pty.record_directory(term.pwd());
                             if before != after {
-                                scroll_changed = Some(after);
+                                scroll_changed = output_scroll_event(before, after);
                                 broadcast_render_scroll_locked(pty, after);
                             }
                             // Keep the terminal lock scoped to parser and observer work. A

@@ -245,6 +245,39 @@ impl MessageWriter {
         result
     }
 
+    /// A stream item serialized by the caller (a binary frame), with the
+    /// backpressure of [`Self::send_stream_backpressured`].
+    pub(super) fn send_serialized_stream_backpressured(
+        &self,
+        text: std::io::Result<Arc<BudgetedText>>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = text.and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    /// A first stream item serialized by the caller, as [`Self::send_initial`].
+    pub(super) fn send_serialized_initial(
+        &self,
+        text: std::io::Result<Arc<BudgetedText>>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = text.and_then(|text| self.sink.send_initial(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
     pub(super) fn send_terminal<T: Serialize + ?Sized>(
         &self,
         value: &T,

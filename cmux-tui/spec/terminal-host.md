@@ -586,10 +586,16 @@ Terminal-host protocol changes use their own version and do not change `identify
 - VT replay or blob: 8 MiB.
 - Launch payload: 1 MiB.
 - String: 256 KiB.
-- Per-client outbound queue: 256 legacy frames or 4,096 smart frames; raw PTY
-  output is capped at 8 MiB, with bounded headroom for one maximum state
-  transition.
-- Smart replay retention: 4,096 frames and 8 MiB including headers.
+- Per-client outbound queue: byte-bounded; raw PTY output is capped at 8 MiB,
+  with bounded headroom for one maximum state transition.
+- Parser lag: the authoritative parser trails the published stream by at most
+  4 MiB, so a renderer that attaches during a flood finds its boundary inside
+  the replay retention.
+- PTY reads: a host joins the bytes already readable on the PTY into one
+  `Output` frame of at most 64 KiB; a read with nothing queued behind it is
+  published at once.
+- Smart replay retention: 8 MiB, counting each frame's header, payload and
+  64 bytes of bookkeeping (no separate frame count).
 - Renderer grant TTL: 60 seconds maximum.
 
 `LaunchFailed` is the only typed failure frame and is valid only as the

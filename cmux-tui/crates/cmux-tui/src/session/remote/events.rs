@@ -121,6 +121,65 @@ impl RemoteSession {
         }
     }
 
+    /// One binary frame (`terminal-binary-frames-v1`): an `output` event
+    /// with its PTY bytes as they are, or an event whose `data` travels
+    /// beside its JSON. An unknown kind or a malformed frame is an error and
+    /// ends the connection, as an undecodable line does.
+    pub(super) fn handle_frame(
+        self: &Arc<Self>,
+        frame: &cmux_tui_core::binary_frames::Frame,
+    ) -> io::Result<()> {
+        use cmux_tui_core::binary_frames as frames;
+        match frame.kind {
+            frames::KIND_OUTPUT => {
+                let output = frame.output()?;
+                let target = self.event_surface_filter.load(Ordering::Acquire);
+                if target == 0 || output.surface == target {
+                    self.apply_output(output.surface, output.data, None);
+                }
+                Ok(())
+            }
+            frames::KIND_EVENT_DATA => {
+                // Snapshot data; this client attaches with replays, so the
+                // event takes the JSON path it would have taken.
+                let (json, data) = frame.event_data()?;
+                let mut value: Value = serde_json::from_slice(json)?;
+                if !value.is_object() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "binary event frame without a JSON object",
+                    ));
+                }
+                value["data"] = json!(base64::engine::general_purpose::STANDARD.encode(data));
+                self.handle_line(value);
+                Ok(())
+            }
+            kind => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("unknown binary frame kind {kind:#04x}"),
+            )),
+        }
+    }
+
+    /// PTY bytes of an `output` event (JSON or binary frame) into the mirror.
+    fn apply_output(&self, id: SurfaceId, bytes: &[u8], colors: Option<&RemoteTerminalColors>) {
+        self.log_frame(id, format_args!("output bytes={}", bytes.len()));
+        if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+            surface.scan_cursor_provenance(bytes);
+            let mut term = surface.term.lock().unwrap();
+            term.vt_write(bytes);
+            if let Some(colors) = colors {
+                apply_terminal_colors(&mut term, colors);
+            }
+            surface.sync_mouse_encoders(&term);
+            surface.content_generation.fetch_add(1, Ordering::AcqRel);
+            drop(term);
+            if !surface.dirty.swap(true, Ordering::AcqRel) {
+                self.emit(MuxEvent::SurfaceOutput(id));
+            }
+        }
+    }
+
     pub(super) fn handle_line(self: &Arc<Self>, value: Value) {
         if value.get("protocol").is_some() {
             self.handle_protocol2_line(value);
@@ -219,21 +278,7 @@ impl RemoteSession {
                     return;
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
-                self.log_frame(id, format_args!("output bytes={}", bytes.len()));
-                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.scan_cursor_provenance(&bytes);
-                    let mut term = surface.term.lock().unwrap();
-                    term.vt_write(&bytes);
-                    if let Some(colors) = colors.as_ref() {
-                        apply_terminal_colors(&mut term, colors);
-                    }
-                    surface.sync_mouse_encoders(&term);
-                    surface.content_generation.fetch_add(1, Ordering::AcqRel);
-                    drop(term);
-                    if !surface.dirty.swap(true, Ordering::AcqRel) {
-                        self.emit(MuxEvent::SurfaceOutput(id));
-                    }
-                }
+                self.apply_output(id, &bytes, colors.as_ref());
             }
             Some("resized") => {
                 let Some(id) = surface_id() else { return };
