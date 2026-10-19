@@ -131,8 +131,8 @@ impl Identity {
     }
 
     pub fn save_native(&mut self, grant: &Grant, received_at: u64) -> Result<()> {
-        let bytes =
-            Zeroizing::new(serde_json::to_vec(&grant.private_record()).map_err(|_| invalid())?);
+        let private = grant.private_record().map_err(|_| invalid())?;
+        let bytes = Zeroizing::new(serde_json::to_vec(&private).map_err(|_| invalid())?);
         let (protection, sealed) = super::protect::seal(&bytes)?;
         if protection != self.protection {
             return Err(invalid());

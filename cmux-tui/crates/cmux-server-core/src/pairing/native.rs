@@ -103,8 +103,8 @@ impl Grant {
         }
         Ok(Self { wire, expires_ms })
     }
-    pub fn private_record(&self) -> Value {
-        serde_json::to_value(&self.wire).expect("strings serialize")
+    pub fn private_record(&self) -> Result<Value, String> {
+        serde_json::to_value(&self.wire).map_err(|_| INVALID.into())
     }
     pub fn matches_reservation(&self, value: &Value) -> bool {
         value["state"] == "reserved"
