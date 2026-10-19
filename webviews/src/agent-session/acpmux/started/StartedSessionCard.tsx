@@ -102,7 +102,6 @@ export function StartedSessionChip({
       type="button"
       className="acpmux-started-chip"
       data-state={mention.state}
-      title={mention.title}
       onClick={() => onOpen(mention.sessionId)}
     >
       {text}
