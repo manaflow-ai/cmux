@@ -308,6 +308,13 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         await page.waitForTimeout(200);
         const background = await state(page, stage);
         expect(background).toEqual({ focused: true, caret: false, ring: rest });
+        // A key typed on the page means it is the key one, whatever hasFocus() said.
+        await page.keyboard.press("Shift");
+        await page.waitForTimeout(200);
+        const typed = await state(page, stage);
+        expect(typed.caret, "a key brings the caret back").toBe(true);
+        expect(typed.ring, "a key brings the focused ring back").not.toBe(rest);
+        await setKey(page, false);
         await setKey(page, true);
         await page.waitForTimeout(200);
         const key = await state(page, stage);

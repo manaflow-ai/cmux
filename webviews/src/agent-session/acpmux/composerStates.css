@@ -300,12 +300,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Glass focus: over art (data-cmux-see-through) a focused card's top-lit rim (#21786) brightens, as
    light catches a lifted pane of glass, instead of the ring growing heavier. Reduce Transparency
    draws no rim layer at all (above), so it keeps the plain step. */
-/* The New Tab card is the same glass (#22114 left it out). Only the key page lifts it (pageKey.ts). */
+/* The New Tab card is the same glass (#22114 left it out): its field focused or a control under
+   keyboard focus, never a chip a click focused. Only the key page lifts it (pageKey.ts). */
 :root[data-cmux-see-through]:not([data-page-inactive])
   :is(
     .acpmux-composer-box:has(:focus-visible),
     .acpmux-composer:has(> .acpmux-composer-strip :focus-visible) > .acpmux-composer-box,
-    .nt-box:focus-within
+    .nt-box:has(.nt-field:focus, :focus-visible)
   ) {
   --acpmux-composer-rim: inset 0 1px 0 light-dark(
     color-mix(in srgb, var(--cmux-tone-light) 85%, transparent),
