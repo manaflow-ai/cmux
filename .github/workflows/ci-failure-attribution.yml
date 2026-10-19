@@ -42,14 +42,32 @@ jobs:
   attribute:
     name: Attribute
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.event.workflow_run.event == 'pull_request' && (github.event.action == 'requested' || contains(fromJSON('["success","failure","cancelled"]'), github.event.workflow_run.conclusion)) }}
-    runs-on: ubuntu-24.04 # github-hosted-required: write token; the re-run must follow CI within a minute
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: write token; the re-run must follow CI within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     permissions:
       actions: write
       checks: read
       contents: read
+      # Read main's red full-suite issue (without it the label search finds none) and keep the
+      # record of failures seen on other pull requests in issue 17286's body.
+      issues: write
       pull-requests: write
     steps:
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Checkout main's classifier
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -59,5 +77,5 @@ jobs:
 
       - name: Attribute failures and re-run machine failures
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
         run: python3 scripts/ci/classify_failures.py act

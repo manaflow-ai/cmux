@@ -2,6 +2,7 @@ public import AppKit
 public import Foundation
 public import GhosttyKit
 public import CmuxTerminalCore
+internal import CmuxFoundation
 internal import CMUXAgentLaunch
 internal import Darwin
 #if DEBUG
@@ -189,6 +190,9 @@ extension TerminalSurface {
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+            // The native surface is already gone, so its renderer may be too.
+            runtimeDisplayLayer?.detachRendererDisplayCallback()
+            runtimeDisplayLayer = nil
             paneHost.terminalSurfaceRuntimeDidRelease()
             activePortalHostLease = nil
             portalHostAuthority = nil
@@ -325,6 +329,8 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        let displayLayer = runtimeDisplayLayer
+        runtimeDisplayLayer = nil
         byteTee.dropSurface(surfaceID: id)
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
@@ -334,6 +340,7 @@ extension TerminalSurface {
             paneHost.terminalSurfaceRuntimeDidRelease()
         }
         guard let surfaceToFree else {
+            displayLayer?.detachRendererDisplayCallback()
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
@@ -343,6 +350,7 @@ extension TerminalSurface {
 #if DEBUG
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
+            displayLayer?.detachRendererDisplayCallback()
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
@@ -362,6 +370,7 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                displayLayer: displayLayer,
                 beforeFree: {
                     await retiredRemoteOutputLane.drain()
                 },
@@ -379,6 +388,7 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            displayLayer: displayLayer,
             beforeFree: {
                 await retiredRemoteOutputLane.drain()
             }
@@ -392,7 +402,10 @@ extension TerminalSurface {
     ///   hibernation teardown lane has no capacity.
     @discardableResult
     @MainActor
-    public func suspendRuntimeSurfaceForAgentHibernation(reason: String) -> Bool {
+    public func suspendRuntimeSurfaceForAgentHibernation(
+        reason: String,
+        processExitFence: (@Sendable () async -> Bool)? = nil
+    ) -> Bool {
         guard let teardownReservation =
                 agentHibernationRuntimeTeardownReservation ??
                 runtimeTeardown.reserveIsolatedHibernationTeardown() else {
@@ -422,6 +435,8 @@ extension TerminalSurface {
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        let displayLayer = runtimeDisplayLayer
+        runtimeDisplayLayer = nil
         byteTee.dropSurface(surfaceID: id)
 
         if let surfaceToFree {
@@ -443,10 +458,28 @@ extension TerminalSurface {
             runtimeTeardown.cancelIsolatedHibernationTeardown(
                 teardownReservation
             )
+            displayLayer?.detachRendererDisplayCallback()
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
             return true
+        }
+
+        let surfaceBits = UInt(bitPattern: surfaceToFree)
+        let beforeNativeFree: @Sendable () async -> Void = {
+            await retiredRemoteOutputLane.drain()
+            guard let processExitFence,
+                  await processExitFence(),
+                  let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
+                return
+            }
+            let resetBytes = SSHTerminalModeResetSequence().terminalBytes
+            resetBytes.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                    return
+                }
+                ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
+            }
         }
 
 #if DEBUG
@@ -469,9 +502,8 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
-                beforeFree: {
-                    await retiredRemoteOutputLane.drain()
-                },
+                displayLayer: displayLayer,
+                beforeFree: beforeNativeFree,
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: teardownReservation,
                 freeSurface: freeSurface
@@ -488,9 +520,8 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
-            beforeFree: {
-                await retiredRemoteOutputLane.drain()
-            },
+            displayLayer: displayLayer,
+            beforeFree: beforeNativeFree,
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: teardownReservation
         )
@@ -817,6 +848,9 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        // `ghostty_surface_new` has just made `view` layer-hosting with this
+        // surface's renderer layer.
+        runtimeDisplayLayer = TerminalSurfaceRuntimeDisplayLayer(hostingLayerOf: view)
         guard let surfaceCallbackContext else {
             preconditionFailure(
                 "A native terminal surface requires callback userdata"

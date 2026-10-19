@@ -1,16 +1,18 @@
 # Hosted Subrouter
 
 The dashboard and `/api/subrouter/accounts` use the signed-in Stack access
-token to exchange a Stack team for a deterministic tenant on `sr.cmux.com`.
+token to exchange a Stack team for a deterministic tenant on hosted Subrouter.
 The Go service verifies the token and team membership. The trusted web broker
 also enforces the team allowlist, Stack permissions, and hosted cutover gate
 before it requests a capability-scoped tenant key. Direct client exchange is
 rejected. The web app stores no tenant keys and needs no Subrouter admin token
 or database row.
 
-Production defaults to `https://sr.cmux.com`; previews and local development
-default to `https://staging.sr.cmux.com`. `SUBROUTER_HOSTED_URL` overrides the
-environment default.
+`SUBROUTER_HOSTED_URL` selects the hosted service and has no default. The
+former `sr.cmux.com` and `staging.sr.cmux.com` deployments were retired on
+2026-09-30. Without the variable the hosted client reports itself as not
+configured and makes no request: the dashboard shows the shared-accounts
+"not configured" notice and the `/api/subrouter/*` routes answer 503.
 
 `/api/cli/config` publishes the same-origin `/api/subrouter/exchange` broker
 for native clients. `SUBROUTER_STACK_TENANT_DELETE_TOKEN` authenticates the

@@ -558,7 +558,8 @@ jobs:
           persist-credentials: false
 
       - name: Initialize Ghostty protocol submodule
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Install Linux build dependencies
         run: |

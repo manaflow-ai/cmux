@@ -51,7 +51,11 @@ A machine can instead keep its agents current: with `agentUpdates: "latest"`
 (New Machine's "Keep coding agents up to date", checked by default in the
 sheet, `cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
 create and each attach start a detached updater
-(`web/services/vms/guestAgentUpdates.ts`). It never uses npm: for every agent
+(`web/services/vms/guestAgentUpdates.ts`). On a clone that resumed less than
+10 minutes ago (the boot supervisor's `HOUSEKEEPING_DELAY`) it waits out that
+window so it never competes with the daemon's start. It runs at `nice 19`,
+plus the idle I/O class when `ionice` is present (only the BFQ scheduler
+honors that class). It never uses npm: for every agent
 it reads the tool's GitHub releases (`web/services/vms/images/agents.ts`) and
 installs the newest x.y.z release that has been public for 3 days and is not
 above the latest release, after checking the download's sha256, at most once a
@@ -198,6 +202,28 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   `DISABLE_AUTOUPDATER=1` so the pinned Claude Code does not reinstall itself
   on first launch;
   `managed-settings.json` sets `skipDangerousModePermissionPrompt`.
+- Claude Code, Codex and OpenCode each sign in one of two ways per machine
+  (per HOME): the team's CodeRouter accounts, or the user's own sign-in
+  (`/login`, `codex login`, `opencode auth login`). `/usr/local/bin/<agent>`
+  (and nvm's entry, which login PATHs reach first) is the launcher
+  `/etc/cmux/<agent>` (`cmux-claude`, `cmux-codex`, `cmux-opencode`), which
+  execs `/usr/local/libexec/cmux-<agent>-real`; `agent-config.sh` defines
+  shell functions that route through it too. `agent-auth.sh` resolves the
+  mode per launch: `CMUX_<AGENT>_AUTH`, else the `cr use own|team` choice in
+  `~/.config/cmux/agent-auth/<agent>`, else own when the agent has its own
+  sign-in, else team when the team has an account for it
+  (`GET /api/coderouter/agent-access`, cached 60 s), else own. Team mode:
+  Claude Code gets the model-plane pair (kept out of every shell as
+  `CMUX_CLAUDE_TEAM_*`, because Claude Code ranks `ANTHROPIC_API_KEY` above
+  its own login), Codex keeps the generated `cmux` provider, and OpenCode gets
+  the CodeRouter providers through `OPENCODE_CONFIG`
+  (`~/.config/cmux/opencode-team.json`, fetched on first team launch). Own
+  mode: Codex starts with `-c model_provider="openai"` (only over the
+  generated config), and every agent's launch drops the model-plane endpoints
+  and placeholder, so an own credential is never sent to CodeRouter (OpenCode
+  sends `opencode auth login` keys to whatever `OPENAI_BASE_URL` and
+  `ANTHROPIC_BASE_URL` name). Image-only: older machines keep the old
+  behavior until they are recreated.
 - Ghostty comes from a pinned community `.deb` for Ubuntu 24.04
   (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile, verified against
   `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is
@@ -210,9 +236,28 @@ screen, whatever kind a client names (`VM_IMAGE_DEFAULT_KIND` in
 `services/vms/images/resolver.ts` is desktop for a request that names none).
 `devbox:bake:freestyle --no-desktop` can still bake a shell-only image for
 experiments; it is not promoted, and the verifier reads `/etc/cmux/image-stamp`
-and rejects a desktop snapshot passed as a base image. A daemon change (the
-cmux-tui pin) reaches machines only through a rebake: the driver's
-attach-time heal never upgrades a healthy baked daemon.
+and rejects a desktop snapshot passed as a base image.
+
+### Which image a new machine gets
+
+The `defaultForKind` rows in `manifest.json` are the one source of truth, read
+only through `resolveVmImage` (`services/vms/images/resolver.ts`). Every
+default create goes through it: the Mac and iOS New Machine sheets and
+`cmux vm new` send a kind and size, never an image id; `POST /api/vm` and
+`vm base open/reset` resolve the kind and the plan's memory to a ladder row.
+There is no env, team, plan or user image pin, so merging a promotion (and
+the deploy it starts) moves every default create to the new bake. An image id
+reaches a create only from a person (`cmux vm new --image`), and in a
+deployed environment it must be a manifest row.
+
+Fork, restore and templates (`vm promote-template` is a named snapshot that a
+restore boots) are the exceptions: they boot the user's own machine or
+snapshot and keep the guest software it had, including its cmux-tui. Like
+every running machine, they move to a new cmux-tui only through
+`bun scripts/upgrade-fleet-cmux-tui.ts`, which defaults to the build the
+default image bakes (docs/cloud-guest-upgrades.md). Neither create nor attach
+installs or upgrades cmux-tui, so a daemon change (the cmux-tui pin) reaches
+new machines only through a rebake and promotion.
 
 The Freestyle base slug is only the input to the cmux bake. The ids recorded in
 `manifest.json` are cmux-derived snapshots, created by baking cmux-tui and its
@@ -318,6 +363,23 @@ supervisor and waits for a driver install.
 
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
+
+The bake also fully allocates a 1 GiB ext4 image at
+`/var/lib/cmux/cmux-tui-state.ext4` and mounts it at the daemon's
+`~/.local/state/cmux-tui` directory before the daemon starts. This gives the
+SQLite registry and journal a reserved filesystem even when general-purpose
+files fill the root filesystem. When the state filesystem falls below its
+headroom threshold, the helper doubles the image online up to 8 GiB, provided
+the root filesystem keeps its safety reserve; a failed or unsafe growth leaves
+the daemon deferred rather than starting against a full database filesystem.
+The image consumes space from the existing root disk; it does not change the
+Freestyle VM size or the image ladder. The bake writes a reservation marker
+only after the image is fully created and seeded. The boot supervisor reads
+that marker and requires the marker, helper, image, and mount after a snapshot
+resume before starting cmux-tui. If any of those checks fail, startup is
+deferred instead of falling back to the root filesystem. Older images without
+the marker continue using their existing state layout until they are replaced
+or upgraded with `bun scripts/upgrade-fleet-cmux-tui.ts`.
 
 ## Sizes: one bake, one snapshot per size
 
@@ -481,7 +543,10 @@ and of `codex` as root and as `cmux` reaching the ready composer with no
 first-run gate on screen (onboarding, folder trust, the bypass confirmation,
 the custom API key consent, the root gate, codex's update picker and
 bubblewrap warning; readiness is the composer text itself, polled and
-bounded), and (when `/etc/cmux/image-stamp` says `desktop`) the desktop
+bounded), codex's own verdict that every hook a daemon pane's codex starts
+with is trusted (the cmux-tui codex wrapper's exact argv, then `codex
+app-server` `hooks/list`; a screen probe cannot see "Hooks need review",
+which codex shows after its composer), and (when `/etc/cmux/image-stamp` says `desktop`) the desktop
 contract (both ports,
 RFB loopback-only, the session processes, the wallpaper on the root window,
 one supervisor, `DISPLAY` in root's and the work user's login shells,

@@ -26,6 +26,7 @@ test("a paid upgrade cancels a stale Go pause instead of stopping the upgraded V
     pause: () => Effect.sync(() => { calls.push("pause"); }),
     resume: () => Effect.sync(() => { calls.push("resume"); throw new Error("already running"); }),
     getStatus: () => Effect.succeed("running"),
+    getStats: () => Effect.succeed({ cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 }),
   } as unknown as VmProviderGatewayShape;
   const layer = Layer.merge(Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers));
   await Effect.runPromise(resumeVm({ userId: "u", billingTeamId: "u", providerVmId: "vm", callerPlanId: "pro" }).pipe(Effect.provide(layer)));

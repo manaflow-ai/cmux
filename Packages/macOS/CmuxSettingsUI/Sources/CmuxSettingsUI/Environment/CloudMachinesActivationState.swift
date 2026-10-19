@@ -13,7 +13,7 @@ public enum CloudMachinesActivationState: Equatable, Sendable {
     case failed(CloudMachinesActivationFailure)
     /// The user cancelled setup before it completed.
     case cancelled
-    /// Rollout or managed policy makes Cloud unavailable on this Mac.
+    /// Managed policy makes Cloud unavailable on this Mac.
     case unavailable
 
     /// Whether Cloud machine operations are ready for use.

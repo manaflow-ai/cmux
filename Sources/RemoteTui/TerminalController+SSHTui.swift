@@ -26,7 +26,9 @@ extension TerminalController {
             destination: host.destination, port: host.port, identityFile: host.identityFile,
             sshOptions: options, localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
             localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: configuredCommand,
-            agentSocketPath: params["ssh_auth_sock"] as? String, preserveAfterTerminalExit: true
+            agentSocketPath: params["ssh_auth_sock"] as? String,
+            agentSocketPathOverrideIsSet: params["ssh_auth_sock"] is String,
+            preserveAfterTerminalExit: true
         )
         let connection = SSHTuiConnection(configuration: configuration)
         let provider = try coordinator.provider(connection: connection)

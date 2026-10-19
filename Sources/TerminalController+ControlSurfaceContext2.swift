@@ -76,9 +76,23 @@ extension TerminalController {
         return .openedExternally(windowID: windowId, url: url.absoluteString)
     }
     // MARK: - split
+    /// Protocol-shaped entry point used by the socket coordinator. Browser
+    /// creation policy is an app-local seam used by layout/browser callers.
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceSplitInputs
+    ) -> ControlSurfaceSplitResolution {
+        controlSurfaceSplit(
+            routing: routing,
+            inputs: inputs,
+            browserCreationPolicy: .automationPreload
+        )
+    }
+
+    func controlSurfaceSplit(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceSplitInputs,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
     ) -> ControlSurfaceSplitResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -177,7 +191,7 @@ extension TerminalController {
                 insertFirst: insertFirst,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload,
+                creationPolicy: browserCreationPolicy,
                 bypassRemoteProxy: useLocalContext,
                 initialDividerPosition: dividerPosition
             )?.id
@@ -203,7 +217,8 @@ extension TerminalController {
                 initialDividerPosition: dividerPosition,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 newId = panel.id
@@ -360,6 +375,18 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
+        controlSurfaceCreate(
+            routing: routing,
+            inputs: inputs,
+            browserCreationPolicy: .automationPreload
+        )
+    }
+
+    func controlSurfaceCreate(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceCreateInputs,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
+    ) -> ControlSurfaceCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
@@ -394,7 +421,58 @@ extension TerminalController {
            let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
             return invalid
         }
+        let hasProfileParam = inputs.profileRaw != nil
+            || inputs.hasInvalidProfileParam
+            || inputs.hasMultipleProfileParams
+        let preferredBrowserProfileID: UUID?
+        if panelType != .browser, hasProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileRequiresBrowserPane.description,
+                candidates: []
+            )
+        } else if inputs.hasMultipleProfileParams {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.multipleProfileSelectors.description,
+                candidates: []
+            )
+        } else if panelType == .browser, inputs.hasInvalidProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.invalidProfileSelector.description,
+                candidates: []
+            )
+        } else if panelType == .browser, let selector = inputs.profileRaw {
+            switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
+            case .matched(let profile):
+                preferredBrowserProfileID = profile.id
+            case .notFound:
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.profileNotFound(selector).description,
+                    candidates: []
+                )
+            case .ambiguous(let profiles):
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.ambiguousProfile(selector, profiles).description,
+                    candidates: profiles.map {
+                        ControlPaneBrowserProfileCandidate(id: $0.id, displayName: $0.displayName)
+                    }
+                )
+            }
+        } else {
+            preferredBrowserProfileID = nil
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            if let selector = inputs.profileRaw {
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.browserDisabled.description,
+                    candidates: []
+                )
+            }
             return .browserDisabled(surfaceBrowserDisabledOutcome(
                 rawURL: inputs.urlRaw,
                 url: url,
@@ -408,6 +486,7 @@ extension TerminalController {
                 tabManager: tabManager,
                 panelType: panelType,
                 url: url,
+                preferredProfileID: preferredBrowserProfileID,
                 inputs: inputs
             )
         }
@@ -417,6 +496,13 @@ extension TerminalController {
             tabManager: tabManager
         ) else {
             return .workspaceNotFound
+        }
+        if panelType == .browser, preferredBrowserProfileID != nil, ws.isRemoteWorkspace {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileUnavailableInRemoteWorkspace.description,
+                candidates: []
+            )
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
@@ -453,7 +539,8 @@ extension TerminalController {
                 inPane: paneId,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload,
+                preferredProfileID: preferredBrowserProfileID,
+                creationPolicy: browserCreationPolicy,
                 bypassRemoteProxy: useLocalContext
             )?.id
         } else if panelType == .simulator {
@@ -481,7 +568,8 @@ extension TerminalController {
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
                 inheritWorkingDirectoryFallback: true,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 newPanelId = panel.id
@@ -553,6 +641,9 @@ extension TerminalController {
             surfaceID: surfaceId
         ) else {
             return .surfaceNotFound(surfaceId)
+        }
+        if let message = browserReplTabRefusalMessage(surfaceId) {
+            return .denied(surfaceId, message: message)
         }
         if let remote = controlRemoteTmuxSurfaceClose(
             workspace: ws,

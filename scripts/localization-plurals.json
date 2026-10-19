@@ -757,5 +757,29 @@
     "arguments": [
       1
     ]
+  },
+  "mobile.agentFeed.question.count": {
+    "source": "%lld questions",
+    "arguments": [
+      1
+    ]
+  },
+  "mobile.agentFeed.question.pageLabel": {
+    "source": "Question %lld",
+    "arguments": [
+      1
+    ]
+  },
+  "mobile.agentFeed.question.progress": {
+    "source": "Question %lld of %lld",
+    "arguments": [
+      1
+    ]
+  },
+  "mobile.agentFeed.question.progressSummary": {
+    "source": "%lld of %lld answered",
+    "arguments": [
+      1
+    ]
   }
 }

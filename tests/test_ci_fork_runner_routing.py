@@ -34,11 +34,37 @@ MACOS_15_FORK_JOBS = {
 # app-host shards over macos-15 and macos-26. Accepted only when every
 # `hosted_runner:` value in the workflow is a GitHub-hosted macOS label.
 FORK_MACOS_MATRIX_BRANCH = "github.repository_owner != 'manaflow-ai' && matrix.hosted_runner"
+# Windows and ARM64 Linux jobs run on Blacksmith in manaflow-ai; a fork takes
+# GitHub's image of the same OS.
+FORK_WINDOWS_BRANCH = "github.repository_owner != 'manaflow-ai' && 'windows-2025'"
+FORK_LINUX_ARM64_BRANCH = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm'"
 HOSTED_MACOS_LABELS = {"macos-15", "macos-26"}
 # Any Blacksmith runner label. Script names such as
 # scripts/blacksmith-bounded-command.sh have no `-Nvcpu-` part.
 BLACKSMITH_LABEL = re.compile(r"blacksmith-\d+vcpu-[a-z0-9]+(?:[.-][a-z0-9]+)*")
-FORK_BRANCHES = (FORK_LINUX_BRANCH, FORK_MACOS_BRANCH, FORK_MACOS_15_BRANCH, FORK_MACOS_MATRIX_BRANCH)
+# A runner identity guard compares runner.name with a Blacksmith scale set's
+# VM-name prefix ('<label>-'; VMs are named '<label>-<id>'). It selects no
+# runner, so it is not a label a fork could queue on.
+BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
+    r"startsWith\(runner\.name, '" + BLACKSMITH_LABEL.pattern + r"-'\)"
+)
+# The CLA jobs' runner identity guard (validate-cla-policy.rb is the
+# authority): fail unless GitHub-hosted or a Blacksmith VM for an allowlisted
+# label, and always fail on an owned glaeda host.
+CLA_EPHEMERAL_RUNNER_GUARD_IF = (
+    "(runner.environment != 'github-hosted'"
+    " && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-')"
+    " && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-'))"
+    " || contains(runner.name, 'glaeda')"
+)
+FORK_BRANCHES = (
+    FORK_LINUX_BRANCH,
+    FORK_MACOS_BRANCH,
+    FORK_MACOS_15_BRANCH,
+    FORK_MACOS_MATRIX_BRANCH,
+    FORK_WINDOWS_BRANCH,
+    FORK_LINUX_ARM64_BRANCH,
+)
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
@@ -47,6 +73,12 @@ INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
 UNGATED_BLACKSMITH_ALLOWED = {
     ("reload-build.yml", "macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),"): (
         "description text of the runner input, not a value"
+    ),
+    ("ci-health-report.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
+        "report text that prints the lane's effective label, not a runs-on value"
+    ),
+    ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
+        "report text that prints the lane's effective label, not a runs-on value"
     ),
 }
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
@@ -298,6 +330,33 @@ class _Parser:
 
 def parse_expression(source: str) -> tuple:
     return _Parser(source).parse()
+
+
+def evaluate_runner_condition(node: tuple, context: dict[str, str]) -> bool | str:
+    """Evaluate a runner-identity condition whose refs are strings.
+
+    Covers the subset the CLA runner guard uses. As in GitHub Actions,
+    comparisons, startsWith and contains ignore case.
+    """
+    kind = node[0]
+    if kind == "or":
+        return any(evaluate_runner_condition(child, context) for child in node[1])
+    if kind == "and":
+        return all(evaluate_runner_condition(child, context) for child in node[1])
+    if kind == "not":
+        return not evaluate_runner_condition(node[1], context)
+    if kind == "literal" and node[1].startswith("'"):
+        return node[1][1:-1].replace("''", "'")
+    if kind == "ref":
+        return context[node[1]]
+    if kind == "cmp" and node[1] in ("==", "!="):
+        left = str(evaluate_runner_condition(node[2], context)).lower()
+        right = str(evaluate_runner_condition(node[3], context)).lower()
+        return (left == right) == (node[1] == "==")
+    if kind == "call" and node[1] in ("startsWith", "contains") and len(node[2]) == 2:
+        haystack, needle = (str(evaluate_runner_condition(arg, context)).lower() for arg in node[2])
+        return haystack.startswith(needle) if node[1] == "startsWith" else needle in haystack
+    raise ExpressionSyntaxError(f"unsupported runner condition {node!r}")
 
 
 def _refs(node: tuple) -> list[str]:
@@ -593,7 +652,7 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
             continue
         if in_options and not stripped.startswith("- "):
             in_options = False
-        if stripped.startswith("#") or not BLACKSMITH_LABEL.search(raw):
+        if stripped.startswith("#") or not BLACKSMITH_LABEL.search(BLACKSMITH_RUNNER_NAME_CHECK.sub("", raw)):
             continue
         if job in owner_only_jobs or (name, stripped) in UNGATED_BLACKSMITH_ALLOWED:
             continue
@@ -886,7 +945,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 # condition selects, not a label appearing later on the line.
                 pull_request_linux = pull_request_selects(line, "ubuntu")
                 pull_request_macos = pull_request_selects(line, "macos")
-                hosted_linux = FORK_LINUX_BRANCH in line or pull_request_linux
+                hosted_linux = (
+                    FORK_LINUX_BRANCH in line
+                    or FORK_LINUX_ARM64_BRANCH in line
+                    or FORK_WINDOWS_BRANCH in line
+                    or pull_request_linux
+                )
                 hosted_macos = (
                     FORK_MACOS_BRANCH in line
                     or FORK_MACOS_15_BRANCH in line
@@ -1029,6 +1093,42 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         # a, b, c, and the dispatch default and option that d reads before
         # the fork branch. d itself passes: an explicitly chosen input wins.
         self.assertEqual(len(ungated_blacksmith_labels("x.yml", text)), 5)
+
+    def test_runner_name_guards_are_not_selectable_labels(self) -> None:
+        guard = "        if: " + CLA_EPHEMERAL_RUNNER_GUARD_IF + "\n"
+        text = "jobs:\n  a:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: guard\n" + guard
+        self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
+        # The same label outside a runner.name prefix check is still selectable.
+        for line in (
+            "        if: startsWith(runner.name, 'x') && 'blacksmith-4vcpu-ubuntu-2404'\n",
+            "    runs-on: blacksmith-4vcpu-ubuntu-2404\n",
+            "        if: startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404')\n",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(len(ungated_blacksmith_labels("x.yml", "jobs:\n  a:\n" + line)), 1)
+
+    def test_cla_runner_guard_admits_blacksmith_vm_names(self) -> None:
+        guard = parse_expression(CLA_EPHEMERAL_RUNNER_GUARD_IF)
+        # (runner.environment, runner.name) -> whether the guard step fails the job.
+        cases = {
+            # Blacksmith VM names since October 2026, and the earlier form.
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
+            ("self-hosted", "blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): False,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d"): False,
+            ("github-hosted", "GitHub Actions 12"): False,
+            # Owned glaeda hosts, even under a Blacksmith-looking name.
+            ("self-hosted", "cmuxs-mac-mini-5-glaeda-1"): True,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404-glaeda"): True,
+            ("github-hosted", "x-glaeda-1"): True,
+            # Labels outside the runs-on allowlist, and the bare label.
+            ("self-hosted", "blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc"): True,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2204-56ere4cqq7ryjqvc"): True,
+            ("self-hosted", "blacksmith-4vcpu-ubuntu-2404"): True,
+        }
+        for (environment, name), fails in cases.items():
+            with self.subTest(name=name, environment=environment):
+                context = {"runner.environment": environment, "runner.name": name}
+                self.assertIs(evaluate_runner_condition(guard, context), fails)
 
     def test_owner_gated_blacksmith_fallbacks_pass(self) -> None:
         text = (

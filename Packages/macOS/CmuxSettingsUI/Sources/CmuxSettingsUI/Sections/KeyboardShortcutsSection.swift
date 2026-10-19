@@ -13,7 +13,6 @@ public struct KeyboardShortcutsSection: View {
     private let keymapProposals: ShortcutKeymapProposalInbox?
     @State private var model: ShortcutListModel
     @State private var paneResizeStep: DefaultsValueModel<Int>
-    @State private var searchQuery = ShortcutListSearchQuery()
 
     /// Creates the keyboard shortcut editor with both current and compatibility stores.
     ///
@@ -69,9 +68,7 @@ public struct KeyboardShortcutsSection: View {
                 SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
-                ShortcutListSearchBar(query: $searchQuery, hasChord: { model.hasChord(startingWith: $0) })
-                SettingsCardDivider()
-                ShortcutListStableLazyView(model: model, query: searchQuery)
+                ShortcutListSearchAndRows(model: model)
             }
             .settingsSearchAnchors(["setting:keyboardShortcuts:shortcuts"])
             Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))
@@ -83,6 +80,20 @@ public struct KeyboardShortcutsSection: View {
         .task {
             model.startObserving()
             paneResizeStep.startObserving()
+        }
+    }
+
+    /// Keeps shortcut search state below the full Keyboard Shortcuts section so
+    /// typing does not reevaluate the surrounding Settings card.
+    @MainActor
+    private struct ShortcutListSearchAndRows: View {
+        let model: ShortcutListModel
+        @State private var query = ShortcutListSearchQuery()
+
+        var body: some View {
+            ShortcutListSearchBar(query: $query, hasChord: { model.hasChord(startingWith: $0) })
+            SettingsCardDivider()
+            ShortcutListStableLazyView(model: model, query: query)
         }
     }
 
