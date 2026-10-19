@@ -299,7 +299,8 @@ pub(super) fn open_console(cols: u16, rows: u16) -> io::Result<Console> {
     }
     // SAFETY: valid pipe handles and an out pointer.
     let mut hr = unsafe { (api.create)(coord(cols, rows), in_client, out_client, fl, &mut hpc) };
-    if hr < 0 && fl & PSEUDOCONSOLE_PASSTHROUGH_MODE != 0 {
+    // E_INVALIDARG: this conhost does not know the passthrough flag.
+    if hr == 0x8007_0057_u32 as i32 && fl & PSEUDOCONSOLE_PASSTHROUGH_MODE != 0 {
         PASSTHROUGH_REFUSED.store(true, Ordering::Relaxed);
         fl &= !PSEUDOCONSOLE_PASSTHROUGH_MODE;
         // SAFETY: as above.
@@ -464,25 +465,19 @@ pub(super) fn resize(hpc: HPCON, cols: u16, rows: u16) {
     unsafe { (api().resize)(hpc, coord(cols, rows)) };
 }
 
-/// Closes pseudoconsoles on a thread of its own: ClosePseudoConsole may wait
-/// until conhost has written its last frame, which the event loop must be
-/// free to read.
+/// Closes a pseudoconsole on a thread of its own: ClosePseudoConsole may
+/// wait until conhost has written its last frame, which the event loop must
+/// be free to read, and one slow close must not hold up another.
 pub(super) fn close_later(hpc: HPCON) {
-    static CLOSER: OnceLock<std::sync::Mutex<std::sync::mpsc::Sender<HPCON>>> = OnceLock::new();
-    let tx = CLOSER.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::channel::<HPCON>();
-        std::thread::Builder::new()
-            .name("mux2-conpty-close".into())
-            .spawn(move || {
-                for hpc in rx {
-                    // SAFETY: each pseudoconsole is sent here exactly once.
-                    unsafe { (api().close)(hpc) };
-                }
-            })
-            .expect("closer thread");
-        std::sync::Mutex::new(tx)
+    let spawned = std::thread::Builder::new().name("mux2-conpty-close".into()).spawn(move || {
+        // SAFETY: each pseudoconsole is closed exactly once, here.
+        unsafe { (api().close)(hpc) };
     });
-    let _ = tx.lock().expect("closer").send(hpc);
+    if spawned.is_err() {
+        // No thread: close here; the pipe is read again once this returns.
+        // SAFETY: as above.
+        unsafe { (api().close)(hpc) };
+    }
 }
 
 /// Pseudoconsoles made ahead of time on a thread of their own, so a create

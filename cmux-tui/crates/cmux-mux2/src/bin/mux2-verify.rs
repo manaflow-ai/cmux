@@ -17,7 +17,10 @@
 //! for this gate only), so the gate still proves that every byte is parsed
 //! in order and that snapshot plus stream rebuild the server's terminal.
 //! Whether conhost's rendering shows the file as a Unix PTY would is reported
-//! separately (`conpty_screen_faithful`) and does not decide the result.
+//! separately (`conpty_screen_faithful`, and `conpty_replay_faithful` for the
+//! whole state with scrollback) and does not decide the result unless
+//! `--file-reference` is given; where it is true it also proves that nothing
+//! was lost before the tap.
 //! The program is this binary (`mux2-verify --cat FILE`): it waits for one
 //! line, enables VT output, and writes the file.
 
@@ -63,27 +66,44 @@ fn onlcr(data: &[u8]) -> Vec<u8> {
     out
 }
 
-/// `mux2-verify --cat FILE`: the program the Windows gate runs.
+/// `mux2-verify --cat FILE`: the program the Windows gate runs. It writes
+/// the file as `cat` does on Unix: large raw writes to its stdout handle
+/// (std's console stdout would convert to UTF-16 and cut every write into
+/// 8 KiB WriteConsoleW calls, which conhost handles one by one).
 fn cat(file: &str) -> ! {
     use std::io::{BufRead, Write};
     let data = std::fs::read(file).unwrap_or_else(|e| die(e));
     let mut line = String::new();
     let _ = std::io::stdin().lock().read_line(&mut line);
     #[cfg(windows)]
-    // SAFETY: switching our own console output to VT processing.
+    // SAFETY: switching our own console to UTF-8 VT output, then writing
+    // valid slices to our stdout handle.
     unsafe {
+        use windows_sys::Win32::Storage::FileSystem::WriteFile;
         use windows_sys::Win32::System::Console::*;
         let out = GetStdHandle(STD_OUTPUT_HANDLE);
         let mut mode = 0;
         GetConsoleMode(out, &mut mode);
         SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        SetConsoleOutputCP(65001);
+        for chunk in data.chunks(1 << 20) {
+            let mut n = 0u32;
+            if WriteFile(out, chunk.as_ptr(), chunk.len() as u32, &mut n, std::ptr::null_mut()) == 0
+            {
+                die(std::io::Error::last_os_error());
+            }
+        }
+        std::process::exit(0);
     }
-    let mut out = std::io::stdout().lock();
-    for chunk in data.chunks(64 << 10) {
-        out.write_all(chunk).unwrap_or_else(|e| die(e));
+    #[allow(unreachable_code)]
+    {
+        let mut out = std::io::stdout().lock();
+        for chunk in data.chunks(64 << 10) {
+            out.write_all(chunk).unwrap_or_else(|e| die(e));
+        }
+        let _ = out.flush();
+        std::process::exit(0);
     }
-    let _ = out.flush();
-    std::process::exit(0);
 }
 
 fn main() {
@@ -112,6 +132,9 @@ fn main() {
     // the unwatched path (batches, parse workers, carried tails), and the
     // viewer only checks the final snapshot.
     let no_viewer = args.iter().any(|a| a == "--no-viewer");
+    // Windows: also require the file's own reference (as on Unix), for a
+    // ConPTY that passes the program's bytes through unchanged.
+    let file_reference = args.iter().any(|a| a == "--file-reference");
     let data = std::fs::read(file).unwrap_or_else(|e| die(e));
     let path = proto::socket_path();
     let mut ctl =
@@ -212,6 +235,7 @@ fn main() {
     // reference, on Windows it is compared only to report conhost's fidelity.
     let mut file_view = parse(cols, rows, &expected);
     let file_screen = file_view.viewport_text().unwrap_or_else(|e| die(e)).into_bytes();
+    let file_replay = file_view.vt_replay_bytes().unwrap_or_else(|e| die(e));
     let mut reference = match &tap {
         Some(dir) if cfg!(windows) => {
             let raw = std::fs::read(dir.join(format!("{id}.raw"))).unwrap_or_else(|e| die(e));
@@ -242,7 +266,14 @@ fn main() {
     // The slow-viewer run only proves the resync path if it was taken.
     let resync_ok = !slow || snapshots >= 2;
     let ok = screen_ok && (replay_ok || replay_rt_ok) && resync_ok;
+    // Independent of the tap: when conhost passes the file's bytes through,
+    // the whole state (scrollback included) must equal the file's, so a
+    // byte lost before the tap would show here.
     let faithful = server_screen == file_screen;
+    let file_rt = parse(cols, rows, &file_replay).vt_replay_bytes().unwrap_or_else(|e| die(e));
+    let replay_faithful = server_rt == file_rt;
+    // A resize lands at an unknown point, so no outside reference applies.
+    let ok = ok && (!file_reference || resize || (faithful && replay_faithful));
     // MUX2_VERIFY_DUMP=DIR writes every replay, so a mismatch can be diffed.
     if let Some(dir) = std::env::var_os("MUX2_VERIFY_DUMP") {
         let dir = std::path::PathBuf::from(dir);
@@ -258,7 +289,7 @@ fn main() {
         }
     }
     println!(
-        "{{\"verify\":\"{}\",\"ok\":{ok},\"screen_match\":{screen_ok},\"replay_exact\":{replay_ok},\"replay_roundtrip\":{replay_rt_ok},\"bytes\":{},\"stream_bytes\":{stream_bytes},\"snapshots\":{snapshots},\"midway\":{midway},\"slow\":{slow},\"resize\":{resize},\"resync_ok\":{resync_ok},\"conpty_screen_faithful\":{faithful}}}",
+        "{{\"verify\":\"{}\",\"ok\":{ok},\"screen_match\":{screen_ok},\"replay_exact\":{replay_ok},\"replay_roundtrip\":{replay_rt_ok},\"bytes\":{},\"stream_bytes\":{stream_bytes},\"snapshots\":{snapshots},\"midway\":{midway},\"slow\":{slow},\"resize\":{resize},\"resync_ok\":{resync_ok},\"conpty_screen_faithful\":{faithful},\"conpty_replay_faithful\":{replay_faithful}}}",
         file.replace('\\', "/"),
         data.len()
     );

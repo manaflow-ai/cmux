@@ -219,14 +219,15 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     let send = |w: &std::sync::Mutex<UnixStream>, kind: u8, payload: &[u8]| {
         proto::write_frame(&mut *w.lock().expect("writer"), kind, payload).is_ok()
     };
-    send(&writer, proto::RESIZE, &resize_payload(t));
-    send(&writer, proto::ATTACH, &idp(t));
-    let raw = RawMode::enter();
+    // Follow resizes first, so one during the attach is not missed.
     let follow = writer.clone();
     os::follow_resize(move || {
         proto::write_frame(&mut *follow.lock().expect("writer"), proto::RESIZE, &resize_payload(t))
             .is_ok()
     });
+    send(&writer, proto::RESIZE, &resize_payload(t));
+    send(&writer, proto::ATTACH, &idp(t));
+    let raw = RawMode::enter();
     let mut reader = s;
     let out = std::thread::spawn(move || -> i32 {
         let mut stdout = io::stdout().lock();

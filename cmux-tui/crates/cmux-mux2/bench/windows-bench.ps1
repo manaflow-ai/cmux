@@ -1,13 +1,14 @@
 # windows-bench.ps1: mux2 vs cmux-tui on Windows. One JSON line per result.
 #   windows-bench.ps1 -Mux2 DIR -Ctui EXE -Corpus DIR [-Test all|start|scale|tput|rtt] [-N 50]
+#                     [-Scale 500] [-Reps 1]
 # DIR holds mux2.exe, mux2d.exe, mux2-verify.exe; EXE is cmux-tui.exe; the
 # corpus is gen-corpus.pl's output (plain.txt and sgr.txt are used).
 # The program every throughput run uses is `mux2-verify --cat FILE`: it
-# waits for one line, then writes the file to its console, so both servers
-# see identical conhost output. A viewer runs inside a terminal of a second
+# waits for one line, then writes the file to its console in 1 MiB writes,
+# so both servers see identical conhost output; one run uses cmd's `type`. A viewer runs inside a terminal of a second
 # mux2 server (its own socket), as a console program would.
 param([string]$Mux2, [string]$Ctui, [string]$Corpus, [string]$Test = 'all', [int]$N = 50,
-      [int]$Scale = 500)
+      [int]$Scale = 500, [int]$Reps = 1)
 $ErrorActionPreference = 'Continue'
 $M = "$Mux2\mux2.exe"
 $Cat = "$Mux2\mux2-verify.exe"
@@ -38,7 +39,9 @@ function Footprint($kind) {
     $byId = @{}; foreach ($p in $all) { $byId[[int]$p.ProcessId] = $p }
     $tree = @(); $stack = @([int]$root)
     while ($stack.Count) { $id = $stack[-1]; $stack = @($stack | Select-Object -SkipLast 1)
-        if ($byId[$id]) { $tree += $byId[$id]; foreach ($k in $kids[$id]) { $stack += [int]$k.ProcessId } } }
+        if ($byId[$id]) { $tree += $byId[$id]
+            # Windows reuses process ids: a child must be younger than its parent.
+            foreach ($k in $kids[$id]) { if ($k.CreationDate -ge $byId[$id].CreationDate) { $stack += [int]$k.ProcessId } } } }
     $srv = $byId[[int]$root]
     $helpers = $tree | Where-Object { $_.ProcessId -ne $root -and $_.Name -notin @('cmd.exe', 'mux2-verify.exe') }
     $sp = Get-Process -Id $root
@@ -54,7 +57,10 @@ function UsedMb { $os = Get-CimInstance Win32_OperatingSystem; [int](($os.TotalV
 
 function StopAll {
     & $M stop 2>$null | Out-Null
-    Get-Process cmux-tui -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process cmux-tui, cmux-tui-host -ErrorAction SilentlyContinue | Stop-Process -Force
+    # cmux-tui journals every terminal's output and restores it at start
+    # (5 GB after the throughput runs): every test starts from a clean state.
+    Remove-Item -Recurse -Force "$env:LOCALAPPDATA\cmux-tui\sessions" -ErrorAction SilentlyContinue
     Get-Process mux2d -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $script:HostPid } | Stop-Process -Force
 }
 
@@ -139,8 +145,10 @@ function Start-Viewer($kind, $id) {
 }
 function Stop-Viewer($h) { $env:MUX2_SOCKET = $HostSock; & $M kill $h | Out-Null; Remove-Item Env:\MUX2_SOCKET }
 
-function T-Tput($kind, $file, [switch]$Attach) {
-    $id = New-Term $kind @($Cat, '--cat', $file) "tp$(Get-Random)" '200x50'
+function T-Tput($kind, $file, [switch]$Attach, [switch]$Type) {
+    # -Type: cmd's own `type`, a program as users run it, instead of the cat program.
+    $prog = if ($Type) { @('cmd.exe', '/d', '/c', "set /p go= & type $file") } else { @($Cat, '--cat', $file) }
+    $id = New-Term $kind $prog "tp$(Get-Random)" '200x50'
     Start-Sleep 1
     $h = if ($Attach) { Start-Viewer $kind $id }
     $fp0 = Footprint $kind
@@ -152,7 +160,7 @@ function T-Tput($kind, $file, [switch]$Attach) {
     if ($Attach) { Stop-Viewer $h }
     Kill-Term $kind $id
     $bytes = (Get-Item $file).Length
-    Emit @{ test = 'tput'; kind = $kind; file = (Split-Path $file -Leaf); attach = [bool]$Attach; bytes = $bytes
+    Emit @{ test = 'tput'; kind = $kind; file = (Split-Path $file -Leaf); attach = [bool]$Attach; program = $(if ($Type) { 'type' } else { 'cat' }); bytes = $bytes
             seconds = [math]::Round($s, 3); mb_per_s = [math]::Round($bytes / $s / 1e6, 1)
             server_cpu_s = [math]::Round($fp.server_cpu_s - $fp0.server_cpu_s, 2)
             helper_cpu_s = [math]::Round($fp.helper_cpu_s - $fp0.helper_cpu_s, 2); server_ws_kb_after = $fp.server_ws_kb }
@@ -163,10 +171,11 @@ function T-Rtt($kind) {
     Start-Sleep 1
     $rd = @(); $rt = @()
     for ($i = 1; $i -le $N; $i++) {
-        $m = 'M{0:d5}X' -f $i
+        # Not $m: PowerShell names ignore case, and $M is the mux2 path.
+        $mark = 'M{0:d5}X' -f $i
         $sw = [Diagnostics.Stopwatch]::StartNew(); Screen $kind $id | Out-Null; $rd += Ms $sw
-        $sw.Restart(); Write-Term $kind $id "$m`r"
-        while ((Screen $kind $id) -notmatch $m) {}
+        $sw.Restart(); Write-Term $kind $id "$mark`r"
+        while ((Screen $kind $id) -notmatch $mark) {}
         $rt += Ms $sw
     }
     Kill-Term $kind $id
@@ -186,9 +195,21 @@ foreach ($kind in 'mux2', 'cmux-tui') {
         StopAll; Start-Server $kind | Out-Null
         if ($Test -in 'all', 'rtt') { T-Rtt $kind }
         if ($Test -in 'all', 'tput') {
-            foreach ($f in 'plain', 'sgr') {
-                T-Tput $kind "$Corpus\$f.txt"
-                T-Tput $kind "$Corpus\$f.txt" -Attach
+            for ($r = 0; $r -lt $Reps; $r++) {
+                foreach ($f in 'plain', 'sgr') {
+                    T-Tput $kind "$Corpus\$f.txt"
+                    T-Tput $kind "$Corpus\$f.txt" -Attach
+                }
+            }
+            # cmd's type is slow (about 1 MB/s through either ConPTY): 16 MB of it.
+            if ($Test -eq 'all') {
+                $small = "$Corpus\plain-16m.txt"
+                if (-not (Test-Path $small)) {
+                    $src = [IO.File]::OpenRead("$Corpus\plain.txt"); $dst = [IO.File]::Create($small)
+                    $buf = New-Object byte[] (16MB); $n = $src.Read($buf, 0, $buf.Length); $dst.Write($buf, 0, $n)
+                    $src.Close(); $dst.Close()
+                }
+                T-Tput $kind $small -Type
             }
         }
     }

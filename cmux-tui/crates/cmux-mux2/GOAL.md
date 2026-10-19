@@ -171,3 +171,59 @@ checks that path: the whole stream unwatched, then the final state.
 
 Rex starts shells through `login -fp` (as Terminal.app does), which writes
 login records; mux2 runs `$SHELL -l` directly.
+
+## Windows (2026-10-19, GCP n2d-standard-8, Windows Server 2025 build 26100)
+
+Rex has no Windows build, so on Windows mux2 is held to its own gate, to
+cmux-tui on the same machine, and to Rex's macOS numbers above.
+
+### Design
+
+- One process, one event-loop thread, one IO completion port for every
+  terminal and client. The request handling and the correctness rules are
+  the Unix server's; the parse workers, query scanner and client are shared
+  (`src/shared`).
+- A terminal is a pseudoconsole from `CreatePseudoConsole` (resize-quirk
+  and passthrough flags), its two pipes named pipes opened overlapped on the
+  server side, and its program in a job object (kill on close), so the
+  program tree ends with the terminal and with the server.
+- Every pipe and socket is a `Slot` with one read and one write in flight.
+  `FILE_SKIP_COMPLETION_PORT_ON_SUCCESS`: an operation that completes at
+  once is handled inline, so a busy pipe drains through back-to-back
+  synchronous reads and only a read that waits posts a packet. Reads are
+  double-buffered (the next read is issued before the filled buffer is
+  parsed) and grow from 4 KiB to 256 KiB while a pipe stays full.
+- Child exit: a thread-pool wait posts to the port. conhost keeps the output
+  pipe open after the child exits, so the server closes the pseudoconsole
+  (on a thread: the close can wait for the last frame) and sends EXIT only
+  when the pipe ends: a waiter sees every byte.
+- conhost's start is most of a create, so one spare pseudoconsole is made
+  ahead of time on a helper thread (`MUX2_SPARE_CONSOLES`, default 1).
+- `conpty.dll` next to `mux2d.exe` (or `MUX2_CONPTY_DLL`) is used instead of
+  the system's: Windows Terminal's out-of-band ConPTY with its
+  `OpenConsole.exe` (MIT). portable-pty, and so cmux-tui, does the same.
+- Not on Windows yet: upgrade in place; `mux2 attach` sends its size once.
+- Not measured: one reader thread per terminal instead of overlapped pipes.
+  The server's CPU is a small part of a run (below), so the pipe read path
+  is not the limit.
+
+### What ConPTY means for exactness
+
+The server reads conhost's output, not the program's. The system conhost
+renders its own screen buffer and sends what changed: the final screen
+matched the file for plain and SGR text, not for the cursor and Unicode
+corpora, and no corpus's whole state (scrollback) matched. The passthrough
+flag is accepted and changes nothing measurable on build 26100. Windows
+Terminal's ConPTY 1.25 passes the bytes through: screen and whole state
+matched the file for all three corpora tested (plain, SGR, cursor,
+Unicode).
+
+So the Windows gate (`bench/windows-gate.ps1`) checks the server and the
+client against a reference that parsed exactly the bytes the server read
+(`MUX2_TAP_DIR`, written by the server only for the gate): every byte
+parsed, in order, snapshot plus stream exact, resync taken. With
+`-FileReference` (for the sideloaded ConPTY) it also requires the file's
+own reference, as the Unix gate does, which also proves nothing was lost
+before the tap. ConPTY answers no query itself in either version: replies
+come from the server's libghostty (`mux2-query-probe`, the Windows
+replacement for `query-rtt.pl`).

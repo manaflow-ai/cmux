@@ -11,15 +11,18 @@
 //! the spare buffer before the caller parses the filled one, so the producer
 //! (conhost, or a client) keeps writing while the server parses.
 
+use std::cell::UnsafeCell;
 use std::io;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_NO_DATA, ERROR_PIPE_NOT_CONNECTED,
-    GetLastError, HANDLE, INVALID_HANDLE_VALUE,
+    CloseHandle, ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF, ERROR_IO_PENDING, ERROR_NO_DATA,
+    ERROR_OPERATION_ABORTED, ERROR_PIPE_NOT_CONNECTED, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Networking::WinSock::{
-    SOCKET, WSABUF, WSAGetLastError, WSARecv, WSASend, closesocket,
+    SOCKET, WSABUF, WSAEnumProtocolsW, WSAGetLastError, WSAPROTOCOL_INFOW, WSARecv, WSASend,
+    XP1_IFS_HANDLES, closesocket,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     ReadFile, SetFileCompletionNotificationModes, WriteFile,
@@ -40,6 +43,56 @@ const READ_MIN: usize = 4 << 10;
 const READ_MAX: usize = 256 << 10;
 /// Most bytes handed to one overlapped write.
 pub(super) const WRITE_MAX: usize = 1 << 20;
+/// Consecutive failed pipe reads, with an error that is not end of file,
+/// after which the pipe is treated as ended anyway.
+const READ_RETRIES: u32 = 16;
+
+/// Statuses (NTSTATUS in packets, Win32 codes from an immediate failure)
+/// that mean the pipe has ended: conhost closed it, or the slot was closed.
+fn ends_pipe(code: u32) -> bool {
+    const STATUS_END_OF_FILE: u32 = 0xC000_0011;
+    const STATUS_PIPE_DISCONNECTED: u32 = 0xC000_00B0;
+    const STATUS_PIPE_CLOSING: u32 = 0xC000_00B1;
+    const STATUS_PIPE_BROKEN: u32 = 0xC000_014B;
+    const STATUS_CANCELLED: u32 = 0xC000_0120;
+    matches!(
+        code,
+        ERROR_BROKEN_PIPE
+            | ERROR_PIPE_NOT_CONNECTED
+            | ERROR_HANDLE_EOF
+            | ERROR_NO_DATA
+            | ERROR_OPERATION_ABORTED
+            | STATUS_END_OF_FILE
+            | STATUS_PIPE_DISCONNECTED
+            | STATUS_PIPE_CLOSING
+            | STATUS_PIPE_BROKEN
+            | STATUS_CANCELLED
+    )
+}
+
+/// Whether every installed socket provider hands out kernel (IFS) handles.
+/// Only then does an immediate socket success skip the port; a layered
+/// non-IFS provider would still post a packet for it.
+fn sockets_skip_safe() -> bool {
+    static SAFE: OnceLock<bool> = OnceLock::new();
+    *SAFE.get_or_init(|| {
+        let mut len = 0u32;
+        // SAFETY: the documented size query, then the real call into a
+        // buffer of that many bytes.
+        unsafe {
+            WSAEnumProtocolsW(std::ptr::null(), std::ptr::null_mut(), &mut len);
+            let n = len as usize / size_of::<WSAPROTOCOL_INFOW>() + 1;
+            let mut buf: Vec<WSAPROTOCOL_INFOW> = Vec::with_capacity(n);
+            let mut len = (n * size_of::<WSAPROTOCOL_INFOW>()) as u32;
+            let count = WSAEnumProtocolsW(std::ptr::null(), buf.as_mut_ptr(), &mut len);
+            if count <= 0 {
+                return false;
+            }
+            buf.set_len(count as usize);
+            buf.iter().all(|p| p.dwServiceFlags1 & XP1_IFS_HANDLES != 0)
+        }
+    })
+}
 
 /// The port, for threads that post to it (exit waits, parse workers, the
 /// accept thread). Set once at startup.
@@ -118,10 +171,11 @@ pub(super) enum Done {
 /// address while the kernel holds them; a closed slot with operations still
 /// in flight must be kept until their packets arrive (the server's
 /// graveyard).
-#[repr(C)]
+/// The OVERLAPPED structures are written by the kernel while the slot is
+/// borrowed, hence the cells.
 pub(super) struct Slot {
-    read_ov: OVERLAPPED,
-    write_ov: OVERLAPPED,
+    read_ov: UnsafeCell<OVERLAPPED>,
+    write_ov: UnsafeCell<OVERLAPPED>,
     handle: HANDLE,
     socket: bool,
     /// FILE_SKIP_COMPLETION_PORT_ON_SUCCESS took effect: an immediate
@@ -139,6 +193,8 @@ pub(super) struct Slot {
     wfailed: bool,
     outstanding: u32,
     closed: bool,
+    /// Consecutive pipe reads that failed with an error other than an end.
+    read_errors: u32,
 }
 
 impl Slot {
@@ -149,15 +205,16 @@ impl Slot {
             return Err(io::Error::last_os_error());
         }
         // SAFETY: plain flag change on our handle.
-        let skip = unsafe {
-            SetFileCompletionNotificationModes(
-                handle,
-                FILE_SKIP_COMPLETION_PORT_ON_SUCCESS | FILE_SKIP_SET_EVENT_ON_HANDLE,
-            )
-        } != 0;
+        let skip = (!socket || sockets_skip_safe())
+            && unsafe {
+                SetFileCompletionNotificationModes(
+                    handle,
+                    FILE_SKIP_COMPLETION_PORT_ON_SUCCESS | FILE_SKIP_SET_EVENT_ON_HANDLE,
+                )
+            } != 0;
         Ok(Box::new(Slot {
-            read_ov: OVERLAPPED::default(),
-            write_ov: OVERLAPPED::default(),
+            read_ov: UnsafeCell::new(OVERLAPPED::default()),
+            write_ov: UnsafeCell::new(OVERLAPPED::default()),
             handle,
             socket,
             skip,
@@ -171,6 +228,7 @@ impl Slot {
             wfailed: false,
             outstanding: 0,
             closed: false,
+            read_errors: 0,
         }))
     }
 
@@ -184,7 +242,8 @@ impl Slot {
         if !matches!(self.rstate, ReadState::Idle) || self.closed {
             return;
         }
-        self.read_ov = OVERLAPPED::default();
+        *self.read_ov.get_mut() = OVERLAPPED::default();
+        let ov = self.read_ov.get();
         let mut n = 0u32;
         let len = self.rbuf.len() as u32;
         let (ok, err) = if self.socket {
@@ -192,16 +251,13 @@ impl Slot {
             let mut flags = 0u32;
             // SAFETY: rbuf and read_ov stay valid until the read completes
             // (the slot is boxed and outlives its operations).
-            let r = unsafe {
-                WSARecv(self.handle as SOCKET, &buf, 1, &mut n, &mut flags, &mut self.read_ov, None)
-            };
+            let r =
+                unsafe { WSARecv(self.handle as SOCKET, &buf, 1, &mut n, &mut flags, ov, None) };
             // SAFETY: reading the calling thread's last socket error.
             if r == 0 { (true, 0) } else { (false, unsafe { WSAGetLastError() }) }
         } else {
             // SAFETY: as above.
-            let r = unsafe {
-                ReadFile(self.handle, self.rbuf.as_mut_ptr(), len, &mut n, &mut self.read_ov)
-            };
+            let r = unsafe { ReadFile(self.handle, self.rbuf.as_mut_ptr(), len, &mut n, ov) };
             // SAFETY: reading the calling thread's last error.
             if r != 0 { (true, 0) } else { (false, unsafe { GetLastError() } as i32) }
         };
@@ -217,11 +273,22 @@ impl Slot {
             self.outstanding += 1;
             self.rstate = ReadState::Pending;
         } else {
-            self.rstate = ReadState::Eof;
+            self.read_failed(err as u32);
         }
     }
 
+    /// A read failed with `code`. A socket error ends the connection. A
+    /// pipe ends only on an end status; any other error (low resources, say)
+    /// is retried, so no byte conhost still holds is given up early.
+    fn read_failed(&mut self, code: u32) {
+        self.read_errors += 1;
+        let ended =
+            self.socket || self.closed || ends_pipe(code) || self.read_errors > READ_RETRIES;
+        self.rstate = if ended { ReadState::Eof } else { ReadState::Idle };
+    }
+
     fn read_done(&mut self, n: usize) {
+        self.read_errors = 0;
         if n == 0 && self.socket {
             self.rstate = ReadState::Eof;
         } else {
@@ -305,29 +372,21 @@ impl Slot {
 
     fn submit_write(&mut self) -> io::Result<bool> {
         loop {
-            self.write_ov = OVERLAPPED::default();
+            *self.write_ov.get_mut() = OVERLAPPED::default();
+            let ov = self.write_ov.get();
             let rest = &self.wbuf[self.wsent..];
             let mut n = 0u32;
             let (ok, err) = if self.socket {
                 let buf = WSABUF { len: rest.len() as u32, buf: rest.as_ptr().cast_mut() };
                 // SAFETY: wbuf and write_ov stay valid until the write
                 // completes; the kernel only reads the buffer.
-                let r = unsafe {
-                    WSASend(self.handle as SOCKET, &buf, 1, &mut n, 0, &mut self.write_ov, None)
-                };
+                let r = unsafe { WSASend(self.handle as SOCKET, &buf, 1, &mut n, 0, ov, None) };
                 // SAFETY: reading the calling thread's last socket error.
                 if r == 0 { (true, 0) } else { (false, unsafe { WSAGetLastError() }) }
             } else {
                 // SAFETY: as above.
-                let r = unsafe {
-                    WriteFile(
-                        self.handle,
-                        rest.as_ptr(),
-                        rest.len() as u32,
-                        &mut n,
-                        &mut self.write_ov,
-                    )
-                };
+                let r =
+                    unsafe { WriteFile(self.handle, rest.as_ptr(), rest.len() as u32, &mut n, ov) };
                 // SAFETY: reading the calling thread's last error.
                 if r != 0 { (true, 0) } else { (false, unsafe { GetLastError() } as i32) }
             };
@@ -358,15 +417,17 @@ impl Slot {
     /// Applies a packet for this slot. `status` is the operation's NTSTATUS.
     pub(super) fn complete(&mut self, ov: *mut OVERLAPPED, bytes: u32, status: usize) -> Done {
         let failed = status != 0;
-        if std::ptr::eq(ov, &raw mut self.read_ov) {
+        if std::ptr::eq(ov, self.read_ov.get()) {
             self.outstanding -= 1;
-            if failed || self.closed {
+            if self.closed {
                 self.rstate = ReadState::Eof;
+            } else if failed {
+                self.read_failed(status as u32);
             } else {
                 self.read_done(bytes as usize);
             }
             Done::Read
-        } else if std::ptr::eq(ov, &raw mut self.write_ov) {
+        } else if std::ptr::eq(ov, self.write_ov.get()) {
             self.outstanding -= 1;
             self.wpending = false;
             if failed || self.closed {
@@ -408,7 +469,12 @@ impl Slot {
 
 impl Drop for Slot {
     fn drop(&mut self) {
-        debug_assert!(!self.busy(), "slot dropped with operations in flight");
+        // The kernel would write into freed memory. Only a panic unwinding
+        // through the server can get here with an operation in flight.
+        if self.busy() {
+            eprintln!("mux2d: slot dropped with IO in flight; aborting");
+            std::process::abort();
+        }
         self.close();
     }
 }

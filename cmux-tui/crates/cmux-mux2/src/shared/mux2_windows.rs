@@ -51,20 +51,23 @@ pub(super) fn spawn_server(daemon: &std::path::Path) -> io::Result<()> {
     if event.is_null() {
         return Err(io::Error::last_os_error());
     }
-    // The environment block: ours, plus MUX2_READY_EVENT.
+    // The environment block: ours plus MUX2_READY_EVENT, sorted by name
+    // without regard to case, as CreateProcessW documents.
+    let mut vars: Vec<(std::ffi::OsString, std::ffi::OsString)> =
+        std::env::vars_os().filter(|(k, _)| !k.eq_ignore_ascii_case("MUX2_READY_EVENT")).collect();
+    vars.push(("MUX2_READY_EVENT".into(), name.into()));
+    vars.sort_by_cached_key(|(k, _)| k.to_string_lossy().to_uppercase());
     let mut env: Vec<u16> = Vec::new();
-    for (k, v) in std::env::vars_os() {
-        if k.eq_ignore_ascii_case("MUX2_READY_EVENT") {
-            continue;
-        }
+    for (k, v) in &vars {
         env.extend(k.encode_wide());
         env.push(b'=' as u16);
         env.extend(v.encode_wide());
         env.push(0);
     }
-    env.extend(OsStr::new("MUX2_READY_EVENT=").encode_wide());
-    env.extend(OsStr::new(&name).encode_wide());
-    env.extend([0, 0]);
+    env.push(0);
+    // The server must not hold the caller's directory open for its life.
+    let dir = std::env::var_os("SystemRoot").map_or_else(std::env::temp_dir, Into::into);
+    let dir = wide(dir.as_os_str());
     let mut line: Vec<u16> = vec![b'"' as u16];
     line.extend(daemon.as_os_str().encode_wide());
     line.extend([b'"' as u16, 0]);
@@ -87,7 +90,7 @@ pub(super) fn spawn_server(daemon: &std::path::Path) -> io::Result<()> {
                 0,
                 flags,
                 env.as_ptr().cast(),
-                std::ptr::null(),
+                dir.as_ptr(),
                 &si,
                 &mut pi,
             ) != 0

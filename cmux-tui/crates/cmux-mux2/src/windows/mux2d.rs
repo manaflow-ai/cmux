@@ -649,21 +649,8 @@ impl Server {
     /// Writes queued input; a write in flight finishes with a packet that
     /// calls this again. A program that does not read stalls only itself.
     fn flush_input(&mut self, t: u32) {
-        let Some(term) = self.terms.get_mut(&t) else { return };
-        while term.pty_open && !term.input.is_empty() && term.input_slot.writable() {
-            let input = &mut term.input;
-            let r = term.input_slot.write(|w| {
-                let n = input.len().min(iocp::WRITE_MAX);
-                w.extend(input.drain(..n));
-            });
-            match r {
-                Ok(true) => {}
-                Ok(false) => break,
-                Err(_) => {
-                    term.input.clear();
-                    break;
-                }
-            }
+        if let Some(term) = self.terms.get_mut(&t) {
+            write_input(term);
         }
     }
 
@@ -721,9 +708,12 @@ impl Server {
                 if watched {
                     forwarded.extend_from_slice(&accepted);
                 }
+                // A program that asked something waits for the answer: write
+                // it now, before parsing the rest of this read.
                 let replies = std::mem::take(&mut *term.replies.lock().expect("reply sink"));
                 if !replies.is_empty() {
                     term.input.extend(replies);
+                    write_input(term);
                 }
             } else {
                 term.pending.extend_from_slice(chunk);
@@ -820,6 +810,25 @@ impl Server {
     }
 }
 
+/// Hands queued input to the input pipe until a write has to wait.
+fn write_input(term: &mut Term) {
+    while term.pty_open && !term.input.is_empty() && term.input_slot.writable() {
+        let input = &mut term.input;
+        let r = term.input_slot.write(|w| {
+            let n = input.len().min(iocp::WRITE_MAX);
+            w.extend(input.drain(..n));
+        });
+        match r {
+            Ok(true) => {}
+            Ok(false) => break,
+            Err(_) => {
+                term.input.clear();
+                break;
+            }
+        }
+    }
+}
+
 fn utf8_os(bytes: &[u8]) -> io::Result<OsString> {
     let s = std::str::from_utf8(bytes)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "argument is not UTF-8"))?;
@@ -842,10 +851,15 @@ fn listen(path: &std::path::Path) -> io::Result<()> {
     let _ = std::fs::remove_file(path);
     let listener = uds_windows::UnixListener::bind(path)?;
     std::thread::Builder::new().name("mux2-accept".into()).spawn(move || {
-        loop {
+        // A listener that keeps failing is broken: stop instead of spinning.
+        let mut failures = 0u32;
+        while failures < 1000 {
             match listener.accept() {
-                Ok((stream, _)) => iocp::post(KIND_ACCEPT, stream.into_raw_socket() as usize),
-                Err(_) => continue,
+                Ok((stream, _)) => {
+                    failures = 0;
+                    iocp::post(KIND_ACCEPT, stream.into_raw_socket() as usize);
+                }
+                Err(_) => failures += 1,
             }
         }
     })?;

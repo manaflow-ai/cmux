@@ -3,7 +3,10 @@
 # viewer must fall more than 16 MiB behind to take the resync path). The server runs with MUX2_TAP_DIR, so
 # mux2-verify compares against the bytes conhost wrote (see mux2-verify.rs).
 # PERL generates the corpus (default: MSYS2's perl).
-param([string]$B, [string]$Perl = "C:\msys64\usr\bin\perl.exe")
+# -FileReference: also require the file's own reference, as on Unix (for a
+# server that uses Windows Terminal's conpty.dll + OpenConsole.exe, which
+# pass the program's bytes through).
+param([string]$B, [string]$Perl = "C:\msys64\usr\bin\perl.exe", [switch]$FileReference)
 $ErrorActionPreference = 'Continue'
 $W = Join-Path ([IO.Path]::GetTempPath()) ("mux2-gate-" + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force $W | Out-Null
@@ -16,7 +19,7 @@ foreach ($f in 'plain', 'sgr') { $s = [IO.File]::Open("$W\c\$f.txt", 'Open'); $s
 $n = 0; $faithful = 0
 foreach ($f in 'cursor', 'unicode', 'sgr', 'plain') {
     foreach ($m in '--no-viewer', '', '--attach-midway', '--slow-viewer', '--resize-midway') {
-        $a = @("$W\c\$f.txt"); if ($m) { $a += $m }
+        $a = @("$W\c\$f.txt"); if ($m) { $a += $m }; if ($FileReference) { $a += '--file-reference' }
         $out = (& "$B\mux2-verify.exe" @a 2>&1 | ForEach-Object { "$_" }) -join "`n"
         if ($LASTEXITCODE -eq 0) { $n++ } else { Write-Output "FAIL $f $m"; Write-Output $out }
         if ($out -match '"conpty_screen_faithful":true') { $faithful++ }
