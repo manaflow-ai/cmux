@@ -16,6 +16,7 @@ import CmuxNextWakeups
 final class AppControl {
     let watchdog = MainThreadWatchdog()
     private let frames = FrameBatcher(owner: "Control.frames")
+    private let renderPreview = RenderPreviewControl()
     private let frameProbe = DebugFrameProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
@@ -43,6 +44,7 @@ final class AppControl {
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
         registerSyncBarrier(service.router, daemon: services.daemon)
+        service.router.register(renderPreview.methods(services: services))
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
         service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
