@@ -231,7 +231,10 @@ async fn outgoing_revocation_cancels_a_pending_connect_without_a_service_hello()
     let read = tokio::time::timeout(Duration::from_secs(1), caller.read_line(&mut reply)).await;
     // Release and hang up even on the old implementation, so the regression
     // reports a behavioral failure instead of leaking a blocked request.
-    caller.get_mut().shutdown().await.unwrap();
+    if let Err(error) = caller.get_mut().shutdown().await {
+        // Darwin may already have observed the peer's close on this Unix socket.
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+    }
     link.overlay.release.add_permits(1);
     assert!(matches!(read, Ok(Ok(n)) if n > 0), "revocation left the connect pending");
     assert_eq!(
