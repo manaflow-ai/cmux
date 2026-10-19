@@ -15,11 +15,12 @@ code they generate embeds build outputs). An embed form it cannot resolve fails.
 
 Only crates a tree binary can contain are checked: the dependency closure, in
 cmux-tui/Cargo.lock, of the packages the tree publishes or daemon-tests
-(PUBLISHED_ROOTS, plus every package holding a cmux_next_ test). A workspace
+(PUBLISHED_ROOTS, every package the other-workspace tree binaries' lockfiles
+list, and every package holding a cmux_next_ test). A workspace
 crate outside it never reaches the tree, so covering its embeds only rebuilds
 the tree for nothing: cmux-theme-tokens embeds the design-tokens.json every
 Swift design change edits (#21785). Crates of other workspaces (no Cargo.lock
-entry) and every crate when the lock is missing or names no root stay checked.
+entry) and every crate when a lock is missing or names no root stay checked.
 
 Usage: check_cmux_tui_tree_inputs.py [--root DIR]   (exit 1 lists what to add)
 """
@@ -51,6 +52,13 @@ PUBLISHED_ROOTS = (
     "ghostty-vt-sys",
 )
 
+# Tree binaries built from their own Cargo workspaces (macos-cross.sh hosts):
+# the cmux-tui crates their lockfiles list are linked too.
+OTHER_PUBLISHED_LOCKS = (
+    "first-party-apps/cloud/server/Cargo.lock",
+    "cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock",
+)
+
 
 def unpublished_crates(root: Path, manifests: set[str]) -> set[str]:
     """Crate directories in the cmux-tui lock that no tree binary links."""
@@ -75,6 +83,11 @@ def unpublished_crates(root: Path, manifests: set[str]) -> set[str]:
     tested = subprocess.run(["git", "-C", str(root), "grep", "-l", "cmux_next_", "--", "cmux-tui/*.rs"],
                             capture_output=True, text=True).stdout.splitlines()
     roots = set(PUBLISHED_ROOTS)
+    for other in OTHER_PUBLISHED_LOCKS:
+        try:
+            roots.update(p["name"] for p in tomllib.loads((root / other).read_text(encoding="utf-8")).get("package", []))
+        except (OSError, ValueError, KeyError, TypeError):
+            return set()
     for path in tested:
         d = os.path.dirname(path)
         while d and d not in manifests:
