@@ -3,6 +3,7 @@
 // (host.ts lists the ops); the dev server installs a stand-in (devBridge.ts) before this runs.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import { lazy, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } from "../../appearance";
 import { createPageClient, type PageClient } from "../shared/pageClient";
@@ -12,7 +13,7 @@ import { DiagramLibraries, renderDiagram } from "./diagrams";
 import { MarkdownEditor, type EditorLabel, type MarkdownEditorHost } from "./editor";
 import table from "./generated/strings.json";
 import type { ThemeRegistrationAny } from "shiki/core";
-import { CodeHighlighter, codeThemes } from "./highlight";
+import { CodeHighlighter, codeThemes, preloadHighlighter } from "./highlight";
 import { MARKDOWN_FLUSH_OP, MARKDOWN_LIST_FILES_OP, MARKDOWN_RESOLVE_LINKS_OP, resolveImageURL } from "./host";
 import type { LinkLabel } from "./linkEditing";
 import { LinkRouter } from "./linkRouter";
@@ -25,8 +26,6 @@ import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
 import { L } from "./strings";
-import { MarkdownEmptyState } from "../../viewer-empty/MarkdownEmptyState";
-import { viewerEmptyStrings } from "../../viewer-empty/strings";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -126,6 +125,25 @@ function readingActions(store: MarkdownStore, zoom: MarkdownFontZoom): ReadingSe
   };
 }
 
+/** The empty state as a lazy component, its chunk requested at once. */
+function lazyEmptyState(client: PageClient, store: MarkdownStore): () => ReactNode {
+  const module = Promise.all([
+    import("../../viewer-empty/MarkdownEmptyState"),
+    import("../../viewer-empty/strings"),
+  ]).then(([{ MarkdownEmptyState }, { viewerEmptyStrings }]) => {
+    const strings = viewerEmptyStrings();
+    return {
+      default: () => <MarkdownEmptyState client={client} strings={strings} open={(path) => store.openFile(path)} />,
+    };
+  });
+  const EmptyState = lazy(() => module);
+  return () => (
+    <Suspense fallback={null}>
+      <EmptyState />
+    </Suspense>
+  );
+}
+
 export function mountMarkdownPage(root: HTMLElement, client: PageClient | null = createPageClient()): MarkdownStore {
   const store = new MarkdownStore(client);
   const strings = createStrings(table);
@@ -219,10 +237,10 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     codeTheme: (names, appearance) =>
       void host.setCodeThemes(codeThemes(names, appearance))?.then(() => editor?.refreshHighlight()),
   });
-  const emptyStrings = viewerEmptyStrings();
-  const emptyState = client
-    ? () => <MarkdownEmptyState client={client} strings={emptyStrings} open={(path) => store.openFile(path)} />
-    : undefined;
+  // The empty state (no file yet) and its string table load off the first paint's path: the
+  // import starts now, beside the host's config round trip that decides between a file and the
+  // empty state, so it is in hand before the empty phase renders (Suspense covers the rare miss).
+  const emptyState = client ? lazyEmptyState(client, store) : undefined;
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <MarkdownPage
@@ -238,6 +256,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     </UiProvider>,
   );
   void store.start();
+  preloadHighlighter();
   return store;
 }
 
