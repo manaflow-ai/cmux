@@ -17,7 +17,13 @@ final class SidebarGroupLineViews {
     /// moves to its new frame, a new one starts at `start` (the line over
     /// its rows' start frames) so both its ends move with the rows, and a
     /// line whose group closed or left shrinks back up into its header.
-    func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+    ///
+    /// Lines go in under the decorations, so every row, whenever the list
+    /// adds it (right above the decorations), draws over every line: a joined
+    /// line's top end tucks under the header bar (`SidebarGroupLine.lines`). The
+    /// drag gap the decorations draw sits right of the members' gutter, so
+    /// it never covers a line.
+    func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, below decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
         var gone = views
         let starts = Dictionary(start.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
         var moves: [(GroupLineView, CGRect)] = []
@@ -25,7 +31,7 @@ final class SidebarGroupLineViews {
             gone[line.group] = nil
             let view = views[line.group] ?? {
                 let view = GroupLineView()
-                list.addSubview(view, positioned: .above, relativeTo: decorations)
+                list.addSubview(view, positioned: .below, relativeTo: decorations)
                 views[line.group] = view
                 Motion.withoutAnimation {
                     view.frame = animated ? starts[line.group] ?? Self.top(of: line.frame) : line.frame
@@ -81,7 +87,6 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
     }
 
     @available(*, unavailable)
@@ -96,12 +101,17 @@ final class GroupLineView: NSView {
         needsDisplay = true
     }
 
+    /// Chrome's trimmed ends (`SidebarGroupLineShape.line`), redrawn at every size.
+    private let shape = CAShapeLayer()
+
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.width / 2
+        shape.frame = bounds
+        shape.path = SidebarGroupLineShape.line(width: bounds.width, height: bounds.height)
+        if layer?.mask !== shape { layer?.mask = shape }
     }
 
     override func updateLayer() {
-        performWithTheme { layer?.backgroundColor = color.headerFill.cgColor }
+        performWithTheme { layer?.backgroundColor = color.lineFill.cgColor }
     }
 }

@@ -202,6 +202,7 @@ import QuartzCore
         model.detailedStatus = host.model.detailedStatus
         model.activeWorkspaceID = host.model.activeWorkspaceID
         let list = SidebarListView(model: model)
+        list.groupLineJoinsHeader = host.list.groupLineJoinsHeader
         let container = SpacePageView(frame: page.frame)
         container.wantsLayer = true
         list.frame = container.bounds

@@ -2835,6 +2835,12 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.groupLineJoinsHeader" : {
+      "default" : false,
+      "description" : "The line beside a group's workspaces runs into the group's header as one shape. Off, the line starts just below the header, with a small gap.",
+      "title" : "Join Group Lines to Headers",
+      "type" : "boolean"
+    },
     "sidebar.hoverCards.delay" : {
       "default" : 250,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",

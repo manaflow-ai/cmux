@@ -6,7 +6,8 @@ import QuartzCore
 /// Group header (Lawrence 2026-10-11, cx-qno.22: the solid color bar is
 /// back, over cx-25az's dot-only header and cx-fo2t's no-hover header): the
 /// cx-rcby colored pill chip, one full-width rounded bar in the group's
-/// color (Lawrence 2026-10-08), with the members' line starting under it;
+/// color (Lawrence 2026-10-08), with the members' line in the same color just
+/// below it, a small cut apart or joined (`sidebar.groupLineJoinsHeader`);
 /// the name starts on the ungrouped rows' leading column (an icon there, the name
 /// where their text starts), one left edge for headers and ungrouped rows
 /// (cg-design-judge 2026-10-14). Every glyph on the bar (name, count, icon, pin,
@@ -33,6 +34,15 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
     private let pill = CALayer()
+    /// `sidebar.groupLineJoinsHeader`: how far below the bar this header draws its members' line
+    /// as part of the bar, one outline (`SidebarGroupLineShape.joined`); 0 draws the bar alone.
+    var joinedLineLength: CGFloat = 0 {
+        didSet { if joinedLineLength != oldValue { needsLayout = true } }
+    }
+    /// The bar, in the header's coordinates (the bar layer runs down the line when joined).
+    private(set) var barFrame: NSRect = .zero
+    /// The bar's layer: the bar, or the bar and its joined line.
+    var barLayer: CALayer { pill }
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
@@ -131,7 +141,7 @@ final class GroupHeaderRowView: SidebarRowView {
         badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
-        setAccessibilityLabel("\(group.name), \(Strings.groupCount(row.childCount))")
+        setAccessibilityLabel("\(group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Strings.unnamedGroup : group.name), \(Strings.groupCount(row.childCount))")
         setAccessibilityHelp(collapsed ? GroupEditorStrings.expand : GroupEditorStrings.collapse)
         setAccessibilityExpanded(!collapsed)
         needsLayout = true
@@ -156,7 +166,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The one ink every glyph on the header takes.
     var ink: NSColor? { name.textColor }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
-    var labelFrame: NSRect { pill.frame }
+    var labelFrame: NSRect { barFrame }
     /// The width the name needs to draw whole (`GroupLabelBandTests`).
     var titleIntrinsicWidth: CGFloat { Self.drawnWidth(name) }
     /// The width a header label needs to draw its text whole: its text in the font it draws in,
@@ -292,14 +302,28 @@ final class GroupHeaderRowView: SidebarRowView {
         count.frame = NSRect(x: (pinned ? pin.frame.maxX : name.frame.maxX) + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
         pill.isHidden = renaming
         // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
-        pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
-        pill.cornerRadius = (barHeight * 0.23).rounded()
+        barFrame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
+        let radius = min(SidebarStyle.groupHeaderCornerRadius, barHeight / 2)
+        // Joined to its members' line (`sidebar.groupLineJoinsHeader`), bar and line are one
+        // outline on this one layer: no seam, cap or step where they meet (Leo 2026-10-19).
+        let joined = joinedLineLength > 0 && !collapsed
+        pill.frame = joined ? NSRect(x: 0, y: barFrame.minY, width: b.width, height: barHeight + joinedLineLength) : barFrame
+        pill.cornerRadius = joined ? 0 : radius
+        if joined {
+            let outline = pill.mask as? CAShapeLayer ?? CAShapeLayer()
+            outline.frame = pill.bounds
+            outline.path = SidebarGroupLineShape.joined(width: b.width, barHeight: barHeight, radius: radius,
+                                                        lineWidth: SidebarStyle.groupBarWidth, length: joinedLineLength)
+            pill.mask = outline
+        } else {
+            pill.mask = nil
+        }
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
                            width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
-        // The members' line starts under this bar: one layer per group
+        // The members' line starts below this bar (or joins it): one view per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
     }

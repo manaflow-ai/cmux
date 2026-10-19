@@ -9,7 +9,7 @@ import Testing
 
 /// cg-design-judge's fixes to the shipped Chrome-style group look (2026-10-14, the sidebar
 /// groups Thunderdome): a collapsed header says how many workspaces it holds, the members' line
-/// starts under the header bar instead of cutting its rounded corner, the header's ink is white
+/// starts a small, deliberate cut below the header bar (Leo 2026-10-19, Chrome's tab groups), the header's ink is white
 /// or near-black on the group's color, and the header's name starts on the ungrouped rows' column.
 @MainActor @Suite(.serialized) struct SidebarGroupChromeLookTests {
     static let open = GroupID("grp-open")
@@ -39,21 +39,29 @@ import Testing
         #expect(laidOut >= roomy * 0.999, "the count draws \(laidOut) of its \(roomy) ink in a \(count.frame.width) pt frame")
     }
 
-    @Test func theMembersLineStartsUnderTheHeaderBarRounded() throws {
+    /// Leo 2026-10-19 (Chrome tab groups, "a neat little cut"): by default the members' line
+    /// starts a small, deliberate cut below the header bar (`SidebarStyle.groupLineCut`), its top
+    /// end trimmed as Chrome's. `sidebar.groupLineJoinsHeader` joins them instead (SidebarGroupSolidHeaderTests).
+    @Test func theMembersLineStartsASmallCutBelowTheHeaderBar() throws {
         let (sidebar, _) = try Self.sidebar()
         let header = try #require(sidebar.list.rowViews[.group(Self.open)] as? GroupHeaderRowView)
         let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first)
         let head = sidebar.convert(header.bounds, from: header)
         let drawn = sidebar.convert(line.bounds, from: line)
         let bar = SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
-        // The sidebar is flipped or not; the bar's edge nearest the members is the one the line meets.
+        // The sidebar is flipped or not; the bar's edge nearest the members is the one the line faces.
         let flipped = sidebar.isFlipped
         let barEdge = flipped ? head.midY + bar / 2 : head.midY - bar / 2
         let lineStart = flipped ? drawn.minY : drawn.maxY
-        #expect(flipped ? lineStart > barEdge : lineStart < barEdge,
-                "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
+        let cut = flipped ? lineStart - barEdge : barEdge - lineStart
+        #expect(SidebarStyle.groupLineCut > 0, "the cut is \(SidebarStyle.groupLineCut) pt")
+        #expect(abs(cut - SidebarStyle.groupLineCut) < 0.01,
+                "the line starts \(cut) pt below the header bar (edge \(barEdge)), want the \(SidebarStyle.groupLineCut) pt cut")
         line.layoutSubtreeIfNeeded()
-        #expect(abs((line.layer?.cornerRadius ?? 0) - drawn.width / 2) < 0.01, "the line's ends are not round")
+        // Chrome's trim (SidebarGroupSolidHeaderTests): left corners square, right corners cut.
+        let shape = (line.layer?.mask as? CAShapeLayer)?.path
+        #expect(shape?.contains(CGPoint(x: 0.15, y: 0.15)) == true && shape?.contains(CGPoint(x: drawn.width - 0.15, y: 0.15)) == false,
+                "the line's top end is not trimmed as Chrome's")
     }
 
     @Test func aHeaderInkIsWhiteOrNearBlackWhicheverReadsBetter() throws {

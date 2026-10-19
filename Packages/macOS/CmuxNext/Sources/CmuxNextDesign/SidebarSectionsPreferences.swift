@@ -70,6 +70,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// waiting for input, error, done, as agents and OSC 7501 programs report them). Off by default:
     /// the row says Working (one spinner) or Ready (the blue dot) only (Lawrence 2026-10-18).
     public var detailedStatusIcons = false
+    /// `sidebar.groupLineJoinsHeader`: a group's members' line runs into its header bar as one
+    /// shape. Off by default: the line starts a small cut below the bar, as Chrome's tab groups
+    /// do (Leo 2026-10-19).
+    public var groupLineJoinsHeader = false
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact

@@ -197,8 +197,7 @@ extension SidebarListViewComponents {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate || adopting)
-        let lines = groupLineViews.update(groupLines(layout), from: animate || adopting ? groupLines(layout, current: true) : [], in: self, above: decorations,
-                                          animated: animate || adopting)
+        let lines = updateGroupLines(layout, from: animate || adopting ? groupLines(layout, current: true) : [], animated: animate || adopting)
         if adopting { return adoptRows(targets: targets, leaving: leaving, lines: lines) }
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines).run(in: self, from: old, to: layout, animated: animate)
     }
@@ -225,6 +224,7 @@ extension SidebarListViewComponents {
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
             view.configure(group, row: row, animated: animated)
+            view.joinedLineLength = joinedLineLengths[id] ?? 0
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
