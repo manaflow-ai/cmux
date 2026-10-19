@@ -428,8 +428,10 @@ fn the_daemon_asks_for_a_new_token_in_time_and_a_renewal_keeps_the_socket() {
 
 #[test]
 fn a_refused_token_is_asked_for_again_until_a_new_lease_comes() {
-    let (mux, client, backend) =
-        replica_mux_with(HostReplicaOptions { reask: Duration::from_millis(50), ..HostReplicaOptions::default() });
+    let (mux, client, backend) = replica_mux_with(HostReplicaOptions {
+        reask: Duration::from_millis(50),
+        ..HostReplicaOptions::default()
+    });
     set_role_for_test(&mux, client, "main");
     set_verified_app_for_test(&mux, client, true);
     let wire = connect_again(&backend, json!({}));

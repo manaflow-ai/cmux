@@ -41,8 +41,8 @@ use zeroize::Zeroizing;
 use super::CloudError;
 use super::service::{CloudBackend, CloudWire, ConnectError, EventSink, WireRecv};
 use super::session::{token_account, token_agent, token_claim, validate_api_base_url};
-use super::stream::CloudEvent;
 
+mod ask;
 mod ops;
 use ops::Decided;
 
@@ -278,8 +278,10 @@ struct State {
     purge_unconfirmed: bool,
     /// The driver thread runs (the capability is advertised only then).
     running: bool,
-    /// The renewal already asked for this lease: (`expires_at`, reason).
-    asked: Option<(u64, &'static str)>,
+    /// The last ask: (`expires_at`, reason, when in Unix ms).
+    asked: Option<(u64, &'static str, u64)>,
+    /// The last lease generation given; only goes up.
+    generations: u64,
 }
 
 struct Inner {
@@ -325,6 +327,7 @@ impl HostReplica {
                     purge_unconfirmed: false,
                     running: false,
                     asked: None,
+                    generations: 0,
                 }),
                 wake: Condvar::new(),
                 signal: AtomicU64::new(0),
@@ -383,8 +386,10 @@ impl HostReplica {
             });
             let generation = match state.lease.as_ref() {
                 Some(old) if renewal => old.generation,
-                Some(old) => old.generation + 1,
-                None => state.blocked.map_or(1, |g| g + 1),
+                _ => {
+                    state.generations += 1;
+                    state.generations
+                }
             };
             let lease = Lease { generation, ..lease };
             // Another user or install is another publisher: enroll again (the
@@ -397,7 +402,6 @@ impl HostReplica {
                 state.host = None;
             }
             let removed = state.removed_install.as_deref() == Some(lease.install.as_str());
-            state.asked = None;
             state.lease = Some(lease);
             state.purge = false;
             state.purge_unconfirmed = false;
@@ -432,6 +436,8 @@ impl HostReplica {
             } else {
                 state.lease = None;
                 state.purge = false;
+                // The next lease may be another user's: it enrolls again.
+                state.host = None;
             }
         }
         self.inner.poke();
@@ -517,33 +523,6 @@ impl Inner {
         }
     }
 
-    /// Asks the app for a new lease once per lease and reason.
-    fn need(&self, reason: &'static str) {
-        let expires_at = {
-            let mut state = self.lock();
-            let Some(expires_at) = state.lease.as_ref().map(|lease| lease.expires_at) else {
-                return;
-            };
-            if state.asked == Some((expires_at, reason)) {
-                return;
-            }
-            state.asked = Some((expires_at, reason));
-            expires_at
-        };
-        let sink = self.sink.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        if let Some(sink) = sink {
-            sink(CloudEvent::HostReplicaNeeded { reason, expires_at: Some(expires_at) });
-        }
-    }
-
-    /// Asks for a new lease when this one ends within `refresh_lead`.
-    fn need_if_expiring(&self, expires_at: u64) {
-        let lead = u64::try_from(self.options.refresh_lead.as_millis()).unwrap_or(u64::MAX);
-        if (self.options.now_ms)().saturating_add(lead) >= expires_at {
-            self.need("expiring");
-        }
-    }
-
     fn tx(&self) -> String {
         format!(
             "tx-host-{}-{}",
@@ -605,13 +584,20 @@ impl Driver {
             let seen = self.inner.signal.load(Ordering::Acquire);
             let Some(lease) = self.current() else {
                 // No lease (off), or a blocked one (its phase stays): wait for a change.
-                {
+                let refused = {
                     let mut state = self.inner.lock();
                     if state.lease.is_none() {
                         state.phase = Phase::Off;
                     }
+                    state.lease.is_some() && state.phase == Phase::Unauthenticated
+                };
+                if refused {
+                    // No app connection may have heard the ask: ask again until a lease comes.
+                    self.inner.wait(seen, Some(self.inner.options.reask));
+                    self.inner.need("unauthenticated");
+                } else {
+                    self.inner.wait(seen, None);
                 }
-                self.inner.wait(seen, None);
                 continue;
             };
             let identity = (lease.user.clone(), lease.install.clone());
@@ -666,7 +652,6 @@ impl Driver {
                             state.blocked = Some(lease.generation);
                         }
                     }
-                    self.inner.wait(seen, None);
                 }
             }
         }
