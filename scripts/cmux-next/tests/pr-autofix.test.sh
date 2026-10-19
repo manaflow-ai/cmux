@@ -111,4 +111,49 @@ git -C "$fixture" add -A
 git -C "$fixture" -c user.name=t -c user.email=t@t.com commit -qm autofix
 [[ "$(git -C "$fixture" rev-parse HEAD^)" == "$head_sha" ]] || fail "autofix parent must remain the exact PR head"
 grep -q 'PR behavior + test' "$fixture/src/feature.ts" || fail "autofix must preserve the PR functional file"
+# Scope (#21946): with --changed, the push writes only the pull request's own
+# files (a formatter's output) and the generated outputs its changes feed
+# (autofix-areas.sh); with --base-moved, a generated output the base changed
+# after the repair ran is left for the next run, never committed as a stale
+# copy that a later merge keeps over the base's.
+scope="$tmp/scope"
+mkdir -p "$scope/webviews/src" "$scope/Packages/macOS/CmuxNext" "$scope/cmux-tui/crates/x/src"
+for file in webviews/src/mine.tsx webviews/src/theirs.tsx Packages/macOS/CmuxNext/ci-target-graph.json \
+  cmux-tui/crates/x/src/mine.rs cmux-tui/crates/x/src/theirs.rs; do
+  echo old > "$scope/$file"
+done
+git -C "$scope" init -q && git -C "$scope" add -A && git -C "$scope" -c user.name=t -c user.email=t@t commit -qm fixture
+for file in webviews/src/mine.tsx webviews/src/theirs.tsx Packages/macOS/CmuxNext/ci-target-graph.json \
+  cmux-tui/crates/x/src/mine.rs cmux-tui/crates/x/src/theirs.rs; do
+  echo new > "$scope/$file"
+done
+git -C "$scope" diff --binary > "$tmp/scope.patch"
+git -C "$scope" checkout -q -- .
+reset_scope() { git -C "$scope" checkout -q -- .; }
+is() { [[ "$(cat "$scope/$1")" == "$2" ]]; }
+
+printf '%s\n' webviews/src/mine.tsx cmux-tui/crates/x/src/mine.rs > "$tmp/changed-own.txt"
+bash "$APPLY" "$tmp/scope.patch" "$scope" --changed "$tmp/changed-own.txt" > "$tmp/out" 2>&1 \
+  || fail "a patch with files outside the pull request must still apply its own files"
+is webviews/src/mine.tsx new || fail "vp fmt of a file the pull request changed must be applied"
+is cmux-tui/crates/x/src/mine.rs new || fail "cargo fmt of a file the pull request changed must be applied"
+is webviews/src/theirs.tsx old || fail "vp fmt of a base file the pull request did not change must not be applied"
+is cmux-tui/crates/x/src/theirs.rs old || fail "cargo fmt of a base file the pull request did not change must not be applied"
+is Packages/macOS/CmuxNext/ci-target-graph.json old || fail "the target graph must not be applied when the pull request changed none of its inputs"
+grep -q '^skipped: webviews/src/theirs.tsx' "$tmp/out" || fail "a skipped file must be reported"
+reset_scope
+
+printf '%s\n' Packages/macOS/CmuxNext/Package.swift > "$tmp/changed-graph.txt"
+bash "$APPLY" "$tmp/scope.patch" "$scope" --changed "$tmp/changed-graph.txt" > "$tmp/out" 2>&1 || fail "the graph repair must apply"
+is Packages/macOS/CmuxNext/ci-target-graph.json new || fail "the target graph must be applied when the pull request changed its inputs"
+is webviews/src/mine.tsx old || fail "a formatter edit of a file the pull request did not change must not be applied"
+reset_scope
+
+printf '%s\n' Packages/macOS/CmuxNext/ci-target-graph.json > "$tmp/moved.txt"
+bash "$APPLY" "$tmp/scope.patch" "$scope" --changed "$tmp/changed-graph.txt" --base-moved "$tmp/moved.txt" > "$tmp/out" 2>&1 \
+  || fail "a stale generated output must be skipped, not refused"
+is Packages/macOS/CmuxNext/ci-target-graph.json old || fail "a generated output the base changed after the repair must not be applied"
+grep -q '^skipped: Packages/macOS/CmuxNext/ci-target-graph.json' "$tmp/out" || fail "the stale output must be reported"
+reset_scope
+
 echo "pr autofix: ok"
