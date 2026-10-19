@@ -167,6 +167,29 @@ fn hex_and_uuid_secrets_behind_a_header_or_a_name_are_masked() {
     assert_masked(&format!("api_token = \"{short}\""), &[short], "api_token = \"[secret]\"");
 }
 
+/// Only a name that says it is an id lets hex through: a key that encrypts,
+/// signs or authenticates is a secret, and hex never reads as random.
+#[test]
+fn hex_behind_a_key_name_that_is_not_an_id_is_masked() {
+    let hex64 = "4f3c2a1b9e8d7c6b5a4f3c2a1b9e8d7c6b5a4f3c2a1b9e8d7c6b5a4f3c2a1b9e";
+    let hex40 = "774a92d8f81238a678ce294dd3228fe55aa2b7b2";
+    for (name, value) in [
+        ("encryption_key = \"", hex64),
+        ("signing_key: ", hex40),
+        ("hmac_key=", hex64),
+        ("master_key: ", hex64),
+        ("DD_APP_KEY=", hex40),
+        ("client_key: ", hex64),
+        ("the encryption key: ", hex64),
+        ("access_key=", hex40),
+        ("private_key: ", hex64),
+    ] {
+        let text = format!("{name}{value}");
+        let out = mask(&text);
+        assert!(!out.contains(value), "{text:?} was left: {out:?}");
+    }
+}
+
 /// A value that only starts like a placeholder is still a value.
 #[test]
 fn a_secret_that_starts_with_a_sigil_is_masked() {
@@ -206,6 +229,8 @@ fn ordinary_text_is_left_alone() {
         "cache key: 774a92d8f81238a678ce294dd3228fe55aa2b7b2",
         r#""key": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855""#,
         "restore_key=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        r#"{"cacheKey": "774a92d8f81238a678ce294dd3228fe55aa2b7b2"}"#,
+        "idempotency key: 550e8400-e29b-41d4-a716-446655440000",
         // UUIDs, upper and lower.
         "session 550e8400-e29b-41d4-a716-446655440000 and 6F9619FF-8B86-D011-B42D-00C04FC964FF",
         r#""creating-a-strong-password":"/en/enterprise-server/authentication""#,
