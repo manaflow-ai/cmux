@@ -185,6 +185,8 @@ fn provider_action_context_excludes_a_client_local_overlay_machine() {
         name: "Local".into(),
         subtitle: "client local".into(),
         status: MachineStatus::Running,
+        platform: None,
+        capabilities: Vec::new(),
     });
     ui.snapshot.active = Some(local_key);
     ui.selection = ui.snapshot.active_index().unwrap();
@@ -770,6 +772,8 @@ fn new_machine_opens_native_source_picker_and_routes_stable_source_id() {
             name: "local".into(),
             subtitle: "local".into(),
             status: MachineStatus::Running,
+            platform: None,
+            capabilities: Vec::new(),
         }],
         active: Some(MachineKey(1)),
         capabilities: MachineCapabilities { create: true, connect: false },
@@ -1014,6 +1018,8 @@ fn mouse_wheel_scrolls_machine_and_workspace_rail_viewports_independently() {
             name: format!("machine-{index}"),
             subtitle: "cloud".into(),
             status: MachineStatus::Running,
+            platform: None,
+            capabilities: Vec::new(),
         })
         .collect();
     app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
