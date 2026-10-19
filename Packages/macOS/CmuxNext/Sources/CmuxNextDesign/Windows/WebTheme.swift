@@ -180,9 +180,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           ' / ' + (m[4] === undefined ? 1 : parseInt(m[4], 16) / 255) + ')';
         return value;
       }
+      var cssWide = /^(initial|inherit|unset|revert|revert-layer)$/i;
       function register(name, value) {
         if (registered[name] !== undefined) return registered[name];
-        var ok = !!(window.CSS && CSS.registerProperty && CSS.supports && value.indexOf('var(') < 0 && CSS.supports('color', value));
+        // A CSS-wide keyword is valid for every property, so it says nothing about a color: the
+        // unset font variables are `initial`, and registering them as <color> would replace each
+        // page's own face and size with transparent and freeze them against later font changes.
+        var ok = !!(window.CSS && CSS.registerProperty && CSS.supports && value.indexOf('var(') < 0 &&
+          !cssWide.test(value.trim()) && CSS.supports('color', value));
         if (ok) {
           try { CSS.registerProperty({ name: name, syntax: '<color>', inherits: true, initialValue: 'transparent' }); } catch (e) { ok = false; }
         }
