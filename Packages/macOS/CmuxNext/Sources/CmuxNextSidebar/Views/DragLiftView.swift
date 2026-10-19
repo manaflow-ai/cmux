@@ -59,6 +59,9 @@ final class DragLiftView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// A picture of the dragged rows: VoiceOver keeps the rows in the list, not a second selected copy.
+    override func accessibilityChildren() -> [Any]? { [] }
+    override func isAccessibilityElement() -> Bool { false }
 
     override func layout() {
         super.layout()
