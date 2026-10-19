@@ -10,7 +10,7 @@ const SECRET_QUERY_KEY =
   /^(?:access_token|refresh_token|token|key|api_key|apikey|sig|signature|code|auth|authorization|password|passwd|pwd|secret)$/i;
 const SECRET_QUERY_COMPONENT =
   /(?:^|_)(?:auth|authorization|code|credentials?|key|password|passwd|pwd|secret|sig|signature|token)(?:_|$)/;
-const QUERY_ASSIGNMENT = /(^|[?&#;\s])([^=?&#;\s]+)=([^&#;\s]*)/g;
+const QUERY_ASSIGNMENT = /(?=(^|[?&#;\s="'=(:,])([^=?&#;\s"']+)=)/g;
 const ROUTE_TOKEN = /\b(?:crt|crk)_[A-Za-z0-9_-]{32,}\b/g;
 const HANDOFF_LEASE = /\bcrh_[A-Za-z0-9_-]{32,}\b/g;
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
@@ -118,11 +118,10 @@ function scrubString(value: string): string {
     .replace(BEARER_TOKEN, "Bearer [Filtered]")
     .replace(JWT, "[Filtered JWT]")
     .replace(PROVIDER_SECRET, "[Filtered provider secret]");
-  return scrubSecretAssignments(scrubbed)
-    .replace(QUERY_ASSIGNMENT, (match, prefix: string, key: string) =>
-      isSensitiveQueryKey(key) ? `${prefix}${key}=[Filtered]` : match,
-    )
-    .replace(EMAIL, "[Filtered email]");
+  return scrubQueryAssignments(scrubSecretAssignments(scrubbed)).replace(
+    EMAIL,
+    "[Filtered email]",
+  );
 }
 
 function scrubSecretAssignments(value: string): string {
@@ -148,7 +147,10 @@ function secretValueEnd(value: string, start: number): number {
   const quote = value[quoteIndex];
   if (quote !== '"' && quote !== "'") {
     let end = start;
-    while (end < value.length && !/[\s&,;}]/.test(value[end])) end += 1;
+    while (end < value.length && !/[\r\n&,;}]/.test(value[end])) {
+      if (/\s/.test(value[end]) && hasAssignmentAfterWhitespace(value, end)) return end;
+      end += 1;
+    }
     return end;
   }
 
@@ -171,13 +173,43 @@ function secretValueEnd(value: string, start: number): number {
   return value.length;
 }
 
+function hasAssignmentAfterWhitespace(value: string, start: number): boolean {
+  let index = start;
+  while (index < value.length && /[\t\v\f ]/.test(value[index])) index += 1;
+  return /^[A-Za-z_][A-Za-z0-9_\[\].-]*\s*[:=]/.test(value.slice(index));
+}
+
+function scrubQueryAssignments(value: string): string {
+  const ranges: Array<{ start: number; end: number }> = [];
+  let coveredUntil = 0;
+  QUERY_ASSIGNMENT.lastIndex = 0;
+  for (let match = QUERY_ASSIGNMENT.exec(value); match; match = QUERY_ASSIGNMENT.exec(value)) {
+    const prefix = match[1];
+    const key = match[2];
+    const valueStart = match.index + prefix.length + key.length + 1;
+    if (valueStart >= coveredUntil && isSensitiveQueryKey(key)) {
+      const valueEnd = queryValueEnd(value, valueStart);
+      ranges.push({ start: valueStart, end: valueEnd });
+      coveredUntil = valueEnd;
+    }
+    QUERY_ASSIGNMENT.lastIndex = match.index + 1;
+  }
+  let result = value;
+  for (const range of ranges.reverse()) {
+    result = `${result.slice(0, range.start)}[Filtered]${result.slice(range.end)}`;
+  }
+  return result;
+}
+
+function queryValueEnd(value: string, start: number): number {
+  let end = start;
+  while (end < value.length && !/[\s"'?&#;,}]/.test(value[end])) end += 1;
+  return end;
+}
+
 function scrubQueryString(value: unknown): unknown {
   if (typeof value === "string") {
-    return scrubString(value).replace(
-      QUERY_ASSIGNMENT,
-      (match, prefix: string, key: string) =>
-        isSensitiveQueryKey(key) ? `${prefix}${key}=[Filtered]` : match,
-    );
+    return scrubString(value);
   }
   if (Array.isArray(value)) {
     return value.map((entry) => {
