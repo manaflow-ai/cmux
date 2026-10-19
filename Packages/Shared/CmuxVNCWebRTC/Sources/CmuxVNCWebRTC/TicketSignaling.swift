@@ -88,9 +88,12 @@ public final class TicketSignaling: ScreenSignaling, @unchecked Sendable {
             throw ScreenSignalingError.badTicket("the ticket names another peer key")
         }
         self.ticket = ticket
-        var components = URLComponents(url: signalURL, resolvingAgainstBaseURL: true)
-        components?.queryItems = (components?.queryItems ?? []) + [URLQueryItem(name: "ticket", value: jws)]
-        guard let url = components?.url else { throw ScreenSignalingError.badTicket("bad signal URL") }
+        guard var components = URLComponents(url: signalURL, resolvingAgainstBaseURL: true) else {
+            throw ScreenSignalingError.badTicket("bad signal URL")
+        }
+        let query = (components.queryItems ?? []) + [URLQueryItem(name: "ticket", value: jws)]
+        components.queryItems = query
+        guard let url = components.url else { throw ScreenSignalingError.badTicket("bad signal URL") }
         socketURL = url
         self.signer = signer
         servers = iceServers

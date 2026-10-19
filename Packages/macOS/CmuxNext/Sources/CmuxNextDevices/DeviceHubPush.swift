@@ -61,7 +61,8 @@ public struct SessionTicket: Codable, Sendable, Equatable {
     /// `signalURL` with `?ticket=<jws>`, the URL the device opens.
     public var signalSocketURL: URL {
         var components = URLComponents(url: signalURL, resolvingAgainstBaseURL: true) ?? URLComponents()
-        components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "ticket", value: ticket)]
+        let query = (components.queryItems ?? []) + [URLQueryItem(name: "ticket", value: ticket)]
+        components.queryItems = query
         return components.url ?? signalURL
     }
 }
