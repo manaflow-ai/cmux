@@ -250,6 +250,25 @@ class Census(unittest.TestCase):
             census.check_budget(FakeSource(remaining=30), 100)
         self.assertIn("30 calls left", str(raised.exception))
 
+    def test_a_truncated_response_is_retried_once_then_reported(self):
+        import http.client
+
+        class FlakyGitHub(FakeGitHub):
+            def __init__(self, failures):
+                self.failures, self.paths = failures, []
+
+            def get(self, path):
+                self.paths.append(path)
+                if len(self.paths) <= self.failures:
+                    raise http.client.IncompleteRead(b"partial", 10)
+                return {"jobs": []}
+
+        once = FlakyGitHub(1)
+        self.assertEqual(census.Source(once, None).jobs({"id": 1, "status": "completed"}), [])
+        self.assertEqual(len(once.paths), 2)
+        with self.assertRaises(RuntimeError):
+            census.Source(FlakyGitHub(2), None).jobs({"id": 1, "status": "completed"})
+
     def test_cache_keeps_completed_job_lists_and_skips_running_ones(self):
         class CountingGitHub(FakeGitHub):
             def __init__(self):

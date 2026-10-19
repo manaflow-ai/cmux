@@ -25,13 +25,19 @@ and prints one verdict per file:
   unrelated flake    the PR cannot reach it, and it failed only on other PRs
   probably unrelated the PR cannot reach it, and nothing else failed it in the
                      window; a re-run settles it
+  can't analyse safely the head has an import attribute clause (or similar)
+                     that could run code while bundling, so no import graph;
+                     the history is still printed
 
 "Cannot reach" means outside the import graph, tree-shaken, or (--coverage)
 imported without running a changed line. The head and base commits must be
 fetchable; the script runs `git fetch origin <sha>` unless --no-fetch.
 
---coverage runs the PR head's test code on this machine, so it is refused for
-a pull request from a fork. Without it, nothing from the PR runs.
+bun reads the PR head only inside test_touches_diff.py's sandbox (Linux user
+namespaces: no network, home directory hidden). Without one, the import graph
+is skipped ("can't analyse safely") unless --allow-unsandboxed vouches for the
+head. --coverage runs the head's test code. Both --coverage and
+--allow-unsandboxed are refused for a pull request from a fork.
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ import web_test_failure_census as census  # noqa: E402
 MARKER = "<!-- cmux-web-test-verdict -->"
 LIKELY, TOUCHED_FLAKY, ON_MAIN, FLAKE, PROBABLY = "likely this PR's", "touched, also flaky", "also red on main", \
     "unrelated flake", "probably unrelated"
+UNSAFE = "can't analyse safely"
 MAX_FILES = 5
 
 
@@ -63,7 +70,9 @@ def decide(own: list[Mapping], others: list[Mapping], touch: Mapping, days: int)
                + (f" ({on_main} on main, {len(elsewhere)} other PR branch{'es' if len(elsewhere) != 1 else ''})"
                   if others else ""))
     reach = touch["summary"]
-    if touch["touches"]:
+    if touch["touches"] is None:  # the import graph was refused; the history still stands
+        verdict = UNSAFE
+    elif touch["touches"]:
         verdict = TOUCHED_FLAKY if others else LIKELY
     elif on_main:
         verdict = ON_MAIN
@@ -87,12 +96,12 @@ def own_and_others(report: Mapping, branch: str, head_repo_id: object = None) ->
     return [f for f in failures if mine(f)], [f for f in failures if not mine(f)]
 
 
-def refuse_fork_coverage(pr: Mapping, repo: str) -> None:
-    """--coverage runs the head's code; a fork's head (or a deleted fork's) is not ours to run."""
+def refuse_fork_coverage(pr: Mapping, repo: str, flag: str = "--coverage") -> None:
+    """--coverage and --allow-unsandboxed vouch for the head; a fork's (or a deleted fork's) is not ours to."""
     head_repo = (pr.get("head") or {}).get("repo") or {}
     if head_repo.get("full_name") != repo:
         raise SystemExit(f"#{pr.get('number')} comes from {head_repo.get('full_name') or 'a deleted fork'}; "
-                         "--coverage would run its code on this machine. Rerun without --coverage.")
+                         f"{flag} would run its code on this machine. Rerun without {flag}.")
 
 
 def safe(text: object, limit: int = 160) -> str:
@@ -137,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-main-runs", type=int, default=150)
     parser.add_argument("--max-runs", type=int, default=60)
     parser.add_argument("--coverage", action="store_true", help="run the test to see whether changed lines execute")
+    parser.add_argument("--allow-unsandboxed", action="store_true",
+                        help="build the import graph without a sandbox (macOS); refused for forks")
     parser.add_argument("--repo", default=census.REPO)
     parser.add_argument("--no-fetch", action="store_true")
     parser.add_argument("--post", action="store_true", help="comment the verdict on the pull request")
@@ -150,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
     head_repo = pr["head"].get("repo") or {}  # type: ignore[index,union-attr]
     if args.coverage:
         refuse_fork_coverage(pr, args.repo)  # type: ignore[arg-type]
+    if args.allow_unsandboxed:
+        refuse_fork_coverage(pr, args.repo, "--allow-unsandboxed")  # type: ignore[arg-type]
     # The PR's own failures first: they name the files to look at when --file is not given.
     mine = census.census(src, test=args.test, file=args.file, days=args.days, source=args.source,
                          max_main_runs=0, max_runs=0, branches=[branch])
@@ -165,7 +178,11 @@ def main(argv: list[str] | None = None) -> int:
         history = census.census(src, test=args.test, file=file, days=args.days, source=args.source,
                                 max_main_runs=args.max_main_runs, max_runs=args.max_runs, branches=[branch])
         own, others = own_and_others(history, branch, head_repo.get("id"))
-        touch = graph.check(repo, file, base, head, coverage=args.coverage)
+        try:
+            touch = graph.check(repo, file, base, head, coverage=args.coverage,
+                                allow_unsandboxed=args.allow_unsandboxed)
+        except graph.UnsafeToAnalyse as error:
+            touch = {"touches": None, "summary": str(error), "files": []}
         results.append({"file": file, "own": own, "others": others, "touch": touch, "source": history["source"],
                         "verdict": decide(own, others, touch, args.days)})
     body = render(pr, results, args.days)  # type: ignore[arg-type]

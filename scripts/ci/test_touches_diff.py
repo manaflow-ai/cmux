@@ -24,16 +24,25 @@ blaming the diff.
   runner            the test runner or its dependencies (package.json, bun.lock,
                     bunfig.toml, tsconfig.json, run-tests.sh): every test sees it
 
-The default check needs only git and bun and runs none of the head's code:
-the head's web/ is extracted with `git archive` (the commit must exist
-locally: `git fetch origin pull/N/head`), macro import attributes are
-stripped from that copy (bun runs macros while bundling), and the head's
-bunfig.toml is read as data, never handed to bun.
+The default check needs only git and bun, and is built not to run the head's
+code. The head's web/ is extracted with `git archive` (the commit must exist
+locally: `git fetch origin pull/N/head`). The check then refuses, as "can't
+analyse safely" (exit 2), any tree where bundling might run code: a symlink, an import
+attribute clause anywhere (bun runs `with { type: "macro" }` imports while
+bundling), import() with attributes, or a package.json that mentions macros.
+The head's bunfig.toml is read as data and never handed to bun.
 
---coverage RUNS THE HEAD'S TEST CODE on this machine, with this checkout's
-web/node_modules. Use it only on commits you trust; web_test_verdict.py
-refuses it for fork pull requests. bun gets an environment without tokens
-or secrets and a throwaway HOME, which limits but does not sandbox it.
+The sandbox is the guarantee. bun runs only in a Linux user namespace with
+no network and your home directory hidden, and with an allowlisted
+environment (PATH, LANG, LC_ALL, TERM, and a throwaway HOME and TMPDIR).
+Without user namespaces (macOS), the check refuses ("can't analyse safely")
+unless you pass --allow-unsandboxed, which means bun runs as you and can read
+your files: only for a commit you trust. The attribute scan above is a
+second line of defence, not the guarantee.
+
+--coverage RUNS THE HEAD'S TEST CODE, with this checkout's web/node_modules,
+under the same rules. web_test_verdict.py refuses it, and any unsandboxed
+run, for fork pull requests.
 
 What it cannot see, and says so in its output: a test that reads a file at
 run time (fs, fetch, spawn), import() of a computed path, `mock.module()`
@@ -43,6 +52,7 @@ targets, and deleted files (gone at the head, so outside any graph).
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -132,44 +142,123 @@ def extract_web(repo: Path, head: str, into: Path) -> Path:
     return into / WEB
 
 
-# `import x from "./m" with { type: "macro" }` runs m at bundle time, and bun
-# 1.3's `--no-macros` does not stop it, so the extracted copy loses the
-# attribute and the macro is bundled like any other import.
-MACRO_ATTRIBUTE = re.compile(r"""\s*(?:with|assert)\s*\{\s*type\s*:\s*["']macro["']\s*,?\s*\}""")
-SOURCE = re.compile(r"\.[cm]?[jt]sx?$")
-SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|KEY|^GH_|^GITHUB_|^AWS_|^NPM_", re.IGNORECASE)
+class UnsafeToAnalyse(Exception):
+    """The head contains something that could make bun run its code while bundling."""
 
 
-def neutralize_macros(web_root: Path) -> list[str]:
-    """Strip macro import attributes from every source file in the extracted copy; the files changed."""
-    changed = []
-    for path in web_root.rglob("*"):
-        if not path.is_file() or not SOURCE.search(path.name):
+SOURCE = re.compile(r"\.(?:[cm]?[jt]sx?|json)$")
+# A second line of defence: the sandbox (run_bun) is what keeps head code off the host.
+# Every JS line terminator becomes \n and every JS whitespace character a space before
+# matching, so a comment can't end where the pattern doesn't expect it.
+_TERMINATORS = re.compile("\r\n?|[\u2028\u2029]")
+_WHITESPACE = re.compile("[\ufeff\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\t\v\f]")
+# Whitespace and comments bun allows between tokens. The block-comment form is the unrolled,
+# linear one, so a crafted file can't make the scan quadratic.
+_GAP = r"(?:[ \n]|/\*[^*]*\*+(?:[^/*][^*]*\*+)*/|//[^\n]*(?:\n|$))*"
+# bun runs `import x from "./m" with { type: "macro" }` while bundling, and bun 1.3's
+# --no-macros does not stop it. Rather than recognise macros (a denylist), any attribute
+# clause after a module specifier is refused: nothing in web/ uses one.
+ATTRIBUTE_CLAUSE = re.compile(r"""["'`]""" + _GAP + r"(?:with|assert)" + _GAP + r"\{")
+# import(specifier, { with: {...} }) carries attributes too, so any options argument
+# naming with/assert counts.
+DYNAMIC_OPTIONS = re.compile(r"\bimport" + _GAP + r"\([^;]{0,400}?[\"'`]?\b(?:with|assert)\b[\"'`]?" + _GAP + r":")
+MAX_SCAN_BYTES = 2_000_000
+# bun's config files: withheld from bun, and package.json may remap imports to macros.
+BUN_CONFIG = ("bunfig.toml", ".bunfig.toml")
+
+
+def normalized(text: str) -> str:
+    return _WHITESPACE.sub(" ", _TERMINATORS.sub("\n", text))
+
+
+def unsafe_reasons(web_root: Path) -> list[str]:
+    """Why bundling this tree could run its code, or [] when nothing was found (fail closed)."""
+    reasons = []
+    for path in sorted(web_root.rglob("*")):
+        rel = str(path.relative_to(web_root))
+        if path.is_symlink():
+            reasons.append(f"{rel} is a symlink")
             continue
-        text = path.read_text(errors="replace")
-        if "macro" not in text:
+        if not path.is_file():
             continue
-        stripped = MACRO_ATTRIBUTE.sub("", text)
-        if stripped != text:
-            path.write_text(stripped)
-            changed.append(str(path.relative_to(web_root)))
-    return sorted(changed)
+        if path.name == "package.json":
+            if "macro" in path.read_text(errors="replace").lower():
+                reasons.append(f"{rel} mentions macros")
+            continue
+        if not SOURCE.search(path.name) or path.suffix == ".json":
+            continue
+        if path.stat().st_size > MAX_SCAN_BYTES:
+            reasons.append(f"{rel} is too large to scan")
+            continue
+        text = normalized(path.read_text(errors="replace"))
+        if ATTRIBUTE_CLAUSE.search(text):
+            reasons.append(f"{rel} has an import attribute clause")
+        elif DYNAMIC_OPTIONS.search(text):
+            reasons.append(f"{rel} passes import attributes to import()")
+    return reasons
 
 
-def scrubbed_env(home: Path) -> dict[str, str]:
-    """The environment for bun, without credentials and with a throwaway HOME."""
-    env = {k: v for k, v in os.environ.items() if not SECRET_ENV.search(k)}
-    env["HOME"] = str(home)
+# Everything bun gets from this environment; anything else (tokens, DBUS, XDG_*) stays out.
+ENV_ALLOW = ("PATH", "LANG", "LC_ALL", "TERM")
+
+
+def bun_env(home: Path) -> dict[str, str]:
+    """An allowlisted environment with a throwaway HOME and TMPDIR."""
     home.mkdir(parents=True, exist_ok=True)
+    env = {k: os.environ[k] for k in ENV_ALLOW if k in os.environ}
+    env.update({"HOME": str(home), "TMPDIR": str(home), "NO_COLOR": "1"})
     return env
 
 
-def bundle(web_root: Path, entries: Iterable[str], outdir: Path) -> dict:
+@functools.lru_cache(maxsize=1)
+def can_sandbox() -> bool:
+    """Linux user namespaces: a private mount table and no network, without root."""
+    if not sys.platform.startswith("linux") or shutil.which("unshare") is None:
+        return False
+    probe = ["unshare", "--user", "--map-root-user", "--mount", "--net", "--", "true"]
+    return subprocess.run(probe, capture_output=True).returncode == 0
+
+
+SANDBOX_SCRIPT = """set -e
+for pair in $BINDS; do mount --bind "${pair%%=*}" "${pair#*=}"; done
+for dir in $HIDE; do mount -t tmpfs tmpfs "$dir"; done
+exec "$@"
+"""
+
+
+def run_bun(args: list[str], cwd: Path, work: Path, *, sandbox: bool,
+            binds: Mapping[Path, Path] | None = None) -> subprocess.CompletedProcess:
+    """Run bun with the allowlisted environment, and when `sandbox`, with no network and the
+    user's home directory hidden behind an empty tmpfs (bun itself and `binds` are mounted in
+    first, so they stay reachable)."""
+    env = bun_env(work / "home")
+    bun = str(Path(shutil.which("bun") or "bun").resolve())
+    if not sandbox:
+        return subprocess.run([bun, *args], cwd=cwd, capture_output=True, text=True, env=env)
+    mounts = dict(binds or {})
+    home = Path.home().resolve()
+    if Path(bun).is_relative_to(home):
+        target = work / "bun"
+        target.touch()
+        mounts[Path(bun)] = target
+        bun = str(target)
+    for target in mounts.values():
+        if not target.exists():
+            target.mkdir(parents=True)
+    hide = [] if work.resolve().is_relative_to(home) else [str(home)]
+    env["BINDS"] = " ".join(f"{src}={dst}" for src, dst in mounts.items())
+    env["HIDE"] = " ".join(hide)
+    cmd = ["unshare", "--user", "--map-root-user", "--mount", "--net", "--",
+           "sh", "-c", SANDBOX_SCRIPT, "sh", bun, *args]
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env)
+
+
+def bundle(web_root: Path, entries: Iterable[str], outdir: Path, sandbox: bool) -> dict:
     """bun's metafile for the entries, packages external."""
     meta = outdir / "meta.json"
-    cmd = ["bun", "build", *entries, "--target=bun", "--packages=external",
-           f"--outdir={outdir / 'out'}", f"--metafile={meta}"]
-    result = subprocess.run(cmd, cwd=web_root, capture_output=True, text=True, env=scrubbed_env(outdir / "home"))
+    args = ["build", *entries, "--target=bun", "--packages=external",
+            f"--outdir={outdir / 'out'}", f"--metafile={meta}"]
+    result = run_bun(args, web_root, outdir, sandbox=sandbox)
     if result.returncode != 0 or not meta.exists():
         raise SystemExit(f"bun build failed:\n{result.stderr.strip()[-2000:]}")
     return json.loads(meta.read_text())
@@ -280,12 +369,14 @@ def block_hits(file_hits: Mapping[int, int], wanted: set[int] | None) -> dict[in
     return out
 
 
-def run_coverage(web_root: Path, test: str, outdir: Path) -> dict[str, dict[int, int]]:
-    cmd = ["bun", "test", "--isolate", "--coverage", "--coverage-reporter=lcov",
-           f"--coverage-dir={outdir}", test]
-    # This runs the head's code. web_test_verdict.py refuses it for fork PRs;
-    # the credentials stay out of its environment either way.
-    result = subprocess.run(cmd, cwd=web_root, capture_output=True, text=True, env=scrubbed_env(outdir / "home"))
+def run_coverage(web_root: Path, test: str, outdir: Path, sandbox: bool,
+                 node_modules: Path | None) -> dict[str, dict[int, int]]:
+    """Run the head's test with lcov coverage. This executes its code."""
+    args = ["test", "--isolate", "--coverage", "--coverage-reporter=lcov", f"--coverage-dir={outdir}", test]
+    binds = {node_modules: web_root / "node_modules"} if node_modules else None
+    if node_modules and not sandbox:
+        (web_root / "node_modules").symlink_to(node_modules)
+    result = run_bun(args, web_root, outdir.parent, sandbox=sandbox, binds=binds)
     report = outdir / "lcov.info"
     if not report.exists():
         raise SystemExit(f"bun test --coverage wrote no lcov report (exit {result.returncode}):\n"
@@ -330,7 +421,7 @@ def verdicts(changed: Iterable[str], edges: Mapping[str, list[str]], sizes: Mapp
 
 
 def check(repo: Path, test: str, base: str | None, head: str, *, changed: list[str] | None = None,
-          coverage: bool = False) -> dict:
+          coverage: bool = False, allow_unsandboxed: bool = False) -> dict:
     """The import-graph report for one test against base...head (or an explicit changed list)."""
     test = test_path(test)
     if changed is None:
@@ -339,33 +430,41 @@ def check(repo: Path, test: str, base: str | None, head: str, *, changed: list[s
         changed = changed_files(repo, base, head)
     head_sha = str(git(repo, "rev-parse", f"{head}^{{commit}}")).strip()
     deleted = deleted_files(repo, base, head) if base else []
-    with tempfile.TemporaryDirectory(prefix="test-touches-diff-") as tmp:
+    sandbox = can_sandbox()
+    # The sandbox is the guarantee: without one, bun never touches the head unless the caller
+    # vouches for the commit (web_test_verdict.py never does for a fork).
+    if not sandbox and not allow_unsandboxed:
+        raise UnsafeToAnalyse("can't analyse safely: no sandbox here (needs Linux user namespaces), and bun "
+                              "could run the head's code; pass --allow-unsandboxed only for a commit you trust")
+    # Outside the home directory, so the sandbox can hide all of it.
+    tmp_root = "/tmp" if Path("/tmp").is_dir() else None
+    with tempfile.TemporaryDirectory(prefix="test-touches-diff-", dir=tmp_root) as tmp:
         work = Path(tmp)
-        # Always a copy of the commit: the bundle may then be edited (macros), and a dirty
-        # checkout never stands in for the head.
+        # Always a clean copy of the commit: a dirty checkout never stands in for the head.
         web_root = extract_web(repo, head_sha, work)
         rel_test = test[len(WEB) + 1:]
         if not (web_root / rel_test).exists():
             raise SystemExit(f"{test} does not exist at {head_sha[:12]}")
         entries = [rel_test, *[p for p in preloads(web_root) if (web_root / p).exists()]]
-        neutralized = neutralize_macros(web_root)
+        if reasons := unsafe_reasons(web_root):
+            raise UnsafeToAnalyse("can't analyse safely: " + "; ".join(reasons[:5]))
         # The preloads are read above as data; bun build never sees the head's bunfig.
-        config = web_root / "bunfig.toml"
-        parked = work / "bunfig.toml.parked"
-        if config.exists():
-            config.rename(parked)
-        meta = bundle(web_root, entries, work)
-        if parked.exists():
-            parked.rename(config)
+        parked = []
+        for name in BUN_CONFIG:
+            if (web_root / name).exists():
+                (web_root / name).rename(work / f"{name}.parked")
+                parked.append(name)
+        meta = bundle(web_root, entries, work, sandbox)
+        for name in parked:
+            (work / f"{name}.parked").rename(web_root / name)
         edges, sizes = graph(meta, web_root)
         hits = None
         lines = None
         if coverage:
-            if web_root != repo / WEB and (repo / WEB / "node_modules").is_dir():
-                (web_root / "node_modules").symlink_to((repo / WEB / "node_modules").resolve())
-            if (web_root / "package.json").exists() and not (web_root / "node_modules").exists():
+            node_modules = (repo / WEB / "node_modules").resolve() if (repo / WEB / "node_modules").is_dir() else None
+            if (web_root / "package.json").exists() and node_modules is None:
                 raise SystemExit("--coverage needs web/node_modules (run `bun install` in web/)")
-            hits = run_coverage(web_root, rel_test, work / "coverage")
+            hits = run_coverage(web_root, rel_test, work / "coverage", sandbox, node_modules)
             lines = None
             if base:
                 lines = {}
@@ -384,7 +483,7 @@ def check(repo: Path, test: str, base: str | None, head: str, *, changed: list[s
         "graph_size": len(edges),
         "changed": len(changed),
         "coverage": coverage,
-        "macros_neutralized": neutralized,
+        "sandboxed": sandbox,
         "deleted": deleted,
         "touches": bool(touching),
         "files": files,
@@ -428,8 +527,8 @@ def render(report: Mapping) -> str:
     lines.append(f"  {outside} changed file(s) not imported")
     if report.get("deleted"):
         lines.append(f"  {len(report['deleted'])} deleted file(s) not checked: {', '.join(report['deleted'][:5])}")
-    if report.get("macros_neutralized"):
-        lines.append(f"  macro imports bundled without running: {', '.join(report['macros_neutralized'][:5])}")
+    if not report.get("sandboxed", True):
+        lines.append("  bun ran unsandboxed (no Linux user namespaces): it could read your files")
     lines.append(f"  {BLIND_SPOTS}")
     return "\n".join(lines)
 
@@ -442,6 +541,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--changed", nargs="*", help="repository paths to check instead of git diff")
     parser.add_argument("--coverage", action="store_true",
                         help="also RUN the head's test (trusted commits only) to see whether changed lines execute")
+    parser.add_argument("--allow-unsandboxed", action="store_true",
+                        help="run bun on the head without a sandbox (macOS): only for commits you trust")
     parser.add_argument("--repo", type=Path, default=None)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -451,7 +552,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.coverage:
         print("--coverage runs the head's test code on this machine; use it only on trusted commits.",
               file=sys.stderr)
-    report = check(repo, args.test, args.base, args.head, changed=args.changed, coverage=args.coverage)
+    try:
+        report = check(repo, args.test, args.base, args.head, changed=args.changed, coverage=args.coverage,
+                       allow_unsandboxed=args.allow_unsandboxed)
+    except UnsafeToAnalyse as error:
+        print(error, file=sys.stderr)
+        return 2
     print(json.dumps(report, indent=2) if args.json else render(report))
     return 0
 

@@ -37,6 +37,12 @@ class Decide(unittest.TestCase):
         self.assertEqual(verdict.decide(OWN, [], INSIDE, 7)["verdict"], "likely this PR's")
         self.assertEqual(verdict.decide(OWN, [MAIN], INSIDE, 7)["verdict"], "touched, also flaky")
 
+    def test_a_refused_graph_still_reports_the_history(self):
+        refused = {"touches": None, "summary": "can't analyse safely: lib/a.ts has an import attribute clause"}
+        result = verdict.decide(OWN, [MAIN], refused, 7)
+        self.assertEqual(result["verdict"], "can't analyse safely")
+        self.assertIn("1 other failure in 7 days (1 on main", result["line"])
+
     def test_own_failures_are_the_prs_branch(self):
         own, others = verdict.own_and_others({"failures": [*OWN, MAIN, OTHER_PR]}, "fix/repause")
         self.assertEqual((len(own), len(others)), (1, 2))
@@ -54,6 +60,9 @@ class Decide(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 verdict.refuse_fork_coverage({"number": 2, "head": head}, "manaflow-ai/cmux")
             self.assertIn("--coverage would run its code", str(raised.exception))
+        with self.assertRaises(SystemExit) as raised:
+            verdict.refuse_fork_coverage({"number": 2, "head": {"repo": None}}, "manaflow-ai/cmux", "--allow-unsandboxed")
+        self.assertIn("--allow-unsandboxed would run its code", str(raised.exception))
 
     def test_log_text_cannot_format_or_mention_in_the_comment(self):
         self.assertEqual(verdict.safe("a `b`\n@team [x](y)"), "`a 'b' @\u200bteam [x](y)`")

@@ -98,33 +98,121 @@ class Verdicts(unittest.TestCase):
         text = "SF:/w/web/services/a.ts\nDA:1,2\nDA:2,0\nend_of_record\nSF:services/b.ts\nDA:5,1\nend_of_record\n"
         self.assertEqual(touches.parse_lcov(text, root), {"services/a.ts": {1: 2, 2: 0}, "services/b.ts": {5: 1}})
 
-    def test_credentials_stay_out_of_buns_environment(self):
+    def test_buns_environment_is_an_allowlist(self):
         import os
         saved = dict(os.environ)
-        os.environ.update({"GH_TOKEN": "x", "GITHUB_TOKEN": "x", "AWS_SECRET_ACCESS_KEY": "x", "MY_API_KEY": "x",
-                           "PATH_KEEP": "1"})
+        os.environ.update({"GH_TOKEN": "x", "DBUS_SESSION_BUS_ADDRESS": "x", "XDG_CONFIG_HOME": "/x",
+                           "SOMETHING": "x", "LANG": "C.UTF-8"})
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                env = touches.scrubbed_env(Path(tmp) / "home")
+                env = touches.bun_env(Path(tmp) / "home")
         finally:
             os.environ.clear()
             os.environ.update(saved)
-        self.assertFalse({"GH_TOKEN", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "MY_API_KEY"} & set(env))
-        self.assertEqual(env["PATH_KEEP"], "1")
-        self.assertTrue(env["HOME"].endswith("home"))
+        self.assertEqual(set(env) - {"PATH", "LANG", "LC_ALL", "TERM"}, {"HOME", "TMPDIR", "NO_COLOR"})
+        self.assertEqual(env["LANG"], "C.UTF-8")
 
     def test_render_names_what_the_graph_cannot_see(self):
         report = {"summary": "s", "test": "web/tests/a.test.ts", "head": "abc", "graph_size": 1, "entries": ["a"],
-                  "changed": 1, "files": [], "deleted": ["web/lib/gone.ts"], "macros_neutralized": ["m.ts"]}
+                  "changed": 1, "files": [], "deleted": ["web/lib/gone.ts"], "sandboxed": False}
         text = touches.render(report)
         self.assertIn("1 deleted file(s) not checked: web/lib/gone.ts", text)
-        self.assertIn("macro imports bundled without running: m.ts", text)
+        self.assertIn("unsandboxed", text)
         self.assertIn("mock.module()", text)
+
+
+class FailClosed(unittest.TestCase):
+    """Anything that could carry import attributes refuses the bundle; ordinary code passes."""
+
+    UNSAFE = {
+        "plain": 'import { b } from "./m" with { type: "macro" };',
+        "quoted key": "import { b } from './m' with { \"type\": \"macro\" };",
+        "extra attribute": 'import { b } from "./m" with { type: "macro", x: "y" };',
+        "comment in braces": 'import { b } from "./m" with { /* hi */ type: "macro" };',
+        "escaped value": 'import { b } from "./m" with { type: "\\x6dacro" };',
+        "comment before clause": 'import { b } from "./m" /* c */ with // d\n { type: "macro" };',
+        "assert": 'import { b } from "./m" assert { type: "macro" };',
+        "json attribute": 'import data from "./d.json" with { type: "json" };',
+        "re-export": 'export { b } from "./m" with { type: "macro" };',
+        "dynamic": 'const m = await import("./m", { with: { type: "macro" } });',
+        "dynamic quoted": 'const m = await import("./m", { "assert": { type: "macro" } });',
+        # JS ends a // comment at CR, LS and PS too, and treats BOM and NBSP as whitespace.
+        "comment ended by CR": 'import { b } from "./m" //x\rwith { type: "macro" };',
+        "comment ended by LS": 'import { b } from "./m" //x\u2028with { type: "macro" };',
+        "comment ended by PS": 'import { b } from "./m" //x\u2029with { type: "macro" };',
+        "BOM as whitespace": 'import { b } from "./m"\ufeffwith\ufeff{ type: "macro" };',
+        "NBSP as whitespace": 'import { b } from "./m"\u00a0with {type:"macro"};',
+        "CRLF lines": 'import { b } from "./m"\r\nwith\r\n{ type: "macro" };',
+    }
+    SAFE = {
+        "doc comment": "/** Rejects with {@link VmModelPlaneError}; the workflow fails. */\nexport const a = 1;",
+        "plain import": 'import { b } from "./m";\nconst o = { with: 1 };',
+        "dynamic": "const m = await import(pathToFileURL(resolve(root, path)).href);",
+    }
+
+    def reasons(self, files):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, text in files.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text)
+            return touches.unsafe_reasons(root)
+
+    def test_every_attribute_spelling_is_refused(self):
+        for label, text in self.UNSAFE.items():
+            with self.subTest(label):
+                self.assertTrue(self.reasons({"lib/a.ts": text}), label)
+
+    def test_ordinary_code_is_not(self):
+        for label, text in self.SAFE.items():
+            with self.subTest(label):
+                self.assertEqual(self.reasons({"lib/a.ts": text}), [], label)
+
+    def test_symlinks_and_oversized_files_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "lib").mkdir()
+            (root / "lib" / "link.ts").symlink_to("/etc/hostname")
+            (root / "lib" / "big.ts").write_text("x" * (touches.MAX_SCAN_BYTES + 1))
+            reasons = touches.unsafe_reasons(root)
+        self.assertEqual(reasons, ["lib/big.ts is too large to scan", "lib/link.ts is a symlink"])
+
+    def test_a_crafted_file_cannot_make_the_scan_slow(self):
+        # A backtracking scanner would hang on this input; the thread join is a
+        # hang guard, not a latency budget (a linear scan finishes in well under 1s).
+        import threading
+        crafted = '"' + "/*" + "*" * 200_000 + ' with x' * 20_000
+        worker = threading.Thread(target=self.reasons, args=({"lib/a.ts": crafted},), daemon=True)
+        worker.start()
+        worker.join(timeout=120)
+        self.assertFalse(worker.is_alive(), "the import scan hung on a crafted file")
+
+    def test_a_package_json_that_mentions_macros_is_refused(self):
+        self.assertTrue(self.reasons({"package.json": '{"macros": {"x": "./m"}}'}))
+        self.assertEqual(self.reasons({"package.json": '{"name": "web"}'}), [])
+
+
+@unittest.skipUnless(touches.can_sandbox() and shutil.which("bun"), "needs Linux user namespaces and bun")
+class Sandbox(unittest.TestCase):
+    def test_bun_sees_no_home_directory_and_no_network(self):
+        home = str(Path.home())
+        script = ("const fs = require('fs');"
+                  f"console.log(fs.readdirSync({home!r}).length);"
+                  "try { await fetch('https://api.github.com'); console.log('net'); } catch { console.log('no-net'); }")
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            result = touches.run_bun(["-e", script], Path(tmp), Path(tmp), sandbox=True)
+        self.assertEqual(result.stdout.split(), ["0", "no-net"], result.stderr)
+
 
     def test_test_paths(self):
         self.assertEqual(touches.test_path("tests/a.test.ts"), "web/tests/a.test.ts")
         self.assertEqual(touches.test_path("./tests/a.test.ts"), "web/tests/a.test.ts")
         self.assertEqual(touches.test_path("web/tests/a.test.ts"), "web/tests/a.test.ts")
+
+
+# The fixture repositories below are this test's own, so it vouches for them where
+# there's no sandbox (macOS); on Linux they run sandboxed anyway.
+TRUSTED = True
 
 
 @unittest.skipUnless(shutil.which("bun") and shutil.which("git"), "needs bun and git")
@@ -164,7 +252,7 @@ class RealBundle(unittest.TestCase):
         target.write_text(text)
 
     def test_checked_out_head(self):
-        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", allow_unsandboxed=TRUSTED)
         files = by_file(report["files"])
         self.assertEqual(report["entries"], ["tests/a.test.ts", "tests/preload.ts"])
         self.assertEqual(files["web/lib/used.ts"]["verdict"], "imported")
@@ -173,32 +261,45 @@ class RealBundle(unittest.TestCase):
 
     def test_extracted_head_when_the_checkout_is_elsewhere(self):
         self.git("checkout", "-q", "HEAD~1")
-        report = touches.check(self.repo, "web/tests/a.test.ts", "main~1", "main")
+        report = touches.check(self.repo, "web/tests/a.test.ts", "main~1", "main", allow_unsandboxed=TRUSTED)
         self.assertEqual(by_file(report["files"])["web/lib/used.ts"]["verdict"], "imported")
 
-    def test_a_macro_in_the_head_is_bundled_but_never_run(self):
-        # bun runs `with { type: "macro" }` imports while bundling; the check must not.
+    def test_a_macro_in_the_head_is_refused_and_never_run(self):
+        # bun runs `with { type: "macro" }` imports while bundling; the check must refuse first.
         canary = self.repo / "PWNED"
         self.write("web/lib/boom.ts", 'import { writeFileSync } from "node:fs";\n'
                    f'export function boom() {{ writeFileSync({str(canary)!r}, "x"); return 1; }}\n')
         self.write("web/tests/a.test.ts", 'import { test } from "bun:test";\n'
-                   'import { boom } from "../lib/boom" with { type: "macro" };\n'
+                   'import { boom } from "../lib/boom" with { "type": "macro", x: "y" };\n'
                    'test("a", () => { boom(); });\n')
         self.git("add", "-A")
         self.git("commit", "-qm", "macro")
-        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        with self.assertRaises(touches.UnsafeToAnalyse) as raised:
+            touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", allow_unsandboxed=TRUSTED)
+        self.assertIn("tests/a.test.ts has an import attribute clause", str(raised.exception))
         self.assertFalse(canary.exists(), "bun build ran the head's macro")
-        self.assertEqual(report["macros_neutralized"], ["tests/a.test.ts"])
-        self.assertEqual(by_file(report["files"])["web/lib/boom.ts"]["verdict"], "imported")
+
+    def test_without_a_sandbox_bun_never_sees_the_head(self):
+        original = touches.can_sandbox
+        touches.can_sandbox = lambda: False
+        try:
+            with self.assertRaises(touches.UnsafeToAnalyse) as raised:
+                touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+            self.assertIn("no sandbox", str(raised.exception))
+            # A caller vouching for the commit gets the graph, unsandboxed.
+            report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", allow_unsandboxed=True)
+            self.assertFalse(report["sandboxed"])
+        finally:
+            touches.can_sandbox = original
 
     def test_deleted_files_are_listed(self):
         self.git("rm", "-q", "web/lib/other.ts")
         self.git("commit", "-qm", "delete")
-        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", allow_unsandboxed=TRUSTED)
         self.assertEqual(report["deleted"], ["web/lib/other.ts"])
 
     def test_coverage_sees_that_the_changed_function_never_runs(self):
-        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", coverage=True)
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", coverage=True, allow_unsandboxed=TRUSTED)
         used = by_file(report["files"])["web/lib/used.ts"]
         self.assertEqual(used["verdict"], "not executed", used)
         self.assertFalse(report["touches"])

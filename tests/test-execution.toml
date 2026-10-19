@@ -74,6 +74,44 @@ path = "tests/test_cli_tmux_wait_for_private_dir.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cli_command_tree_snapshot.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+# Reads docs/cli-command-tree.txt, which the snapshot test above ties to the
+# built CLI, so it shares that lane.
+[[test]]
+path = "tests/test_cli_config_completion_verbs.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cli_hooks_completion_verbs.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cli_dispatch_parity.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_facade_behavior_parity.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_ssh_pty_attach_retry_suppression.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+# Parses the generated scripts with bash -n, zsh -n and fish --no-execute. The
+# fish requirement also selects the post-fish lane, like the other fish-dependent
+# entries.
+[[test]]
+path = "tests/test_cli_completion_scripts.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli", "fish"]
+
+[[test]]
 path = "tests/test_cli_layout_focus_contract.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -346,6 +384,12 @@ lane = "macos-cli-no-socket"
 path = "tests/test_issue_15066_zsh_watcher_sleep.py"
 lane = "macos-cli-no-socket"
 # This test starts disowned watcher processes and verifies their teardown; run it alone.
+serial = true
+
+[[test]]
+path = "tests/test_zsh_git_head_watch_no_fork.py"
+lane = "macos-cli-no-socket"
+# This test starts a disowned git HEAD watcher and stops it; run it alone.
 serial = true
 
 [[test]]
@@ -867,6 +911,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_lint_feature_flags_scope.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lint_feature_flags_review_date.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1852,4 +1900,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_release_changelog_lines.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_promotion_queue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_stale_agent_prs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_published_in_comments.py"
 lane = "linux-guard"

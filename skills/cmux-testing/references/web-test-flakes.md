@@ -7,12 +7,12 @@ command before rerunning, de-flaking or holding the merge:
 python3 scripts/ci/web_test_verdict.py --pr 21651
 ```
 
-This runs none of the PR's code. It prints one line per failed test file, for example:
+On Linux it reads the PR's code only inside a sandbox (see [What runs](#what-runs)). It prints one line per failed test file, for example:
 
 > `tests/vm-route-deadlines.test.ts`: **also red on main**. 1 other failure in 7 days (1 on main, 0 other PR branches); vm-route-deadlines.test.ts imports 1 changed file(s); 2 of 2 failure(s) here passed on a re-run of the same SHA
 
 When the test imports changed code, `--coverage` tells you whether it runs any
-of it. **`--coverage` runs the PR head's test code on your machine**, with your
+of it. **`--coverage` runs the PR head's test code**, with your
 `web/node_modules`. Use it only for a PR from this repository whose code you'd
 run anyway; the script refuses it for forks.
 
@@ -23,6 +23,7 @@ run anyway; the script refuses it for forks.
 | also red on main | the PR can't reach it, and it also failed on main | check main's runs first: main may be broken, not flaky |
 | unrelated flake | the PR can't reach it, and it failed on other PRs too | rerun; file or fix the flake separately |
 | probably unrelated | the PR can't reach it, and nothing else failed it in the window | rerun the shard; a pass settles it |
+| can't analyse safely | the head has an import attribute clause or similar, so no import graph | read the diff yourself; the history is still printed |
 
 `--post` comments the verdict on the PR. Without it, the script only prints.
 
@@ -36,9 +37,25 @@ Each part also runs on its own:
 - `scripts/ci/test_touches_diff.py <test> --base <ref> --head <ref> [--coverage]`
   bundles the test with `bun build --metafile` and reports each changed file
   as not imported, tree-shaken, imported, or (`--coverage`) executed or not
-  executed. Without `--coverage` it needs only git and bun, not `node_modules`,
-  and runs nothing from the head: it bundles a `git archive` copy with macro
-  imports stripped and the head's bunfig.toml withheld.
+  executed. Without `--coverage` it needs only git and bun, not `node_modules`.
+
+## What runs
+
+- **The sandbox is the guarantee.** bun touches the PR head only in a Linux
+  user namespace (`unshare`): no network, your home directory hidden behind
+  an empty tmpfs, and an environment of just `PATH`, `LANG`, `LC_ALL`, `TERM`
+  and a throwaway `HOME` and `TMPDIR`.
+- **No sandbox, no bundle.** On macOS, or wherever user namespaces are off,
+  the import graph is skipped ("can't analyse safely"; the history still
+  prints) unless you pass `--allow-unsandboxed`. That runs bun as you, so use
+  it only for a PR you'd run anyway. It's refused for forks, as `--coverage` is.
+  For an untrusted PR, use a Linux machine or a throwaway VM.
+- **The scan is a second line of defence.** bun runs `with { type: "macro" }`
+  imports while bundling, and `--no-macros` doesn't stop it. So the check also
+  refuses heads with any import attribute clause, attributes passed to
+  `import()`, a package.json mentioning macros, or a symlink. JS line
+  terminators and whitespace are normalised first. The head's bunfig.toml is
+  read as data and never handed to bun.
 
 ## Cost and limits
 
