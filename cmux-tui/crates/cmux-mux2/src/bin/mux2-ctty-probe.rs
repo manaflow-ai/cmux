@@ -1,7 +1,7 @@
 //! macOS only for now (kqueue, posix_spawn PTY setup); see GOAL.md.
 
 #[cfg(target_os = "macos")]
-#[path = "../macos/mux2_ctty_probe.rs"]
+#[path = "../unix/mux2_ctty_probe.rs"]
 mod imp;
 
 #[cfg(target_os = "macos")]

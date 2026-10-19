@@ -28,6 +28,8 @@ use ghostty_vt::{Callbacks, Terminal};
 mod os;
 #[path = "mux2d_parse.rs"]
 mod parse;
+#[path = "mux2d_poll.rs"]
+mod poll;
 #[path = "mux2d_scan.rs"]
 mod scan;
 #[path = "mux2d_state.rs"]
@@ -35,6 +37,7 @@ mod state;
 
 use os::*;
 use parse::*;
+use poll::{Event, Interest, Poller, Waker};
 use scan::{incomplete_tail_start, needs_immediate_parse};
 use state::{STATE_MAGIC, parse_state};
 
@@ -58,16 +61,36 @@ fn tunable(name: &str, default: usize) -> usize {
 }
 /// An attached client further behind than this is resynced with a snapshot.
 const CLIENT_BACKLOG_MAX: usize = 16 << 20;
+/// Below this backlog a client is never marked stale (MUX2_BACKLOG_FLOOR).
+const BACKLOG_FLOOR: usize = 64 << 10;
+/// A network (TCP) viewer whose backlog would take longer than this to
+/// drain, at the rate its link has been draining, is behind (MUX2_LAG_MS).
+/// When the backlog is
+/// also more than twice the terminal's last snapshot, the viewer goes
+/// stale: its unsent stream is dropped, nothing more is queued for it, and
+/// once what is already on its way has drained it gets one snapshot of the
+/// state at that moment, then the live stream again. Its queue so never
+/// holds much more than one snapshot, so a keystroke echo or the prompt
+/// after Ctrl-C reaches it after at most about two snapshot transfers (for
+/// a snapshot under half of CLIENT_BACKLOG_MAX; scrollback of a few MB),
+/// instead of after megabytes it would only scroll past; and a snapshot is
+/// built at most once per snapshot transfer, so a slow link costs little
+/// CPU. A fast link (a LAN) rarely lags this much and keeps the whole
+/// stream; a local (Unix socket) viewer always does.
+const LAG_MS: usize = 100;
+/// Drain-rate samples cover at least this long a backlogged stretch.
+const RATE_WINDOW: std::time::Duration = std::time::Duration::from_millis(50);
+/// Frames handed to one writev.
+const IOV_MAX: usize = 64;
 const SCROLLBACK_BYTES: usize = 10_000_000;
 /// Output a dead child's descendants may still write before EXIT is sent.
 const EXIT_DRAIN_MAX: usize = 16 << 20;
 
 const TOKEN_LISTEN: u64 = 0;
+const TOKEN_LISTEN_TCP: u64 = 1;
 const KIND_CONN: u64 = 1 << 32;
 const KIND_PTY: u64 = 2 << 32;
 const KIND_PROC: u64 = 3 << 32;
-/// EVFILT_USER, ident = terminal id: a worker finished one of its batches.
-const KIND_WAKE: u64 = 4 << 32;
 const INDEX_MASK: u64 = 0xffff_ffff;
 
 struct Term {
@@ -116,16 +139,32 @@ struct Conn {
     write_armed: bool,
     read_armed: bool,
     closing: bool,
+    /// Behind (see [`LAG_MS`]): the attached stream is not queued; a
+    /// snapshot follows once the queue has drained.
+    stale: bool,
+    tcp: bool,
+    /// Bytes per second the connection drained while backlogged (None: not
+    /// measured yet), and the open measurement window.
+    rate: Option<f64>,
+    win_start: Option<std::time::Instant>,
+    win_bytes: usize,
 }
 
 impl Conn {
     /// Drops terminal-stream frames (OUTPUT, SNAPSHOT) not yet started, so a
-    /// resync never cuts a frame and never loses a reply to a request.
+    /// resync never cuts a frame and never loses a reply to a request. Frames
+    /// ahead of a queued EXIT stay: the client stops reading at EXIT, so they
+    /// are the last state it will ever show.
     fn drop_unstarted(&mut self) {
         let started = usize::from(self.front_sent > 0);
+        let keep_through = self
+            .out
+            .iter()
+            .rposition(|frame| frame[4] == proto::EXIT)
+            .map_or(started, |exit| started.max(exit + 1));
         let mut index = 0;
         self.out.retain(|frame| {
-            let keep = index < started || !matches!(frame[4], proto::OUTPUT | proto::SNAPSHOT);
+            let keep = index < keep_through || !matches!(frame[4], proto::OUTPUT | proto::SNAPSHOT);
             index += 1;
             keep
         });
@@ -133,9 +172,42 @@ impl Conn {
     }
 }
 
+/// A snapshot of one terminal building on its parse worker.
+struct SnapJob {
+    slot: SnapshotSlot,
+    /// Stale viewers to resync with it.
+    clients: Vec<u32>,
+    /// What must be unchanged when it is ready for it to be current.
+    bytes_in: u64,
+    epoch: u64,
+    size: (u16, u16),
+}
+
 struct Server {
-    kq: RawFd,
+    poll: Poller,
+    /// Handed to parse workers so a finished batch wakes the loop.
+    waker: Waker,
     listen: RawFd,
+    /// The optional TCP listener (MUX2_LISTEN). Close-on-exec: after an
+    /// upgrade the new binary binds it again from the same environment.
+    listen_tcp: Option<RawFd>,
+    peers: proto::net::PeerPolicy,
+    /// MUX2_LISTEN and MUX2_LISTEN_ALLOW as this server got them, for the
+    /// environment of an upgraded binary.
+    listen_env: Vec<(&'static str, std::ffi::OsString)>,
+    notsent_lowat: u32,
+    backlog_floor: usize,
+    lag_ms: usize,
+    resyncs: u64,
+    /// Per terminal: the size of its last snapshot.
+    snapshot_len: HashMap<u32, usize>,
+    /// Stale connections that drained during the current event.
+    refresh: Vec<u32>,
+    /// Per terminal: a snapshot being built on its parse worker.
+    snap_jobs: HashMap<u32, SnapJob>,
+    /// Bumped by every resize that changes a size: a replay built across
+    /// one is not the state the stream continues from.
+    resize_epoch: u64,
     terms: HashMap<u32, Term>,
     conns: HashMap<u32, Conn>,
     next_term: u32,
@@ -153,88 +225,65 @@ struct Server {
 }
 
 impl Server {
-    fn kev(
-        &self,
-        ident: usize,
-        filter: i16,
-        flags: u16,
-        fflags: u32,
-        udata: u64,
-    ) -> io::Result<()> {
-        // SAFETY: zeroed kevent is a valid value; fields are set below.
-        let mut ev: libc::kevent = unsafe { std::mem::zeroed() };
-        ev.ident = ident;
-        ev.filter = filter;
-        ev.flags = flags;
-        ev.fflags = fflags;
-        ev.udata = udata as usize as *mut libc::c_void;
-        // SAFETY: one valid changelist entry, no event list.
-        cvt(unsafe { libc::kevent(self.kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null()) })?;
-        Ok(())
-    }
-
     fn run(&mut self) -> io::Result<()> {
-        // SAFETY: zeroed kevents are valid out-buffers.
-        let mut events: Vec<libc::kevent> = vec![unsafe { std::mem::zeroed() }; 256];
+        let mut events = Vec::with_capacity(256);
         while !self.shutdown {
-            // SAFETY: events has the capacity passed.
-            let n = unsafe {
-                libc::kevent(
-                    self.kq,
-                    std::ptr::null(),
-                    0,
-                    events.as_mut_ptr(),
-                    events.len() as i32,
-                    std::ptr::null(),
-                )
-            };
-            if n < 0 {
-                let err = io::Error::last_os_error();
-                if err.kind() == io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(err);
-            }
-            for ev in &events[..n as usize] {
-                let token = ev.udata as usize as u64;
+            self.poll.wait(&mut events)?;
+            for ev in events.drain(..) {
+                self.refresh_drained();
+                let (token, writable) = match ev {
+                    Event::Read(token) => (token, false),
+                    Event::Write(token) => (token, true),
+                    Event::Exit { token, pid } => {
+                        self.child_exited((token & INDEX_MASK) as u32, pid);
+                        continue;
+                    }
+                    Event::Wake(t) => {
+                        self.batch_done(t);
+                        continue;
+                    }
+                };
                 let index = (token & INDEX_MASK) as u32;
-                let writable = ev.filter == libc::EVFILT_WRITE;
-                if ev.filter == libc::EVFILT_USER {
-                    // Routed by filter and ident, not by udata.
-                    self.batch_done(ev.ident as u32);
-                    continue;
-                }
                 match token & !INDEX_MASK {
-                    _ if token == TOKEN_LISTEN => self.accept(),
+                    _ if token == TOKEN_LISTEN => self.accept(self.listen, false),
+                    _ if token == TOKEN_LISTEN_TCP => {
+                        if let Some(fd) = self.listen_tcp {
+                            self.accept(fd, true);
+                        }
+                    }
                     KIND_CONN if writable => self.flush_conn(index),
                     KIND_CONN => self.conn_readable(index),
                     KIND_PTY if writable => self.flush_input(index),
                     KIND_PTY => self.pty_readable(index),
-                    KIND_PROC => self.child_exited(index, ev.ident as libc::pid_t),
-                    KIND_WAKE => self.batch_done(index),
                     _ => {}
                 }
             }
+            self.refresh_drained();
         }
         Ok(())
     }
 
-    fn accept(&mut self) {
+    fn accept(&mut self, listen: RawFd, tcp: bool) {
         loop {
             // SAFETY: accept on our listening socket.
-            let fd =
-                unsafe { libc::accept(self.listen, std::ptr::null_mut(), std::ptr::null_mut()) };
+            let fd = unsafe { libc::accept(listen, std::ptr::null_mut(), std::ptr::null_mut()) };
             if fd < 0 {
                 return;
             }
-            if set_nonblock_cloexec(fd).is_err() {
+            let tuned = !tcp
+                || (proto::net::peer_ip(fd).is_some_and(|ip| self.peers.admits(ip))
+                    && proto::net::tune(fd, Some(self.notsent_lowat)).is_ok());
+            if !tuned || set_nonblock_cloexec(fd).is_err() {
                 // SAFETY: closing a descriptor we just received.
                 unsafe { libc::close(fd) };
                 continue;
             }
             let id = self.next_conn;
             self.next_conn = self.next_conn.wrapping_add(1).max(1);
+            // SIGPIPE is ignored server-wide; macOS also takes it per socket.
+            #[cfg(target_os = "macos")]
             let nosig: libc::c_int = 1;
+            #[cfg(target_os = "macos")]
             // SAFETY: setting SO_NOSIGPIPE with a valid option value.
             unsafe {
                 libc::setsockopt(
@@ -257,15 +306,14 @@ impl Server {
                     write_armed: false,
                     read_armed: true,
                     closing: false,
+                    stale: false,
+                    tcp,
+                    rate: None,
+                    win_start: None,
+                    win_bytes: 0,
                 },
             );
-            let _ = self.kev(
-                fd as usize,
-                libc::EVFILT_READ,
-                libc::EV_ADD,
-                0,
-                KIND_CONN | u64::from(id),
-            );
+            let _ = self.poll.add(fd, Interest::Read, KIND_CONN | u64::from(id));
         }
     }
 
@@ -305,7 +353,7 @@ impl Server {
             if conn.read_armed {
                 conn.read_armed = false;
                 let fd = conn.fd;
-                let _ = self.kev(fd as usize, libc::EVFILT_READ, libc::EV_DELETE, 0, 0);
+                self.poll.delete(fd, Interest::Read);
             }
             if self.conns.get(&id).is_some_and(|c| c.out.is_empty()) {
                 self.drop_conn(id);
@@ -326,15 +374,30 @@ impl Server {
     fn flush_conn(&mut self, id: u32) {
         let Some(conn) = self.conns.get_mut(&id) else { return };
         let mut failed = false;
-        while let Some(front) = conn.out.front() {
-            let rest = &front[conn.front_sent..];
-            // SAFETY: rest is a valid slice.
-            let n = unsafe { libc::write(conn.fd, rest.as_ptr().cast(), rest.len()) };
+        while !conn.out.is_empty() {
+            // Every queued frame in one writev: a reply and the output behind
+            // it leave in one segment, not one segment per frame.
+            let mut iov = [libc::iovec { iov_base: std::ptr::null_mut(), iov_len: 0 }; IOV_MAX];
+            let mut count = 0;
+            for (slot, frame) in iov.iter_mut().zip(&conn.out) {
+                let rest = if count == 0 { &frame[conn.front_sent..] } else { &frame[..] };
+                *slot = libc::iovec { iov_base: rest.as_ptr() as *mut _, iov_len: rest.len() };
+                count += 1;
+            }
+            // SAFETY: the first `count` iovecs point into frames that outlive
+            // the call.
+            let n = unsafe { libc::writev(conn.fd, iov.as_ptr(), count as libc::c_int) };
             if n > 0 {
-                let n = n as usize;
+                let mut n = n as usize;
                 conn.queued -= n;
-                conn.front_sent += n;
-                if conn.front_sent == front.len() {
+                conn.win_bytes += n;
+                while n > 0 {
+                    let left = conn.out[0].len() - conn.front_sent;
+                    if n < left {
+                        conn.front_sent += n;
+                        break;
+                    }
+                    n -= left;
                     conn.out.pop_front();
                     conn.front_sent = 0;
                 }
@@ -353,12 +416,38 @@ impl Server {
             conn.closing = true;
         }
         let want = !conn.out.is_empty();
+        if !want && conn.stale && !conn.closing {
+            // Built after the current event, outside this flush.
+            self.refresh.push(id);
+        }
+        // Drain rate: measured only while the link, not the program, is the
+        // limit (the queue is not empty), over windows of RATE_WINDOW.
+        let now = std::time::Instant::now();
+        match conn.win_start {
+            Some(start) if !want || now - start >= RATE_WINDOW => {
+                let secs = (now - start).as_secs_f64();
+                if now - start >= RATE_WINDOW / 4 {
+                    let sample = conn.win_bytes as f64 / secs;
+                    conn.rate = Some(conn.rate.map_or(sample, |r| 0.5 * r + 0.5 * sample));
+                }
+                conn.win_start = want.then_some(now);
+                conn.win_bytes = 0;
+            }
+            None if want => {
+                conn.win_start = Some(now);
+                conn.win_bytes = 0;
+            }
+            _ => {}
+        }
         let (fd, armed) = (conn.fd, conn.write_armed);
         let done = conn.closing && !want;
         if want != armed {
             conn.write_armed = want;
-            let flags = if want { libc::EV_ADD } else { libc::EV_DELETE };
-            let _ = self.kev(fd as usize, libc::EVFILT_WRITE, flags, 0, KIND_CONN | u64::from(id));
+            if want {
+                let _ = self.poll.add(fd, Interest::Write, KIND_CONN | u64::from(id));
+            } else {
+                self.poll.delete(fd, Interest::Write);
+            }
         }
         if done {
             self.drop_conn(id);
@@ -393,7 +482,18 @@ impl Server {
     /// Sends `t`'s current state to `c` as a SNAPSHOT. Closes the connection
     /// when no faithful snapshot can be made, so the client never has a gap.
     fn snapshot_to(&mut self, t: u32, c: u32) {
-        let Some(term) = self.terms.get_mut(&t) else { return };
+        if !self.terms.contains_key(&t) {
+            return;
+        }
+        match self.build_snapshot(t) {
+            Some(p) => self.resync(c, &p),
+            None => self.close_conn(c),
+        }
+    }
+
+    /// `t`'s current state as a SNAPSHOT payload: size, then the replay.
+    fn build_snapshot(&mut self, t: u32) -> Option<Vec<u8>> {
+        let term = self.terms.get_mut(&t)?;
         flush_parse(term);
         let payload = term.vt().vt_replay_bytes().ok().map(|replay| {
             let mut p = Vec::with_capacity(replay.len() + 4);
@@ -403,14 +503,41 @@ impl Server {
             p
         });
         self.flush_replies(t);
-        match payload {
-            Some(p) => {
+        if let Some(p) = &payload {
+            self.snapshot_len.insert(t, p.len());
+        }
+        payload
+    }
+
+    /// Replaces `c`'s unsent terminal stream with snapshot `p`.
+    fn resync(&mut self, c: u32, p: &[u8]) {
+        if let Some(conn) = self.conns.get_mut(&c) {
+            conn.drop_unstarted();
+            conn.stale = false;
+        }
+        self.resyncs += 1;
+        self.send(c, proto::SNAPSHOT, p);
+    }
+
+    fn refresh_drained(&mut self) {
+        for c in std::mem::take(&mut self.refresh) {
+            self.refresh_stale(c);
+        }
+    }
+
+    /// A stale viewer has drained: give it the current state.
+    fn refresh_stale(&mut self, c: u32) {
+        let Some(conn) = self.conns.get(&c) else { return };
+        if !conn.stale {
+            return;
+        }
+        match conn.attached {
+            Some(t) => self.snapshot_async(t, c),
+            None => {
                 if let Some(conn) = self.conns.get_mut(&c) {
-                    conn.drop_unstarted();
+                    conn.stale = false;
                 }
-                self.send(c, proto::SNAPSHOT, &p);
             }
-            None => self.close_conn(c),
         }
     }
 
@@ -481,6 +608,19 @@ impl Server {
             }
             proto::KILL => {
                 let Some(t) = r.u32() else { return self.err(id, "bad kill") };
+                // A stale viewer gets the state it missed before EXIT.
+                let stale: Vec<u32> = self.terms.get(&t).map_or_else(Vec::new, |term| {
+                    term.attached
+                        .iter()
+                        .copied()
+                        .filter(|c| self.conns.get(c).is_some_and(|conn| conn.stale))
+                        .collect()
+                });
+                for c in stale {
+                    self.snapshot_to(t, c);
+                }
+                self.snapshot_len.remove(&t);
+                self.snap_jobs.remove(&t);
                 if let Some(term) = self.terms.remove(&t) {
                     if term.exit.is_none() {
                         // SAFETY: signalling our own, not yet reaped child.
@@ -489,7 +629,7 @@ impl Server {
                     }
                     // SAFETY: closing the master hangs up the slave side.
                     unsafe { libc::close(term.master) };
-                    let _ = self.kev(t as usize, libc::EVFILT_USER, libc::EV_DELETE, 0, 0);
+                    self.poll.delete_wake(t);
                     for c in &term.attached {
                         if let Some(conn) = self.conns.get_mut(c) {
                             conn.attached = None;
@@ -543,6 +683,7 @@ impl Server {
                     // Pixel sizes are unknown to the server; size reports
                     // in pixels answer 0, as with an unknown cell size.
                     let _ = term.vt().resize(cols, rows, 0, 0);
+                    self.resize_epoch += 1;
                     (term.cols, term.rows) = (cols, rows);
                     set_winsize(term.master, cols, rows);
                     // The resize may emit an in-band size report (mode 2048).
@@ -564,11 +705,14 @@ impl Server {
                 let inflight: usize =
                     self.terms.values().map(|t| *t.inflight.count.lock().expect("inflight")).sum();
                 let bytes: u64 = self.terms.values().map(|t| t.bytes_in).sum();
+                let tcp = self.conns.values().filter(|c| c.tcp).count();
+                let queued: usize = self.conns.values().map(|c| c.queued).sum();
                 let text = format!(
-                    "pid\t{}\nterminals\t{}\nclients\t{}\npending_bytes\t{pending}\ninflight_batches\t{inflight}\nbytes_in\t{bytes}\n",
+                    "pid\t{}\nterminals\t{}\nclients\t{}\ntcp_clients\t{tcp}\npending_bytes\t{pending}\ninflight_batches\t{inflight}\nbytes_in\t{bytes}\nclient_queued_bytes\t{queued}\nresyncs\t{}\n",
                     std::process::id(),
                     self.terms.len(),
-                    self.conns.len()
+                    self.conns.len(),
+                    self.resyncs
                 );
                 self.send(id, proto::OK, text.as_bytes());
             }
@@ -598,9 +742,7 @@ impl Server {
             argv.push(CString::new(r.bytes().ok_or_else(bad)?).map_err(|_| bad())?);
         }
         if argv.is_empty() {
-            let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
-            argv.push(CString::new(shell.as_bytes()).map_err(|_| bad())?);
-            argv.push(CString::new("-l").expect("static"));
+            argv = default_login_argv().map_err(|_| bad())?;
         }
         let cwd = if cwd.is_empty() { None } else { Some(CString::new(cwd).map_err(|_| bad())?) };
 
@@ -641,28 +783,9 @@ impl Server {
                 bytes_in: 0,
             },
         );
-        self.kev(master as usize, libc::EVFILT_READ, libc::EV_ADD, 0, KIND_PTY | u64::from(t))?;
-        self.kev(
-            t as usize,
-            libc::EVFILT_USER,
-            libc::EV_ADD | libc::EV_CLEAR,
-            0,
-            KIND_WAKE | u64::from(t),
-        )?;
-        if let Err(e) = self.kev(
-            pid as usize,
-            libc::EVFILT_PROC,
-            libc::EV_ADD | libc::EV_ONESHOT,
-            libc::NOTE_EXIT,
-            KIND_PROC | u64::from(t),
-        ) {
-            // The child exited before the filter was added: reap it now.
-            if e.raw_os_error() == Some(libc::ESRCH) {
-                self.child_exited(t, pid);
-            } else {
-                return Err(e);
-            }
-        }
+        self.poll.add(master, Interest::Read, KIND_PTY | u64::from(t))?;
+        self.poll.add_wake(t)?;
+        self.watch_child(t, pid)?;
         Ok(t)
     }
 
@@ -698,8 +821,12 @@ impl Server {
         let want = !term.input.is_empty() && term.pty_open;
         if want != term.input_armed {
             term.input_armed = want;
-            let (fd, flags) = (term.master, if want { libc::EV_ADD } else { libc::EV_DELETE });
-            let _ = self.kev(fd as usize, libc::EVFILT_WRITE, flags, 0, KIND_PTY | u64::from(t));
+            let fd = term.master;
+            if want {
+                let _ = self.poll.add(fd, Interest::Write, KIND_PTY | u64::from(t));
+            } else {
+                self.poll.delete(fd, Interest::Write);
+            }
         }
     }
 
@@ -766,7 +893,7 @@ impl Server {
                     if term.pending.len() >= parse_batch {
                         let worker = (!self.workers.is_empty())
                             .then(|| &self.workers[t as usize % self.workers.len()]);
-                        offload_parse(term, worker, self.kq, t);
+                        offload_parse(term, worker, &self.waker, t);
                         if may_pause
                             && *term.inflight.count.lock().expect("inflight") >= inflight_max
                         {
@@ -801,10 +928,9 @@ impl Server {
         }
         self.flush_replies(t);
         if close {
-            let _ = self.kev(master as usize, libc::EVFILT_READ, libc::EV_DELETE, 0, 0);
+            self.poll.delete(master, Interest::Read);
         } else if pause {
-            let token = KIND_PTY | u64::from(t);
-            let _ = self.kev(master as usize, libc::EVFILT_READ, libc::EV_DISABLE, 0, token);
+            self.poll.set_read_enabled(master, KIND_PTY | u64::from(t), false);
         }
         if !clients.is_empty() {
             self.fanout(t, &clients, &forwarded);
@@ -818,28 +944,136 @@ impl Server {
 
     /// A worker finished a batch of `t`: write any reply it produced, and
     /// resume reading the PTY if it was paused at INFLIGHT_MAX.
+    /// Refreshes stale viewer `c` of `t` with a snapshot built on `t`'s
+    /// parse worker, so the build (tens of milliseconds for a few MB of
+    /// scrollback) does not stall every other terminal's echo. Reads of `t`
+    /// pause until it is done, so the replay is exactly the state the stream
+    /// continues from; it is discarded if bytes were read or any terminal
+    /// was resized meanwhile (the viewer then asks again).
+    fn snapshot_async(&mut self, t: u32, c: u32) {
+        if let Some(job) = self.snap_jobs.get_mut(&t) {
+            if !job.clients.contains(&c) {
+                job.clients.push(c);
+            }
+            return;
+        }
+        if self.workers.is_empty() {
+            return self.snapshot_to(t, c);
+        }
+        let Some(term) = self.terms.get_mut(&t) else { return };
+        flush_parse(term);
+        let slot = SnapshotSlot::default();
+        *term.inflight.count.lock().expect("inflight") += 1;
+        let job = ParseJob {
+            parser: term.parser.clone(),
+            inflight: term.inflight.clone(),
+            bytes: Vec::new(),
+            snapshot: Some(slot.clone()),
+            waker: self.waker.clone(),
+            term: t,
+        };
+        if self.workers[t as usize % self.workers.len()].send(job).is_err() {
+            *term.inflight.count.lock().expect("inflight") -= 1;
+            return self.snapshot_to(t, c);
+        }
+        let (bytes_in, size) = (term.bytes_in, (term.cols, term.rows));
+        if term.pty_open && !term.read_paused {
+            term.read_paused = true;
+            let master = term.master;
+            self.poll.set_read_enabled(master, KIND_PTY | u64::from(t), false);
+        }
+        self.flush_replies(t);
+        let epoch = self.resize_epoch;
+        self.snap_jobs.insert(t, SnapJob { slot, clients: vec![c], bytes_in, epoch, size });
+    }
+
+    /// Hands a finished worker snapshot of `t` to the viewers waiting for it.
+    fn snapshot_ready(&mut self, t: u32) {
+        let done =
+            self.snap_jobs.get(&t).is_some_and(|job| job.slot.lock().expect("slot").is_some());
+        if !done {
+            return;
+        }
+        let Some(job) = self.snap_jobs.remove(&t) else { return };
+        let Some(term) = self.terms.get(&t) else { return };
+        let built = job.slot.lock().expect("slot").take().flatten();
+        let current = term.bytes_in == job.bytes_in
+            && self.resize_epoch == job.epoch
+            && (term.cols, term.rows) == job.size;
+        let waiting: Vec<u32> = job
+            .clients
+            .into_iter()
+            .filter(|c| {
+                self.conns.get(c).is_some_and(|conn| conn.stale && conn.attached == Some(t))
+            })
+            .collect();
+        match built {
+            Some(replay) if current => {
+                let mut p = Vec::with_capacity(replay.len() + 4);
+                p.extend_from_slice(&job.size.0.to_le_bytes());
+                p.extend_from_slice(&job.size.1.to_le_bytes());
+                p.extend_from_slice(&replay);
+                self.snapshot_len.insert(t, p.len());
+                for c in waiting {
+                    self.resync(c, &p);
+                }
+            }
+            // Stale state, or the build failed: the loop builds it now.
+            _ => {
+                for c in waiting {
+                    self.snapshot_to(t, c);
+                }
+            }
+        }
+    }
+
     fn batch_done(&mut self, t: u32) {
         self.flush_replies(t);
+        self.snapshot_ready(t);
+        if self.snap_jobs.contains_key(&t) {
+            // Reads stay paused until the snapshot is out.
+            return;
+        }
         let Some(term) = self.terms.get_mut(&t) else { return };
         let below = *term.inflight.count.lock().expect("inflight") < self.inflight_max;
         if term.read_paused && below && term.pty_open {
             term.read_paused = false;
             let master = term.master;
-            let token = KIND_PTY | u64::from(t);
-            let _ = self.kev(master as usize, libc::EVFILT_READ, libc::EV_ENABLE, 0, token);
+            self.poll.set_read_enabled(master, KIND_PTY | u64::from(t), true);
         }
     }
 
     fn fanout(&mut self, t: u32, clients: &[u32], bytes: &[u8]) {
+        let snapshot_len = self.snapshot_len.get(&t).copied().unwrap_or(0);
         for &c in clients {
-            let behind = self.conns.get(&c).map_or(0, |conn| conn.queued);
-            if behind > CLIENT_BACKLOG_MAX {
-                // The snapshot holds every byte parsed so far, including
-                // these, so it replaces the unsent backlog exactly.
-                self.snapshot_to(t, c);
-            } else {
-                self.send(c, proto::OUTPUT, bytes);
+            let Some(conn) = self.conns.get_mut(&c) else { continue };
+            // A stale viewer's coming snapshot holds these bytes too.
+            if conn.stale {
+                continue;
             }
+            // The snapshot holds every byte parsed so far, including these,
+            // so it replaces the unsent backlog exactly.
+            let behind = conn.queued + bytes.len() + 5;
+            if behind > CLIENT_BACKLOG_MAX {
+                self.snapshot_to(t, c);
+                continue;
+            }
+            // Only a measured, slow network link: an unmeasured one is
+            // assumed fast, and a local (Unix socket) viewer keeps the whole
+            // stream, as before.
+            let lagging = conn.tcp
+                && behind > self.backlog_floor
+                && conn.rate.is_some_and(|r| behind as f64 > r * self.lag_ms as f64 / 1e3)
+                && behind > 2 * (snapshot_len + 5);
+            if lagging {
+                conn.drop_unstarted();
+                conn.stale = true;
+                if conn.out.is_empty() {
+                    self.refresh.push(c);
+                }
+                continue;
+            }
+            self.send(c, proto::OUTPUT, bytes);
         }
     }
 
@@ -870,6 +1104,13 @@ impl Server {
         let notify: Vec<u32> =
             term.waiters.drain(..).chain(term.attached.iter().copied()).collect();
         self.flush_replies(t);
+        // A stale viewer of this terminal gets the final state before EXIT
+        // (a waiter may be stale as the viewer of another terminal).
+        for &c in &notify {
+            if self.conns.get(&c).is_some_and(|conn| conn.stale && conn.attached == Some(t)) {
+                self.snapshot_to(t, c);
+            }
+        }
         for c in notify {
             self.send(c, proto::EXIT, &code.to_le_bytes());
         }
@@ -881,12 +1122,22 @@ pub fn main() {
     raise_nofile();
     let ready_fd =
         std::env::var_os("MUX2_READY_FD").and_then(|v| OsStr::to_str(&v)?.parse::<RawFd>().ok());
+    let mut listen_env: Vec<(&'static str, std::ffi::OsString)> = Vec::new();
     // SAFETY: single-threaded at this point.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
         // Exit codes need waitpid: an inherited SIG_IGN would auto-reap.
         libc::signal(libc::SIGCHLD, libc::SIG_DFL);
         std::env::remove_var("MUX2_READY_FD");
+        // The listener settings are this server's, not its programs': a
+        // nested mux2d must not try the same port. An upgrade hands them to
+        // the new binary explicitly.
+        for name in ["MUX2_LISTEN", "MUX2_LISTEN_ALLOW"] {
+            if let Some(v) = std::env::var_os(name) {
+                listen_env.push((name, v));
+                std::env::remove_var(name);
+            }
+        }
         if std::env::var_os("TERM").is_none() {
             std::env::set_var("TERM", "xterm-256color");
         }
@@ -934,13 +1185,46 @@ pub fn main() {
             }
         },
     };
-    // SAFETY: kqueue has no preconditions.
-    let kq = unsafe { libc::kqueue() };
-    // SAFETY: marking our kqueue close-on-exec, so an upgrade starts clean.
-    unsafe { libc::fcntl(kq, libc::F_SETFD, libc::FD_CLOEXEC) };
+    // MUX2_LISTEN=ADDR:PORT: also serve the same frames over TCP (see
+    // cmux_mux2::net; unauthenticated, for development and measurements).
+    // After an upgrade the terminals depend on this process: a listener
+    // that cannot bind again is logged and dropped, never fatal.
+    let env_of = |name: &str| {
+        listen_env.iter().find(|(n, _)| *n == name).and_then(|(_, v)| v.to_str()).unwrap_or("")
+    };
+    let fail = |msg: String| {
+        eprintln!("mux2d: {msg}");
+        if resume_state.is_none() {
+            std::process::exit(1);
+        }
+    };
+    let peers = proto::net::PeerPolicy::parse(env_of("MUX2_LISTEN_ALLOW"))
+        .map_err(|e| fail(e.to_string()))
+        .ok();
+    let listen_tcp = Some(env_of("MUX2_LISTEN")).filter(|v| !v.is_empty()).and_then(|v| {
+        peers.as_ref()?;
+        tcp_listen_socket(v).map_err(|e| fail(format!("cannot listen on {v}: {e}"))).ok()
+    });
+    let poll = Poller::new().unwrap_or_else(|e| {
+        eprintln!("mux2d: event loop: {e}");
+        std::process::exit(1);
+    });
+    let waker = poll.waker();
     let mut server = Server {
-        kq,
+        poll,
+        waker,
         listen,
+        listen_tcp,
+        peers: peers.unwrap_or_default(),
+        listen_env: listen_env.clone(),
+        notsent_lowat: tunable("MUX2_NOTSENT_LOWAT", proto::net::NOTSENT_LOWAT as usize) as u32,
+        backlog_floor: tunable("MUX2_BACKLOG_FLOOR", BACKLOG_FLOOR),
+        lag_ms: tunable("MUX2_LAG_MS", LAG_MS),
+        resyncs: 0,
+        snapshot_len: HashMap::new(),
+        refresh: Vec::new(),
+        snap_jobs: HashMap::new(),
+        resize_epoch: 0,
         terms: HashMap::new(),
         conns: HashMap::new(),
         next_term: 1,
@@ -953,9 +1237,18 @@ pub fn main() {
         workers: spawn_parse_workers(),
         inflight_max: tunable("MUX2_INFLIGHT_MAX", INFLIGHT_MAX).max(1),
     };
-    server
-        .kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN)
-        .expect("register listener");
+    server.poll.add(listen, Interest::Read, TOKEN_LISTEN).expect("register listener");
+    if let Some(fd) = listen_tcp
+        && let Err(e) = server.poll.add(fd, Interest::Read, TOKEN_LISTEN_TCP)
+    {
+        eprintln!("mux2d: TCP listener: {e}");
+        if resume_state.is_none() {
+            std::process::exit(1);
+        }
+        // SAFETY: closing the listener nothing else uses.
+        unsafe { libc::close(fd) };
+        server.listen_tcp = None;
+    }
     if let Some(state) = &resume_state
         && let Err(e) = server.resume(state)
     {

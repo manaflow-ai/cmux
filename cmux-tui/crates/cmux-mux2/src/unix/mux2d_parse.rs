@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// Where a worker leaves a replay it built: `Some(None)` when the build
+/// failed.
+pub(super) type SnapshotSlot = Arc<Mutex<Option<Option<Vec<u8>>>>>;
+
 #[derive(Default)]
 pub(super) struct Inflight {
     pub(super) count: Mutex<usize>,
@@ -24,8 +28,11 @@ pub(super) struct ParseJob {
     pub(super) parser: Arc<Mutex<Terminal>>,
     pub(super) inflight: Arc<Inflight>,
     pub(super) bytes: Vec<u8>,
-    /// Where to post the completion (EVFILT_USER on the loop's kqueue).
-    pub(super) kq: RawFd,
+    /// Set for a snapshot job: after the batches before it, the worker
+    /// builds the replay into this slot instead of parsing `bytes`.
+    pub(super) snapshot: Option<SnapshotSlot>,
+    /// Wakes the loop when the batch is parsed.
+    pub(super) waker: Waker,
     pub(super) term: u32,
 }
 
@@ -34,21 +41,6 @@ impl Term {
     pub(super) fn vt(&self) -> std::sync::MutexGuard<'_, Terminal> {
         self.inflight.wait_idle();
         self.parser.lock().expect("parser")
-    }
-}
-
-/// Triggers the loop's EVFILT_USER event for terminal `t`.
-pub(super) fn post_wake(kq: RawFd, t: u32) {
-    // SAFETY: zeroed kevent is valid; one changelist entry, no event list.
-    unsafe {
-        let mut ev: libc::kevent = std::mem::zeroed();
-        ev.ident = t as usize;
-        ev.filter = libc::EVFILT_USER;
-        ev.fflags = libc::NOTE_TRIGGER;
-        // A trigger also replaces the event's stored udata: pass the token
-        // again, or the wake arrives addressed to nobody.
-        ev.udata = (KIND_WAKE | u64::from(t)) as usize as *mut libc::c_void;
-        libc::kevent(kq, &ev, 1, std::ptr::null_mut(), 0, std::ptr::null());
     }
 }
 
@@ -65,7 +57,14 @@ pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
                         // A parse that panics must not leave the loop
                         // waiting forever for this batch: stop the server.
                         let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            job.parser.lock().expect("parser").vt_write(&job.bytes);
+                            let mut vt = job.parser.lock().expect("parser");
+                            match &job.snapshot {
+                                Some(slot) => {
+                                    let replay = vt.vt_replay_bytes().ok();
+                                    *slot.lock().expect("snapshot slot") = Some(replay);
+                                }
+                                None => vt.vt_write(&job.bytes),
+                            }
                         }));
                         if parsed.is_err() {
                             eprintln!("mux2d: parse worker panicked; aborting");
@@ -76,7 +75,7 @@ pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
                             *count -= 1;
                             job.inflight.done.notify_all();
                         }
-                        post_wake(job.kq, job.term);
+                        job.waker.wake(job.term);
                     }
                 })
                 .expect("parse worker");
@@ -124,7 +123,7 @@ pub(super) fn flush_parse(term: &mut Term) {
 pub(super) fn offload_parse(
     term: &mut Term,
     worker: Option<&std::sync::mpsc::Sender<ParseJob>>,
-    kq: RawFd,
+    waker: &Waker,
     t: u32,
 ) {
     let Some(worker) = worker else {
@@ -137,7 +136,8 @@ pub(super) fn offload_parse(
         parser: term.parser.clone(),
         inflight: term.inflight.clone(),
         bytes,
-        kq,
+        snapshot: None,
+        waker: waker.clone(),
         term: t,
     };
     if let Err(std::sync::mpsc::SendError(job)) = worker.send(job) {
