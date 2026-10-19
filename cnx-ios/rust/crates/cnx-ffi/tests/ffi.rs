@@ -116,7 +116,9 @@ async fn wireguard_round_trip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn wireguard_relay_only_rides_turn() {
     let turn = cnx_link::testing::TestTurn::start().await;
-    let server = FakeSignaling::start(FakeOptions { ice_servers: vec![turn.udp_only()], ..FakeOptions::default() }).await;
+    let server =
+        FakeSignaling::start(FakeOptions { ice_servers: vec![turn.udp_only()], ..FakeOptions::default() })
+            .await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
     let recorder = Arc::new(Recorder::default());

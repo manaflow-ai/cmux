@@ -109,11 +109,7 @@ async fn stream_across(
             .expect("dial");
     let session_id = connected.session_id.clone();
     let mut path = connected.path.clone();
-    let _ = tokio::time::timeout(
-        Duration::from_secs(10),
-        path.wait_for(|p| *p != LinkPath::NoPath),
-    )
-    .await;
+    let _ = tokio::time::timeout(Duration::from_secs(10), path.wait_for(|p| *p != LinkPath::NoPath)).await;
     let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
     let (sender, mut receiver) = channel.split();
 
@@ -353,8 +349,13 @@ async fn wireguard_roams_from_turn_udp_to_turn_tls() {
         turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
         ..options()
     };
-    let run = stream_across(phone, options(), Change::UdpBlocked(std::sync::Arc::clone(&turn)), Duration::from_secs(4))
-        .await;
+    let run = stream_across(
+        phone,
+        options(),
+        Change::UdpBlocked(std::sync::Arc::clone(&turn)),
+        Duration::from_secs(4),
+    )
+    .await;
     eprintln!("udp to tls roam: {run:?}");
     assert_eq!(run.before, LinkPath::Turn);
     assert_eq!(run.after, LinkPath::TurnTls);

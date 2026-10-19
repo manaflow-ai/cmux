@@ -194,6 +194,7 @@ pub struct IncomingSession {
 
 /// What a session subscription receives.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)] // rare events; boxing buys nothing
 pub enum SessionEvent {
     Signal(SignalEnvelope),
     /// The signaling socket closed.
@@ -559,7 +560,9 @@ mod tests {
             {"kind":"wg-resp","publicKey":"k","endpoints":["9.9.9.9:7"],"overlayIP":"10.77.0.1",
              "relayed":["9.9.9.9:7"],"relayedTls":["9.9.9.9:7"],"version":2}))
         .unwrap();
-        assert!(matches!(resp, SignalPayload::WgResp { version: 2, ref relayed_tls, .. } if relayed_tls == &["9.9.9.9:7"]));
+        assert!(
+            matches!(resp, SignalPayload::WgResp { version: 2, ref relayed_tls, .. } if relayed_tls == &["9.9.9.9:7"])
+        );
         // An older Mac's wg-resp has neither: version 0.
         let old: SignalPayload = serde_json::from_value(serde_json::json!(
             {"kind":"wg-resp","publicKey":"k","endpoints":[],"overlayIP":"10.77.0.1"}))

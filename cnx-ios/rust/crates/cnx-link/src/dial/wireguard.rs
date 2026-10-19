@@ -104,7 +104,8 @@ const UDP_BUFFER: usize = 2 * 1024 * 1024;
 
 /// A UDP socket for the tunnel, on any port, with [`UDP_BUFFER`] buffers.
 pub(super) fn bind_udp() -> io::Result<UdpSocket> {
-    let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
+    let socket =
+        socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
     let _ = socket.set_recv_buffer_size(UDP_BUFFER);
     let _ = socket.set_send_buffer_size(UDP_BUFFER);
     socket.set_nonblocking(true)?;
@@ -233,7 +234,8 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Gathered
 /// and those whose allocation rides TCP or TLS.
 fn relayed_of(turn: Option<&TurnCarrier>) -> (Vec<String>, Vec<String>) {
     let all: Vec<String> = turn.iter().map(|turn| turn.relayed.to_string()).collect();
-    let stream = turn.iter().filter(|turn| turn.transport.is_stream()).map(|turn| turn.relayed.to_string()).collect();
+    let stream =
+        turn.iter().filter(|turn| turn.transport.is_stream()).map(|turn| turn.relayed.to_string()).collect();
     (all, stream)
 }
 
@@ -337,10 +339,14 @@ struct Labels {
 /// [`LinkPath::TurnTls`]) even though this side sends plain UDP.
 fn path_of(route: Option<Route>, labels: &Labels, own: Option<TurnTransport>) -> LinkPath {
     match route {
-        Some(Route { carrier: Carrier::Udp, addr }) if labels.peer_relayed_tls.contains(&addr) => LinkPath::TurnTls,
+        Some(Route { carrier: Carrier::Udp, addr }) if labels.peer_relayed_tls.contains(&addr) => {
+            LinkPath::TurnTls
+        }
         Some(Route { carrier: Carrier::Udp, addr }) if labels.peer_relayed.contains(&addr) => LinkPath::Turn,
         Some(Route { carrier: Carrier::Udp, .. }) => LinkPath::Direct,
-        Some(Route { carrier: Carrier::Turn, .. }) if own.is_some_and(TurnTransport::is_stream) => LinkPath::TurnTls,
+        Some(Route { carrier: Carrier::Turn, .. }) if own.is_some_and(TurnTransport::is_stream) => {
+            LinkPath::TurnTls
+        }
         Some(Route { carrier: Carrier::Turn, .. }) => LinkPath::Turn,
         None => LinkPath::NoPath,
     }
@@ -1102,7 +1108,8 @@ impl Dialer for WireGuardDialer {
     ) -> DialFuture<'a> {
         Box::pin(async move {
             let socket = bind_udp().map_err(transport_error)?;
-            let (gathered, turn) = tokio::join!(gather_endpoints(&socket, options), TurnCarrier::allocate(options));
+            let (gathered, turn) =
+                tokio::join!(gather_endpoints(&socket, options), TurnCarrier::allocate(options));
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
@@ -1110,7 +1117,11 @@ impl Dialer for WireGuardDialer {
             let (relayed, relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(relayed.iter().cloned());
             if let Some(turn) = &turn {
-                options.timeline.mark(if turn.transport.is_stream() { "turn_tls_allocated" } else { "turn_allocated" });
+                options.timeline.mark(if turn.transport.is_stream() {
+                    "turn_tls_allocated"
+                } else {
+                    "turn_allocated"
+                });
             }
             options.timeline.mark("endpoints_gathered");
             let (private_key, public_key) = keypair();
@@ -1136,7 +1147,15 @@ impl Dialer for WireGuardDialer {
             let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version) = loop {
                 match events.next().await? {
                     SessionEvent::Signal(envelope) => match envelope.payload {
-                        SignalPayload::WgResp { public_key, endpoints, overlay_ip, lanes, relayed, relayed_tls, version } => {
+                        SignalPayload::WgResp {
+                            public_key,
+                            endpoints,
+                            overlay_ip,
+                            lanes,
+                            relayed,
+                            relayed_tls,
+                            version,
+                        } => {
                             options.timeline.mark("wg_resp_received");
                             let ip: Ipv4Addr = overlay_ip
                                 .parse()

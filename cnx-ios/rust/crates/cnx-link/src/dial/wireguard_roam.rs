@@ -29,8 +29,8 @@ use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use cmux_wg::{Priority, WgDatagramSocket};
-use tokio::task::JoinHandle;
 use serde::{Deserialize, Serialize};
+use tokio::task::JoinHandle;
 
 use super::*;
 
@@ -317,7 +317,12 @@ impl Session {
                         payload: SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls },
                         ..
                     })) => {
-                        let _ = inject.send(RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls });
+                        let _ = inject.send(RoamMessage::Endpoints {
+                            generation,
+                            endpoints,
+                            relayed,
+                            relayed_tls,
+                        });
                     }
                     Some(SessionEvent::Signal(envelope)) => {
                         if matches!(envelope.payload, SignalPayload::Bye { .. }) {
@@ -476,7 +481,11 @@ impl Session {
         }
         let (mut relayed, mut relayed_tls) = (Vec::new(), Vec::new());
         if let Some(turn) = turn {
-            timeline.mark(if turn.transport.is_stream() { "roam_turn_tls_allocated" } else { "roam_turn_allocated" });
+            timeline.mark(if turn.transport.is_stream() {
+                "roam_turn_tls_allocated"
+            } else {
+                "roam_turn_allocated"
+            });
             endpoints.push(turn.relayed);
             (relayed, relayed_tls) = relayed_of(Some(&turn));
             self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));

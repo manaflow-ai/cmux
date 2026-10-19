@@ -223,7 +223,11 @@ async fn connect(fixture: &Fixture, kind: TransportKind) -> Result<Connected, Di
     connect_with(fixture, kind, &options()).await
 }
 
-async fn connect_with(fixture: &Fixture, kind: TransportKind, options: &DialOptions) -> Result<Connected, DialError> {
+async fn connect_with(
+    fixture: &Fixture,
+    kind: TransportKind,
+    options: &DialOptions,
+) -> Result<Connected, DialError> {
     cnx_link::dial::connect(&fixture.phone, &fixture.mac_id, kind, options, LinkConfig::default()).await
 }
 
@@ -652,7 +656,8 @@ async fn services_over_wireguard() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn services_over_wireguard_turn_tls_with_udp_blocked() {
     let turn = cnx_link::testing::TestTurn::start().await;
-    let fixture = fixture(FakeOptions { ice_servers: vec![turn.ice.clone()], ..FakeOptions::default() }).await;
+    let fixture =
+        fixture(FakeOptions { ice_servers: vec![turn.ice.clone()], ..FakeOptions::default() }).await;
     let phone = DialOptions {
         ice_servers: vec![turn.ice.clone()],
         block_udp: true,

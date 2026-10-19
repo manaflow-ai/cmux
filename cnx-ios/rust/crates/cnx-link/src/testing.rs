@@ -243,7 +243,10 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                 }
                 let session = uuid::Uuid::from_slice(&bytes[..16]).map(|u| u.to_string()).unwrap_or_default();
                 let now = std::time::Instant::now();
-                if relay_errors.get(&session).is_some_and(|last| now.duration_since(*last) < RELAY_ERROR_INTERVAL) {
+                if relay_errors
+                    .get(&session)
+                    .is_some_and(|last| now.duration_since(*last) < RELAY_ERROR_INTERVAL)
+                {
                     continue;
                 }
                 relay_errors.insert(session.clone(), now);
@@ -430,18 +433,20 @@ impl TestTurn {
         let server = Self::server(Arc::new(udp), relay_ports.clone()).await;
         servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
 
-        let certified = rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_owned()]).expect("certificate");
+        let certified =
+            rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_owned()]).expect("certificate");
         let mut roots = rustls::RootCertStore::empty();
         roots.add(certified.cert.der().clone()).expect("root");
         let key = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
             certified.key_pair.serialize_der(),
         ));
-        let tls = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
-            .expect("TLS versions")
-            .with_no_client_auth()
-            .with_single_cert(vec![certified.cert.der().clone()], key)
-            .expect("TLS server config");
+        let tls =
+            rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .expect("TLS versions")
+                .with_no_client_auth()
+                .with_single_cert(vec![certified.cert.der().clone()], key)
+                .expect("TLS server config");
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
         let streams = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let mut tasks = Vec::new();
@@ -494,14 +499,16 @@ impl TestTurn {
         webrtc::turn::server::Server::new(webrtc::turn::server::config::ServerConfig {
             conn_configs: vec![webrtc::turn::server::config::ConnConfig {
                 conn,
-                relay_addr_generator: Box::new(webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges {
-                    relay_address: "127.0.0.1".parse().expect("ip"),
-                    min_port: *ports.start(),
-                    max_port: *ports.end(),
-                    max_retries: 10,
-                    address: "127.0.0.1".into(),
-                    net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
-                }),
+                relay_addr_generator: Box::new(
+                    webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges {
+                        relay_address: "127.0.0.1".parse().expect("ip"),
+                        min_port: *ports.start(),
+                        max_port: *ports.end(),
+                        max_retries: 10,
+                        address: "127.0.0.1".into(),
+                        net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
+                    },
+                ),
             }],
             realm: "cnx.test".into(),
             auth_handler: Arc::new(TestAuth),

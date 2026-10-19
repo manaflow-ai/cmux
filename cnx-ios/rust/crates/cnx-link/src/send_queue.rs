@@ -127,7 +127,11 @@ mod tests {
         }
         assert_eq!(
             order,
-            vec![Message::Text("offer".into()), Message::Ping(Vec::new().into()), Message::Text("bye".into())]
+            vec![
+                Message::Text("offer".into()),
+                Message::Ping(Vec::new().into()),
+                Message::Text("bye".into())
+            ]
         );
         assert!(queue.push_signal(Signal::Ping).is_err());
     }

@@ -656,6 +656,5 @@ mod tests {
         ));
         let refused = Err(DialError::Refused { code: "offline".into(), message: String::new() });
         assert!(signaling_outage(refused, &timeline, true).is_err());
-
     }
 }

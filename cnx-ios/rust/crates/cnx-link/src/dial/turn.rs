@@ -142,7 +142,8 @@ pub fn turn_servers(servers: &[IceServer]) -> (Option<TurnServer>, Option<TurnSe
         TurnTransport::Tcp => 2,
         TurnTransport::Udp => 3,
     };
-    let stream = all.iter().filter(|server| server.transport.is_stream()).min_by_key(|server| rank(server)).cloned();
+    let stream =
+        all.iter().filter(|server| server.transport.is_stream()).min_by_key(|server| rank(server)).cloned();
     (udp, stream)
 }
 
@@ -164,17 +165,21 @@ fn tls_config(options: &DialOptions) -> Result<Arc<rustls::ClientConfig>, String
     let roots = options.turn_tls_roots.clone().unwrap_or_else(|| {
         Arc::new(rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() })
     });
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-        .with_safe_default_protocol_versions()
-        .map_err(|error| error.to_string())?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+    let config =
+        rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .map_err(|error| error.to_string())?
+            .with_root_certificates(roots)
+            .with_no_client_auth();
     Ok(Arc::new(config))
 }
 
 /// The next STUN or ChannelData message on a TURN stream, into `buffer`:
 /// its length without ChannelData padding. `None` at a clean end of stream.
-pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut R, buffer: &mut [u8]) -> std::io::Result<Option<usize>> {
+pub async fn read_message<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    buffer: &mut [u8],
+) -> std::io::Result<Option<usize>> {
     let mut head = [0u8; 4];
     match reader.read_exact(&mut head).await {
         Ok(_) => {}
@@ -188,11 +193,17 @@ pub async fn read_message<R: AsyncRead + Unpin>(reader: &mut R, buffer: &mut [u8
         // ChannelData: a 4-byte header, padded to 4 bytes on a stream.
         0b01 => (4 + length, (4 + length + 3) & !3),
         _ => {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "not a STUN or ChannelData message"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "not a STUN or ChannelData message",
+            ));
         }
     };
     if framed > buffer.len() {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "TURN message larger than the buffer"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "TURN message larger than the buffer",
+        ));
     }
     buffer[..4].copy_from_slice(&head);
     reader.read_exact(&mut buffer[4..framed]).await?;
@@ -250,7 +261,9 @@ impl<S: AsyncRead + AsyncWrite + Send + Sync + 'static> Conn for StreamConn<S> {
         let mut reader = self.reader.lock().await;
         match read_message(&mut *reader, buf).await {
             Ok(Some(len)) => Ok((len, self.server)),
-            Ok(None) => Err(self.fail(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "TURN stream ended"))),
+            Ok(None) => {
+                Err(self.fail(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "TURN stream ended")))
+            }
             Err(error) => Err(self.fail(error)),
         }
     }
@@ -261,7 +274,9 @@ impl<S: AsyncRead + AsyncWrite + Send + Sync + 'static> Conn for StreamConn<S> {
 
     async fn send_to(&self, buf: &[u8], _target: SocketAddr) -> webrtc::util::Result<usize> {
         if self.closed.load(Ordering::Relaxed) {
-            return Err(self.fail(std::io::Error::new(std::io::ErrorKind::NotConnected, "TURN stream closed")));
+            return Err(
+                self.fail(std::io::Error::new(std::io::ErrorKind::NotConnected, "TURN stream closed"))
+            );
         }
         let mut writer = self.writer.lock().await;
         // The client pads ChannelData already; STUN is whole words. Flush
@@ -361,7 +376,9 @@ impl TurnCarrier {
     }
 
     async fn allocate_on(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
-        let (conn, dead): (Arc<dyn Conn + Send + Sync>, Option<watch::Receiver<bool>>) = match server.transport {
+        let (conn, dead): (Arc<dyn Conn + Send + Sync>, Option<watch::Receiver<bool>>) = match server
+            .transport
+        {
             TurnTransport::Udp => (Arc::new(super::wireguard::bind_udp().map_err(|e| e.to_string())?), None),
             TurnTransport::Tcp | TurnTransport::Tls => {
                 let tcp = TcpStream::connect(server.address.as_str()).await.map_err(|e| e.to_string())?;
@@ -484,7 +501,10 @@ impl TurnCarrier {
 }
 
 /// `attempt`, or `None` when it fails or takes longer than `limit`.
-async fn bounded(limit: Duration, attempt: impl std::future::Future<Output = Result<TurnCarrier, String>>) -> Option<TurnCarrier> {
+async fn bounded(
+    limit: Duration,
+    attempt: impl std::future::Future<Output = Result<TurnCarrier, String>>,
+) -> Option<TurnCarrier> {
     match tokio::time::timeout(limit, attempt).await {
         Ok(Ok(carrier)) => Some(carrier),
         Ok(Err(error)) => {
@@ -543,7 +563,10 @@ mod tests {
         let udp = udp.unwrap();
         assert_eq!((udp.address.as_str(), udp.transport), ("turn.cloudflare.com:3478", TurnTransport::Udp));
         let stream = stream.unwrap();
-        assert_eq!((stream.address.as_str(), stream.transport), ("turn.cloudflare.com:443", TurnTransport::Tls));
+        assert_eq!(
+            (stream.address.as_str(), stream.transport),
+            ("turn.cloudflare.com:443", TurnTransport::Tls)
+        );
         assert_eq!(stream.host, "turn.cloudflare.com");
         assert_eq!((stream.username.as_str(), stream.credential.as_str()), ("u", "c"));
         // Only plain TCP: that is the stream.
@@ -563,10 +586,14 @@ mod tests {
         let udp_only = DialOptions { ice_servers: ice(&["turn:t.example:3478"]), ..DialOptions::default() };
         assert!(missing_turn(&udp_only).is_none());
         assert!(missing_turn(&DialOptions { block_udp: true, ..udp_only.clone() }).is_some());
-        assert!(missing_turn(&DialOptions { relay_only: true, ..udp_only.clone() }).is_none());
+        assert!(missing_turn(&DialOptions { relay_only: true, ..udp_only }).is_none());
         let stun_only = DialOptions { ice_servers: ice(&["stun:s.example:3478"]), ..DialOptions::default() };
-        assert!(missing_turn(&DialOptions { relay_only: true, ..stun_only.clone() }).is_some());
-        let tls = DialOptions { ice_servers: ice(&["turns:t.example:443?transport=tcp"]), block_udp: true, ..DialOptions::default() };
+        assert!(missing_turn(&DialOptions { relay_only: true, ..stun_only }).is_some());
+        let tls = DialOptions {
+            ice_servers: ice(&["turns:t.example:443?transport=tcp"]),
+            block_udp: true,
+            ..DialOptions::default()
+        };
         assert!(missing_turn(&tls).is_none());
     }
 

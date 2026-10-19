@@ -208,7 +208,11 @@ async fn exercise_turn(phone_options: DialOptions, mac_options: DialOptions) -> 
 
 /// Phone dial options that trust `turn` and use all of its servers.
 fn with_turn(turn: &TestTurn, options: DialOptions) -> DialOptions {
-    DialOptions { ice_servers: vec![turn.ice.clone()], turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)), ..options }
+    DialOptions {
+        ice_servers: vec![turn.ice.clone()],
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        ..options
+    }
 }
 
 /// Relay only with a TURN server: WireGuard offers only its relayed address
@@ -274,18 +278,25 @@ async fn wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls() {
 async fn wireguard_without_turn_and_without_udp_fails_fast() {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
-    let _mac_task =
-        spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
-    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &uuid::Uuid::new_v4().to_string())
-        .await
-        .unwrap();
-    for options in [DialOptions { relay_only: true, ..options() }, DialOptions { block_udp: true, ..options() }] {
+    let _mac_task = spawn_echo_mac(
+        SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap(),
+    );
+    let phone =
+        SignalingClient::connect(&server.base_url, "user:alice", "team", &uuid::Uuid::new_v4().to_string())
+            .await
+            .unwrap();
+    for options in
+        [DialOptions { relay_only: true, ..options() }, DialOptions { block_udp: true, ..options() }]
+    {
         let started = std::time::Instant::now();
         let error = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
             .await
             .err()
             .expect("no path");
-        assert!(matches!(error, cnx_link::DialError::Transport(ref message) if message.contains("TURN")), "{error}");
+        assert!(
+            matches!(error, cnx_link::DialError::Transport(ref message) if message.contains("TURN")),
+            "{error}"
+        );
         assert!(started.elapsed() < Duration::from_secs(1));
     }
 }
