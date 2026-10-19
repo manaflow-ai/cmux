@@ -223,3 +223,31 @@ test("a live compaction stops running when its turn ends or the next turn starts
   );
   expect(states()?.map((compaction) => compaction?.state)).toEqual(["failed", "failed"]);
 });
+
+test("a compaction that ends after a forced Stop ended its turn stays one row", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "/compact" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    // Claude did not answer Stop in time: acpmux ended the turn itself.
+    ["mux", "turn_result", { status: "cancelled", cancelForced: true }],
+  ];
+  const late: Step = [
+    "in",
+    "compaction",
+    update({ sessionUpdate: "compaction", state: "completed", preTokens: 27183, postTokens: 2047 }),
+  ];
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => [row.seq, row.compaction?.state]);
+
+  // Live: the row reads as failed at the forced end, then the late boundary replaces it.
+  const daemon = fakeDaemon(record(steps));
+  const live = await connect(daemon);
+  expect(compactions(live.rows())).toEqual([[3, "failed"]]);
+  daemon.push(record([late], 5));
+  expect(compactions(live.rows())).toEqual([[3, "completed"]]);
+
+  // Reload: the same history gives the same one row.
+  const reloaded = await connect(fakeDaemon(record([...steps, late])));
+  expect(compactions(reloaded.rows())).toEqual([[3, "completed"]]);
+});
