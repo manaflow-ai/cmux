@@ -1,7 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextSettings
 public import CmuxNextDaemonService
-import Foundation
+public import Foundation
 import CmuxNextCompat
 
 /// What every diff tab shares: the per-user session root, the sidecar pool
