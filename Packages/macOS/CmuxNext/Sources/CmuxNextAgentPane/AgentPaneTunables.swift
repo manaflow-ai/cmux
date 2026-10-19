@@ -319,5 +319,27 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [chatWidth.descriptor, codexToolRuns.descriptor, composerPlainFooter.descriptor, foldLongThoughts.descriptor, liveThoughtViewport.descriptor, pageHost.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, modelMenu.descriptor, sessionStatus.descriptor, sidebarPreviewVariant.descriptor, sideSessions.descriptor, suggestedTasks.descriptor, newTabWidgets.descriptor, terminalButtonAdds.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor] }
+    public static var all: [TunableDescriptor] {
+        [
+            chatWidth.descriptor,
+            codexToolRuns.descriptor,
+            composerPlainFooter.descriptor,
+            foldLongThoughts.descriptor,
+            liveThoughtViewport.descriptor,
+            modelMenu.descriptor,
+            newTabWidgets.descriptor,
+            pageHost.descriptor,
+            reasoningSlider.descriptor,
+            reasoningSliderStyle.descriptor,
+            sessionStatus.descriptor,
+            sidebarPreviewVariant.descriptor,
+            sideSessions.descriptor,
+            suggestedTasks.descriptor,
+            terminalButtonAdds.descriptor,
+            thoughtFoldThreshold.descriptor,
+            thoughtHeader.descriptor,
+            topStripStyle.descriptor,
+            turnActionsPlacement.descriptor,
+        ]
+    }
 }

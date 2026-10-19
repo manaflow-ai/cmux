@@ -95,6 +95,7 @@ final class TerminalSizedForChip: NSView {
         if isHidden, let layer {
             let seconds = Motion.duration(.fadeIn)
             if seconds > 0 {
+                // motion-allow: a fade on Motion's .fadeIn duration and fadeCurve, skipped when Motion says 0
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = 0
                 fade.toValue = 1

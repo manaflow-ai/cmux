@@ -295,19 +295,6 @@
 .acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); }
 .acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
-.acpmux-access-grant-count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  border-radius: 6px;
-  background: var(--acpmux-menu-hover);
-  color: var(--agent-text);
-  font-size: var(--text-caption);
-  line-height: 14px;
-  font-variant-numeric: tabular-nums;
-}
 .acpmux-access-grants {
   min-inline-size: 0;
   border: 0;
