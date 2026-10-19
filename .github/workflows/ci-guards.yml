@@ -1166,6 +1166,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
 
+      - name: Validate the nightly-next feed rollback
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_feed_rollback.py
+
       - name: Validate the nightly-next arm64-only track
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_arm64_only.py
