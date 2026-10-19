@@ -22,6 +22,9 @@ DOC = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").rea
 PUSH = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")["run"]
 SETTINGS = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift"
 EXPORT = "schemas/settings/settings-schema.json"
+SNAPSHOT = "schemas/defaults/cmux-next.json"
+SHORTCUTS = "web/data/cmux-shortcuts.generated.json"
+SURFACES = "plans/cmux-next/action-surfaces.json"
 
 
 def git(cwd, *args):
@@ -35,18 +38,22 @@ class BaseAutofixFinishes(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertFalse(DOC["jobs"][job]["concurrency"]["cancel-in-progress"])
 
-    def push(self, moved: dict[str, str] | None, *, reject_without_moving=False):
-        """Run the push loop: a repair of EXPORT at HEAD_SHA, while feat-cmux-next gained `moved`."""
+    def push(self, moved: dict[str, str] | None, *, repair: dict[str, str] | None = None,
+             reject_without_moving=False, move_again: dict[str, str] | None = None):
+        """Run the push loop: a repair (default: the settings export) made at HEAD_SHA, while feat-cmux-next
+        gained `moved`; with `move_again`, the first push is rejected after the branch moves once more."""
+        repair = repair or {EXPORT: "new"}
         work = Path(tempfile.mkdtemp())
-        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-               "GIT_COMMITTER_EMAIL": "t@t"}
-        os.environ.update({k: v for k, v in env.items() if k.startswith("GIT_")})
+        os.environ.update({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                           "GIT_COMMITTER_EMAIL": "t@t"})
         git(work, "init", "-q", "--bare", "remote.git")
         seed = work / "seed"
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
-        for path, text in ((SETTINGS, "k1"), (EXPORT, "old"), ("README.md", "r"),
-                           ("scripts/cmux-next/autofix-areas.sh", (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text())):
+        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old",
+                 "README.md": "r", "unlisted/output.txt": "old",
+                 "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
+        for path, text in files.items():
             (seed / path).parent.mkdir(parents=True, exist_ok=True)
             (seed / path).write_text(text)
         (seed / "scripts/cmux-next/autofix-areas.sh").chmod(0o755)
@@ -54,14 +61,24 @@ class BaseAutofixFinishes(unittest.TestCase):
         git(seed, "commit", "-qm", "base")
         git(seed, "push", "-q", "origin", "feat-cmux-next")
         head = git(seed, "rev-parse", "HEAD")
-        runner = work / "runner"
         git(work, "clone", "-q", "--depth=1", "-b", "feat-cmux-next", f"file://{work}/remote.git", "runner")
+        runner = work / "runner"
         if moved:
             for path, text in moved.items():
                 (seed / path).write_text(text)
             git(seed, "commit", "-qam", "someone merged")
             git(seed, "push", "-q", "origin", "feat-cmux-next")
-        (runner / EXPORT).write_text("new")
+        if move_again:
+            for path, text in move_again.items():
+                (seed / path).write_text(text)
+            git(seed, "commit", "-qam", "someone merged again")
+            git(seed, "push", "-q", "origin", "HEAD:refs/heads/later")
+            hook = work / "remote.git" / "hooks" / "pre-receive"
+            hook.write_text("#!/bin/sh\nunset GIT_QUARANTINE_PATH\nif [ ! -e moved-once ]; then touch moved-once; "
+                            "git update-ref refs/heads/feat-cmux-next refs/heads/later; exit 1; fi\n")
+            hook.chmod(0o755)
+        for path, text in repair.items():
+            (runner / path).write_text(text)
         git(runner, "commit", "-qam", "repair")
         if reject_without_moving:
             hook = work / "remote.git" / "hooks" / "pre-receive"
@@ -71,23 +88,54 @@ class BaseAutofixFinishes(unittest.TestCase):
         script = (f'set -euo pipefail\nremote="file://{work}/remote.git"\nwith_auth=(env)\n'
                   f'HEAD_SHA={head}\nGITHUB_STEP_SUMMARY=/dev/null\n{loop}')
         done = subprocess.run(["bash", "-c", script], cwd=runner, capture_output=True, text=True)
-        git(seed, "pull", "-q", "origin", "feat-cmux-next")
-        return done, (seed / EXPORT).read_text(), done.stdout + done.stderr
+        tip = git(work / "remote.git", "rev-parse", "refs/heads/feat-cmux-next")
+        landed = {path: git(work / "remote.git", "show", f"{tip}:{path}") for path in repair}
+        return done, landed, done.stdout + done.stderr
 
     def test_the_repair_lands_on_a_base_that_moved_elsewhere(self):
-        done, export, out = self.push({"README.md": "r2"})
+        done, landed, out = self.push({"README.md": "r2"})
         self.assertEqual(done.returncode, 0, out)
-        self.assertEqual(export, "new")
+        self.assertEqual(landed[EXPORT], "new")
+
+    def test_a_retry_when_the_base_moves_twice(self):
+        done, landed, out = self.push({"README.md": "r2"}, move_again={"README.md": "r3"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[EXPORT], "new")
+        self.assertIn("attempt 3", out)
 
     def test_a_repair_whose_inputs_changed_meanwhile_is_left_to_the_newer_run(self):
         # The settings sources moved (a revert, say): this run's export would be wrong at the tip.
-        done, export, out = self.push({SETTINGS: "k0"})
+        done, landed, out = self.push({SETTINGS: "k0"})
         self.assertEqual(done.returncode, 1)
-        self.assertEqual(export, "old")
+        self.assertEqual(landed[EXPORT], "old")
         self.assertIn("newer run", out)
 
+    def test_the_defaults_snapshot_waits_when_the_action_exports_moved(self):
+        # The snapshot is built from the settings and the action exports (coord-2 review of c30bfe5).
+        done, landed, out = self.push({SURFACES: "changed"}, repair={SNAPSHOT: "new"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed[SNAPSHOT], "old")
+
+    def test_a_shortcuts_repair_lands_past_an_unrelated_change(self):
+        done, landed, out = self.push({"README.md": "r2"}, repair={SHORTCUTS: "new"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[SHORTCUTS], "new")
+
+    def test_an_output_no_area_claims_is_never_reapplied(self):
+        done, landed, out = self.push({"README.md": "r2"}, repair={"unlisted/output.txt": "new"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed["unlisted/output.txt"], "old")
+        self.assertIn("unlisted/output.txt", out)
+
+    def test_a_conflict_fails_without_pushing(self):
+        # web/data/ is no input area, so only the cherry-pick itself can catch this.
+        done, landed, out = self.push({SHORTCUTS: "someone else's"}, repair={SHORTCUTS: "new"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed[SHORTCUTS], "someone else's")
+        self.assertIn("conflicts", out)
+
     def test_a_push_rejected_without_the_base_moving_says_so(self):
-        done, export, out = self.push(None, reject_without_moving=True)
+        done, _, out = self.push(None, reject_without_moving=True)
         self.assertEqual(done.returncode, 1)
         self.assertIn("rejected", out)
         self.assertNotIn("kept moving", out)
