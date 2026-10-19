@@ -9740,9 +9740,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let mouseState = rememberGhosttyMouseState(from: event)
         var contextMenuSession: GhosttyMouseSessionLedger.Session?
+        var ghosttyConsumedPress = false
         if sendsTerminalPointerEvent {
             ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
-            _ = sendGhosttyMouseButton(
+            ghosttyConsumedPress = sendGhosttyMouseButton(
                 surface,
                 state: GHOSTTY_MOUSE_PRESS,
                 button: GHOSTTY_MOUSE_RIGHT,
@@ -9753,6 +9754,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 for: .right,
                 on: currentGhosttyMouseSurfaceIdentity
             )
+        }
+        // Ghostty ran a right-click-action other than context-menu; mouse-up releases the press.
+        if ghosttyConsumedPress, event.type == .rightMouseDown {
+            return nil
         }
 
         let menu = NSMenu()

@@ -2319,6 +2319,7 @@
 		BDFCA25C0CE77A299C915E26 /* GhosttyOptionAsAltModsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F34462AE2F2EECEF5298031 /* GhosttyOptionAsAltModsTests.swift */; };
 		3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */; };
 		7269A0017269A0017269A001 /* GhosttyPhysicalInputFocusReassertionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7269A0027269A0027269A002 /* GhosttyPhysicalInputFocusReassertionTests.swift */; };
+		F3DB20D29F00F999B148C7DA /* GhosttyRightClickActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91976133DC2141C541E5AABF /* GhosttyRightClickActionTests.swift */; };
 		5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */; };
 		816400000000000000000001 /* GhosttyScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816400000000000000000002 /* GhosttyScrollView.swift */; };
 		816400000000000000000003 /* GhosttyScrollViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816400000000000000000004 /* GhosttyScrollViewTests.swift */; };
@@ -6933,6 +6934,7 @@
 		4F34462AE2F2EECEF5298031 /* GhosttyOptionAsAltModsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyOptionAsAltModsTests.swift; sourceTree = "<group>"; };
 		3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPasteboardFidelityTests.swift; sourceTree = "<group>"; };
 		7269A0027269A0027269A002 /* GhosttyPhysicalInputFocusReassertionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyPhysicalInputFocusReassertionTests.swift; sourceTree = "<group>"; };
+		91976133DC2141C541E5AABF /* GhosttyRightClickActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyRightClickActionTests.swift"; sourceTree = "<group>"; };
 		5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollPreciseBoostTests.swift; sourceTree = "<group>"; };
 		816400000000000000000002 /* GhosttyScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollView.swift; sourceTree = "<group>"; };
 		816400000000000000000004 /* GhosttyScrollViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollViewTests.swift; sourceTree = "<group>"; };
@@ -14058,6 +14060,7 @@
 				6C52E5BCE0CCFD00CD9ED561 /* AgentPreviousGenerationSessionEndTests.swift */,
 				F152960A3E2799807D8DD3EE /* VaultClaudeCustomTitleTests.swift */,
 				745FF9094E4E0023E0EFB065 /* SidebarWorkspaceSnapshotTests.swift */,
+				91976133DC2141C541E5AABF /* GhosttyRightClickActionTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18701,6 +18704,7 @@
 				BDFCA25C0CE77A299C915E26 /* GhosttyOptionAsAltModsTests.swift in Sources */,
 				3069F1D10000000000000003 /* GhosttyPasteboardFidelityTests.swift in Sources */,
 				7269A0017269A0017269A001 /* GhosttyPhysicalInputFocusReassertionTests.swift in Sources */,
+				F3DB20D29F00F999B148C7DA /* GhosttyRightClickActionTests.swift in Sources */,
 				5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */,
 				816400000000000000000003 /* GhosttyScrollViewTests.swift in Sources */,
 				A1400000A1B2C3D4E5F60718 /* GhosttySplitDividerColorTests.swift in Sources */,
