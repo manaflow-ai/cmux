@@ -227,7 +227,7 @@ after Xcode reported `BUILD SUCCEEDED`.
 ## Exact-head validation update (2026-10-19)
 
 The current repair worktree head is
-[`1c1ccb4b5ea9c1226400357dcb440aaceead0c79`](https://github.com/danielraffel/cmux/commit/1c1ccb4b5ea9c1226400357dcb440aaceead0c79).
+[`12aa332ac53e331e8307db0a8531c062de20fe81`](https://github.com/danielraffel/cmux/commit/12aa332ac53e331e8307db0a8531c062de20fe81).
 The code head for the implementation change is
 [`63814044655fcac6f862ca86ee88fb346e6a2112`](https://github.com/danielraffel/cmux/commit/63814044655fcac6f862ca86ee88fb346e6a2112).
 The earlier provider repair remains at
@@ -235,12 +235,24 @@ The earlier provider repair remains at
 with subsequent commits recording receipts and the custom-path fix.
 It contains the restore identity and fallback hardening, the managed-binding
 persistence validation, and the `cmux feed clear` revision-floor fix. The
-portable CMUXAgentLaunch suite passes **883 tests in 100 suites**; the focused
+portable CMUXAgentLaunch suite passes **887 tests in 100 suites**; the focused
 agent-restore regression passes **8 tests**; and the Dock lifecycle suite passes
 **54 tests**. Swift syntax, test wiring, and `git diff --check` also pass.
 Astra reviewed the exact committed repair slice; its final adversarial pass
 caught and corrected an overly broad compatibility bypass before this head was
 recorded. Claude proxy review was attempted again but remained unavailable.
+
+The oversized-row follow-up is covered by
+[`8fa30223ecb9806a54a559c6f04a8d6c9736d4f4`](https://github.com/danielraffel/cmux/commit/8fa30223ecb9806a54a559c6f04a8d6c9736d4f4),
+[`7e71de65755ea9002b72aa48e87671a37eb2711c`](https://github.com/danielraffel/cmux/commit/7e71de65755ea9002b72aa48e87671a37eb2711c),
+and [`12aa332ac53e331e8307db0a8531c062de20fe81`](https://github.com/danielraffel/cmux/commit/12aa332ac53e331e8307db0a8531c062de20fe81).
+Bounded tail reads now track byte offsets, skip complete rows larger than the
+decode budget, and return strict progress cursors when a backward scan cannot
+reach the preceding newline in one request. A cumulative recovery-depth cap
+prevents consecutive oversized rows from expanding one page request without
+bound. The focused persistence suite passes **26 tests**, including repeated
+paging across a complete 33 MiB row and consecutive oversized rows; the full
+package suite passes **887 tests in 100 suites**.
 
 The adversarial pass also found a managed custom-Codex edge: legacy workspace
 restore previously required the executable basename to be literally `codex`,
@@ -321,7 +333,7 @@ CoreSimulator-version warning on this host. This is the authoritative focused
 receipt for the current repair head; the earlier 21-test persistence receipt
 remains a subset of it.
 
-The isolated `CMUXAgentLaunch` package suite also passed on this head: **883
+The isolated `CMUXAgentLaunch` package suite also passed on this head: **887
 tests in 100 suites**. It includes the lease-transfer tests proving that the
 launched agent does not inherit the lease and that the exit watcher retains it
 until the agent exits, plus the bounded persistence, provider-routing, and
