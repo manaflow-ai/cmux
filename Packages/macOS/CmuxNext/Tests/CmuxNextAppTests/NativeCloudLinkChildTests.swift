@@ -32,8 +32,14 @@ import Testing
 
     private func startup(recheck: @escaping @Sendable () async throws -> Void = {}) throws -> NativeCloudLinkStartup {
         let key = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: Data(repeating: 7, count: 32))
-        let bytes = try JSONSerialization.data(withJSONObject: ["version": 1, "install": "inst_native",
+        let mesh = "mesh_" + String(repeating: "0", count: 26), device = "dev_" + String(repeating: "0", count: 26)
+        let bytes = try JSONSerialization.data(withJSONObject: ["version": 2, "install": "inst_native",
             "team": "team_" + String(repeating: "a", count: 20), "mesh": "mesh_" + String(repeating: "0", count: 26),
+            "tenant": "tenant_a", "ipv4_cidr": "10.128.0.0/20", "device": device,
+            "tunnel": ["id": "tun_" + String(repeating: "0", count: 26), "meshId": mesh, "deviceId": device,
+                "endpointHost": "203.0.113.30", "endpointPort": 51820, "serverPublicKey": Data(repeating: 3, count: 32).base64EncodedString(),
+                "interfaceAddress": "100.64.0.1/32", "meshAddress": "10.128.0.10", "allowedIps": ["10.128.0.0/20"],
+                "mtu": 1280, "persistentKeepaliveSeconds": 25],
             "private_key": key.rawRepresentation.base64EncodedString()])
         return NativeCloudLinkStartup(bytes: bytes, publicKey: key.publicKey.rawRepresentation.base64EncodedString(), recheck: recheck)
     }

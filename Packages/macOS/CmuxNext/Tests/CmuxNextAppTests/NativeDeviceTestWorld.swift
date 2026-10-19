@@ -21,6 +21,8 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     private var beforePolicy: (@Sendable () async -> Void)?
     private var beforeTarget: (@Sendable () async -> Void)?
     private var beforeCloud: (@Sendable () async -> Void)?
+    private var beforeTunnel: (@Sendable () async -> Void)?
+    private var badTunnel: String?
     private var badTarget: String?
     private var targetStatus = 200
     private(set) var requests: [Data] = []
@@ -32,6 +34,7 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     private(set) var proofNonces: [String] = []
     private(set) var signedReadsWithCredentials = 0
     private(set) var cloudMints = 0
+    private(set) var tunnelReads = 0
     init(scopes: [NativeDeviceScope]) { self.scopes = scopes }
     func loseEnrollmentReply() { loseEnroll = true }
     func loseBindingReply() { loseBind = true }
@@ -41,6 +44,8 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     func onPolicy(_ action: @escaping @Sendable () async -> Void) { beforePolicy = action }
     func onTarget(_ action: @escaping @Sendable () async -> Void) { beforeTarget = action }
     func onCloud(_ action: @escaping @Sendable () async -> Void) { beforeCloud = action }
+    func onTunnel(_ action: @escaping @Sendable () async -> Void) { beforeTunnel = action }
+    func setBadTunnel(_ field: String) { badTunnel = field }
     func setBadTarget(_ field: String) { badTarget = field }
     func refuseTarget(_ status: Int) { targetStatus = status }
     func holdEnrollment() { hold = true }
@@ -123,6 +128,22 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
 
     func send(method: String, path: String, body: Data?, bearer: String?, tenant: String?) async throws -> (status: Int, body: Data) {
         if let body { requests.append(body) }
+        if path.hasSuffix("/signed/tunnel") {
+            guard bearer == nil, tenant == nil, method == "POST", let body,
+                  let proof = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+                  let row = devices.first(where: { $0["id"] == String(path.split(separator: "/")[2]) }),
+                  let point = row["installPublicKey"] else { throw Failure.invalid }
+            try verify(proof, purpose: "tunnel", target: row["id"]!, point: point)
+            tunnelReads += 1
+            let action = beforeTunnel; beforeTunnel = nil
+            await action?()
+            var config: [String: Any] = ["id": "tun_" + String(repeating: "0", count: 26),
+                "meshId": row["meshId"]!, "deviceId": row["id"]!, "endpointHost": "203.0.113.30", "endpointPort": 51820,
+                "serverPublicKey": Data(repeating: 3, count: 32).base64EncodedString(), "interfaceAddress": "100.64.0.1/32",
+                "meshAddress": "10.128.0.10", "allowedIps": ["10.128.0.0/20", "fd00:1::/64"], "mtu": 1280, "persistentKeepaliveSeconds": 25]
+            if let badTunnel { config[badTunnel] = "wrong-identity" }
+            return (200, try data(config))
+        }
         if path.hasSuffix("/signed/overlay-policy") {
             if bearer != nil || tenant != nil { signedReadsWithCredentials += 1; throw Failure.invalid }
             let id = path.split(separator: "/")[2]

@@ -111,4 +111,39 @@ import Testing
         await #expect(throws: (any Error).self) { try await device.cloudBrokerReply(bytes) }
         #expect(await world.requests.count == before)
     }
+
+    @Test func everyStartupGetsAFreshSignedTunnelWithoutSendingAccountCredentials() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (scope, world, _, device) = try await fixture(root: root)
+        let first = try await device.linkStartup(), second = try await device.linkStartup()
+        #expect(await world.tunnelReads == 2)
+        let nonces = await world.proofNonces
+        #expect(nonces.count == 7 && Set(nonces).count == 7)
+        let startup = try object(second.bytes)
+        #expect(startup["version"] as? Int == 2 && startup["tenant"] as? String == scope.tenant)
+        #expect(startup["ipv4_cidr"] as? String == "10.128.0.0/20")
+        #expect((startup["tunnel"] as? [String: Any])?["meshId"] as? String == scope.mesh)
+        #expect(first.publicKey == second.publicKey)
+        #expect(await world.enrollments == 1)
+    }
+
+    @Test(arguments: ["deviceId", "meshId"])
+    func aTunnelForAnotherDeviceOrMeshCannotBecomeStartupAuthority(field: String) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (_, world, _, device) = try await fixture(root: root)
+        await world.setBadTunnel(field)
+        await #expect(throws: (any Error).self) { try await device.linkStartup() }
+        #expect(await world.tunnelReads == 1)
+    }
+
+    @Test func signOutWhileReadingATunnelNeverReturnsTheStartupKey() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (_, world, identity, device) = try await fixture(root: root)
+        await world.onTunnel { await identity.unbind() }
+        await #expect(throws: MacInstallIdentity.Failure.signedOut) { try await device.linkStartup() }
+        #expect(await world.tunnelReads == 1)
+    }
 }
