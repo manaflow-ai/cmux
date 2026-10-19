@@ -174,6 +174,16 @@ async fn full_access_off_keeps_every_chat_out_of_full_access() {
             .await;
         assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{value}: {r}");
     }
+    // Ids that only contain "full" do not skip approvals (Codex's full-auto still asks): not refused.
+    for value in ["full-auto", "fullscreen", "full-context"] {
+        let r = app
+            .call(
+                "session/set_config_option",
+                json!({"sessionId": chat, "configId": "sandbox", "value": value}),
+            )
+            .await;
+        assert_ne!(r["error"]["data"]["reason"], "full_access_off", "{value}: {r}");
+    }
     assert_eq!(app.mode(&chat).await, "agent");
     // Other modes still switch.
     let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;
