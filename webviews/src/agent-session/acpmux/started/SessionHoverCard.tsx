@@ -1,7 +1,9 @@
 // The hover card of a session reference (a started chat's card or name chip, a session id in a
-// reply), the way Claude Code desktop's session link card shows one: a status pill, the project,
-// how long ago it changed and the title. A running session's pill draws the pane's working
-// spinner bare, with nothing filled behind it (Leo, 2026-10-19). The card waits for a short rest
+// reply), the way Claude Code desktop's PR list rows show one: the title, then a line with its state
+// (glyph and word in the state's colour, no outline), the project and, at the end, how long ago it
+// changed; a session with a pull request adds the PR's status and `repo #N` as its chat card names
+// them. A running session's state draws the pane's working spinner bare, with nothing filled behind
+// it (Leo, 2026-10-19). The card waits for a short rest
 // of the pointer, shows at once for keyboard focus (ArrowDown moves into it, Escape leaves it),
 // and a click on it opens the session. Behind the `started-session-cards` experiment.
 import {
@@ -23,6 +25,7 @@ import { shortAge } from "../sessionList";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../../ui/hoverIntent";
 import { type HoverState, type SessionHoverInfo, type SessionHoverStore, useSessionHoverInfo } from "./sessionHover";
+import { PR_STATUS_WORDS, pullRequestName } from "./startedSessions";
 import "./sessionHover.css";
 
 /// The pointer's rest on a reference before its card shows: shorter than a sidebar row's
@@ -229,27 +232,44 @@ export function SessionHoverContent({
         onEscape();
       }}
     >
+      <span className="acpmux-session-hover-title">{info.title}</span>
       <span className="acpmux-session-hover-meta">
-        <SessionStatePill state={info.state} />
+        <SessionStateLabel state={info.state} />
         {info.project && <span className="acpmux-session-hover-project">{info.project}</span>}
         {age && <span className="acpmux-session-hover-age">{age}</span>}
       </span>
-      <span className="acpmux-session-hover-title">{info.title}</span>
+      {info.pullRequests && <PullRequestRow pullRequests={info.pullRequests} />}
     </button>
   );
 }
 
-/// The state as a quiet pill: an outline, its glyph and its name. Running draws the bare spinner.
-export function SessionStatePill({ state }: { state: HoverState }) {
+/// The state: its glyph and its name in the state's colour. Running draws the bare spinner.
+export function SessionStateLabel({ state }: { state: HoverState }) {
   const t = useT();
   return (
-    <span className="acpmux-session-pill" data-state={state}>
+    <span className="acpmux-session-state" data-state={state}>
       {state === "running" ? (
-        <Spinner size={11} className="acpmux-session-pill-spinner" />
+        <Spinner size={11} className="acpmux-session-state-spinner" />
       ) : (
         <Icon name={GLYPHS[state]} size={11} />
       )}
       {t(LABELS[state])}
+    </span>
+  );
+}
+
+/// The session's pull request: its status in its colour, then `repo #N` (and how many more).
+function PullRequestRow({ pullRequests }: { pullRequests: NonNullable<SessionHoverInfo["pullRequests"]> }) {
+  const t = useT();
+  const word = PR_STATUS_WORDS[pullRequests.tone];
+  return (
+    <span className="acpmux-session-hover-pr">
+      <span className="acpmux-session-hover-pr-status" data-tone={pullRequests.tone}>
+        <Icon name="git.pullrequest" size={11} />
+        {word && <span>{t(word)}</span>}
+      </span>
+      <span className="acpmux-session-hover-pr-name">{pullRequestName(pullRequests)}</span>
+      {pullRequests.count > 1 && <span>{t("started.morePullRequests", { count: pullRequests.count - 1 })}</span>}
     </span>
   );
 }

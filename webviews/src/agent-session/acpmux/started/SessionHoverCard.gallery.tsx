@@ -3,6 +3,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { sessionEntry } from "../sessionList";
 import { type HoverState, SessionHoverStore } from "./sessionHover";
+import type { StartedPullRequests } from "./startedSessions";
 import { SessionHoverContent, SessionHoverContext } from "./SessionHoverCard";
 import { StartedSessionChip } from "./StartedSessionCard";
 
@@ -16,6 +17,11 @@ const titles: Record<HoverState, string> = {
   done: "Bump the Ghostty pin",
   failed: "Fix the flaky sidebar test",
 };
+const prs: Partial<Record<HoverState, StartedPullRequests>> = {
+  running: { count: 2, tone: "ready", number: 22092, repo: "cmux" },
+  failed: { count: 1, tone: "failing", number: 22163, repo: "cmux" },
+  done: { count: 1, tone: "merged", number: 22164, repo: "cmux" },
+};
 const ages: Record<HoverState, number> = { running: 0, unread: 4, waiting: 12, done: 180, failed: 60 * 26 };
 
 const CHIP_ID = "01a0ebd5-0efe-721d-9edc-cf1a6ba78d98";
@@ -27,6 +33,8 @@ store.set([
     cwd: "/Users/you/Projects/cmux",
     indicator: "working",
     updatedAt: NOW,
+    pullRequests: ["https://github.com/manaflow-ai/cmux/pull/22092"],
+    pullRequest: { number: 22092, title: "Switch gh-merge-green", state: "open", checks: "failing" },
   }),
 ]);
 
@@ -63,6 +71,7 @@ function GallerySessionHover({ mode }: Props) {
                 state,
                 project: "cmux",
                 updatedAt: NOW - ages[state] * 60_000,
+                ...(prs[state] ? { pullRequests: prs[state] } : {}),
               }}
               now={NOW}
               onOpen={() => undefined}
@@ -90,14 +99,14 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-hover-fixture]" }],
   covers: [
     "agent-session/acpmux/started/SessionHoverCard.tsx#SessionHoverContent",
-    "agent-session/acpmux/started/SessionHoverCard.tsx#SessionStatePill",
+    "agent-session/acpmux/started/SessionHoverCard.tsx#SessionStateLabel",
     "agent-session/acpmux/started/SessionHoverCard.tsx#SessionHoverContext",
   ],
   styles: () => import("../styles.css"),
   load: async () => GallerySessionHover,
   variants: {
     states: {
-      note: "Each state's card: running (the bare spinner), new activity, needs input, done and failed, with the project and age.",
+      note: "Each state's card, title first: running (the bare spinner) with two PRs, new activity, needs input, done with a merged PR and failed with failing checks, each with the project and age.",
       props: { mode: "states" },
     },
     chip: {

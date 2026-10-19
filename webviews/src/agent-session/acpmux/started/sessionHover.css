@@ -1,5 +1,8 @@
-/* A session reference's hover card (SessionHoverCard.tsx): the state pill, project and age on one
-   line, the title under them. The whole card is one button that opens the session. */
+/* A session reference's hover card (SessionHoverCard.tsx), as Claude Code's PR list rows read: the
+   title in the body step, then detail lines in the dim colour, the state's glyph and word in its
+   colour (no outline) · the project, the age at the line's end, and the pull request's status in its
+   colour · `repo #N`. The whole card is one button that opens the session. Sizes are the type
+   scale's steps (desktop.css). */
 .acpmux-session-hover-card.ui-card {
   padding: 0;
 }
@@ -7,8 +10,8 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  width: 260px;
+  gap: 4px;
+  width: 280px;
   max-width: calc(100vw - 32px);
   padding: 10px 12px;
   border: 0;
@@ -16,8 +19,8 @@
   background: none;
   color: var(--agent-text);
   font: inherit;
-  font-size: var(--text-control);
-  line-height: 18px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
   text-align: start;
   cursor: pointer;
 }
@@ -28,15 +31,29 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
-.acpmux-session-hover-meta {
+.acpmux-session-hover-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+.acpmux-session-hover-meta,
+.acpmux-session-hover-pr {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   color: var(--acpmux-composer-dim);
   font-size: var(--text-detail);
-  line-height: 16px;
+  line-height: var(--text-detail--line-height);
   white-space: nowrap;
+}
+/* `State · project`, `Status · repo #N`: the separator only between the two. */
+.acpmux-session-state + .acpmux-session-hover-project::before,
+.acpmux-session-hover-pr-status + .acpmux-session-hover-pr-name::before {
+  content: "·";
+  margin-inline-end: 6px;
 }
 .acpmux-session-hover-project {
   min-width: 0;
@@ -45,59 +62,62 @@
 }
 .acpmux-session-hover-age {
   flex: none;
+  margin-inline-start: auto;
+  padding-inline-start: 8px;
   font-variant-numeric: tabular-nums;
 }
-.acpmux-session-hover-title {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow-wrap: anywhere;
+.acpmux-session-hover-pr-name {
+  font-variant-numeric: tabular-nums;
 }
 
-/* The state pill: an outline, never a fill, so the running spinner has nothing behind it. */
-.acpmux-session-pill {
+/* The state: its glyph and word in its colour, never an outline or a fill, so the running spinner
+   has nothing behind it. */
+.acpmux-session-state,
+.acpmux-session-hover-pr-status {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 4px;
-  height: 18px;
-  padding: 0 7px 0 5px;
-  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-  border-radius: 9px;
-  background: none;
-  color: var(--acpmux-composer-dim);
-  font-size: var(--text-detail);
-  line-height: 16px;
 }
-.acpmux-session-pill[data-state="running"] {
+.acpmux-session-state[data-state="running"] {
   color: var(--agent-accent);
 }
-.acpmux-session-pill[data-state="waiting"] {
+.acpmux-session-state[data-state="waiting"] {
   color: var(--acpmux-warning);
 }
-.acpmux-session-pill[data-state="failed"] {
+.acpmux-session-state[data-state="failed"] {
   color: var(--agent-danger);
 }
-.acpmux-session-pill[data-state="unread"] {
+.acpmux-session-state[data-state="unread"] {
   color: var(--agent-text);
 }
-.acpmux-session-pill[data-state="done"] {
+.acpmux-session-state[data-state="done"] {
   color: var(--agent-success, var(--acpmux-add, #3fb950));
 }
-.acpmux-session-pill-spinner {
+.acpmux-session-hover-pr-status[data-tone="ready"],
+.acpmux-session-hover-pr-status[data-tone="open"] {
+  color: var(--agent-success, var(--acpmux-add, #3fb950));
+}
+.acpmux-session-hover-pr-status[data-tone="failing"],
+.acpmux-session-hover-pr-status[data-tone="closed"] {
+  color: var(--agent-danger);
+}
+.acpmux-session-hover-pr-status[data-tone="merged"] {
+  color: var(--agent-ansi-5, #a371f7);
+}
+.acpmux-session-state-spinner {
   flex: none;
   background: none;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-session-pill-spinner {
-    animation: acpmux-session-pill-spin 800ms linear infinite;
+  .acpmux-session-state-spinner {
+    animation: acpmux-session-state-spin 800ms linear infinite;
   }
   .acpmux-session-hover {
     transition: background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease);
   }
 }
-@keyframes acpmux-session-pill-spin {
+@keyframes acpmux-session-state-spin {
   to {
     transform: rotate(360deg);
   }

@@ -8,20 +8,16 @@
 // `started-session-cards` experiment (startedSessions.ts).
 import { createContext, useContext } from "react";
 import { Icon } from "../icons/Icon";
-import { useT, type StringKey, type Translate } from "../i18n";
-import type { SessionMention, StartedPullRequests, StartedSession } from "./startedSessions";
+import { useT, type Translate } from "../i18n";
+import {
+  PR_STATUS_WORDS,
+  pullRequestName,
+  type SessionMention,
+  type StartedPullRequests,
+  type StartedSession,
+} from "./startedSessions";
 import { useSessionHover } from "./SessionHoverCard";
 import "./startedSessions.css";
-
-const PR_WORDS: Record<StartedPullRequests["tone"], StringKey | undefined> = {
-  ready: "started.prReady",
-  failing: "started.checksFailed",
-  open: "header.prBadge.open",
-  draft: "header.prBadge.draft",
-  merged: "header.prBadge.merged",
-  closed: "header.prBadge.closed",
-  unknown: undefined,
-};
 
 /// The line under the title: the running chat's latest tool call, else what its state needs said.
 export function startedLine(t: Translate, child: StartedSession): string | undefined {
@@ -86,12 +82,11 @@ export function StartedSessionCard({ child, onOpen }: { child: StartedSession; o
 /// PR's status in its colour at the line's end.
 function PullRequestLine({ pullRequests }: { pullRequests: StartedPullRequests }) {
   const t = useT();
-  const word = PR_WORDS[pullRequests.tone];
-  const name = pullRequests.repo ? `${pullRequests.repo} #${pullRequests.number}` : `#${pullRequests.number}`;
+  const word = PR_STATUS_WORDS[pullRequests.tone];
   return (
     <>
       <span className="acpmux-started-pr">
-        <span>{name}</span>
+        <span>{pullRequestName(pullRequests)}</span>
         {pullRequests.count > 1 && <span>{t("started.morePullRequests", { count: pullRequests.count - 1 })}</span>}
       </span>
       {word && (

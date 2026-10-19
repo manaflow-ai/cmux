@@ -122,7 +122,7 @@ describe("the card", () => {
     const title = html.indexOf("Switch gh-merge-green to merge-freeze issues");
     expect(title).toBeGreaterThan(-1);
     expect(title).toBeLessThan(html.indexOf(">Running<"));
-    expect(html).not.toContain("acpmux-session-hover-pr");
+    expect(html).not.toContain('class="acpmux-session-hover-pr"');
   });
 
   test("a session with a pull request names its status and `repo #N` on a line of its own", () => {

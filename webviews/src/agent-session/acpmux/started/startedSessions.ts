@@ -7,6 +7,7 @@
 // `createdAt` (rows and `createdAt` both come from the daemon's clock), and never after the end
 // of the turn it was started in, so it draws under that turn's fold line (conversation/turns.ts).
 import { experimentArm } from "../../../experiments/experiment";
+import type { StringKey } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { type AcpmuxSessionEntry, type SessionPullRequest, sessionMark } from "../sessionList";
 import { startedSessionCards } from "./startedSessions.experiment";
@@ -86,6 +87,22 @@ export function startedPullRequests(entry: AcpmuxSessionEntry): StartedPullReque
     tone: branch ? pullRequestTone(branch) : "unknown",
   };
 }
+
+/// A pull request's status as Claude Code's PR rows say it ("Checks failed", "Merged"); none for
+/// a PR whose state acpmux does not read.
+export const PR_STATUS_WORDS: Record<StartedPullRequests["tone"], StringKey | undefined> = {
+  ready: "started.prReady",
+  failing: "started.checksFailed",
+  open: "header.prBadge.open",
+  draft: "header.prBadge.draft",
+  merged: "header.prBadge.merged",
+  closed: "header.prBadge.closed",
+  unknown: undefined,
+};
+
+/// `repo #N`, or `#N` when acpmux names no repository.
+export const pullRequestName = (prs: StartedPullRequests): string =>
+  prs.repo ? `${prs.repo} #${prs.number}` : `#${prs.number}`;
 
 function pullRequestTone(pr: SessionPullRequest): StartedPullRequests["tone"] {
   if (pr.state !== "open") return pr.state;
