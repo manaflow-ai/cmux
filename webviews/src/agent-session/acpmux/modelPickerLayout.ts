@@ -63,9 +63,6 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
-  /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
-  /// number in place of real layout.
-  measureRoom?(menu: HTMLElement): number;
 };
 
 export type ModelCombo = { harness: string; model: string; effort?: string; fast?: boolean };
