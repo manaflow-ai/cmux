@@ -4,6 +4,9 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { agentProgram, handsLayer, handsProgram, type HandsReport } from "../src/chief-brain/brain-hands.ts"
 import { presenceRegistration, proofMessage } from "../src/hand-levels.ts"
+import { presenceReplacement } from "../src/hand-presence.ts"
+import { jwkThumbprint } from "../src/domains/user.ts"
+const jwkThumb = async (k: { kty: string; crv: string; x: string; y: string }) => jwkThumbprint(k)
 import type { Env } from "../src/env.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
@@ -217,7 +220,7 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     })
     expect((await http("PUT", `/v1/hands/${hand}/level`, token, { level: "ask" })).json.value).toMatchObject({ level: "ask" })
     // The owner's app socket (the user wire) gets the approval as it happens: no polling.
-    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
     const appFrames: Array<any> = []
     wire.webSocket!.addEventListener("message", (e) => {
       const f = JSON.parse(e.data as string)
@@ -289,7 +292,7 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     const { hand, key } = await pairHand(token)
     const sock = await dial(hand, key, "sandbox", () => {})
     const send = (x: unknown) => sock.ws!.send(JSON.stringify(x))
-    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
     const appFrames: Array<any> = []
     wire.webSocket!.addEventListener("message", (e) => {
       const f = JSON.parse(e.data as string)
@@ -317,6 +320,61 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     expect((await http("POST", `/v1/hands/${hand}/approvals/${id}`, token, { allow: false })).json.error.code).toBe("hand.approval_answered")
     for (let i = 0; i < 50 && appFrames.length < 2; i++) await new Promise((r) => setTimeout(r, 20))
     expect(appFrames.map((f) => [f.t, f.outcome ?? null])).toEqual([["hand-approval-pending", null], ["hand-approval-settled", "expired"]])
+  })
+
+  it("replaces an install's presence key only with the current key's signature (or a fresh sign-in) and tells the owner's devices", async () => {
+    const { token } = await owner("hands-presence")
+    const ec = async () => (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const pubOf = async (k: CryptoKeyPair) => { const j = (await crypto.subtle.exportKey("jwk", k.publicKey)) as JsonWebKey; return { kty: "EC", crv: "P-256", x: j.x!, y: j.y! } }
+    const signWith = async (k: CryptoKey, m: string) => btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, k, new TextEncoder().encode(m))))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+    const installKey = await ec()
+    const install = (await op(token, "install.register", { public_jwk: await pubOf(installKey), kind: "mac", name: "mac", device_name: "mac", platform: "macos" })).value.id as string
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
+    const frames: Array<any> = []
+    wire.webSocket!.addEventListener("message", (e) => {
+      const f = JSON.parse(e.data as string)
+      if (f.t === "hand-presence-key") frames.push(f)
+    })
+    wire.webSocket!.accept()
+    wire.webSocket!.send(JSON.stringify({ t: "subscribe" }))
+    await new Promise((r) => setTimeout(r, 100))
+    const bodyFor = async (k: CryptoKeyPair, extra: Record<string, unknown> = {}) => {
+      const pub = await pubOf(k)
+      return { install, public_jwk: pub, signature: await signWith(installKey.privateKey, presenceRegistration(testEnv, install, pub)), ...extra }
+    }
+    const put = async (b: Record<string, unknown>) => (await http("PUT", "/v1/hands/presence-key", token, b)).json
+    const state = async () => (await http("GET", `/v1/hands/presence-key?install=${install}`, token)).json.value as { gen: number; thumbprint: string | null }
+    // The current key signs the count and both thumbprints (as the client builds it from GET).
+    const replaceBy = async (current: CryptoKeyPair, next: CryptoKeyPair) => {
+      const s = await state()
+      const nextThumb = await jwkThumb(await pubOf(next))
+      return bodyFor(next, { current_signature: await signWith(current.privateKey, presenceReplacement(testEnv, install, s.gen, s.thumbprint!, nextThumb)) })
+    }
+    // The install key itself is never a presence key.
+    expect((await put(await bodyFor(installKey))).error.message).toContain("not the install key")
+    // The first key needs only the install key's signature.
+    const first = await ec()
+    expect(await put(await bodyFor(first))).toMatchObject({ ok: true, value: { by: "first", attested: false } })
+    expect(await state()).toMatchObject({ gen: 1, thumbprint: await jwkThumb(await pubOf(first)) })
+    // A new key signed only by the install key (no fresh sign-in in this test deployment): refused.
+    const second = await ec()
+    const refused = await put(await bodyFor(second))
+    expect(refused.error.code).toBe("hand.presence_refused")
+    expect(refused.error.message).toContain("replacing it needs a signature by the current key")
+    // Signed by a key that is not the current one: refused.
+    expect((await put(await replaceBy(await ec(), second))).error.code).toBe("hand.presence_refused")
+    // Signed by the current presence key: replaced. Then back to a third key, then the first one's old body is replayed: refused.
+    const toSecond = await replaceBy(first, second)
+    expect(await put(toSecond)).toMatchObject({ ok: true, value: { by: "current_key" } })
+    const third = await ec()
+    expect(await put(await replaceBy(second, third))).toMatchObject({ ok: true, value: { by: "current_key" } })
+    expect(await put(await replaceBy(third, first))).toMatchObject({ ok: true, value: { by: "current_key" } })
+    expect((await put(toSecond)).error.code).toBe("hand.presence_refused")
+    // An attestation the server cannot verify is refused, never ignored.
+    const fourth = await ec()
+    expect((await put({ ...(await replaceBy(first, fourth)), attestation: "bm90LWFuLWF0dGVzdGF0aW9u", key_id: "a2V5" })).error.code).toBe("hand.presence_refused")
+    for (let i = 0; i < 50 && frames.length < 4; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(frames.map((f) => [f.install, f.by, f.replaced])).toEqual([[install, "first", false], [install, "current_key", true], [install, "current_key", true], [install, "current_key", true]])
   })
 
 })

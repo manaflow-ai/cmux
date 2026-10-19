@@ -126,6 +126,28 @@ def test_test_only_changes_skip_the_release_build() -> None:
         assert actual.release_build is False, (paths, actual)
 
 
+def test_portable_guard_runner_and_tests_are_linux_control_plane_only() -> None:
+    paths = ["scripts/ci/run_ci_guards.py", "tests/test_ci_run_guards.py"]
+    actual = module.classify_files(paths)
+    assert actual == module.ChangeAreas(
+        macos=False,
+        web=False,
+        agent_session_web=False,
+        swift_packages=False,
+        release_build=False,
+    ), (paths, actual)
+
+
+def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
+    paths = [
+        "scripts/ci/run_ci_guards.py",
+        "tests/test_ci_run_guards.py",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextControl/ControlService.swift",
+    ]
+    actual = module.classify_files(paths)
+    assert actual.macos is True, (paths, actual)
+
+
 def test_resources_bin_release_neutral_inputs_are_text_scripts() -> None:
     # The Release lane validates compiled binaries' slices; a bundled text
     # script cannot fail it. A binary in this list would skip that check.
@@ -2819,7 +2841,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ !cancelled() }}" in block
+    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
     assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
@@ -2874,7 +2896,7 @@ def test_ci_status_waits_for_platform_workflows() -> None:
     assert 'web_result not in {"success", "skipped"}' in block
 
 
-WEBVIEWS_BUN_JOBS = ("react-apps-check", "diff-sidecar-check")
+WEBVIEWS_BUN_JOBS = ("react-apps-check-shard", "react-doctor", "diff-sidecar-check")
 
 
 def _setup_bun_versions(text: str) -> list[str]:
@@ -2906,6 +2928,23 @@ def test_webviews_bun_jobs_match_dev_engines_pin() -> None:
     workflow = WEB_WORKFLOW.read_text(encoding="utf-8")
     for job in WEBVIEWS_BUN_JOBS:
         assert _setup_bun_versions(workflow_job_block(job, WEB_WORKFLOW)) == [manager["version"]], job
+
+
+def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
+    block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
+    assert "needs: [web-subarea-scope, react-apps-check-shard, react-doctor]" in block
+    assert "react-apps-check-shard" in block
+    assert "react-doctor" in block
+    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+
+
+def test_react_doctor_runs_as_an_independent_required_lane() -> None:
+    block = workflow_job_block("react-doctor", WEB_WORKFLOW)
+    assert "needs: web-subarea-scope" in block
+    assert "react-apps-check-shard" not in block
+    assert "bun run react-doctor:ci" in block
+    assert "hashFiles('webviews/bun.lock')" in block
+    assert "blacksmith-4vcpu-ubuntu-2404" in block
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:

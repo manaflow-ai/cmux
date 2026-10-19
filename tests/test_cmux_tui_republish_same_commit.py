@@ -499,6 +499,8 @@ class PullRequestTreeCarriesAcpmux(unittest.TestCase):
         self.acpmux = [f"cmux-tui-acpmux-{t}" for t in (
             "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin", "x86_64-apple-darwin")]
         self.tree = self.r2 / "cmux-tui" / "tree" / ("a" * 40)
+        self.windows = ["cmux-tui-x86_64-pc-windows-gnu.exe", "cmux-tui-host-x86_64-pc-windows-gnu.exe",
+                        "cmux-tui-acpmux-x86_64-pc-windows-gnu.exe"]
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -511,6 +513,12 @@ class PullRequestTreeCarriesAcpmux(unittest.TestCase):
         for n in self.names + self.acpmux:
             if n not in without:
                 (assets / n).write_text(f"{n} pr build\n")
+        windows = self.repo / "assets" / "windows"
+        shutil.rmtree(windows, ignore_errors=True)
+        windows.mkdir(parents=True)
+        for n in self.windows:
+            if n not in without:
+                (windows / n).write_text(f"{n} pr build\n")
         env = {
             "PATH": f"{self.bin}:{os.environ['PATH']}",
             "HOME": self.tmp.name,
@@ -559,3 +567,38 @@ class PullRequestTreeCarriesAcpmux(unittest.TestCase):
         self.assertEqual((self.tree / "completion.json").read_bytes(), before)
         for n in self.acpmux:
             self.assertFalse((self.tree / n).exists(), n)
+
+    def test_the_pr_tree_publishes_windows_with_its_completion(self) -> None:
+        # Chief 2026-10-17: a push run of the same key builds nothing, so a PR
+        # tree must carry the Windows daemon, host and acpmux on first write.
+        result = self.run_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        windows = json.loads((self.tree / "completion-windows.json").read_text())
+        self.assertEqual(windows["sourceCommit"], self.sha)
+        for n in self.windows:
+            self.assertEqual((self.tree / n).read_text(), f"{n} pr build\n", n)
+            self.assertEqual(windows["binaries"][n], sha256(self.tree / n), n)
+            self.assertEqual((self.tree / f"{n}.sha256").read_text(), f"{sha256(self.tree / n)}  {n}\n")
+        self.assertFalse(set(self.windows) & set(json.loads((self.tree / "completion.json").read_text())["binaries"]))
+
+    def test_the_pr_workflow_builds_and_downloads_windows_acpmux(self) -> None:
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        names = [s.get("with", {}).get("name") for s in doc["jobs"]["publish-pr-tree"]["steps"]]
+        self.assertIn("cmux-tui-x86_64-pc-windows-gnu", names)
+        self.assertIn("cmux-tui-acpmux-x86_64-pc-windows-gnu", names)
+        self.assertIs(doc["jobs"]["build"]["with"]["windows_acpmux"], True)
+
+    def test_a_pr_tree_without_a_windows_build_has_no_windows_files(self) -> None:
+        result = self.run_step(*self.windows)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.tree / "completion-windows.json").exists())
+        self.assertIn("PR tree without Windows", result.stdout)
+
+    def test_an_existing_windows_completion_is_kept(self) -> None:
+        self.tree.mkdir(parents=True)
+        existing = json.dumps({"key": "a" * 40, "sourceCommit": "c" * 40, "binaries": {}})
+        (self.tree / "completion-windows.json").write_text(existing)
+        result = self.run_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.tree / "completion-windows.json").read_text(), existing)
+        self.assertFalse((self.tree / self.windows[0]).exists())

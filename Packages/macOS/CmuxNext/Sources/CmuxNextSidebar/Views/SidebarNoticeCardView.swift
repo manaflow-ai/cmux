@@ -17,12 +17,12 @@ final class SidebarNoticeCardView: NSView {
     var onAction: ((String, String) -> Void)?
     var onDismiss: ((String) -> Void)?
     private(set) var notice: SidebarNoticeCard?
-    private let eyebrowLabel = NSTextField(labelWithString: "")
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let shortcutLabel = NSTextField(labelWithString: "")
+    private let eyebrowLabel = ChromeLabel(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
+    private let shortcutLabel = ChromeLabel(labelWithString: "")
     /// List lines under the detail (a changelog), one label each.
-    private var lineLabels: [NSTextField] = []
+    private var lineLabels: [ChromeLabel] = []
     private let icon = NSImageView()
     private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()
@@ -51,7 +51,7 @@ final class SidebarNoticeCardView: NSView {
         }
         detailLabel.maximumNumberOfLines = 2
         detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.cell?.truncatesLastVisibleLine = true
+        detailLabel.truncatesLastVisibleLine = true
         detailLabel.isSelectable = false
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
@@ -71,7 +71,7 @@ final class SidebarNoticeCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
     /// Shows `notice`, or hides the view for nil.
@@ -97,7 +97,7 @@ final class SidebarNoticeCardView: NSView {
         if previous?.lines != notice.lines {
             lineLabels.forEach { $0.removeFromSuperview() }
             lineLabels = notice.lines.prefix(Self.maxLines).map { line in
-                let label = NSTextField(labelWithString: "• " + line)
+                let label = ChromeLabel(labelWithString: "• " + line)
                 label.lineBreakMode = .byTruncatingTail
                 label.maximumNumberOfLines = 1
                 label.themedToolTip = line
@@ -346,5 +346,5 @@ private final class SidebarNoticeCardContent: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 }

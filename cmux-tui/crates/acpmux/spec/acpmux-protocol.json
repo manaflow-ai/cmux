@@ -325,26 +325,42 @@
     {
       "kind": "request",
       "name": "_acpmux/mail/send",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/MailSendParams"
+      },
+      "result": {
+        "$ref": "#/types/MailSendResult"
+      }
     },
     {
       "kind": "request",
       "name": "_acpmux/mail/read",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/MailReadParams"
+      },
+      "result": {
+        "$ref": "#/types/MailPageResult"
+      }
     },
     {
       "kind": "request",
       "name": "_acpmux/mail/wait",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/MailWaitParams"
+      },
+      "result": {
+        "$ref": "#/types/MailPageResult"
+      }
     },
     {
       "kind": "request",
       "name": "_acpmux/mail/ack",
-      "params": true,
-      "result": true
+      "params": {
+        "$ref": "#/types/MailAckParams"
+      },
+      "result": {
+        "$ref": "#/types/MailAckResult"
+      }
     },
     {
       "kind": "request",
@@ -698,6 +714,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/inventory/watch",
+      "params": {
+        "$ref": "#/types/InventoryWatchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/update",
       "params": true,
       "result": true
@@ -872,6 +896,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/harness_inventory",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/start_mode_changed",
       "params": true
     },
@@ -981,6 +1010,38 @@
       ],
       "type": "string"
     },
+    "DeliveryReceipt": {
+      "properties": {
+        "messageId": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/types/DeliveryState"
+        },
+        "updatedAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "messageId",
+        "recipient",
+        "state",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "DeliveryState": {
+      "enum": [
+        "queued",
+        "acknowledged"
+      ],
+      "type": "string"
+    },
     "Enforcement": {
       "description": "What limits the session's agent as far as acpmux can tell.",
       "properties": {
@@ -1016,6 +1077,18 @@
         "done"
       ],
       "type": "string"
+    },
+    "InventoryWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
     },
     "Isolation": {
       "description": "acpmux never claims host isolation.",
@@ -1134,6 +1207,260 @@
       },
       "required": [
         "endedAt"
+      ],
+      "type": "object"
+    },
+    "LifecycleReceipt": {
+      "description": "A durable lifecycle fact supplied by an explicit producer. This contract\nis intentionally optional and opaque to the session sidebar until a\nproducer wires it to a real controller receipt.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sequence",
+        "source",
+        "state"
+      ],
+      "type": "object"
+    },
+    "MailAckParams": {
+      "additionalProperties": false,
+      "properties": {
+        "messageId": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient",
+        "messageId"
+      ],
+      "type": "object"
+    },
+    "MailAckResult": {
+      "properties": {
+        "delivery": {
+          "$ref": "#/types/DeliveryReceipt"
+        }
+      },
+      "required": [
+        "delivery"
+      ],
+      "type": "object"
+    },
+    "MailMessage": {
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "createdAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "default": {},
+          "type": "object"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "sender": {
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "seq",
+        "sender",
+        "recipient",
+        "body",
+        "createdAt"
+      ],
+      "type": "object"
+    },
+    "MailPageResult": {
+      "properties": {
+        "cursor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/types/MailRow"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cursor",
+        "messages"
+      ],
+      "type": "object"
+    },
+    "MailReadParams": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "recipient": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient"
+      ],
+      "type": "object"
+    },
+    "MailRow": {
+      "properties": {
+        "delivery": {
+          "$ref": "#/types/DeliveryReceipt"
+        },
+        "message": {
+          "$ref": "#/types/MailMessage"
+        }
+      },
+      "required": [
+        "message",
+        "delivery"
+      ],
+      "type": "object"
+    },
+    "MailSendParams": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "sender": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sender",
+        "recipient",
+        "body"
+      ],
+      "type": "object"
+    },
+    "MailSendResult": {
+      "properties": {
+        "created": {
+          "type": "boolean"
+        },
+        "delivery": {
+          "$ref": "#/types/DeliveryReceipt"
+        },
+        "duplicate": {
+          "type": "boolean"
+        },
+        "message": {
+          "$ref": "#/types/MailMessage"
+        }
+      },
+      "required": [
+        "message",
+        "delivery",
+        "created",
+        "duplicate"
+      ],
+      "type": "object"
+    },
+    "MailWaitParams": {
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "recipient"
       ],
       "type": "object"
     },
@@ -1774,6 +2101,17 @@
               "type": "null"
             }
           ]
+        },
+        "lifecycleReceipt": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LifecycleReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",

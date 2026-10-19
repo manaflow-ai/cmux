@@ -59,7 +59,7 @@ export function childRows(
         at: existing?.at ?? event.at,
         kind: "activity",
         toolCount: existing?.toolCount ?? 0,
-        items: appendThought(existing?.items ?? [], text),
+        items: appendThought(existing?.items ?? [], text, event.at),
       });
       activity = rowId;
       reply = undefined;

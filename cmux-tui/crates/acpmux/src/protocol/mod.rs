@@ -9,6 +9,8 @@
 //! Tests fail when the committed IR is stale or when the dispatcher serves
 //! a name this registry lacks (`protocol/tests.rs`).
 
+pub mod inventory;
+pub mod mailbox;
 pub mod permission;
 pub mod session;
 #[cfg(test)]
@@ -103,6 +105,7 @@ fn notification<P: JsonSchema>(name: &'static str) -> MethodDecl {
 /// within each group.
 pub fn registry() -> Vec<MethodDecl> {
     use Kind::*;
+    use mailbox::*;
     use permission::*;
     use session::*;
     vec![
@@ -160,10 +163,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_INFO, Request),
         untyped(method::MUX_EVENTS, Request),
         untyped(method::MUX_ATTACHMENT, Request),
-        untyped(method::MUX_MAIL_SEND, Request),
-        untyped(method::MUX_MAIL_READ, Request),
-        untyped(method::MUX_MAIL_WAIT, Request),
-        untyped(method::MUX_MAIL_ACK, Request),
+        request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
+        request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
+        request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
+        request::<MailAckParams, MailAckResult>(method::MUX_MAIL_ACK),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
@@ -229,6 +232,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HARNESS_RESTORE, Request),
         untyped(method::MUX_HARNESS_DOCTOR, Request),
         untyped(method::MUX_HARNESS_HEALTH, Request),
+        request::<inventory::InventoryWatchParams, Value>(method::MUX_HARNESS_INVENTORY_WATCH),
         untyped(method::MUX_HARNESS_UPDATE, Request),
         untyped(method::MUX_SESSIONS_RESTART_HARNESS, Request),
         untyped(method::MUX_REGISTRY, Request),
@@ -260,6 +264,7 @@ pub fn registry() -> Vec<MethodDecl> {
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
+        untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
         untyped("_acpmux/lagged", Notification),

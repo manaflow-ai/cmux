@@ -329,6 +329,30 @@ class Comments(unittest.TestCase):
 
 
 class Robustness(unittest.TestCase):
+    def test_commit_pull_lookup_paginates(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        first_page = [{"number": index} for index in range(ga.API_PAGE_SIZE)]
+        second_page = [{"number": ga.API_PAGE_SIZE}]
+        calls = []
+
+        def get(path):
+            calls.append(path)
+            return first_page if path.endswith("page=1") else second_page
+
+        gh.get = get  # type: ignore[method-assign]
+        self.assertEqual(gh.commit_pulls("a" * 40), first_page + second_page)
+        self.assertEqual(calls, [
+            "repos/manaflow-ai/cmux/commits/" + ("a" * 40) + "/pulls?per_page=100&page=1",
+            "repos/manaflow-ai/cmux/commits/" + ("a" * 40) + "/pulls?per_page=100&page=2",
+        ])
+
+    def test_commit_pull_lookup_rejects_an_unbounded_inventory(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        full_page = [{"number": index} for index in range(ga.API_PAGE_SIZE)]
+        gh.get = lambda path: full_page  # type: ignore[method-assign]
+        with self.assertRaisesRegex(RuntimeError, "more than 1000 pull requests"):
+            gh.commit_pulls("b" * 40)
+
     def test_jobs_paginate_the_exact_workflow_attempt(self) -> None:
         gh = ga.GitHub("manaflow-ai/cmux", "token")
         calls = []

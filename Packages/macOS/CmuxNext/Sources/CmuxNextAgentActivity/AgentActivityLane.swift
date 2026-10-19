@@ -25,6 +25,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let title: String
     /// The acpmux peer that owns it; nil on this Mac.
     public let peer: String?
+    /// The existing cmux workspace binding for this agent session, when the
+    /// ACPmux summary carries one.
+    public let workspaceID: String?
     /// Its `mux.parent` tag: the coordinator that started it.
     public let parent: String?
     public let state: State
@@ -32,16 +35,24 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let since: Date?
     /// The last turn's error text when `failed` or `lost`.
     public let error: String?
+    /// The harness that runs it, as acpmux names it ("claude", "codex").
+    public let harness: String?
+    /// What it is doing now: the running turn's prompt, else the agent's last message (hq#2509).
+    public let step: String?
 
-    public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?) {
+    public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
+                workspaceID: String? = nil, harness: String? = nil, step: String? = nil) {
         self.id = id
         self.name = name
         self.title = title
         self.peer = peer
+        self.workspaceID = workspaceID
         self.parent = parent
         self.state = state
         self.since = since
         self.error = error
+        self.harness = harness
+        self.step = step
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -62,7 +73,19 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let since = (lane["since"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
         let error = (lane["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let parent = ((summary["tags"] as? [String: Any])?[parentTag] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let workspaceID = (summary["workspaceId"] as? String) ?? (summary["workspace_id"] as? String)
+        let harness = (summary["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
-                                 state: state, since: since, error: error)
+                                 state: state, since: since, error: error, workspaceID: workspaceID,
+                                 harness: harness, step: step(of: summary))
+    }
+
+    /// The running turn's prompt, else the agent's last message, on one line; as the web view's `laneStep`.
+    static func step(of summary: [String: Any]) -> String? {
+        let message = summary["lastMessage"] as? [String: Any]
+        let text = (summary["turn"] as? [String: Any])?["prompt"] as? String
+            ?? (message?["role"] as? String == "agent" ? message?["text"] as? String : nil)
+        let line = text?.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(240)
+        return line.flatMap { $0.isEmpty ? nil : String($0) }
     }
 }

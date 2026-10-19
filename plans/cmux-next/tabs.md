@@ -35,8 +35,8 @@ insets). cmux uses the same rules in points with its own tokens:
 | Pinned | favicon only | same |
 | Separators | between inactive tabs, hidden next to the active or hovered tab and at the ends | same (1 device pixel, half the tab height) |
 
-The strip keeps its own widths (compact: 200 pt max, 76 pt minimum
-inactive so a shrunk title stays partly readable, scrolls after that; the "+"
+The strip keeps its own widths (compact: 200 pt max, Chrome's 32 pt minimum
+inactive and 56 pt selected (Lawrence 2026-10-16), scrolls after that; the "+"
 follows the last tab). Tab Overflow (`tabs.overflow`, cx-kp9b4) Scroll keeps
 tabs 140 pt wide and scrolls sooner; the palette's Tabs: Use Scrolling Tabs /
 Tabs: Use Shrinking Tabs set it, and the first crowded Shrink strip offers it

@@ -45,7 +45,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
         AgentPaneView.finishWarmup()
-        view?.applyTheme()
+        view?.applyTheme(force: true)
         // The initial zoom can run before WebKit has a document. Reapply it after the
         // document exists so the interface scale and page scale are visible on first paint.
         view?.applyZoom()

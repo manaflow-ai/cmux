@@ -87,7 +87,6 @@ public final class TabModel: Identifiable {
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
     @ObservationIgnored private var observedCwd: String?
-
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
         return title

@@ -27,6 +27,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// color code from its ANSI palette (syntax-theme.ts), as the agent chat and Ghostty do. Its
     /// `fontFamily` is the terminal's face, which pages that show code draw it in (appearance.ts).
     public let terminal: Terminal
+    /// `static` or `animated` (cx-sya4n): `data-status-indicators` on `<html>`, under which a
+    /// page's stylesheets stop their status loops. Static under Reduce Motion or
+    /// `appearance.statusIndicator.animation: "static"` (`StatusIndicatorConfig.isStatic`).
+    public let statusIndicators: String
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -109,9 +113,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
+        statusIndicators = Motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal}`
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators}`
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -119,7 +124,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
 
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
-                                     "terminal": terminal.json, "transition": transition]
+                                     "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -148,6 +153,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       // color syntax (CSS Color 4 mixes two rgb() or hex values in sRGB). Code that reads computed
       // colors gets a second `cmux-theme` event once the blend ends.
       var registered = {};
+      var applied = {};
       var transitionStyle = null;
       // rgb()/rgba() parsed without a regular expression: the literal stays free of backslashes
       // (Swift escapes), so the gallery runs the same script (webviews/dev-server/galleryHost.ts).
@@ -184,10 +190,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           (document.head || document.documentElement).appendChild(transitionStyle);
         }
         var duration = (transition && transition.duration) || '0ms';
-        transitionStyle.textContent = names.length && duration !== '0ms'
+        var text = names.length && duration !== '0ms'
           ? 'html{transition-property:' + names.join(',') + ';transition-duration:' + duration +
             ';transition-timing-function:' + ((transition && transition.easing) || 'ease-out') + '}'
           : '';
+        // A rewrite restyles the whole document: only when the rule changed.
+        if (transitionStyle.textContent !== text) transitionStyle.textContent = text;
       }
       function settled(payload) {
         var root = document.documentElement;
@@ -210,12 +218,17 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           // land with no transition, a style read commits them, then the transition turns on.
           if (first) setTransition(null, names);
           for (var name in payload.variables) {
-            root.style.setProperty(name, registered[name] ? colorValue(payload.variables[name], space) : payload.variables[name]);
+            var value = registered[name] ? colorValue(payload.variables[name], space) : payload.variables[name];
+            // Only the variables that changed: an unchanged one restyles nothing.
+            if (applied[name] === value) continue;
+            applied[name] = value;
+            root.style.setProperty(name, value);
           }
           if (first && names.length) getComputedStyle(root).getPropertyValue(names[0]);
           setTransition(payload.transition, names);
           root.style.colorScheme = payload.colorScheme;
           if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
+          if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
           if (!first) settled(payload);

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 // Mouse selection, click-to-collapse, and keyboard navigation.
-extension SidebarListView {
+extension SidebarListViewComponents {
     // MARK: - Mouse
     typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -36,6 +36,7 @@ extension SidebarListView {
                 inlineRename.begin(row.key)
                 return
             }
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
             if flags.contains(.command) {
                 model.toggleSelection(id)
             } else if flags.contains(.shift) {
@@ -47,7 +48,8 @@ extension SidebarListView {
             } else {
                 model.click(id)
             }
-            reload(animated: true)
+            // The fill moves now, on the two rows (a switch drew it already, `SidebarSameTurn`).
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
         case let .group(group):
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)

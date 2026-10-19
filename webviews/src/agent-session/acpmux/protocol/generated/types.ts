@@ -29,6 +29,15 @@ export type ChatAllowance = {
 
 export type CoverageLabel = "acp_requests_only";
 
+export type DeliveryReceipt = {
+  messageId: string;
+  recipient: string;
+  state: DeliveryState;
+  updatedAt: number;
+} & Record<string, unknown>;
+
+export type DeliveryState = "queued" | "acknowledged";
+
 /** What limits the session's agent as far as acpmux can tell. */
 export type Enforcement = {
   detail: string;
@@ -43,6 +52,10 @@ export type Enforcement = {
 } & Record<string, unknown>;
 
 export type Indicator = "input" | "working" | "failed" | "lost" | "done";
+
+export interface InventoryWatchParams {
+  enabled: boolean;
+}
 
 /** acpmux never claims host isolation. */
 export type Isolation = "unverified";
@@ -79,6 +92,76 @@ export type LastTurn = {
   stopReason?: (string | null);
   turnId?: (string | null);
 } & Record<string, unknown>;
+
+/**
+ * A durable lifecycle fact supplied by an explicit producer. This contract
+ * is intentionally optional and opaque to the session sidebar until a
+ * producer wires it to a real controller receipt.
+ */
+export type LifecycleReceipt = {
+  id: string;
+  sequence: number;
+  source: string;
+  state: string;
+} & Record<string, unknown>;
+
+export interface MailAckParams {
+  messageId: string;
+  recipient: string;
+}
+
+export type MailAckResult = {
+  delivery: DeliveryReceipt;
+} & Record<string, unknown>;
+
+export type MailMessage = {
+  body: string;
+  createdAt: number;
+  id: string;
+  metadata?: Record<string, unknown>;
+  recipient: string;
+  sender: string;
+  seq: number;
+} & Record<string, unknown>;
+
+export type MailPageResult = {
+  cursor: number;
+  messages: MailRow[];
+  nextCursor?: (number | null);
+} & Record<string, unknown>;
+
+export interface MailReadParams {
+  after?: (number | null);
+  limit?: (number | null);
+  recipient: string;
+}
+
+export type MailRow = {
+  delivery: DeliveryReceipt;
+  message: MailMessage;
+} & Record<string, unknown>;
+
+export interface MailSendParams {
+  body: string;
+  id: string;
+  metadata?: (Record<string, unknown> | null);
+  recipient: string;
+  sender: string;
+}
+
+export type MailSendResult = {
+  created: boolean;
+  delivery: DeliveryReceipt;
+  duplicate: boolean;
+  message: MailMessage;
+} & Record<string, unknown>;
+
+export interface MailWaitParams {
+  after?: (number | null);
+  limit?: (number | null);
+  recipient: string;
+  timeoutMs?: (number | null);
+}
 
 /** `failed` also for one that waits on a sign-in (Claude Code `needs-auth`). */
 export type McpServerStatus = "connected" | "failed" | "pending";
@@ -277,6 +360,12 @@ export type SessionSummary = {
   lastPrompt?: (string | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
+  /**
+   * An optional controller/daemon lifecycle receipt. It is absent until a
+   * producer supplies a validated receipt; clients must not infer one from
+   * status or placement fields.
+   */
+  lifecycleReceipt?: (LifecycleReceipt | null);
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
    * Code's system/init); null when it reports none (every ACP harness).

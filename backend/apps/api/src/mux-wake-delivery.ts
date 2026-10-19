@@ -24,7 +24,19 @@ export interface Wake {
   readonly conversation: string
   readonly seq: number
   readonly reason: string
+  /** When MuxDO committed it (ms); absent on a resend from the alarm. */
+  readonly at?: number
 }
+
+/**
+ * The conversation's outbox calls this as it hands a Chief's wake to MuxDO (owner-outbox.ts, commit-time path):
+ * the brain object starts (its cold start, ~1 s on staging) and warms its admission reads while MuxDO commits
+ * the wake, instead of after it. Best effort; the wake itself still comes from MuxDO.
+ */
+export const warmBrain = (env: Env, agent: string, conversation: unknown): Promise<unknown> =>
+  env.CHIEF_BRAIN_ENABLED === "1" && typeof conversation === "string"
+    ? (env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as { warm(): Promise<unknown> }).warm().catch(() => undefined)
+    : Promise.resolve()
 
 const ready = new WeakSet<SqlStorage>()
 const table = (sql: SqlStorage) => {

@@ -4,7 +4,13 @@ import QuartzCore
 
 /// The "+" after the last tab. Mouse handling lives in the strip.
 final class NewTabButtonView: NSView {
-    var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: true) } } }
+    var isHovered = false {
+        didSet {
+            guard oldValue != isHovered else { return }
+            updateColors(animated: true)
+            if isHovered { TabStripSignals.shared.onNewTabButtonHover?() }
+        }
+    }
     var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
     var onPress: (() -> Void)?
     /// VoiceOver moved its focus onto (true) or off (false) the plus.
@@ -36,7 +42,7 @@ final class NewTabButtonView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -100,6 +106,6 @@ final class NewTabButtonView: NSView {
 
 /// Flipped container with no event handling of its own.
 final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

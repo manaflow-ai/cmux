@@ -208,6 +208,10 @@ fn sensitive_exec(argv: &[String]) -> bool {
         ".gnupg",
         "Keychains",
         "LaunchAgents",
+        ".cmux-hand",
+        // Security classifier keyword: this detects commands targeting the shared ACPmux home;
+        // it is not a path construction or a product state-root resolver.
+        ".acpmux",
         "security ",
         "sudo ",
         "defaults write",

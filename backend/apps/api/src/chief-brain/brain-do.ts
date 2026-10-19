@@ -62,11 +62,51 @@ export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "effor
 /** The continuation message after a turn made or found the Chief's first hand (one per run). */
 export const HANDS_CONTINUE = "Your new hand is ready, and the full hands and agent tools are now available. Continue the person's request from where you stopped; do not repeat what you already did."
 
+type HandInfo = { hand: string; name: string; online: boolean; vm: boolean }
+
+/** The hand a compact hands step returned (new_sandbox: the new hand; list: the first online one), or null. */
+const handOfResult = (action: string, result: string): HandInfo | null => {
+  try {
+    const v = JSON.parse(result) as unknown
+    const pick = (x: { hand?: unknown; name?: unknown; online?: unknown; sandbox?: unknown }): HandInfo | null =>
+      typeof x.hand === "string" && typeof x.name === "string" ? { hand: x.hand, name: x.name, online: x.online !== false, vm: x.sandbox === true || action === "new_sandbox" } : null
+    if (action === "new_sandbox" && v && typeof v === "object") return pick(v as never)
+    if (Array.isArray(v)) return pick((v.find((h) => h && (h as { online?: unknown }).online) ?? v[0] ?? {}) as never)
+  } catch {
+    // Not JSON: the continuation gives no hand details.
+  }
+  return null
+}
+
+const parseHandInfo = (info: string | undefined): HandInfo | null => {
+  try {
+    return info ? (JSON.parse(info) as HandInfo) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The continuation's message: the hand the first part made or found (id, name, online, work folder), so the model
+ * starts the agent at once (it does not list its hands again). A paired machine picks its own name, so the name is
+ * only a quoted label (control characters removed, capped); the model addresses the hand by its id.
+ */
+export const handsContinueText = (info: string | undefined, workdir: string): string => {
+  const h = parseHandInfo(info)
+  if (!h || typeof h.hand !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(h.hand)) return HANDS_CONTINUE
+  const label = JSON.stringify(String(h.name ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 60))
+  const folder = h.vm ? ` Its work folder is ${workdir}.` : ""
+  const use = h.online ? ` Use it directly with the agent or hands tools (hand "${h.hand}"${h.vm ? `, cwd "${workdir}"` : ""}); there is no need to list your hands.` : ` Check it once with the hands tool before you start an agent on it (hand "${h.hand}").`
+  return `${HANDS_CONTINUE} Your hand: ${label} (${h.hand}), ${h.online ? "online" : "not online yet"}.${folder}${use}`
+}
+
 export class ChiefBrainDO extends DurableObject<Env> {
   readonly sql = this.ctx.storage.sql
   /** The object's state and env for the split-out modules (brain-turn.ts, brain-sub.ts); DurableObject keeps them protected. */
   readonly doCtx = this.ctx
   readonly doEnv = this.env
+  /** When this object was made, until the first wake reports it (Run.timing boot_at: a cold start). */
+  bootAt: number | undefined = Date.now()
   readonly models = brainModels(this.env, this.ctx.id.toString(), { claude: { auth: () => claudeAuthFor(this.env, this.holder), refused: () => (forgetClaudeAuth(), this.holder().claudeInvalidate()) }, effort: () => this.config().effort, ...gatewayOptions(this.ctx, this.env, () => ({ run: this.turnId, conversation: this.turnConversation, config: this.config(), live: !this.childOf() })) })
   readonly registry = createRegistry()
   memory: Memory
@@ -194,8 +234,21 @@ export class ChiefBrainDO extends DurableObject<Env> {
     })
   }
   leasing: Promise<number> | undefined
-  /** A no-op: the caller warms this object (a new Chief's first turn then meets a running object). */
+  /**
+   * The caller warms this object: a new Chief's first turn then meets a running object. A conversation brain
+   * that knows its Chief also starts its wake's reads (the settings object and chief record, the team's meter,
+   * the route's auth, pi) while MuxDO commits the wake (mux-wake-delivery.ts warmBrain).
+   */
   async warm(): Promise<true> {
+    const cfg = this.config()
+    // Only an enabled pi Chief's conversation brain (an opencode, local or disabled Chief's old object stays asleep).
+    if (!cfg.agent || !cfg.owner || !cfg.enabled || cfg.brain_impl !== "pi" || this.childOf()) return true
+    await this.lifecycle.start()
+    const [agent, owner] = [cfg.agent, cfg.owner]
+    this.ctx.waitUntil(this.settingsOf(agent).admit(agent, owner, false).catch(() => undefined))
+    this.ctx.waitUntil(creditsCanStart(this.env, cfg).catch(() => undefined))
+    if (isClaude(cfg.model)) this.ctx.waitUntil(claudeAuthFor(this.env, this.holder).catch(() => undefined))
+    this.ctx.waitUntil(this.harness.pi().catch(() => undefined))
     return true
   }
   /** Holder only: a lease of today's deployment-wide bound (CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL) for an owner's turns object. */
@@ -245,12 +298,12 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const cfg = this.config()
     if (!cfg.enabled) return { ok: false, reason: "disabled" }
     if (cfg.agent !== agent || cfg.owner !== owner) return { ok: false, reason: "other_chief" }
-    const record = await chiefRecordFresh(this.env, owner, agent).catch(() => undefined)
+    // The chief record and the credits check go at the same time (two other objects, independent reads).
+    const [record, credits] = await Promise.all([chiefRecordFresh(this.env, owner, agent).catch(() => undefined), turn ? creditsCanStart(this.env, cfg) : Promise.resolve("ok" as const)])
     if (record === undefined) return { ok: false, reason: "owner.unreachable" }
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
     if (record.display_name !== cfg.display_name) writeConfig(this.sql, { display_name: record.display_name })
-    const credits = turn ? await creditsCanStart(this.env, cfg) : "ok"
     if (credits !== "ok") return { ok: false, reason: credits === "exhausted" ? "credits_exhausted" : "owner.unreachable" }
     if (turn) {
       const key = `turns:${new Date().toISOString().slice(0, 10)}`
@@ -310,7 +363,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
-  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string }): Promise<{ queued: number } | { skipped: string }> {
+  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
     return turnLoop.wake(this, w)
   }
 
@@ -423,7 +476,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     // The tools are fixed for a whole turn (a model signs its thinking for the tools list; a change inside the
     // turn makes the next request a 400). The running turn's mode wins, also when the object opens again mid-turn.
     const full = this.childOf() !== null || (v("hands_turn_mode") ?? v("hands_full")) === "1"
-    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), (action) => this.handFoundInTurn(action))] })
+    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), (action, result) => this.handFoundInTurn(action, result))] })
   }
 
   /** At a turn boundary only: this turn's hands mode (full once a hand was found), recorded for the whole turn. */
@@ -442,14 +495,18 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** The entry tool made or found the first hand during a turn: the turn continues once with the full tools (runTurn). */
-  async handFoundInTurn(action: string): Promise<void> {
+  async handFoundInTurn(action: string, result = ""): Promise<void> {
     const turn = this.turnId
     const foundNow = await this.refreshHands()
     // A list continues the run only when this call found the first hand; new_sandbox also when the turn-start check did.
     if (action === "list" && !foundNow) return
     const v = (k: string) => this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
     // A hand exists now while this turn runs with the compact tools (also when the turn-start check found it first).
-    if (turn && v("hands_full") === "1" && v("hands_turn_mode") === "0" && v(`hands_cont:${turn}`) === undefined) writeConfig(this.sql, { [`hands_cont:${turn}`]: "pending" })
+    if (turn && v("hands_full") === "1" && v("hands_turn_mode") === "0" && v(`hands_cont:${turn}`) === undefined) {
+      // What the step returned (the hand), so the continuation starts from it instead of listing again.
+      const hand = handOfResult(action, result)
+      writeConfig(this.sql, { [`hands_cont:${turn}`]: "pending", ...(hand ? { [`hands_cont_info:${turn}`]: JSON.stringify(hand) } : {}) })
+    }
   }
 
   /** The hands tools; a child's caller and agent tokens name its own object (`<conversation>:spawn:<n>`), so a hand's session-end revoke reaches it. */
