@@ -290,7 +290,7 @@ button.cv-subagent > :last-child {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border-radius: 15px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--agent-page-bg) 82%, var(--agent-text) 6%);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent),
