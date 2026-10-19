@@ -1092,9 +1092,19 @@ extension TerminalController {
 
     nonisolated private static func chatReviewPath(_ path: String, workingDirectory: String) -> URL? {
         guard !path.isEmpty, !path.contains("\0") else { return nil }
-        let root = URL(fileURLWithPath: workingDirectory).standardizedFileURL
-        let candidate = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path))
+        // Lexical normalization alone is insufficient here: a path such as
+        // `Sources/link.swift` can point outside the workspace when `link`
+        // is a symlink. Resolve existing path components before checking the
+        // containment boundary, while preserving the final component when it
+        // does not exist yet (create-file review patches).
+        let root = URL(fileURLWithPath: workingDirectory)
             .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let lexicalCandidate = (path.hasPrefix("/")
+            ? URL(fileURLWithPath: path)
+            : URL(fileURLWithPath: workingDirectory).appendingPathComponent(path))
+            .standardizedFileURL
+        let candidate = lexicalCandidate.resolvingSymlinksInPath()
         guard candidate.path == root.path || candidate.path.hasPrefix(root.path + "/") else { return nil }
         return candidate
     }

@@ -475,6 +475,38 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         ))
     }
 
+    @Test func reviewPathRejectsSymlinkThatEscapesWorkspace() throws {
+        let rootURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-review-\(UUID().uuidString)")
+        let outsideURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-review-outside-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            try? FileManager.default.removeItem(at: outsideURL)
+        }
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideURL, withIntermediateDirectories: true)
+        let outsideFile = outsideURL.appendingPathComponent("secret.swift")
+        try Data("secret".utf8).write(to: outsideFile)
+        let link = rootURL.appendingPathComponent("Sources")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outsideURL)
+
+        let escaped = rootURL.appendingPathComponent("Sources/secret.swift")
+        let patch = """
+        diff --git a/Sources/secret.swift b/Sources/secret.swift
+        --- a/Sources/secret.swift
+        +++ b/Sources/secret.swift
+        @@ -1 +1 @@
+        -secret
+        +changed
+        """
+        #expect(!TerminalController.chatReviewPatchMatchesPath(
+            patch,
+            declaredPath: escaped,
+            workingDirectory: rootURL.path
+        ))
+    }
+
     private func topProcess(
         pid: Int,
         parentPID: Int,
