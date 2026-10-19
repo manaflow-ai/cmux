@@ -27,7 +27,10 @@ const unavailable = () => error(503, "SERVICE_UNAVAILABLE", "The service is temp
 const notAvailable = () => error(404, "NOT_AVAILABLE", "This operation is not available");
 const providerError = (status: number | null): Response =>
   status === 404 ? notFound() : status === 400 ? error(400, "BAD_REQUEST", "The request was not accepted") : status === 401 ? error(401, "UNAUTHORIZED", "The upstream credential was rejected") : status === 402 ? error(402, "PAYMENT_REQUIRED", "This team is not entitled to create VMs") : status === 409 ? error(409, "CONFLICT", "The resource is not in a state that permits this operation") : status === 429 ? error(429, "RATE_LIMITED", "Too many requests; retry later") : unavailable();
-const copyResponse = (response: Response): Response => new Response(response.body, { status: response.status, statusText: response.statusText, headers: response.headers });
+const copyResponse = (response: Response): Response => {
+  if (response.status === 101 && response.webSocket !== null) return new Response(null, { status: 101, webSocket: response.webSocket });
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers: response.headers });
+};
 const parseJson = async (response: Response): Promise<Record<string, unknown> | null> => {
   try {
     const value: unknown = await response.clone().json();
