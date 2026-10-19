@@ -4815,8 +4815,9 @@ function AcpmuxPane() {
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   // The folders the host lists as projects (no chat folders): the most recent project is one of them.
+  // The daemon's list (removals win) once it has answered, else the page's own.
   const newTabKnownProjects = useMemo(
-    () => [...directProjects.map((project) => project.cwd), ...(newTab?.projects ?? [])],
+    () => (directProjects.length > 0 ? directProjects.map((project) => project.cwd) : (newTab?.projects ?? [])),
     [directProjects, newTab?.projects],
   );
   const newTabProjects = useMemo(() => {

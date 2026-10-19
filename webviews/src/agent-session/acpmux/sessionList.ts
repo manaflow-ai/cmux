@@ -231,12 +231,13 @@ export function isAgentHome(cwd: string | undefined): boolean {
 /// folder of its own starts. Not a private agent-home folder, the home folder or `/`, and not a chat
 /// on another machine (a peer or a Cloud host). With `known` (the host's project list, which drops
 /// folders that no longer exist), only a folder in it: a deleted or removed project never starts one.
+/// An empty list is one not loaded yet, so every local chat folder counts until it lands.
 export function mostRecentProject(
   sessions: readonly AcpmuxSessionEntry[],
   home?: string,
   known?: readonly string[],
 ): string | undefined {
-  const projects = known && new Set(known.map((path) => path.replace(/(.)\/+$/, "$1")));
+  const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
   let newest: AcpmuxSessionEntry | undefined;
   for (const session of sessions) {
     const cwd = session.cwd?.replace(/\/+$/, "");
