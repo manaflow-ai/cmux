@@ -64,6 +64,12 @@ CLOSE_WINDOW_SECONDS = 600
 # the CMUX_NEXT_BATCH_AUTHORS repository variable (space separated).
 DEFAULT_AUTHORS = ("teamleaderleo",)
 OPT_IN = "batch-queue"
+# Overrides count only when a login no lane runs as applied them: every agent
+# session runs gh as teamleaderleo, so its labels and statuses prove nothing.
+OVERRIDE_ALONE = "queue: land alone"
+OVERRIDE_BASE_RED = "queue: known base red"
+DEFAULT_OVERRIDERS = ("lawrencecchen",)
+REVIEW_CONTEXT = "review/independent"
 # A PR carrying one of these is never batched.
 HOLD_LABELS = frozenset({
     "hold", "exploration", "needs a call", "default call", "do-not-merge", "do not merge", "wip",
@@ -240,6 +246,7 @@ class PullRequest:
     author: str = ""
     files: list[str] = field(default_factory=list)
     checks: list[tuple[str, str, str]] = field(default_factory=list)  # (name, status, conclusion)
+    label_actors: dict[str, str] = field(default_factory=dict)  # label -> login that last applied it
 
     def short(self) -> str:
         return f"#{self.number}"
@@ -260,6 +267,9 @@ query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: Str
         files(first: 100) { nodes { path } }
         isCrossRepository
         labels(first: 30) { nodes { name } }
+        timelineItems(itemTypes: [LABELED_EVENT], last: 10) { nodes {
+          ... on LabeledEvent { label { name } actor { login } }
+        } }
         commits(last: 1) { nodes { commit {
           committedDate
           statusCheckRollup { contexts(first: 100) { nodes {
@@ -306,6 +316,9 @@ def open_prs(gh: GitHub) -> list[PullRequest]:
             author=(node.get("author") or {}).get("login", ""),
             files=[item["path"] for item in (node.get("files") or {}).get("nodes") or []],
             checks=checks,
+            label_actors={event["label"]["name"]: (event.get("actor") or {}).get("login", "")
+                          for event in (node.get("timelineItems") or {}).get("nodes") or []
+                          if event and event.get("label")},
         ))
     return prs
 
@@ -328,6 +341,58 @@ def red_format_checks(pr: PullRequest) -> list[str]:
 def batch_authors() -> frozenset[str]:
     configured = os.environ.get("CMUX_NEXT_BATCH_AUTHORS", "").split()
     return frozenset(configured or DEFAULT_AUTHORS)
+
+
+def overriders() -> frozenset[str]:
+    configured = os.environ.get("CMUX_NEXT_BATCH_OVERRIDERS", "").split()
+    return frozenset(configured or DEFAULT_OVERRIDERS)
+
+
+def trusted_labels(pr: PullRequest) -> set[str]:
+    """Override labels on this PR that an allowed login applied."""
+    return {label for label in pr.labels if pr.label_actors.get(label) in overriders()}
+
+
+def coordinator_prs() -> set[int]:
+    """PR numbers coord-2 lands itself: every number in CMUX_NEXT_BATCH_EXCLUDE (its merge-ready file)."""
+    path = os.environ.get("CMUX_NEXT_BATCH_EXCLUDE", "")
+    try:
+        text = Path(path).expanduser().read_text() if path else ""
+    except OSError:
+        return set()
+    return {int(number) for number in re.findall(r"(?<![0-9a-f])#?([1-9][0-9]{3,5})(?![0-9a-f])", text)}
+
+
+def land_alone_first(eligible: list[PullRequest]) -> list[PullRequest]:
+    """A PR with a trusted `queue: land alone` label is validated and landed in a batch of its own."""
+    alone = [pr for pr in eligible if OVERRIDE_ALONE in trusted_labels(pr)]
+    return alone[:1] or eligible
+
+
+def reviewed(pr: PullRequest, gh: "GitHub | None" = None) -> bool:
+    """An independent review approved this exact head.
+
+    Two sources, either is enough: CMUX_NEXT_BATCH_REVIEWED, a file of `<pr> <sha>` lines the reviewer
+    writes (coord-2 today), and a `review/independent` success status whose creator is one of
+    CMUX_NEXT_BATCH_REVIEWERS (for a review App or bot that no lane runs as). A push makes a new head
+    with neither, so approval never carries over.
+    """
+    path = os.environ.get("CMUX_NEXT_BATCH_REVIEWED", "")
+    if path:
+        try:
+            for line in Path(path).expanduser().read_text().splitlines():
+                fields = line.split("#", 1)[0].split()
+                if len(fields) >= 2 and fields[0].lstrip("#") == str(pr.number) and len(fields[1]) >= 12 \
+                        and pr.sha.startswith(fields[1]):
+                    return True
+        except OSError:
+            pass
+    reviewers = set(os.environ.get("CMUX_NEXT_BATCH_REVIEWERS", "").split())
+    if reviewers and gh is not None:
+        for status in gh.api(f"repos/{gh.repo}/commits/{pr.sha}/statuses?per_page=100") or []:
+            if status.get("context") == REVIEW_CONTEXT and (status.get("creator") or {}).get("login") in reviewers:
+                return status.get("state") == "success"  # newest first: the latest status from a reviewer decides
+    return False
 
 
 def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_DAYS,
@@ -359,8 +424,12 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
         return "label " + ", ".join(held)
     if pr.committed_at and at - parse_time(pr.committed_at) > dt.timedelta(days=stale_days):
         return f"head commit older than {stale_days} days"
+    if pr.number in coordinator_prs():
+        return "coord-2 lands it (listed in its merge-ready file)"
     red = red_fast_checks(pr)
-    if red:
+    # A trusted `queue: known base red` lets the batch judge it: a job red on
+    # feat-cmux-next itself never counts against the stack.
+    if red and OVERRIDE_BASE_RED not in trusted_labels(pr):
         return "red check " + ", ".join(red)
     return None
 
@@ -1196,10 +1265,12 @@ class Controller:
                 except RuntimeError as error:
                     landed.append((pr, f"not landed: {error}"))
                     continue
-            if not getattr(self.args, "land", True):
+            if not getattr(self.args, "land", True) or not reviewed(current, self.gh):
                 self.comment_once(pr, "receipt", self.receipt(validation, pr))
-                landed.append((pr, "receipt posted; owner lands"))
-                log(f"#{pr.number}: receipt posted")
+                why = "receipt posted; owner lands" if not getattr(self.args, "land", True) else \
+                    "not reviewed at this head; receipt posted, lands once reviewed"
+                landed.append((pr, why))
+                log(f"#{pr.number}: {why}")
                 continue
             self.comment_once(pr, "landing", (
                 f"Batch queue: landing. [Batch]({self.run_url}), stack `{validation.stack.head[:12]}` "
@@ -1345,7 +1416,10 @@ class Controller:
             write_summary("No eligible pull requests.\n\n" + "\n".join(
                 f"- #{number}: {reason}" for number, reason in sorted(skipped.items())))
             return 0
-        candidates = eligible
+        candidates = land_alone_first(eligible)
+        for pr in eligible:
+            if pr not in candidates:
+                skipped[pr.number] = "waiting: a trusted land-alone PR goes first"
         culprits: list[PullRequest] = []
         landed: list[tuple[PullRequest, str]] = []
         while candidates:

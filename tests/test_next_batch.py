@@ -672,7 +672,10 @@ class FormatBeforeLanding(unittest.TestCase):
         controller.merge_one = lambda helper, item, validation: merged.append(item.number) or "landed"
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="h", included=[red, clean]),
                                    branch="next-batch/x-1")
-        with mock.patch.object(nb, "open_prs", return_value=[red, clean]):
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {red.sha}\n2 {clean.sha}\n")
+        with mock.patch.object(nb, "open_prs", return_value=[red, clean]), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             landed = controller.land(validation)
         self.assertEqual(formatted, [1])
         self.assertEqual(merged, [1, 2])
@@ -751,7 +754,7 @@ class ReviewGate(NotifyOwners):
 
     def land(self, prs, env=None, statuses=None):
         controller = self.controller(notify=False)
-        controller.gh.rest = mock.Mock(return_value=statuses or [])
+        controller.gh.api = mock.Mock(return_value=statuses or [])
         with mock.patch.object(nb, "open_prs", return_value=prs), mock.patch.dict(os.environ, env or {}, clear=False):
             for key in ("CMUX_NEXT_BATCH_REVIEWED", "CMUX_NEXT_BATCH_REVIEWERS"):
                 if key not in (env or {}):
