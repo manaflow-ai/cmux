@@ -499,8 +499,10 @@ export class ChiefBrainDO extends DurableObject<Env> {
   async handFoundInTurn(action: string, result = ""): Promise<void> {
     const turn = this.turnId
     const foundNow = await this.refreshHands()
-    // A list continues the run only when this call found the first hand; new_sandbox also when the turn-start check did.
-    if (action === "list" && !foundNow) return
+    // A list continues the run when this call found the first hand, or when it shows a hand that the turn-start check
+    // found in the background (a sandbox made or a machine paired just before the message): else the turn would end
+    // with no agent tool. new_sandbox continues also when the turn-start check found it first.
+    if (action === "list" && !foundNow && handOfResult(action, result) === null) return
     const v = (k: string) => this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
     // A hand exists now while this turn runs with the compact tools (also when the turn-start check found it first).
     if (turn && v("hands_full") === "1" && v("hands_turn_mode") === "0" && v(`hands_cont:${turn}`) === undefined) {
