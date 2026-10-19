@@ -166,6 +166,7 @@ pub(super) fn set_column_dock(
     mode: Option<String>,
     role: Option<String>,
     permanent: Option<bool>,
+    pinned: Option<bool>,
     transaction: Option<u64>,
 ) -> anyhow::Result<Value> {
     let mut dock =
@@ -174,6 +175,8 @@ pub(super) fn set_column_dock(
     // omitted keeps the current value (a permanent column stays one).
     if let Some(flag) = dock.as_mut() {
         flag.permanent = permanent == Some(true);
+        // `pinned-dock-v1`: the same for `pinned`; `allow_tabs` stays.
+        flag.pinned = pinned == Some(true);
     }
     let outcome = mux.set_column_dock_as(
         &actor,

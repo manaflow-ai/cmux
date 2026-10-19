@@ -98,16 +98,22 @@ extension PaletteController {
         )
     }
 
+    /// Go to Workspace (Cmd-P): the workspaces, and once the user types the
+    /// sidebar groups, panes and tabs too, ranked in one list.
     public func workspacesPage() -> PalettePageSpec? {
         guard let source = sources.workspaces else { return nil }
-        return PalettePageSpec(
+        var providers: [any PaletteProvider] = [WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: true)]
+        if let navigation = sources.navigation { providers.append(NavigationPaletteProvider(source: navigation)) }
+        var page = PalettePageSpec(
             id: "workspaces",
             title: PaletteStrings.workspacesTitle,
-            placeholder: PaletteStrings.workspacesPlaceholder,
+            placeholder: sources.navigation == nil ? PaletteStrings.workspacesPlaceholder : PaletteStrings.goToAnythingPlaceholder,
             symbol: "rectangle.stack",
-            providers: [WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: true)],
+            providers: providers,
             showsRecent: true
         )
+        page.mergesSectionsWhenTyping = sources.navigation != nil
+        return page
     }
 
     public func tabsPage() -> PalettePageSpec? {

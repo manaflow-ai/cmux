@@ -164,6 +164,13 @@ public nonisolated struct AgentPaneTunables {
         }
     }
 
+    /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
+    /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
+    public static let sessionStatus = Tunable<Bool>.toggle(
+        "agent.sessionStatus", PageTunables.section, "In-session status (plan card, recap card)",
+        help: "Agent chats show the live plan card and the recap card.",
+        default: false, code: "AgentPaneTunables.sessionStatus")
+
     /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
     /// beside it.
     /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
@@ -312,5 +319,5 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, modelMenu.descriptor, sidebarPreviewVariant.descriptor, composerPlainFooter.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, sessionStatus.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, modelMenu.descriptor, sidebarPreviewVariant.descriptor, composerPlainFooter.descriptor] }
 }
