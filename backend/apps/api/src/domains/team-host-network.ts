@@ -13,8 +13,10 @@ export const reduceHostNetworkBound = (state: TeamState, params: unknown, ctx: R
   if (!state.team || state.team.deleted_at !== undefined || !host || host.kind === "server" || host.orphaned
     || host.enrolled_by !== v.install || host.owner_user !== v.owner_user || !can(state, ctx.rows, v.owner_user, "team.resources")
     || (host.network && (host.network.tenant !== v.network.tenant || host.network.mesh !== v.network.mesh || host.network.device !== v.network.device))) return reject("auth.forbidden", "the host identity changed")
-  if (host.network?.state === "confirmed" && host.wg_public_key === v.wg_public_key) return { ok: true as const, state, value: { host: host.id, network: host.network }, changed: false }
-  const network = { ...v.network, state: "confirmed" as const, confirmed_at: ctx.now }
+  // Old commands remain replayable and cannot erase a newer grant reference.
+  const grant = v.grant ?? (host.network?.state === "confirmed" ? host.network.install_grant : undefined)
+  if (host.network?.state === "confirmed" && host.wg_public_key === v.wg_public_key && host.network.install_grant === grant) return { ok: true as const, state, value: { host: host.id, network: host.network }, changed: false }
+  const network = { ...v.network, state: "confirmed" as const, confirmed_at: ctx.now, ...(grant ? { install_grant: grant } : {}) }
   const next = { ...host, wg_public_key: v.wg_public_key, network }
   const actor = { ...ctx, principal: { kind: "install" as const, identity: v.install, install: v.install, user: v.owner_user, team: state.team.id } }
   const audit = appendAudit(state, state.team.id, actor, "host.network.bind", `host ${host.name} network identity verified`, { host: host.id, install: v.install, owner_user: v.owner_user, network })
