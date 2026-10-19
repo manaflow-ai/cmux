@@ -765,6 +765,13 @@ impl Hub {
         m: &str,
         mut params: Value,
     ) -> Result<Value, RpcError> {
+        // Every switch into a mode that skips approvals, from any client (the app, the CLI, a
+        // script), passes here: refused while `sessions.allowFullAccess` is off.
+        if super::start_mode::requests_full_access(m, &params)
+            && !super::start_mode::full_access_allowed()
+        {
+            return Err(super::start_mode::full_access_off());
+        }
         let child = self.child_for(session).await?;
         let sid = session
             .meta()
