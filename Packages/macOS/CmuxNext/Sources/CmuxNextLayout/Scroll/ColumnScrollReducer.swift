@@ -152,8 +152,8 @@ nonisolated extension ColumnScrollState {
         }
 
         // A removed column cannot leave the camera past the new strip. The view carries the
-        // panes from where they showed, so they still spring back into view (Lucas 2026-10-19).
-        if !removed.isEmpty {
+        // panes horizontally from where they showed; row cameras keep their vertical spring.
+        if new.axis == .horizontal, !removed.isEmpty {
             let clamped = new.clamp(spring.value)
             if clamped != spring.value { spring.velocity = 0 }
             spring.value = clamped

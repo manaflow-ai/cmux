@@ -451,7 +451,7 @@ public final class LayoutRootView: NSView {
                 host.adoptPlane(overlayPlane)
             }
             driver.attach(to: self)
-            if screenViews.values.contains(where: \.hasMotion) { driver.start() }
+            if screenViews.values.contains(where: \.hasMotion) || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }
