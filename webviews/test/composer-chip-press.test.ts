@@ -162,7 +162,9 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
                 const box = element.getBoundingClientRect();
                 return {
                   background: getComputedStyle(element).backgroundColor,
-                  box: [box.x + box.width / 2, box.y + box.height / 2, element.offsetWidth, element.offsetHeight].map(Math.round),
+                  box: [box.x + box.width / 2, box.y + box.height / 2, element.offsetWidth, element.offsetHeight].map(
+                    Math.round,
+                  ),
                 };
               });
             const box = (await locator.boundingBox())!;

@@ -145,7 +145,11 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
         const page = await open(engine, stage.entry, stage.variant);
         const pills = () =>
           page.evaluate(() =>
-            [...document.querySelectorAll<HTMLElement>(":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer)")]
+            [
+              ...document.querySelectorAll<HTMLElement>(
+                ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer)",
+              ),
+            ]
               .filter((element) => {
                 const rect = element.getBoundingClientRect();
                 return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility === "visible";
@@ -159,7 +163,10 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
           );
         const rest = await pills();
         expect(rest.length, "the stage shows its controls").toBeGreaterThan(1);
-        expect(rest.filter((each) => each.pill), "no pill at rest").toEqual([]);
+        expect(
+          rest.filter((each) => each.pill),
+          "no pill at rest",
+        ).toEqual([]);
         const fine = await page.evaluate(() => matchMedia("(hover: hover) and (pointer: fine)").matches);
         if (fine) {
           const name = stage.chips[0]!;
@@ -167,9 +174,10 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
           await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
           await page.waitForTimeout(300);
           const hovered = await pills();
-          expect(hovered.filter((each) => each.pill).map((each) => each.label), "only the hovered button pills").toEqual([
-            name,
-          ]);
+          expect(
+            hovered.filter((each) => each.pill).map((each) => each.label),
+            "only the hovered button pills",
+          ).toEqual([name]);
         }
         await page.close();
       });
