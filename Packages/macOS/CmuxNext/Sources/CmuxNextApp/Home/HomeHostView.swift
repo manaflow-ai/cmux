@@ -256,9 +256,12 @@ final class HomeHostView: NSView {
         message.preferredMaxLayoutWidth = width
         let height = ceil(message.size(forWidth: width).height)
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
-        // Top right, under the window's title area (this view is not flipped).
+        // Centered under the transcript's header (avatar and name), so it never covers the name in a narrow dock
+        // (this view is not flipped).
         let size = chiefSwitch.fittingSize
-        chiefSwitch.frame = NSRect(x: max(0, bounds.width - size.width - 12), y: bounds.height - size.height - 56, width: size.width, height: size.height)
+        let column = transcript.frame
+        chiefSwitch.frame = NSRect(x: max(0, column.midX - size.width / 2), y: column.maxY - transcript.headerHeight - size.height - 6,
+                                   width: size.width, height: size.height)
     }
 
     /// The header avatar's click: the sidebar slides in from the right
