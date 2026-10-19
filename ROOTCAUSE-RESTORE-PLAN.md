@@ -418,6 +418,13 @@ still failed with `InterruptedError`, so reducing stale agent ownership has not
 yet cleared the filesystem stall. The completed lane reports remain available
 for the evidence review.
 
+The same recheck ran `diskutil verifyVolume /dev/disk7s1` without an unmount.
+macOS refused to start verification with Sandbox/TCC error `-69464` (the
+operation is restricted by Privacy & Security settings). This is an access
+limitation, not a filesystem-health result; SMART `Verified` and static
+`diskutil info` remain the only available health evidence until a safe
+authorized First Aid/verify window exists.
+
 OWC's current [Express 1M2 troubleshooting guide](https://eshop.macsales.com/manuals/OWC-Express-1M2-troubleshooting-guide)
 recommends isolating the enclosure on a direct USB-C/Thunderbolt port, removing
 other external drives, and running First Aid from the bottom of the Disk Utility
