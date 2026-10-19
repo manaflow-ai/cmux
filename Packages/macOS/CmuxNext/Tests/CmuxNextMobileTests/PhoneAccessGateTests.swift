@@ -111,6 +111,14 @@ struct PhoneAccessGateTests {
         #expect(policy.evaluate(try Self.line(["id": 1, "cmd": "browser-navigate", "surface": "s", "url": url])) != .forward)
     }
 
+    @Test func aURLThatIsNotAStringIsRefused() throws {
+        let policy = DaemonLanePolicy(deviceID: "p")
+        for url: Any in [["file:///etc/passwd"], ["href": "file:///etc/passwd"], 7] {
+            #expect(policy.evaluate(try Self.line(["id": 1, "cmd": "browser-navigate", "surface": "s", "url": url])) != .forward,
+                    "\(url)")
+        }
+    }
+
     @Test func webPagesStillOpen() throws {
         let policy = DaemonLanePolicy(deviceID: "p")
         #expect(policy.evaluate(try Self.line(["id": 1, "cmd": "browser-navigate", "surface": "s", "url": "https://example.com"])) == .forward)
