@@ -13,6 +13,7 @@ main's script and never checks out the pull request).
 from __future__ import annotations
 
 import os
+import re
 import sys
 import textwrap
 import unittest
@@ -1220,6 +1221,16 @@ class WebTestTests(unittest.TestCase):
                                            "Also failing here, not on main: `vm-route-deadlines.test.ts`."), verdict)
         self.assertIn(f"- **new in this PR** `vm-route-deadlines.test.ts` `{DEADLINE_TEST}`: "
                       "`timed out after 5000ms`", body)
+
+    def test_a_web_test_the_pr_may_not_own_points_at_the_import_graph_check(self) -> None:
+        # The bot cannot build the import graph (it never fetches PR code), so it names the command that does.
+        body = OwnershipTests().comment(red_report(WEB_SHARD_LOG, WEB_SHARD), ["web/services/vms/repository.ts"])
+        pr = re.search(r"--pr (\d+) ", body)
+        self.assertIsNotNone(pr, body)
+        self.assertIn(f"`python3 scripts/ci/web_test_verdict.py --pr {pr.group(1)} "
+                      "--file web/tests/vm-route-deadlines.test.ts`", body)
+        owned = OwnershipTests().comment(red_report(WEB_SHARD_LOG, WEB_SHARD), ["web/bun.lock"])
+        self.assertNotIn("web_test_verdict.py", owned)
 
     def test_a_same_named_file_elsewhere_is_not_yours(self) -> None:
         item = cf.failure("test", "web/tests/vm-workflows.test.ts", test="t")
