@@ -51,6 +51,12 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+    # The What's New and release-notes tests in preflight import or run these.
+    "scripts/whats-new/digest.py": frozenset(("preflight",)),
+    "scripts/whats-new/validate.py": frozenset(("preflight",)),
+    "scripts/whats-new/community.py": frozenset(("preflight",)),
+    "scripts/cmux-next/release-notes.py": frozenset(("preflight",)),
+
     # test_ci_runner_capability_resolver.py reads the capability map, the
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
