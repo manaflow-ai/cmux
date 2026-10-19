@@ -15,7 +15,7 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "glass", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "glass", "fonts", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
@@ -27,6 +27,9 @@ AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IG
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
+# Font settings (appearance.fonts.*): the fonts tour opens Settings on the Fonts group and the chat
+# in each face.
+FONTS = re.compile(r"(?:AppFonts|FontPreview|app-fonts|font-variables)", re.IGNORECASE)
 # A tour's own file: a pull request that edits a tour gets that tour's shots.
 TOUR_FILE = re.compile(r"^scripts/cmux-next/media/tours/([a-z0-9-]+)\.json$")
 
@@ -52,6 +55,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("now-playing")
     if GLASS.search(normalized):
         selected.append("glass")
+    if FONTS.search(normalized):
+        selected.append("fonts")
     if not selected:
         selected.append("core")
     return selected
