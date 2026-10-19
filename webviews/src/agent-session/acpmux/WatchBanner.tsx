@@ -7,8 +7,8 @@ export function watchedApp(family: string): string {
 }
 
 /// A chat that shows a Claude Code or Codex session another app runs, without running it
-/// (acpmux `hub/watch.rs`): the transcript follows that app live, the composer sends nothing, and
-/// Take Over makes this chat run the conversation (acpmux refuses while the other app still runs
+/// (acpmux `hub/watch.rs`): the transcript follows that app live; a reply, or Take Over, makes this
+/// chat run the conversation (acpmux refuses while the other app still runs
 /// it, and the pane then offers Open Anyway or Fork It). Viewing never blocks starting a session:
 /// Continue in New Chat forks a Claude Code session into a new chat, and New Chat Here starts a
 /// Codex chat in its folder (a Codex session cannot be forked while another app runs it).
@@ -25,6 +25,7 @@ export function WatchBanner({
   return (
     <div className="acpmux-link-missing acpmux-watch-banner">
       <p>{t("watch.banner", { app: watchedApp(family) })}</p>
+      <p className="acpmux-watch-hint">{t("watch.composer")}</p>
       <p className="acpmux-live-chat-actions">
         <button type="button" className="acpmux-folder-choice-button" onClick={onTakeOver}>
           {t("watch.takeOver")}

@@ -21,14 +21,14 @@ enum ChatOpenRoute: Equatable {
     case needsFolder(reason: String)
 
     /// `watch`: View Only, for a chat acpmux would adopt (Claude Code, Codex): the tab shows it
-    /// without running it. Any other plan opens as it would.
+    /// without running it. Any other plan or harness opens as it would.
     static func route(_ plan: AcpmuxChatOpenPlan, chat: ChatOpenSubject, inTerminal: Bool = false, watch: Bool = false,
                       openTab: (AgentPaneAdopt) -> String?) -> ChatOpenRoute {
         if inTerminal { return terminal(plan, chat: chat) }
         switch plan.action {
         case .needsFolder(let reason): return .needsFolder(reason: reason)
         case .adopt(var adopt, let cwd, _):
-            if watch { adopt.watch = true }
+            if watch, ["claude", "codex"].contains(adopt.harness) { adopt.watch = true }
             return openTab(adopt).map { .reveal(tab: $0) }
                 ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt, pastChat: chat.key),
                                  command: nil, env: [:])
@@ -85,6 +85,8 @@ final class ChatsOpenCoordinator {
     /// and follows the app that runs it, without running it, until Take Over.
     func open(_ key: String, inTerminal: Bool = false, watch: Bool = false, replacing page: String? = nil) {
         guard let services, let environment = QuitAgents.environment(services) else { return }
+        // Every Open of an outside Claude Code or Codex chat is View Only unless the Debug toggle is off.
+        let watch = watch || AgentPaneTunables.openOutsideChatsViewOnly.value
         Task { [weak self] in
             guard let self else { return }
             do {

@@ -22,3 +22,10 @@ test("the banner offers a new chat from the viewed session", () => {
   const codex = renderToStaticMarkup(<WatchBanner family="codex" onTakeOver={() => {}} onContinue={() => {}} />);
   expect(codex).toContain("New Chat Here");
 });
+
+// View Only is what you get when you don't act: the composer stays on, and a reply takes over.
+test("the banner says a reply takes the session over", () => {
+  expect(renderToStaticMarkup(<WatchBanner family="codex" onTakeOver={() => {}} />)).toContain(
+    "Reply to take over this session",
+  );
+});
