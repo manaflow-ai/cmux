@@ -25,6 +25,8 @@ final class ServerMachineSession {
     /// Connect at launch: true until the user disconnects (kept in the registry).
     var autoConnect = true
     @ObservationIgnored private var started = false
+    /// Final removal or replacement fences callbacks that retain this object.
+    @ObservationIgnored private var retired = false
 
     /// Runs when an overlay connection ends (EOF or heartbeat), so the
     /// route is re-resolved at once (a crashed link falls back).
@@ -53,6 +55,7 @@ final class ServerMachineSession {
     /// Starts connecting; never blocks: an offline server shows its state in
     /// the sidebar while the daemon loop waits for an event.
     func connect() {
+        guard !retired else { return }
         autoConnect = true
         switch reach.route {
         case .ssh:
@@ -92,6 +95,7 @@ final class ServerMachineSession {
     }
 
     func wake() {
+        guard !retired else { return }
         if let link { link.wake(.user) } else { daemon.retryWake.fire() }
     }
 
@@ -103,11 +107,8 @@ final class ServerMachineSession {
 
     /// Ends the session for good (pairing removed, sign-out, quit).
     func close() {
-        if let link {
-            link.close()
-        } else {
-            daemon.shutdownConnection()
-        }
+        retired = true
+        if let link { link.close() } else { daemon.shutdownConnection() }
         started = false
     }
 }
