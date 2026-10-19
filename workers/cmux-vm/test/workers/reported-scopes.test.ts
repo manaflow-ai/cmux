@@ -32,7 +32,9 @@ describe("reported scope compatibility", () => {
   });
 
   it("refuses an unfamiliar permission in key creation requests", () => {
-    expect(Either.isLeft(Schema.decodeUnknownEither(CreateApiKeyRequest)({ name: "fixture", scopes: [FUTURE] }))).toBe(true);
+    const decode = Schema.decodeUnknownEither(CreateApiKeyRequest);
+    expect(Either.isRight(decode({ name: "fixture", scopes: ["vm:read"] }))).toBe(true);
+    expect(Either.isLeft(decode({ name: "fixture", scopes: [FUTURE] }))).toBe(true);
   });
 
   it("never grants authority from an unfamiliar stored permission", () => {
