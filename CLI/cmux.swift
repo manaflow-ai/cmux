@@ -24140,6 +24140,13 @@ struct CMUXCLI {
                 }
             }
         }
+        // A target flag with a blank value is a mistake, not "no target".
+        if let workspace, workspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: sidebar.workspaceRequiresValue)
+        }
+        if let window, window.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw CLIError(message: sidebar.windowRequiresValue)
+        }
         return SidebarCLIArguments(
             positional: positional,
             workspace: workspace,
