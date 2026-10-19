@@ -2,6 +2,7 @@
 // the composer sits at the foot of the page, and the empty space above it holds, centered, one card
 // that picks where the chat starts and, under it, one card of suggested actions. Rows are plain
 // text with an icon; only a hovered or focused row draws a wash, never a resting pill.
+import { Tooltip } from "../../../ui/Tooltip";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import { ProjectBadge } from "../ProjectBadge";
@@ -131,25 +132,40 @@ export function SuggestionsCard({
   const nt = useNt();
   return (
     <section className="nt-stage-card nt-suggest" aria-label={nt("suggest.label")}>
-      {attention.map((card) => (
-        <button
-          key={card.sessionId}
-          type="button"
-          className="nt-stage-row nt-suggest-chat"
-          data-state={card.state}
-          onClick={() => onOpen(card.sessionId)}
-        >
-          <span className="nt-stage-icon" aria-hidden="true">
-            <Icon name="agent.chat" size={14} />
-          </span>
-          <span className="nt-stage-text">{card.title}</span>
-          <span className="nt-stage-detail nt-suggest-state">
-            {card.state === "failed"
-              ? t("header.failed")
-              : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`)}
-          </span>
-        </button>
-      ))}
+      {attention.map((card) => {
+        const state =
+          card.state === "failed"
+            ? t("header.failed")
+            : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`);
+        return (
+          // tooltip-allow: a cut row's hover card shows the chat's whole title and what it waits on
+          // (Leo 2026-10-19): a floating card over the page, offset from the row, never over its text.
+          <Tooltip
+            key={card.sessionId}
+            side="top"
+            className="ui-card nt-hovercard"
+            label={
+              <span className="nt-hovercard-body">
+                <span className="nt-hovercard-title">{card.title}</span>
+                <span className="nt-hovercard-detail">{card.message ?? state}</span>
+              </span>
+            }
+          >
+            <button
+              type="button"
+              className="nt-stage-row nt-suggest-chat"
+              data-state={card.state}
+              onClick={() => onOpen(card.sessionId)}
+            >
+              <span className="nt-stage-icon" aria-hidden="true">
+                <Icon name="agent.chat" size={14} />
+              </span>
+              <span className="nt-stage-text">{card.title}</span>
+              <span className="nt-stage-detail nt-suggest-state">{state}</span>
+            </button>
+          </Tooltip>
+        );
+      })}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       <div className="nt-create" role="group" aria-label={nt("create.label")}>
         {onCreate && (

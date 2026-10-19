@@ -545,35 +545,35 @@
    take the model's name or the mode's label away, its mark or lock shows again, so neither chip
    is ever a bare chevron. The widths are COMPOSER_FIT_STEPS modelMark (370) and
    accessLabelHidden (420). test/composer-footer-plain.test.ts measures it. */
-.acpmux-composer-bar[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
 @container composer (width > 370px) {
-  .acpmux-composer-bar[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
+  :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
     display: none;
   }
 }
 @container composer (width > 420px) {
-  .acpmux-composer-bar[data-footer-look="plain"]:not([data-fit-access="icon"]) .acpmux-access-trigger > .acpmux-icon:first-child {
+  :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]:not([data-fit-access="icon"]) .acpmux-access-trigger > .acpmux-icon:first-child {
     display: none;
   }
 }
-.acpmux-composer-bar[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
-.acpmux-composer-bar[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
   background: var(--acpmux-row-hover);
 }
-.acpmux-composer-bar[data-footer-look="plain"]
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]
   :is(.acpmux-model, .acpmux-effort, .acpmux-access)
   .acpmux-picker-button:not(:hover, :focus-visible, :active, [aria-expanded="true"], [data-press-active]) {
   background: none;
   box-shadow: none;
 }
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-composer-bar[data-footer-look="plain"]
+  :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]
     :is(.acpmux-model, .acpmux-effort, .acpmux-access)
     .acpmux-picker-button:hover:not(:active, [aria-expanded="true"], [data-press-active]) {
     background: var(--acpmux-row-hover);
   }
 }
-.acpmux-composer-bar[data-footer-look="plain"] .acpmux-plan[aria-pressed="true"]:not(:hover, :focus-visible, :active) {
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan[aria-pressed="true"]:not(:hover, :focus-visible, :active) {
   background: none;
   box-shadow: none;
 }

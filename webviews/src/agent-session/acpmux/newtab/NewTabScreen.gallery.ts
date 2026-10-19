@@ -252,6 +252,31 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-widget-tip") !== null);
       },
     },
+    "stage-layout": {
+      note: "The default layout (Leo 2026-10-19, Claude Code desktop's new-session screen): the composer at the foot with the plain footer (folder and mode left, model and effort right); over it, centered, the environment card (this project checked, the other projects, Choose environment) and the suggested actions card (the chats that need you, then New terminal, New browser tab, New chat); the recent chats under them.",
+      ready: newTab({ projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
+        const composer = ctx.document.querySelector(".nt-composer")!.getBoundingClientRect();
+        const env = ctx.document.querySelector(".nt-env")!.getBoundingClientRect();
+        if (env.bottom > composer.top) throw new Error("the environment card is not above the composer");
+      },
+    },
+    "stage-hover": {
+      note: "A pointer over a chat that needs you: its hover card floats over the page, offset from the row, solid, never over the row's own text.",
+      ready: newTab({ projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-suggest-chat").length > 0);
+        await ctx.hover({ selector: ".nt-suggest-chat" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-hovercard") !== null);
+        const row = ctx.document.querySelector(".nt-suggest-chat .nt-stage-text")!.getBoundingClientRect();
+        const card = ctx.document.querySelector(".nt-hovercard")!.getBoundingClientRect();
+        if (card.bottom > row.top && card.top < row.bottom) throw new Error("the hover card covers its row's text");
+      },
+    },
     "no-harness-installed": {
       note: "No harness installed (Leo 2026-10-14): the composer's chip says Add harness and opens the Harnesses page. No line under the field, no grey placeholder pills.",
       // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.
