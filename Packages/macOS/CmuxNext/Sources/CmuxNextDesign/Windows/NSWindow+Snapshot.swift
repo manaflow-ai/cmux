@@ -98,14 +98,17 @@ extension NSWindow {
     /// ones a snapshot composites.
     public var visibleChildWindows: [NSWindow] {
         var result: [NSWindow] = []
-        func visit(_ window: NSWindow) {
-            for child in window.childWindows ?? [] where child.isVisible && child.windowNumber > 0 && child.alphaValue > 0 {
-                result.append(child)
-                visit(child)
-            }
-        }
-        visit(self)
+        Self.appendVisibleChildWindows(of: self, into: &result)
         return result
+    }
+
+    /// Depth first, a child before its own children. A static function with inout state, not a
+    /// capturing local function (Swift 6.3.3's SendNonSendable pass crashed now and then on those).
+    private static func appendVisibleChildWindows(of window: NSWindow, into result: inout [NSWindow]) {
+        for child in window.childWindows ?? [] where child.isVisible && child.windowNumber > 0 && child.alphaValue > 0 {
+            result.append(child)
+            appendVisibleChildWindows(of: child, into: &result)
+        }
     }
 
     // kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution.

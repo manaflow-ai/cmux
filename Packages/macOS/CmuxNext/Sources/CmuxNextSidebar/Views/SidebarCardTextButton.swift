@@ -33,7 +33,7 @@ final class SidebarCardTextButton: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 

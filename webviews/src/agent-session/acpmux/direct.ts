@@ -16,7 +16,7 @@ import type {
 } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
-import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
+import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
@@ -2109,7 +2109,11 @@ export class AcpmuxDirectClient {
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,
-            promptCapabilities: summary.agentCapabilities?.promptCapabilities,
+            // `audio` only while the picked model hears it (takesAudio).
+            promptCapabilities: summary.agentCapabilities?.promptCapabilities && {
+              ...summary.agentCapabilities.promptCapabilities,
+              audio: takesAudio(summary.agentCapabilities.promptCapabilities, summary.configOptions),
+            },
             steering: summary.steering === true,
             queuePaused: summary.queuePaused === true,
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
@@ -2244,7 +2248,14 @@ export class AcpmuxDirectClient {
     try {
       await this.request("session/prompt", {
         sessionId,
-        prompt: promptBlocks(input, attachments),
+        // A recording goes only to a harness that takes voice input; one moved to another
+        // harness (a switch, a held prompt put back) goes as its transcript.
+        prompt: promptBlocks(
+          input,
+          takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions)
+            ? attachments
+            : attachments.filter((attachment) => attachment.kind !== "audio"),
+        ),
         _meta: {
           acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}), ...(context ? { context } : {}) },
           ...(ticket ? { cmuxGesture: ticket } : {}),
@@ -3111,6 +3122,9 @@ export class AcpmuxDirectClient {
     this.closed = true;
     this.sessionPages.stop();
     clearTimeout(this.sessionReread);
+    this.sessionReread = undefined;
+    clearTimeout(this.stopTimer);
+    this.stopTimer = undefined;
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
