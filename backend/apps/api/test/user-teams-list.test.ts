@@ -216,4 +216,26 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(publicFrames).not.toContain('"member_authority"')
     expect(publicFrames).not.toContain('"incarnation"')
   })
+
+  it("never reuses authority when a decided key ages out of its ledger", async () => {
+    const t = await rolesTeam(), member = await t.join("Member", STACK_MEMBER)
+    const versions = await inDO(teamStub(t.team), async (instance) => {
+      const engine = instance.bind(t.team)
+      const provision = (role: string, key: string) => {
+        const frames: Array<any> = []
+        engine.submit({ identity: "system:team", kind: "system" }, { t: "op", op: "team.member.provision",
+          params: { user: member.user, role, source: "stack", display_name: "Member" }, idempotency_key: key, origin: "script"
+        }, (_target: string, frame: unknown) => frames.push(frame))
+        expect(frames.some((frame) => frame.t === "event")).toBe(true)
+      }
+      provision("admin", "reusable-key")
+      const first = (await instance.membership(t.team, member.user)).authority_version
+      provision("member", "another-key")
+      engine.pruneLedger(Date.now() + 1)
+      provision("admin", "reusable-key")
+      const later = (await instance.membership(t.team, member.user)).authority_version
+      return { first, later }
+    })
+    expect(versions.later).not.toBe(versions.first)
+  })
 })
