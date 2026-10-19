@@ -21,7 +21,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let id: String
     /// The session's acpmux name (`<peer>/<name>` for a peer's).
     public let name: String
-    /// The chat's title, else its name.
+    /// acpmux's masked title (`lane.title`), else its name.
     public let title: String
     /// The acpmux peer that owns it; nil on this Mac.
     public let peer: String?
@@ -37,7 +37,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let error: String?
     /// The harness that runs it, as acpmux names it ("claude", "codex").
     public let harness: String?
-    /// What it is doing now: the running turn's prompt, else the agent's last message (hq#2509).
+    /// What it is doing now, one line (hq#2509): the lane's `step`, which acpmux masks secrets in.
     public let step: String?
     /// The session whose agent started this one (acpmux `spawnedBy`, one level): the sidebar's
     /// session tree lists its workspace under that session's.
@@ -73,7 +73,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// The lane of one `_acpmux/watch` / `session_changed` summary; nil when acpmux decided none
     /// (a closed session, or an acpmux from before `lane`). `id` names the session when the
     /// summary does not (a `session_changed` carries it beside the summary).
-    public static func of(summary: [String: Any], id fallback: String? = nil, title: String?) -> AgentActivityLane? {
+    public static func of(summary: [String: Any], id fallback: String? = nil) -> AgentActivityLane? {
         guard let id = summary["sessionId"] as? String ?? fallback, let lane = summary["lane"] as? [String: Any],
               let raw = lane["state"] as? String, let state = State(rawValue: raw) else { return nil }
         let name = summary["name"] as? String ?? id
@@ -82,20 +82,14 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let parent = ((summary["tags"] as? [String: Any])?[parentTag] as? String).flatMap { $0.isEmpty ? nil : $0 }
         let workspaceID = (summary["workspaceId"] as? String) ?? (summary["workspace_id"] as? String)
         let harness = (summary["harness"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // Never the raw prompt beside it: only acpmux's masked step and title are shown.
+        let step = (lane["step"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let title = (lane["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
                                  state: state, since: since, error: error, workspaceID: workspaceID,
-                                 harness: harness, step: step(of: summary), spawnedBy: nonEmpty(summary["spawnedBy"]),
+                                 harness: harness, step: step, spawnedBy: nonEmpty(summary["spawnedBy"]),
                                  cwd: nonEmpty(summary["cwd"]))
     }
 
     private static func nonEmpty(_ value: Any?) -> String? { (value as? String).flatMap { $0.isEmpty ? nil : $0 } }
-
-    /// The running turn's prompt, else the agent's last message, on one line; as the web view's `laneStep`.
-    static func step(of summary: [String: Any]) -> String? {
-        let message = summary["lastMessage"] as? [String: Any]
-        let text = (summary["turn"] as? [String: Any])?["prompt"] as? String
-            ?? (message?["role"] as? String == "agent" ? message?["text"] as? String : nil)
-        let line = text?.split(whereSeparator: \.isWhitespace).joined(separator: " ").prefix(240)
-        return line.flatMap { $0.isEmpty ? nil : String($0) }
-    }
 }
