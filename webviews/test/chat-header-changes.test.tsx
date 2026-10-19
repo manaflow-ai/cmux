@@ -114,4 +114,14 @@ test("Files and Changes light while the chat's viewer shows them", async () => {
   render([HEADER_ACTIONS.changes]);
   expect(button("Changes")?.getAttribute("aria-pressed")).toBe("true");
   expect(button("Files")?.getAttribute("aria-pressed")).toBe("false");
+  // The tray header styles (Lucas's is quiet) draw their own buttons and light them the same way.
+  const { configureHeaderStyle } = await import("../src/agent-session/acpmux/header/headerStyle");
+  act(() => configureHeaderStyle({ headerStyle: "quiet" }));
+  render([HEADER_ACTIONS.files]);
+  const tray = (label: string) => host.querySelector(`.acpmux-header-tray button[aria-label="${label}"]`);
+  expect(tray("Files")?.getAttribute("aria-pressed")).toBe("true");
+  render([HEADER_ACTIONS.changes]);
+  expect(tray("Changes")?.getAttribute("aria-pressed")).toBe("true");
+  expect(tray("Files")?.getAttribute("aria-pressed")).not.toBe("true");
+  act(() => configureHeaderStyle({}));
 });

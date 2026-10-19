@@ -169,8 +169,9 @@ test("a folder in no git repository says so", async () => {
 });
 
 // Lucas 2026-10-19: the open viewer needs a plain way out besides Back: an X at the header's end.
-test("the viewer's X closes it", async () => {
+test("the viewer's X closes it, and there is no Back to transcript beside it", async () => {
   const { events } = await show();
+  expect(host.querySelector('[aria-label="Back to transcript"]')).toBeNull();
   await act(async () =>
     host.querySelector<HTMLButtonElement>('.acpmux-diff-header button[aria-label="Close"]')!.click(),
   );
