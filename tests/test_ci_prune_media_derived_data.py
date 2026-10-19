@@ -193,6 +193,49 @@ def scenario_held_tag():
         _check("cmux-ci-media-pr-2-base" not in names, "still removes an idle unheld tag")
 
 
+def scenario_tag_held_while_removing():
+    """The prune holds a dir's tag lock until its rmtree finishes. A tour that asks for the tag mid-delete
+    (media_tag_lock.py hold --wait 0) is refused, so it never builds into a dir that is being removed."""
+    import importlib.util
+    import shutil
+
+    lock = os.path.join(ROOT, "scripts", "ci", "media_tag_lock.py")
+    spec = importlib.util.spec_from_file_location("prune_media_derived_data_under_test", SCRIPT)
+    prune = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prune)
+    with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as outside, \
+            tempfile.TemporaryDirectory() as locks:
+        build_tree(root, outside)
+        tours = {}
+        real_rmtree = shutil.rmtree
+
+        def rmtree_while_a_tour_asks(path, *args, **kwargs):
+            name = os.path.basename(str(path))
+            tag = name[len("cmux-"):].removesuffix("-base").removesuffix("-head")
+            tour = subprocess.run([sys.executable, lock, "hold", "--tag", tag, "--lock-dir", locks,
+                                   "--wait", "0", "--max-hold", "1"], capture_output=True, text=True)
+            tours[name] = tour.returncode
+            return real_rmtree(path, *args, **kwargs)
+
+        prune.shutil.rmtree = rmtree_while_a_tour_asks
+        child = hold_open(os.path.join(root, "cmux-ci-media-pr-3-base"))
+        try:
+            argv = sys.argv
+            sys.argv = [SCRIPT, "--root", root, "--keep-tag", "ci-media-pr-9-base", "--keep-tag",
+                        "ci-media-pr-9-head", "--keep-others", "0", "--lock-dir", locks]
+            try:
+                prune.main()
+            finally:
+                sys.argv = argv
+        finally:
+            prune.shutil.rmtree = real_rmtree
+            child.kill()
+            child.wait()
+        _check(bool(tours), "the prune removed at least one dir")
+        for name, code in sorted(tours.items()):
+            _check(code != 0, f"a tour asking for {name}'s tag mid-delete is refused (exit {code})")
+
+
 def workflow_step():
     with open(WORKFLOW) as handle:
         workflow = yaml.safe_load(handle)
@@ -235,6 +278,7 @@ def main():
     scenario_keep_four()
     scenario_keep_zero()
     scenario_held_tag()
+    scenario_tag_held_while_removing()
     scenario_workflow_step()
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
