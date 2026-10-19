@@ -15,10 +15,19 @@ gives us. Meanwhile the minis' side label queued at p90 29 minutes.
 The cascade places the jobs that idle minis did not take, in the placement's
 priority order, while each Blacksmith label has a free slot now:
 blacksmith-12vcpu-macos-26 (CAPACITY 5) first, then blacksmith-6vcpu-macos-26
-(CAPACITY 10). The rest stay queued on the owned label as before, where the
-rescue still watches them. Only CASCADE_JOBS take part: they compile and test
-headless. The jobs that need a logged-in session (swift-test, daemon-test,
-generated-files) keep the gui route.
+(CAPACITY 10), at most MAX_PER_RUN on each label. The rest stay queued on the
+owned label as before, where the rescue still watches them.
+
+Only CASCADE_JOBS take part, and only those the workflow says run on this route
+(CASCADE_RUNS: not fast-tier when vars.CI_FAST_LANE_RUNNER gives it its own
+runner, not a job path routing or labels skip), so no slot is spent on a job
+that never asks for it. The jobs that need a logged-in session (swift-test,
+daemon-test, generated-files) keep the gui route, and release-compile stays on
+the minis: only a mini fetches Chromium and compiles the CEF shim.
+
+A slot counted free can still be taken by another run placing in the same
+snapshot window, and nothing rescues a job queued on Blacksmith. MAX_PER_RUN
+bounds how far a burst of runs can overfill a label.
 
 A free slot is CAPACITY less the jobs in flight and the jobs already queued:
 - In flight comes live from the organization's runner groups. Blacksmith
@@ -41,6 +50,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import json
+import time
 import urllib.parse
 import urllib.request
 from typing import Any, Callable, Mapping, Sequence
@@ -52,7 +62,10 @@ LABELS = (LARGE, SMALL)
 # at once, five whenever it had a queue (2026-10-19); 6 vCPU: ten online at 21:40Z.
 CAPACITY = {LARGE: 5, SMALL: 10}
 # Headless compile and test jobs. A job missing here never leaves the minis on attempt 1.
-CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile")
+CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile")
+MAX_PER_RUN = 2
+# The step has two minutes, and the placement's own reads come first.
+READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
 SCALE_SET_GROUP = "Blacksmith scale sets - {label}"
 API = "https://api.github.com"
@@ -111,6 +124,8 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
         if label is None:
             break
         placed[label].append(job)
+        if len(placed[label]) >= MAX_PER_RUN:
+            free[label] = 0
         free[label] -= 1
     return {label: tuple(names) for label, names in placed.items()}
 
@@ -143,7 +158,9 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     if waiting is None:
         return Placement(empty, retry, f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
                                        "Blacksmith's queue; no job leaves the minis' queue")
-    candidates = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job not in owned]
+    runs = set((env.get("CASCADE_RUNS") or "").split())
+    candidates = [job for job in (env.get("JOBS") or "").split()
+                  if job in CASCADE_JOBS and job in runs and job not in owned]
     placed = cascade(candidates, live, waiting)
     load = ", ".join(f"`{label}` {live[label]} in flight + {waiting[label]} queued of {CAPACITY[label]}"
                      for label in LABELS)
@@ -177,9 +194,10 @@ class Api:
             f"/orgs/{owner}/actions/runner-groups/{group}/runners?per_page=100").get("runners") or [])
 
 
-def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime,
-         log: Callable[[str], None] = print) -> tuple[dict[str, int] | None, dict[str, int] | None]:
-    """(in flight, queued) for place(); each None when its read fails."""
+def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[str], None] = print,
+         clock: Callable[[], float] = time.monotonic) -> tuple[dict[str, int] | None, dict[str, int] | None]:
+    """(in flight, queued) for place(); each None when its read fails or READ_BUDGET_SECONDS ran out."""
+    started = clock()
     live = waiting = None
     if skipped(env):
         return live, waiting
@@ -187,9 +205,14 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime,
     if route and repository:
         try:
             live = Api(route, repository).in_flight()
+            if live is None:
+                log("::warning title=macOS cascade::no `Blacksmith scale sets - <label>` runner group is visible")
         except Exception as error:  # noqa: BLE001 - fail closed: nothing leaves the minis' queue
             log(f"::warning title=macOS cascade::could not list Blacksmith's runner groups ({error})")
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
+    if clock() - started > READ_BUDGET_SECONDS:
+        log("::warning title=macOS cascade::the runner groups took too long; the pool snapshot is not read")
+        return live, None
     if live is not None and snapshot_token and repository:
         try:
             waiting = queued(pool.GitHub(snapshot_token, repository).snapshot(now=now), now)

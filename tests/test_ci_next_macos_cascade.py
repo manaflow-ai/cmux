@@ -22,7 +22,7 @@ WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 LARGE, SMALL = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
 SIDE = "glaeda-side-light-xcode-26.6"
 GUI = "glaeda-gui-std-xcode-26.6"
-CASCADED = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile")
+CASCADED = ("fast-tier", "swift-canary", "cmux-scheme-compile")
 GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
 ALL_JOBS = "fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files"
 NOW = dt.datetime(2026, 10, 19, 22, 0, tzinfo=dt.timezone.utc)
@@ -45,7 +45,8 @@ placement = load("side_lane_placement")
 
 
 def env(**overrides: str) -> dict:
-    return {"SIDE_LABEL": SIDE, "JOBS": ALL_JOBS, "GITHUB_RUN_ATTEMPT": "1", **overrides}
+    return {"SIDE_LABEL": SIDE, "JOBS": ALL_JOBS, "GITHUB_RUN_ATTEMPT": "1",
+            "CASCADE_RUNS": " fast-tier swift-canary cmux-scheme-compile ", **overrides}
 
 
 def snapshot(minutes_old: float = 2, **queued: int) -> dict:
@@ -84,9 +85,15 @@ class Cascade(unittest.TestCase):
         placed = cascade.cascade(CASCADED, {LARGE: 4, SMALL: 8}, {LARGE: 0, SMALL: 1})
         self.assertEqual(placed, {LARGE: ("fast-tier",), SMALL: ("swift-canary",)})
 
-    def test_a_full_twelve_sends_every_job_to_six(self):
-        placed = cascade.cascade(CASCADED, {LARGE: 5, SMALL: 2}, {LARGE: 0, SMALL: 0})
-        self.assertEqual(placed, {LARGE: (), SMALL: CASCADED})
+    def test_a_full_twelve_sends_the_jobs_to_six(self):
+        placed = cascade.cascade(CASCADED[:2], {LARGE: 5, SMALL: 2}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(placed, {LARGE: (), SMALL: CASCADED[:2]})
+
+    def test_one_run_takes_at_most_max_per_run_slots_on_a_label(self):
+        # A burst of runs in one snapshot window sees the same free slots; each takes few of them.
+        placed = cascade.cascade(CASCADED, {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(cascade.MAX_PER_RUN, 2)
+        self.assertEqual(placed, {LARGE: ("fast-tier", "swift-canary"), SMALL: ("cmux-scheme-compile",)})
 
     def test_queued_jobs_take_free_slots_first(self):
         # Five free 12 vCPU slots on the runner count, but five jobs already wait for them.
@@ -102,14 +109,23 @@ class Cascade(unittest.TestCase):
 class Place(unittest.TestCase):
     def test_jobs_an_idle_mini_took_and_gui_jobs_stay_off_blacksmith(self):
         result = cascade.place(env(), ("fast-tier",), {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
-        self.assertEqual(result.jobs, {LARGE: ("swift-canary", "cmux-scheme-compile", "release-compile"),
-                                       SMALL: ()})
+        self.assertEqual(result.jobs, {LARGE: ("swift-canary", "cmux-scheme-compile"), SMALL: ()})
         self.assertEqual(result.retry_runner, LARGE)
+
+    def test_only_jobs_that_run_on_this_route_take_a_slot(self):
+        # fast-tier on its own fast-lane runner, or a canary the pull request's labels skip, spends no slot.
+        result = cascade.place(env(CASCADE_RUNS=" cmux-scheme-compile "), (), {LARGE: 4, SMALL: 0},
+                               {LARGE: 0, SMALL: 0})
+        self.assertEqual(result.jobs, {LARGE: ("cmux-scheme-compile",), SMALL: ()})
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=""), (), {LARGE: 0, SMALL: 0},
+                                       {LARGE: 0, SMALL: 0}).jobs, {LARGE: (), SMALL: ()})
+        # release-compile stays on the minis: only a mini fetches Chromium and compiles the CEF shim.
+        self.assertNotIn("release-compile", cascade.CASCADE_JOBS)
 
     def test_a_partly_free_fleet_splits_and_leaves_the_rest_queued(self):
         result = cascade.place(env(), (), {LARGE: 4, SMALL: 9}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, {LARGE: ("fast-tier",), SMALL: ("swift-canary",)})
-        self.assertIn("cmux-scheme-compile, release-compile stay queued on the owned label", result.why)
+        self.assertIn("cmux-scheme-compile stay queued on the owned label", result.why)
 
     def test_unread_counts_place_nothing(self):
         self.assertEqual(cascade.place(env(), (), None, None).jobs, {LARGE: (), SMALL: ()})
@@ -144,6 +160,45 @@ class Place(unittest.TestCase):
         with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 2, SMALL: 3}):
             self.assertEqual(cascade.read(live_env, pool, now=NOW, log=lambda _: None), ({LARGE: 2, SMALL: 3}, None))
 
+    def test_the_reads_hit_the_scale_set_groups_and_the_snapshot(self):
+        calls = []
+        groups = {"runner_groups": [{"id": 15, "name": f"Blacksmith scale sets - {LARGE}"},
+                                    {"id": 10, "name": f"Blacksmith scale sets - {SMALL}"}]}
+        runners = {15: [{"status": "online"}] * 3, 10: [{"status": "online"}, {"status": "offline"}]}
+
+        def get(_self, path):
+            calls.append(path)
+            if "/runner-groups?" in path:
+                return groups
+            return {"runners": runners[int(path.split("/runner-groups/")[1].split("/")[0])]}
+
+        class Snapshots:
+            def __init__(self, token, repository):
+                self.token, self.repository = token, repository
+
+            def snapshot(self, *, now, branch="main"):  # pr_runner_pool.GitHub.snapshot's signature
+                calls.append(("snapshot", self.token, self.repository))
+                return snapshot(large=2)
+
+        pool = mock.Mock(GitHub=Snapshots)
+        with mock.patch.object(cascade.Api, "_get", get):
+            live, waiting = cascade.read(env(ROUTE_TOKEN="route", SNAPSHOT_TOKEN="gh",
+                                             GITHUB_REPOSITORY="manaflow-ai/cmux"), pool, now=NOW)
+        self.assertEqual((live, waiting), ({LARGE: 3, SMALL: 1}, {LARGE: 2, SMALL: 0}))
+        self.assertEqual(calls, ["/orgs/manaflow-ai/actions/runner-groups?per_page=100&visible_to_repository=cmux",
+                                 "/orgs/manaflow-ai/actions/runner-groups/15/runners?per_page=100",
+                                 "/orgs/manaflow-ai/actions/runner-groups/10/runners?per_page=100",
+                                 ("snapshot", "gh", "manaflow-ai/cmux")])
+
+    def test_slow_group_reads_skip_the_snapshot(self):
+        pool = mock.Mock()
+        ticks = iter([0.0, cascade.READ_BUDGET_SECONDS + 1])
+        with mock.patch.object(cascade.Api, "in_flight", return_value={LARGE: 0, SMALL: 0}):
+            result = cascade.read(env(ROUTE_TOKEN="t", SNAPSHOT_TOKEN="s", GITHUB_REPOSITORY="manaflow-ai/cmux"),
+                                  pool, now=NOW, log=lambda _: None, clock=lambda: next(ticks))
+        self.assertEqual(result, ({LARGE: 0, SMALL: 0}, None))
+        pool.GitHub.assert_not_called()
+
     def test_side_lane_placement_writes_the_cascade_outputs(self):
         runners = [{"name": "mini", "status": "online", "busy": False,
                     "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}]
@@ -158,7 +213,7 @@ class Place(unittest.TestCase):
         # The idle mini takes the first job; 12 vCPU's one free slot the next; 6 vCPU the rest.
         self.assertEqual(lines["owned_jobs"], " fast-tier ")
         self.assertEqual(lines["blacksmith_12_jobs"], " swift-canary ")
-        self.assertEqual(lines["blacksmith_6_jobs"], " cmux-scheme-compile release-compile ")
+        self.assertEqual(lines["blacksmith_6_jobs"], " cmux-scheme-compile ")
         self.assertEqual(lines["retry_runner"], SMALL)
 
 
@@ -191,9 +246,35 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context()), SIDE)
                 # The bot's attempt 2 (the rescue moved a stuck sibling) keeps the slot.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, large=f" {name} ")), LARGE)
-                # A person's later re-run goes back to the minis first.
+                # A person's re-run goes back to the minis first: attempt 1's count is stale by then.
+                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, large=f" {name} ")), SMALL)
+
+    def test_release_compile_never_cascades_but_overflows_by_the_retry_label(self):
+        runs_on = self.jobs["release-compile"]["runs-on"]
+        self.assertNotIn("blacksmith_12_jobs", runs_on)
+        self.assertEqual(evaluate(runs_on, self.context(large=" release-compile ")), SIDE)
+        self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
+
+    def test_cascade_runs_names_only_jobs_that_run_on_this_route(self):
+        place = next(step for step in self.jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        expression = place["env"]["CASCADE_RUNS"]
+
+        def runs(event="pull_request", labels=("full-ci",), fast_lane="", canary="true", scheme="true"):
+            context = self.context()
+            context["github"].update(event_name=event, base_ref="feat-cmux-next",
+                                     ref="refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge")
+            context["github"]["event"]["pull_request"]["labels"] = [{"name": label} for label in labels]
+            context["vars"]["CI_FAST_LANE_RUNNER"] = fast_lane
+            context["needs"]["path_route"] = {"outputs": {"swift_canary": canary, "scheme": scheme}}
+            return set(evaluate(expression, context).split())
+
+        self.assertEqual(runs(), set(CASCADED))
+        # An ordinary pull request (no full-ci) runs only the fast tier of these.
+        self.assertEqual(runs(labels=()), {"fast-tier"})
+        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), {"swift-canary", "cmux-scheme-compile"})
+        self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile"})
 
     def test_the_bots_overflow_takes_the_placements_retry_label(self):
         for name in CASCADED:
