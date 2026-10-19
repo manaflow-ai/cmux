@@ -245,3 +245,24 @@ The backup is 878,760,521 bytes with SHA-256
 `808c48a047244efe244a2a0f271793a04bfbef6028f89d4f3bbc5d1163bc09ba`.
 Native full app-target dogfood remains separate from these focused green gates
 and must use a tagged isolated build; no claim is made that it has passed.
+
+## M3/M5S external-storage comparison (2026-10-19)
+
+The read-only hardware comparison found the same 4 TB WD_BLACK SN850X family
+drive and verified SMART status on both hosts. The OWC Express 1M2 enclosure
+firmware is not identical: M5S reports firmware `64.1` with micro-firmware
+`1.11.0`, while M3 reports `61.61` with micro-firmware `1.7.0`. Both negotiate
+USB4 at 80 Gb/s, so link speed alone does not explain the M5S-only stall. This
+firmware difference is a concrete variable for an OWC support comparison, but
+it is not yet a proven cause.
+
+M5S still has `com.danielraffel.tartci.reclaim` running for more than five
+hours (`disk_reclaim.py --json --fix`). Its own log records a 300-second Git
+timeout under `/Volumes/Atelier/Code/pulp`, a `/Volumes/Atelier` scan timeout,
+and no reclaimed paths. The long-lived `rescore_daily_until_2026-10-22.sh`
+process also remains present. The reclaim launch agent is configured with
+`LowPriorityIO=true` and `Nice=10`, but those safeguards do not prevent a
+stalled filesystem call from holding the job indefinitely. These are confirmed
+storage-stall amplifiers and cleanup targets, not evidence that the SSD has
+failed. SMART remains `Verified`; `diskutil verifyVolume` is still blocked by
+Sandbox/TCC and the fsync probe still hangs, so hardware is not fully ruled out.
