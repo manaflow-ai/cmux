@@ -1348,6 +1348,21 @@ fn parse_agent(
                 providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
             }))
         }
+        [selector, "focus"] if selector.starts_with("agent_") || selector.starts_with("term_") => {
+            let (scope, prefix) = if selector.starts_with("agent_") {
+                ("agent", "agent")
+            } else {
+                ("terminal", "term")
+            };
+            validate_prefixed_id(scope, prefix, selector)?;
+            // A tab focus whose tab the CLI looks up just before it sends it
+            // (cli/resolve.rs), so the app follows as for `tab <tab> focus`.
+            let mut plan = request(ResourceOperation::TabFocus, &selectors, flags, Map::new())?;
+            if let CommandPlan::Protocol(plan) = &mut plan {
+                plan.resolve.push(Resolve::AgentTab { agent: (*selector).to_owned() });
+            }
+            Ok(plan)
+        }
         ["list"] => {
             let mut params = Map::new();
             if let Some(terminal) = flags.take("terminal") {
