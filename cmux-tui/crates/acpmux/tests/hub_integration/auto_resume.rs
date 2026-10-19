@@ -263,3 +263,31 @@ async fn stop_between_the_failure_and_its_scheduling_still_prevents_the_continua
     assert!(!k.iter().any(|k| k == "auto_resume_scheduled"), "{k:?}");
     assert_eq!(user_messages(&hub, &id).len(), 1);
 }
+
+/// Stop lands after the continuation fired but before its turn starts. The agent exits after
+/// the failure, so the continuation reads the config before it dispatches; the test holds the
+/// config lock to keep it there.
+#[tokio::test]
+async fn stop_right_after_the_continuation_fires_still_prevents_it() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![500]);
+    let id = new_session(&mut c, "fired").await;
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "net-fail-then-exit"}]}),
+        )
+        .await;
+    assert!(r.unwrap_err().contains("stream disconnected"));
+    let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    assert!(k.iter().any(|k| k == "auto_resume_scheduled"), "{k:?}");
+    let session = hub.resolve(&id).unwrap();
+    let config = hub.config.write().await;
+    // The wait (500 ms, up to 600 with the stagger) ends: the continuation fires and waits on
+    // the config.
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), hub.cancel(&session)).await;
+    drop(config);
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(user_messages(&hub, &id).len(), 1, "{:?}", kinds(&hub, &id));
+}

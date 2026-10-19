@@ -211,7 +211,7 @@ Every listed surface draws through `OverlaySurfaceView`: the drop overlay, drop 
 
 The "older macOS" column cannot run in the macOS app today: `Packages/macOS/CmuxNext/Package.swift` requires macOS 26. Ports on a platform without Liquid Glass use the vibrancy row where the platform has a blur, else the opaque fallback.
 
-The overlay tint strength Debug tunable (default 1, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
+The overlay tint strength Debug tunable (default 1.25, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
 
 ## 5. Motion
 
