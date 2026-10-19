@@ -12,7 +12,7 @@ import Testing
         return TabStripModel(tabs: tabs, selectedID: TabID("t4"))
     }
 
-    private func ids(_ raw: String...) -> [TabID] { raw.map(TabID.init) }
+    private func ids(_ raw: String...) -> [TabID] { raw.map { TabID($0) } }
 
     @Test func closeTabsToTheRightOfAPinnedTabKeepsTheOtherPinnedTabs() {
         #expect(model().closedByCloseToRight(of: TabID("p0")) == ids("t3", "t4", "t5"))

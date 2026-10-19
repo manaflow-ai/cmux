@@ -158,9 +158,11 @@ nonisolated extension ActionSurfaceCatalog {
         "newSurface": [p(.tab, .create, 0, folder: .new), p(.newTab, .create, 0)],
         "openBrowser.chromium": [p(.tab, .create, 2, folder: .new), p(.newTab, .create, 2)],
         "closeTab": [p(.tab, .close, 604)],
-        "closeOtherTabsInPane": [p(.tab, .close, 603, folder: .close)],
-        "closeTabsToLeft": [p(.tab, .close, 601, folder: .close)],
-        "closeTabsToRight": [p(.tab, .close, 602, folder: .close)],
+        // Close Other Tabs and Close Tabs to the Right are top-level rows (Chrome); Close Tabs to
+        // the Left, which Chrome lacks, is a row in More (no one-row Close folder).
+        "closeOtherTabsInPane": [p(.tab, .close, 603)],
+        "closeTabsToLeft": [p(.tab, .close, 601)],
+        "closeTabsToRight": [p(.tab, .close, 602)],
         "renameTab": [p(.tab, .identity, 200)],
         "palette.clearTabName": [p(.tab, .identity, 201, folder: .options)],
         "moveSurfaceLeft": [p(.tab, .move, 409, folder: .move)],
