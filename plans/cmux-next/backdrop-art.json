@@ -28,6 +28,19 @@
    "museum": "Royal Museums of Fine Arts of Belgium, Brussels",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.757,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.572,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#030000",
+   "lightest": "#AAA062",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/6c8ca498dfd5de7ba908a3c4f6f236a5406bdaab6c4f65e3c6e1b2ec419e97fd.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/david-death-of-marat.thumb.avif"
@@ -47,6 +60,19 @@
    "museum": "Museo del Prado, Madrid",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.807,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.66,
+    "minY": 0.04,
+    "maxX": 0.985,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#000002",
+   "lightest": "#FAF5CB",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/0b277d85df337f14b56dcf1b2f642985bf763f1a5ff6ea0e4a687a1b7fc6db4a.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-saturn.thumb.avif"
@@ -67,6 +93,19 @@
    "museum": "National Maritime Museum, Greenwich",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.737,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.537,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#010302",
+   "lightest": "#FFFCCC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ff97dc1c7777244d24b7b84968c64074c8c1ccfda147e5ac7554fb8c9103c527.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/velde-small-ship-storm.thumb.avif"
@@ -86,6 +125,19 @@
    "museum": "Museo del Prado, Madrid",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.871,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.773,
+    "minY": 0.04,
+    "maxX": 0.99,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#000000",
+   "lightest": "#F8F2E2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/d0218ae5b4bb3e54c5a3d24546a43004fb3ca45e8f597b36d375af64bb079701.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bosch-garden-right.thumb.avif"
@@ -105,6 +157,19 @@
    "museum": "Gallerie dell'Accademia / Palazzo Grimani, Venice",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.863,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.759,
+    "minY": 0.04,
+    "maxX": 0.989,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#010000",
+   "lightest": "#F7FFF2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/c34bc3c85808fc4b6a8463e0bae902af5792af6919e92eb47bb230ec9033b2a6.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bosch-ascent-blessed.thumb.avif"
@@ -124,6 +189,19 @@
    "museum": "Museo del Prado, Madrid",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.758,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.574,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#0A0300",
+   "lightest": "#FDF9E0",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/267abf88d2540c1d1309fbdac18edf731d0a18e0220d13076e2a9abfc5120d20.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-witches-flight.thumb.avif"
@@ -143,6 +221,19 @@
    "museum": "Alte Nationalgalerie, Berlin",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.748,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.556,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#000102",
+   "lightest": "#FFFDE5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/d11831d51739c07843f86e31a6ce50e7418a979c2986fa35be0f6b1bd5eeacba.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bocklin-self-portrait-death.thumb.avif"
@@ -163,6 +254,19 @@
    "museum": "Uffizi Gallery, Florence",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.697,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.467,
+    "minY": 0.04,
+    "maxX": 0.976,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#060000",
+   "lightest": "#FFFFF3",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/e576e5f6d25bf6c74ae58560812cb8be50117105d8c848bf99b08c2e82d337f7.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/caravaggio-medusa.thumb.avif"
@@ -183,6 +287,19 @@
    "museum": "Musée du Louvre, Paris",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.55,
+    "minY": 0.3,
+    "maxX": 0.8,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#000000",
+   "lightest": "#FFFDCC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/e54f86d19474e632867e0c38ff20544df09910ba6fac4687fcecdd346e8b69cf.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/martin-pandemonium.thumb.avif"
@@ -203,6 +320,19 @@
    "museum": "Hunter Museum of American Art, Chattanooga (1971.8)",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.75,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.56,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#080806",
+   "lightest": "#FFFFDF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/2c6b791c0d7efe0b8dde73a7ad73bb113c498628ad6aafaca578488f2d87c35e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/moran-burning-philadelphia.thumb.avif"
@@ -222,6 +352,19 @@
    "museum": "Real Academia de Bellas Artes de San Fernando, Madrid",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.769,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.593,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#010103",
+   "lightest": "#D7CBA5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/47218a65c421c8c15fcbcaeab9b24ebc6d4be80ea75ae86bcdd46dd5c2ad9ed3.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-burial-sardine.thumb.avif"
@@ -241,6 +384,19 @@
    "museum": "National Museum, Oslo",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.25,
+    "maxX": 0.9,
+    "maxY": 0.6
+   },
+   "tint": 0.33,
+   "darkest": "#10110B",
+   "lightest": "#E5D3A2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/1a9fa5a12b419c00ee888071af0f175f3f92945d7401f6a3f0037059f8f83575.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/arbo-wild-hunt.thumb.avif"
@@ -260,6 +416,19 @@
    "museum": "Galleria Borghese, Rome",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.716,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.5,
+    "minY": 0.04,
+    "maxX": 0.977,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#080000",
+   "lightest": "#FFFCED",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/318969c02a5bc34b142e546f941cc7dbb9a95d1a834cba73bd0c6c241bb88100.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/caravaggio-david-goliath.thumb.avif"
@@ -279,6 +448,19 @@
    "museum": "Van Gogh Museum, Amsterdam",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.764,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.585,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000300",
+   "lightest": "#FFFFD7",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/5930bd8cd8e629220ddd7b1c0254a2fe26d4829d78f646bd3eed78b142b303aa.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-skeleton-cigarette.thumb.avif"
@@ -299,6 +481,19 @@
    "museum": "Alte Pinakothek, Munich",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.761,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.579,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#010000",
+   "lightest": "#FEF7E5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/1fdaa4e466075ab9f588c3ab407585393217a241233948673dd434915140e9de.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/altdorfer-battle-of-issus.thumb.avif"
@@ -318,6 +513,19 @@
    "museum": "Uffizi Gallery, Florence",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.747,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.555,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#020001",
+   "lightest": "#FFFFDD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/4ca6ba452bca522629a56dd7c274c91b08a8a850dd948cbf398aaa409a2652c3.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/gentileschi-judith.thumb.avif"
@@ -337,6 +545,19 @@
    "museum": "National Museum, Oslo",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.758,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.574,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#0E0E0E",
+   "lightest": "#B8AD99",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/3f98f4665c242782320263b20dee7c60f9940a70bcb55d07921e4e6d0be0154f.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/munch-madonna.thumb.avif"
@@ -356,6 +577,19 @@
    "museum": "Kunstmuseum Basel",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.15,
+    "maxX": 0.7,
+    "maxY": 0.9
+   },
+   "tint": 0.33,
+   "darkest": "#040100",
+   "lightest": "#FFFFF3",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/8dae30228b2ad8f27c30557daa1f2669486daa8b5887f06b5dfaeefdeb1a1ba9.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bocklin-isle-of-the-dead.thumb.avif"
@@ -376,6 +610,19 @@
    "museum": "Philadelphia Museum of Art",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.35,
+    "maxX": 0.95,
+    "maxY": 0.6
+   },
+   "tint": 0.34,
+   "darkest": "#010000",
+   "lightest": "#FFFFF4",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/2ece8ef847a62ce28b8505c12b58223bd46a295a98f0b5569d9ab4156e7c9eb8.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klee-fish-magic.thumb.avif"
@@ -395,6 +642,19 @@
    "museum": "Alte Nationalgalerie, Berlin",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.771,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.597,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FDFFFA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/9b54a0a0070e8ed634d1795737cbd6cd3ed32ab9fafe30376e69edd760970c72.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/friedrich-forest-moonlight.thumb.avif"
@@ -414,6 +674,19 @@
    "museum": "Museo del Prado, Madrid",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.8,
+    "maxY": 0.6
+   },
+   "tint": 0.36,
+   "darkest": "#000002",
+   "lightest": "#FFF0B9",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/06675fa5ad2e0e0e7bbfffa7bff66891318f54d18f87527da439792f6dd14ee4.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-witches-sabbath.thumb.avif"
@@ -433,6 +706,19 @@
    "museum": "Museo del Prado, Madrid",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.872,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.775,
+    "minY": 0.04,
+    "maxX": 0.99,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#020001",
+   "lightest": "#F8EDBF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/3c89034b996d77d65f04e394d6f34f552f2905607b3ae2f3e8dc079aefcf7d1f.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bosch-garden-left.thumb.avif"
@@ -452,6 +738,19 @@
    "museum": "Isabella Stewart Gardner Museum, Boston (stolen 1990)",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.749,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.558,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#000100",
+   "lightest": "#F5FFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/9cf146b75276896e9fb3363d544eedda0d3e9aea9fdae7f15c85d63c51a2e8ef.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/rembrandt-storm-galilee.thumb.avif"
@@ -472,6 +771,19 @@
    "museum": "National Gallery of Art, Washington",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.55,
+    "maxX": 0.5,
+    "maxY": 0.95
+   },
+   "tint": 0.35,
+   "darkest": "#0C0200",
+   "lightest": "#FAFFD9",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/3aacd8c64797e30152d2bd1a34f9bbe67e816bdc203d06ad9091bec0f707f1d5.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/cole-voyage-manhood.thumb.avif"
@@ -491,6 +803,19 @@
    "museum": "Goethe-Haus, Frankfurt",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.751,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#060002",
+   "lightest": "#FDFFF2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/1945cfda2f347d980d05619a21b6259befcfa5b8da8d3a6fce529b7258c1bd9e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/fuseli-nightmare-2.thumb.avif"
@@ -510,6 +835,19 @@
    "museum": "Österreichische Galerie Belvedere, Vienna",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.05,
+    "maxX": 0.85,
+    "maxY": 0.8
+   },
+   "tint": 0.32,
+   "darkest": "#000005",
+   "lightest": "#FBFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/a15d575407fafd0d0a7b845330ce75655da50effe90d7af9491600f79f7eb429.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hiremy-hirschl-souls-of-acheron.thumb.avif"
@@ -529,6 +867,19 @@
    "museum": "National Museum, Oslo",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.748,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.556,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#181617",
+   "lightest": "#E4CBB4",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/7f66f2e71c973d003de0385e76959b15b20ff13bbedc7743160f615ffbb4cc63.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/munch-scream.thumb.avif"
@@ -549,6 +900,19 @@
    "museum": "Österreichische Galerie Belvedere, Vienna",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.846,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.729,
+    "minY": 0.04,
+    "maxX": 0.988,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#02000E",
+   "lightest": "#FFFFCD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/f34f79e4a2602683921494748d7ad342b0311da300cd67e2f4e4f3abb29fe3fd.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-judith.thumb.avif"
@@ -568,6 +932,19 @@
    "museum": "Tretyakov Gallery, Moscow",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.2,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
+   "tint": 0.34,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/aa7ae53cc69f0194f26a6d9f2ab6a4b2395942a5f3db3a9b4ddf2ab54f42b1aa.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/repin-ivan.thumb.avif"
@@ -587,6 +964,19 @@
    "museum": "Tate Britain, London",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.18,
+    "minY": 0.4,
+    "maxX": 0.6,
+    "maxY": 0.7
+   },
+   "tint": 0.36,
+   "darkest": "#000000",
+   "lightest": "#FFFFFD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/194823cf93b6b880f7d2b4d4d6d999c3b2ab6e037252d37978bcd33ed133878c.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/millais-ophelia.thumb.avif"
@@ -606,6 +996,19 @@
    "museum": "Royal Museums of Fine Arts of Belgium, Brussels",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.1,
+    "maxX": 0.75,
+    "maxY": 0.9
+   },
+   "tint": 0.36,
+   "darkest": "#000000",
+   "lightest": "#E9D29E",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/412423e603ac067779bf30162ddb939585aa3644b991aa09385c79111880a1d7.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bruegel-fall-rebel-angels.thumb.avif"
@@ -625,6 +1028,19 @@
    "museum": "Detroit Institute of Arts",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.0,
+    "maxX": 0.85,
+    "maxY": 0.8
+   },
+   "tint": 0.34,
+   "darkest": "#040100",
+   "lightest": "#F4EBCC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/0afea9d488b0fc1aeb761587f91d3267adcedb445791f79b79825205f41f8889.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/fuseli-nightmare.thumb.avif"
@@ -645,6 +1061,19 @@
    "museum": "Wellcome Collection, London",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.05,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
+   "tint": 0.36,
+   "darkest": "#000000",
+   "lightest": "#FFFFFD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/2947537fa44f3f3865a25b7dee28e45a1359abcfbdcbbbe4ab958cc741cfab41.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bundy-death-general.thumb.avif"
@@ -664,6 +1093,19 @@
    "museum": "Tate Britain, London",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.15,
+    "maxX": 0.5,
+    "maxY": 0.9
+   },
+   "tint": 0.38,
+   "darkest": "#0D0713",
+   "lightest": "#F0E5B5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/75664c871de5bbef63bfc03e6c426316c75912b6525620692d3e0c70841138d5.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/wright-vesuvius.thumb.avif"
@@ -683,6 +1125,19 @@
    "museum": "Musée des Beaux-Arts, Bordeaux",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.759,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.576,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#030000",
+   "lightest": "#FCFFFD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/a0758e53f920e3f551debd1fd5015f2c56a557ef0b06a177f9d3db96776b633c.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/gerome-botsaris.thumb.avif"
@@ -702,6 +1157,19 @@
    "museum": "National Gallery of Art, Washington (impression)",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.763,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.583,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#0B0A05",
+   "lightest": "#FFFFF1",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/9c3b292751fee11436adc870bfae634bb422a60c6febafa0a7bc545122770718.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/durer-knight-death-devil.thumb.avif"
@@ -721,6 +1189,19 @@
    "museum": "National Gallery of Art, Washington (formerly United Grand Lodge of England)",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.25,
+    "maxX": 0.95,
+    "maxY": 0.92
+   },
+   "tint": 0.36,
+   "darkest": "#030000",
+   "lightest": "#FFFFDE",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/df8b84aafb6edb0c03bdb07ee1585bf270e4cd274fc6dd7b105297e7c2ec408c.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/martin-joshua.thumb.avif"
@@ -740,6 +1221,19 @@
    "museum": "Rijksmuseum, Amsterdam",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.745,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.551,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#0E0300",
+   "lightest": "#FFEBC6",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/468090f745342f36c7f4f134349665583535a70b5d7f22dd225be8e96a87c2d0.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/velde-gale.thumb.avif"
@@ -759,6 +1253,19 @@
    "museum": "Museum of Fine Arts, Boston",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.84,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.718,
+    "minY": 0.04,
+    "maxX": 0.987,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#14090F",
+   "lightest": "#FEFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/80afa3bb5fb3da5806d9bba73745cd42138441eb450eb4dd44b343ee5d63afa4.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hogai-nio.thumb.avif"
@@ -778,6 +1285,19 @@
    "museum": "Leopold Museum, Vienna",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.641,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.368,
+    "minY": 0.04,
+    "maxX": 0.971,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#010000",
+   "lightest": "#EBFEFC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/727c3316ae1bcd5ef926df311cd1bd5c565fac6655b3daf46dcf428103a25518.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-death-and-life.thumb.avif"
@@ -797,6 +1317,19 @@
    "museum": "Destroyed 1945 (Schloss Immendorf fire)",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.792,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.634,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#1C1004",
+   "lightest": "#FFF7EE",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/32ff3c1562aaa5d2bb09b429ece7b37c8f27df03c457b100fe4643230603019d.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-medicine.thumb.avif"
@@ -816,6 +1349,19 @@
    "museum": "Museo del Prado, Madrid",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.709,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.488,
+    "minY": 0.04,
+    "maxX": 0.977,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000105",
+   "lightest": "#E1E6D0",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/6ffd4f2dfca3e9a9744e6f121484d49ab3ab7e3ce39f052ea24c5a4ded670f77.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bosch-garden-central.thumb.avif"
@@ -835,6 +1381,19 @@
    "museum": "Tate Britain, London",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.1,
+    "maxX": 0.75,
+    "maxY": 0.75
+   },
+   "tint": 0.4,
+   "darkest": "#050100",
+   "lightest": "#FFFFF8",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/25857ce253ea005db47669f58111b24cb6b597d3f9f70e1ef4a1f05bc57c926a.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/martin-great-day-wrath.thumb.avif"
@@ -854,6 +1413,19 @@
    "museum": "Los Angeles County Museum of Art",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.757,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.572,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#010000",
+   "lightest": "#FBF8CB",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/19bf688374342dba60a2efc395922ef9c270d85d62762f75a740f0d10680be38.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bonheur-wounded-eagle.thumb.avif"
@@ -873,6 +1445,19 @@
    "museum": "Phoenix Art Museum",
    "collection": "darkArt",
    "bundled": true,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.12,
+    "minY": 0.3,
+    "maxX": 0.55,
+    "maxY": 0.95
+   },
+   "tint": 0.39,
+   "darkest": "#000000",
+   "lightest": "#FEFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/28c367b980c7973a9ed08566f31d6281d527c96bb18c691e5315ad0c71105f65.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/gerome-pollice-verso.thumb.avif"
@@ -893,6 +1478,19 @@
    "museum": "National Gallery of Art, Washington",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.5,
+    "minY": 0.6,
+    "maxX": 0.75,
+    "maxY": 1.0
+   },
+   "tint": 0.33,
+   "darkest": "#0F0A06",
+   "lightest": "#FFF8D8",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/f4f8d5ad1213df3b70b96178b792dac3131d349472d915daf807a335fdbf48c2.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/cole-voyage-old-age.thumb.avif"
@@ -912,6 +1510,19 @@
    "museum": "Alte Nationalgalerie, Berlin",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.35,
+    "maxX": 0.9,
+    "maxY": 0.75
+   },
+   "tint": 0.37,
+   "darkest": "#150900",
+   "lightest": "#FAF0BA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/e22d4cdc053ca513da9986fa9008838bccf689bc7ce4accb0e28329c16c87565.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/friedrich-abbey-oakwood.thumb.avif"
@@ -931,6 +1542,19 @@
    "museum": "Los Angeles County Museum of Art (impression)",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.793,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.636,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#070000",
+   "lightest": "#FFFEF3",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/f1a94b397966c4db8e5c2cf9ec3bf0b0f8b148a9e304ce0d995b793082591a78.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-sleep-of-reason.thumb.avif"
@@ -950,6 +1574,19 @@
    "museum": "Museo del Prado, Madrid",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.15,
+    "maxX": 0.7,
+    "maxY": 0.95
+   },
+   "tint": 0.39,
+   "darkest": "#000000",
+   "lightest": "#FFFFF1",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ccc6c2b5ff893f2a5e8672b61354e34efee0057104b19285ad84d878fbd69282.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bosch-garden-fragment.thumb.avif"
@@ -969,6 +1606,19 @@
    "museum": "Museo del Prado, Madrid",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.2,
+    "maxX": 0.8,
+    "maxY": 0.9
+   },
+   "tint": 0.39,
+   "darkest": "#040000",
+   "lightest": "#FFFFE9",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/6dec7e1311de7c5eac8d9bbe5d5c60185ffef2b7358a2b32cd53070b9bebd540.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bruegel-triumph-death.thumb.avif"
@@ -988,6 +1638,19 @@
    "museum": "Mu.ZEE, Ostend",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.765,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.586,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#0F0F0D",
+   "lightest": "#F9F5DC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/2a18f48ed31b6711c15b39a26cf4208e3269be396d6a5ae334faca474d9f9a85.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/spilliaert-vertigo.thumb.avif"
@@ -1007,6 +1670,19 @@
    "museum": "Österreichische Galerie Belvedere, Vienna",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.25,
+    "maxX": 0.65,
+    "maxY": 1.0
+   },
+   "tint": 0.46,
+   "darkest": "#010000",
+   "lightest": "#FFFFFA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/c900b4b830797ff196967248993d0a547846caa2dbddce60586384af07397cb8.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/rothaug-melpomene.thumb.avif"
@@ -1026,6 +1702,19 @@
    "museum": "Österreichische Galerie Belvedere, Vienna",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.05,
+    "maxX": 0.7,
+    "maxY": 0.85
+   },
+   "tint": 0.45,
+   "darkest": "#0E0200",
+   "lightest": "#FFFFF0",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/7131f6beddbfb319d4cf4c528cedc26355f782573f69fd5ffc93aa9a9d337cee.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/schiele-death-and-the-maiden.thumb.avif"
@@ -1045,6 +1734,19 @@
    "museum": "Private collection (Dorotheum)",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.33,
+    "minY": 0.35,
+    "maxX": 0.6,
+    "maxY": 0.7
+   },
+   "tint": 0.51,
+   "darkest": "#000406",
+   "lightest": "#FEFFF5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ab7cc372f9289fe1d3f00ebc33c47ab02a00777d35abf2bea80babdbd2f13cbb.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/aivazovsky-ship-stormy-seas.thumb.avif"
@@ -1064,6 +1766,19 @@
    "museum": "Tretyakov Gallery, Moscow",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.25,
+    "maxX": 0.9,
+    "maxY": 0.95
+   },
+   "tint": 0.53,
+   "darkest": "#000000",
+   "lightest": "#FFFFFD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/9221b6fb479a9de1eb41c088802f7404398f8205a369b0a038544397b6b3429f.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/vereshchagin-apotheosis-war.thumb.avif"
@@ -1083,6 +1798,19 @@
    "museum": "Royal Museum of Fine Arts Antwerp (KMSKA)",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.25,
+    "maxX": 0.9,
+    "maxY": 0.95
+   },
+   "tint": 0.56,
+   "darkest": "#000407",
+   "lightest": "#FFFFED",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/b14cf8635eb32cfb933c22253c8611f9babb61a7373b97fca910c737e4bb573a.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/ensor-skeleton-painter.thumb.avif"
@@ -1102,6 +1830,19 @@
    "museum": "Musée Fabre, Montpellier",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.05,
+    "maxX": 0.75,
+    "maxY": 0.9
+   },
+   "tint": 0.53,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/a5b57a6913a5fe757ccc9aabfa478b57fd51e05b31fb2095b044ca0fe5f1c488.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/cabanel-fallen-angel.thumb.avif"
@@ -1121,6 +1862,19 @@
    "museum": "Private collection",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.25,
+    "maxX": 0.5,
+    "maxY": 0.75
+   },
+   "tint": 0.58,
+   "darkest": "#010100",
+   "lightest": "#F8EFDE",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/651e1c6e3f554fad24be67bc37da2122c0a0a39d92dfdb597b46a5959f37905e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/spilliaert-woman-shoreline.thumb.avif"
@@ -1140,6 +1894,19 @@
    "museum": "Metropolitan Museum of Art, New York",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.725,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.516,
+    "minY": 0.04,
+    "maxX": 0.978,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/6fb3f959a3ec63c59f030c3681c2da9d2094fa4fb03b60f4fd046484ed296f61.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/el-greco-view-of-toledo.thumb.avif"
@@ -1159,6 +1926,19 @@
    "museum": "Musée du Louvre, Paris",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.9,
+    "maxY": 0.85
+   },
+   "tint": 0.37,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/01ccabeb1676f9af8b314e1ee3b313b68ef15a72c3b1ccddb34f8c1e1673e4a5.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/gericault-raft-of-the-medusa.thumb.avif"
@@ -1178,6 +1958,19 @@
    "museum": "Harvard Art Museums (Fogg Museum), Cambridge",
    "collection": "darkArt",
    "bundled": false,
+   "focal": {
+    "x": 0.738,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.539,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#090604",
+   "lightest": "#FFF5CA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/248a95fa2326c10ae1d2927a0251238d467982873aa28be3174f5fd34dd68fd5.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/moreau-apparition.thumb.avif"
@@ -1197,6 +1990,19 @@
    "museum": "Hermitage Museum, St Petersburg",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.761,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.579,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#060100",
+   "lightest": "#FFF3AD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/16d9cb5cd32805210e19a808523a70675097dc41f58635a62c328b5bfb4604a1.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/rembrandt-prodigal-son.thumb.avif"
@@ -1216,6 +2022,19 @@
    "museum": "Museo del Prado, Madrid",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.728,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.521,
+    "minY": 0.04,
+    "maxX": 0.978,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#000000",
+   "lightest": "#F8E1C1",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/894d9cecba7f8162d75e5b2f3dba13acebcf80d73bdc986b184c81289958aee3.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/velazquez-las-meninas.thumb.avif"
@@ -1235,6 +2054,19 @@
    "museum": "National Museum, Warsaw",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.1,
+    "maxX": 0.65,
+    "maxY": 0.85
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FFF8F2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/eb5631e83cc175affcf16c7ec0d1234ffbd76409e69314afec21323264336a60.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/matejko-stanczyk.thumb.avif"
@@ -1254,6 +2086,19 @@
    "museum": "Metropolitan Museum of Art, New York",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.84,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.718,
+    "minY": 0.04,
+    "maxX": 0.987,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000103",
+   "lightest": "#EFE6DD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/bc736ae353596fcb5fa8b69d94314f99f3062283d798d81ad5726481b70e569a.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/sargent-madame-x.thumb.avif"
@@ -1273,6 +2118,19 @@
    "museum": "Private collection",
    "collection": "museumIcons",
    "bundled": true,
+   "focal": {
+    "x": 0.755,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.569,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#0B0000",
+   "lightest": "#FEEED7",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/31d2e42715fe1e70bef481980cc0234350a3a99d08e57a1bffa9fbf9700093ce.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/millais-joan-of-arc.thumb.avif"
@@ -1293,6 +2151,19 @@
    "museum": "Metropolitan Museum of Art, New York",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.791,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.632,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#000000",
+   "lightest": "#FFFFF3",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/7e663387d0b3087c8f44361b800bf6192352442dff80047be5dab624f5c14db7.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/cot-storm.thumb.avif"
@@ -1312,6 +2183,19 @@
    "museum": "Rijksmuseum, Amsterdam",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.25,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
+   "tint": 0.32,
+   "darkest": "#010000",
+   "lightest": "#FCFFEC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/75501c7a0b7c1d0d029b7c51e3843b8a23d85d3eba7b3e6362597ab31a5d4914.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/rembrandt-night-watch.thumb.avif"
@@ -1331,6 +2215,19 @@
    "museum": "Metropolitan Museum of Art, New York",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.753,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.565,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#EFE6C3",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/67605b4e27d42116e38090584202aff5cb459f8d45791d0a765ca98bae4063c3.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/vigee-lebrun-madame-grand.thumb.avif"
@@ -1350,6 +2247,19 @@
    "museum": "Tate Britain, London",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.55,
+    "maxY": 0.9
+   },
+   "tint": 0.32,
+   "darkest": "#000000",
+   "lightest": "#E0D7C8",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/9ddb274fbebb9a768c8be149dcf17798547ac6d262f9f4e25f8f56e768dd2908.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/waterhouse-lady-shalott.thumb.avif"
@@ -1369,6 +2279,19 @@
    "museum": "Tate Britain, London",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.736,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.535,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#100000",
+   "lightest": "#FFFFF0",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/35ce3d3b690e9e019d8df411bcb671512924a278d22b4a7740eabb2d94394967.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/draper-lament-icarus.thumb.avif"
@@ -1388,6 +2311,19 @@
    "museum": "Wallace Collection, London",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.751,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#030000",
+   "lightest": "#EFF0D0",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/2c8c5e67af20d5e215333cd015955ff7c57c74c85db8aced20f108571c6e6259.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/fragonard-swing.thumb.avif"
@@ -1407,6 +2343,19 @@
    "museum": "Kunsthistorisches Museum, Vienna",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.767,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.59,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#040100",
+   "lightest": "#FFF9E0",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/727f5cffaa2de1320ec3cce08090a0d005a4f40a78104b1e9bad28f9a0a15157.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/rubens-st-francis-xavier.thumb.avif"
@@ -1426,6 +2375,19 @@
    "museum": "Mauritshuis, The Hague",
    "collection": "museumIcons",
    "bundled": true,
+   "focal": {
+    "x": 0.736,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.535,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#060000",
+   "lightest": "#FFFFFA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/911fc5df5d767038b5a676dc2ecea99c5e19f805d40052651f50dea6fdedf64e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/vermeer-pearl-earring.thumb.avif"
@@ -1446,6 +2408,19 @@
    "museum": "Finnish National Gallery, Helsinki",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.793,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.636,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#0B0100",
+   "lightest": "#FDFDF5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/c4e3463f1897c3238b0ec0216a61c6463b796178397c7a456f693aa9b6b47eb6.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/danielson-gambogi-self.thumb.avif"
@@ -1465,6 +2440,19 @@
    "museum": "",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.2,
+    "maxX": 0.8,
+    "maxY": 0.95
+   },
+   "tint": 0.33,
+   "darkest": "#0A0000",
+   "lightest": "#FFFFFA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/9f04098f702935d041da10bbab6f237dc344f93ddd33080cdb64f3d85c7573fb.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/beard-his-majesty.thumb.avif"
@@ -1484,6 +2472,19 @@
    "museum": "Kunstpalast, Düsseldorf",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.767,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.59,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FFFEDD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/b09a6034d0ce4af24535e7a3e35fc8f50134947e2d6bdc2e175ba4ebf8040e47.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/marc-foxes.thumb.avif"
@@ -1503,6 +2504,19 @@
    "museum": "Museo Thyssen-Bornemisza, Madrid",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.825,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.692,
+    "minY": 0.04,
+    "maxX": 0.986,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#000B00",
+   "lightest": "#FFFEED",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/36bc564fce71007c342f8532fcfc08c6f565bf4f1859c69d1f5953df66f9d44f.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/degas-green-dancers.thumb.avif"
@@ -1522,6 +2536,19 @@
    "museum": "Private collection",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.803,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.653,
+    "minY": 0.04,
+    "maxX": 0.984,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#1A100F",
+   "lightest": "#F4ECE1",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/a546ffe0ec68bb3a9f88a1d540491588f7d625451bd011f78ee94d7c80a5a6ca.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/modigliani-nude-divan.thumb.avif"
@@ -1541,6 +2568,19 @@
    "museum": "Gemäldegalerie Alte Meister, Dresden",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.77,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.595,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#080000",
+   "lightest": "#FFEBAE",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/b5619b33f289c3035b6e50e7ec05c5efe4cf3cf39f703dbacb76aff09304a999.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/raphael-sistine-madonna.thumb.avif"
@@ -1560,6 +2600,19 @@
    "museum": "Private collection",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.787,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.625,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/b18ae48e3d06f2716757f1913db99f1b1ed2a6efe392d519bf44e059e2ac4e47.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bouguereau-virgin-lilies.thumb.avif"
@@ -1579,6 +2632,19 @@
    "museum": "Art Institute of Chicago",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.741,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.544,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FAEDC2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/f4afc411ba535652e1dcf1cb7dc6230ba7dfbbd7abf0c56d5de94cd33b13228e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/wood-american-gothic.thumb.avif"
@@ -1598,6 +2664,19 @@
    "museum": "Rijksmuseum, Amsterdam (impression)",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.78,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.613,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#130000",
+   "lightest": "#FFFFF6",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/02a11d7afab65e0d0622f6028b97cce8d90f70e2de536853c370a01ebe49ddb3.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/steinlen-chat-noir.thumb.avif"
@@ -1617,6 +2696,19 @@
    "museum": "Pushkin Museum, Moscow",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.682,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.44,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#010D01",
+   "lightest": "#E3EFE5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/1269d166586513cafce96162d39b24d4420da30e464177f24aad4666ddc184de.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/degas-blue-dancers.thumb.avif"
@@ -1636,6 +2728,19 @@
    "museum": "Uffizi Gallery, Florence",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.05,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
+   "tint": 0.37,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/f2b9f26f94504fdd0ecc9b308e21f8d7ac175cd4160f17f360cc2efb295f5e67.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/botticelli-primavera.thumb.avif"
@@ -1655,6 +2760,19 @@
    "museum": "Kröller-Müller Museum, Otterlo",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.762,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.581,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#141817",
+   "lightest": "#FFF5B6",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/8e59e3e3d62ee32c897f352c9617c9409f261734321d33b28ff3fe137fbc8af0.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-cafe-terrace.thumb.avif"
@@ -1674,6 +2792,19 @@
    "museum": "Hermitage Museum, St Petersburg",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.15,
+    "maxX": 1.0,
+    "maxY": 0.8
+   },
+   "tint": 0.41,
+   "darkest": "#110D0C",
+   "lightest": "#FFFFE2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ea207144993e306da086092910fe0f6749811a1ded3c7f11476f9eeccfcbfe7a.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/matisse-red-room.thumb.avif"
@@ -1693,6 +2824,19 @@
    "museum": "Private collection (Sotheby's London 2019)",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.762,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.581,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#150000",
+   "lightest": "#F2F9D9",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/0b29d04bd0058240087e5c2c7a8019170fdf350f0fb010d8d7ac1b350b5ce6ad.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/kandinsky-deepened-impulse.thumb.avif"
@@ -1712,6 +2856,19 @@
    "museum": "Hamburger Kunsthalle",
    "collection": "museumIcons",
    "bundled": true,
+   "focal": {
+    "x": 0.756,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.571,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#0E0200",
+   "lightest": "#FFFCE2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/5c5978069472ecb1ffeea6f108611d537d26fb88bfd69baae197dbe421594ac3.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/friedrich-wanderer.thumb.avif"
@@ -1732,6 +2889,19 @@
    "museum": "Neue Galerie, New York",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.688,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.451,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#040000",
+   "lightest": "#FFFFE8",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/59f8b11aeb5f8599a9555d7817134be1d6e04cc667c7956fcf2964fd17ffe50f.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-adele.thumb.avif"
@@ -1751,6 +2921,19 @@
    "museum": "Bibliothèque nationale de France (impression)",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.786,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.623,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#020001",
+   "lightest": "#FFFFFB",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/a33662615108f1cc3532b5e94ce347474251614851c6e81b831fb62cc2c030b9.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/mucha-job.thumb.avif"
@@ -1770,6 +2953,19 @@
    "museum": "Museum of Modern Art, New York",
    "collection": "museumIcons",
    "bundled": true,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.0,
+    "maxX": 0.95,
+    "maxY": 0.75
+   },
+   "tint": 0.41,
+   "darkest": "#000005",
+   "lightest": "#FFFFD2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/0dafe4c6c00950e067e248be2940184b1884a8d72a73c8c3d9d4b123903950cc.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.thumb.avif"
@@ -1790,6 +2986,19 @@
    "museum": "MAK – Museum of Applied Arts, Vienna",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.835,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.71,
+    "minY": 0.04,
+    "maxX": 0.987,
+    "maxY": 0.7
+   },
+   "tint": 0.34,
+   "darkest": "#010000",
+   "lightest": "#FFFFFA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/a7e232a031f74c182544b28dab47290badb0e725d47290287e0575cd0942fd82.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-tree-of-life.thumb.avif"
@@ -1809,6 +3018,19 @@
    "museum": "Österreichische Galerie Belvedere, Vienna",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.689,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.453,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#100100",
+   "lightest": "#FFF39C",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/d7e4ed108c63fbd14fb69e6922f4fd0ed87ba2628f6ee6226b81f0db0c83214c.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-the-kiss.thumb.avif"
@@ -1828,6 +3050,19 @@
    "museum": "Musée d'Orsay, Paris",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.15,
+    "maxX": 0.95,
+    "maxY": 0.95
+   },
+   "tint": 0.41,
+   "darkest": "#24231F",
+   "lightest": "#F0F7EF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/9d284f761d5f01df49485a390af9b010d88be61297af13b5dd077617c204b43e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night-rhone.thumb.avif"
@@ -1847,6 +3082,19 @@
    "museum": "Musée du Louvre, Paris",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.0,
+    "maxX": 0.75,
+    "maxY": 0.8
+   },
+   "tint": 0.39,
+   "darkest": "#020003",
+   "lightest": "#FFFFFD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/8323d659ec7940673495d0bc48054fa60f6a893145c72f655ddf34902b162204.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/delacroix-liberty.thumb.avif"
@@ -1866,6 +3114,19 @@
    "museum": "National Gallery, London",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.754,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.567,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#0F110E",
+   "lightest": "#FBF3A8",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/7c7a25d482af40834ab48b8ac651924b69a82debceaedc1d4726c7969e03593a.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-sunflowers.thumb.avif"
@@ -1885,6 +3146,19 @@
    "museum": "Metropolitan Museum of Art, New York",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.768,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.592,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#030000",
+   "lightest": "#F5FEEB",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/0331b3650a8c8f02ec8bc8258449f4297ad384ebc0f833b376becdeab030e67e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-mada-primavesi.thumb.avif"
@@ -1904,6 +3178,19 @@
    "museum": "Leopold Museum, Vienna",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.782,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.616,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.34,
+   "darkest": "#0D0000",
+   "lightest": "#FFE7DC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/afb44c2e873434c0fc8dbb036286e4369718368f6e0971317085d414f6d03e69.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/schiele-kneeling-orange.thumb.avif"
@@ -1923,6 +3210,19 @@
    "museum": "Neue Pinakothek, Munich",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.75,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.56,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#190100",
+   "lightest": "#FBFACC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/fac5616c03dd543d00ae85814e28d6561cf53864b1a89d6a46d7957b6ddfc863.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-sunflowers-munich.thumb.avif"
@@ -1942,6 +3242,19 @@
    "museum": "Sistine Chapel, Vatican",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.2,
+    "maxX": 0.8,
+    "maxY": 0.8
+   },
+   "tint": 0.44,
+   "darkest": "#170600",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ec9e7e47a1533e01b1640b915f273f30020953722d11b0a62de007377ef8d413.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/michelangelo-sistine-ceiling.thumb.avif"
@@ -1961,6 +3274,19 @@
    "museum": "Kunstmuseum Den Haag",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.685,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.446,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#020300",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/6d86a9f2273420fdf33abc4b86a242d6644ece486f1e684163aaa7274043e246.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/mondrian-composition-red-plane.thumb.avif"
@@ -1980,6 +3306,19 @@
    "museum": "Palace of Versailles (Salon d'Hercule ceiling)",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.15,
+    "maxX": 0.8,
+    "maxY": 0.85
+   },
+   "tint": 0.44,
+   "darkest": "#080000",
+   "lightest": "#FFFDF5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/d26aa1bbcfeb9ec4603639ffff4499e6cfcbb1155b078294b97403c9cae3e8d1.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/lemoyne-apotheosis-hercules.thumb.avif"
@@ -1999,6 +3338,19 @@
    "museum": "Leopold Museum, Vienna",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.782,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.616,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#010200",
+   "lightest": "#FFFDF4",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/3f7f620729e0e7463b2b356a903dd83e22cce99a1bb02a5b13f13c1044077629.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/schiele-moa.thumb.avif"
@@ -2018,6 +3370,19 @@
    "museum": "State Russian Museum, St Petersburg",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.3,
+    "maxX": 0.8,
+    "maxY": 0.98
+   },
+   "tint": 0.42,
+   "darkest": "#010006",
+   "lightest": "#FFF7C2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/5a82e5bb91b8ae9951921aaf9160b0882f10912983a48e13a89704dba8057e69.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/aivazovsky-ninth-wave.thumb.avif"
@@ -2037,6 +3402,19 @@
    "museum": "Museo Thyssen-Bornemisza, Madrid",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.8,
+    "maxY": 0.9
+   },
+   "tint": 0.49,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/5c996ea3c196724bbdeb43b33adb80e439a5d363c26f1d145ec944adb1dd3a3a.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/popova-painterly-architectonic.thumb.avif"
@@ -2056,6 +3434,19 @@
    "museum": "Kunsthistorisches Museum, Vienna",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.0,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
+   "tint": 0.55,
+   "darkest": "#010000",
+   "lightest": "#FFFDE8",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/7ced78967a5b67c66b04dfbabe4b44dad3ea5a175bba6beef6898c27fcc0be66.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bruegel-tower-babel.thumb.avif"
@@ -2075,6 +3466,19 @@
    "museum": "Uffizi Gallery, Florence",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.0,
+    "maxX": 0.7,
+    "maxY": 0.9
+   },
+   "tint": 0.5,
+   "darkest": "#000200",
+   "lightest": "#FDFFF9",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/4481aa796eb8c5f97bdf8199126efba8ae5997d6d588848b7a76fc483e9db8c9.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/botticelli-birth-of-venus.thumb.avif"
@@ -2094,6 +3498,19 @@
    "museum": "Centre Pompidou, Paris",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.05,
+    "maxX": 0.9,
+    "maxY": 0.9
+   },
+   "tint": 0.62,
+   "darkest": "#0B0000",
+   "lightest": "#F6F6EE",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/a2f9fc58b8cef24e56c34cb019d6538e80f26ef6457344af0da10cc50e4e503a.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/kandinsky-yellow-red-blue.thumb.avif"
@@ -2113,6 +3530,19 @@
    "museum": "Solomon R. Guggenheim Museum, New York",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.1,
+    "maxX": 0.85,
+    "maxY": 0.85
+   },
+   "tint": 0.63,
+   "darkest": "#030000",
+   "lightest": "#FFFFFD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/40a194ee0d740ad382e4ee3ba8d6628dfe3a95bc27244dd1f9671be6aee4173b.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/kandinsky-composition-viii.thumb.avif"
@@ -2132,6 +3562,19 @@
    "museum": "Tretyakov Gallery, Moscow",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.0,
+    "maxX": 0.75,
+    "maxY": 0.75
+   },
+   "tint": 0.64,
+   "darkest": "#100A00",
+   "lightest": "#FFFFFB",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/a249e584a5f3216558455db9fd7385250bf949de722ce81967a719bcdcb4b775.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/kramskoi-unknown-woman.thumb.avif"
@@ -2151,6 +3594,19 @@
    "museum": "Sistine Chapel, Vatican",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.2,
+    "maxX": 0.75,
+    "maxY": 0.65
+   },
+   "tint": 0.58,
+   "darkest": "#090000",
+   "lightest": "#FFFFEC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/b2251f18530d1a47e988bc069bbe857ff6c6c6f46b56944586f312787011a372.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/michelangelo-creation-of-adam.thumb.avif"
@@ -2170,6 +3626,19 @@
    "museum": "Metropolitan Museum of Art, New York (JP1847)",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.05,
+    "minY": 0.05,
+    "maxX": 0.8,
+    "maxY": 0.95
+   },
+   "tint": 0.7,
+   "darkest": "#112C3D",
+   "lightest": "#FDF6DB",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ef9b2c4b33c96764bd19e0a9a2644bfe642eed9704015449e7c2a9367ab71ee5.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hokusai-great-wave.thumb.avif"
@@ -2189,6 +3658,19 @@
    "museum": "National Gallery, London",
    "collection": "museumIcons",
    "bundled": false,
+   "focal": {
+    "x": 0.683,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.442,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#E3E2D1",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/84f7dc5fee6c02788c637581c4c06d097e757bf8ce1cc92fcb56582d05878225.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/holbein-ambassadors.thumb.avif"
@@ -2208,6 +3690,19 @@
    "museum": "Kunsthistorisches Museum, Vienna",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.776,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.606,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FFFFF3",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/87e9fb369799d692873d57ae45e6811fd572d8d1329ed6974540e680dff66e06.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/brueghel-wooden-vessel.thumb.avif"
@@ -2227,6 +3722,19 @@
    "museum": "Galerie Neue Meister, Dresden",
    "collection": "calm",
    "bundled": true,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.3,
+    "maxX": 0.9,
+    "maxY": 0.85
+   },
+   "tint": 0.32,
+   "darkest": "#000100",
+   "lightest": "#FEFFF6",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/f9778001b4cb0ae23817364ee9a62b8f171d640cacf6bed5d7b39bc6c44d0bbc.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dahl-dresden-moonlight.thumb.avif"
@@ -2247,6 +3755,19 @@
    "museum": "Rijksmuseum, Amsterdam",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.77,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.595,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#040000",
+   "lightest": "#F8EEBB",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/d7fccad5eabcf3766978d568e7c0a34788f32d756713ec250fa169bb387ae6af.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bosschaert-wan-li-vase.thumb.avif"
@@ -2266,6 +3787,19 @@
    "museum": "Metropolitan Museum of Art, New York",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.815,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.674,
+    "minY": 0.04,
+    "maxX": 0.985,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000200",
+   "lightest": "#FFFFF8",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/d5936c87370fe233e41c971c57016ecbdbefa297cd9e7f3646459f4e50ca9d59.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/cot-springtime.thumb.avif"
@@ -2285,6 +3819,19 @@
    "museum": "Unknown (Google Arts & Culture source; Commons dates it 1750s)",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.757,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.572,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000002",
+   "lightest": "#FDFFFE",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/c3eab153007ea1cb0a873f2449a95a90cb84fda96671bfba619686db78b3023e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/ruysch-flowers.thumb.avif"
@@ -2304,6 +3851,19 @@
    "museum": "Van Gogh Museum, Amsterdam",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.738,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.539,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#0B0000",
+   "lightest": "#FFF0D3",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/44f85cd66cd647e56d44f1636d331f459972f364b4c3621e2d1190fc6190ad50.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-flowering-plum.thumb.avif"
@@ -2323,6 +3883,19 @@
    "museum": "Private collection",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.745,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.551,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#080000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/b15cccd75ef20feb1ecdcfa21adbf90bb91221cc1ce598e4c8a2da304fac9728.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/toulmouche-reluctant-bride.thumb.avif"
@@ -2342,6 +3915,19 @@
    "museum": "Uffizi Gallery, Florence",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.1,
+    "maxX": 0.85,
+    "maxY": 0.95
+   },
+   "tint": 0.33,
+   "darkest": "#000000",
+   "lightest": "#DBB993",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/2579975df623b83a49ca01a8fa3927353403d0ac9735087a49652cadc1ec1c04.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/rosso-musical-angel.thumb.avif"
@@ -2361,6 +3947,19 @@
    "museum": "Private collection",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.75,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.56,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000002",
+   "lightest": "#FFF724",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/9880eac66c0d6775fc443a5724d034fc8bd7aa3389ab2c802c65baf537de8fed.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/grimshaw-blackman-street.thumb.avif"
@@ -2380,6 +3979,19 @@
    "museum": "Private collection",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.817,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.678,
+    "minY": 0.04,
+    "maxX": 0.985,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#090000",
+   "lightest": "#FFFFF6",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/f5d9a0faa8785ea7800e921d68110c45a882dc08f26d0708209610371382d085.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/waterhouse-ophelia.thumb.avif"
@@ -2399,6 +4011,19 @@
    "museum": "Musée du Louvre, Paris",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.1,
+    "maxX": 0.75,
+    "maxY": 0.92
+   },
+   "tint": 0.33,
+   "darkest": "#050100",
+   "lightest": "#F3E4C5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/11a106957c42d0d058cb7b5e7d9f95159ddda0669f98c60894146e94eaecade2.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/biard-magdalena-bay.thumb.avif"
@@ -2418,6 +4043,19 @@
    "museum": "Cleveland Museum of Art",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.0,
+    "maxX": 0.8,
+    "maxY": 0.95
+   },
+   "tint": 0.35,
+   "darkest": "#020500",
+   "lightest": "#FFFFE2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/816db690061477ce18eec3a5837029efaf5c210932bc2d69969c4773a6ba9a9c.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/renoir-vase-roses.thumb.avif"
@@ -2437,6 +4075,19 @@
    "museum": "Private collection (MacDougall's auction)",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.1,
+    "maxX": 0.85,
+    "maxY": 0.75
+   },
+   "tint": 0.36,
+   "darkest": "#00030C",
+   "lightest": "#F3FFFB",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/7f1a2ae54bda0640745f2ff84bacb9bed691adca81152f954afada15aceb03cb.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/roerich-himalayas.thumb.avif"
@@ -2456,6 +4107,19 @@
    "museum": "National Gallery, London",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.5,
+    "minY": 0.2,
+    "maxX": 0.85,
+    "maxY": 0.95
+   },
+   "tint": 0.34,
+   "darkest": "#010000",
+   "lightest": "#E8EAE5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/0721a1571f1d7934bc4bca1a9e980ea6ee2b61d5508b49aea9f898ea74280d3f.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/velde-close-hauled.thumb.avif"
@@ -2475,6 +4139,19 @@
    "museum": "National Museum, Oslo",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.15,
+    "maxX": 0.8,
+    "maxY": 0.9
+   },
+   "tint": 0.37,
+   "darkest": "#010000",
+   "lightest": "#FCFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/1094f7f145cc1baef1f7f8c03ac190cf734d2217c00262e48d67dc00f43447bc.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/sohlberg-flower-meadow.thumb.avif"
@@ -2494,6 +4171,19 @@
    "museum": "National Museum, Oslo",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.35,
+    "maxX": 0.55,
+    "maxY": 0.9
+   },
+   "tint": 0.35,
+   "darkest": "#000D16",
+   "lightest": "#FFFFFD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/fdae6d6e395c2c8db561f3b18139bfb04059c8229a466f285c8f4440f71cec98.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dahl-cloud-study.thumb.avif"
@@ -2513,6 +4203,19 @@
    "museum": "Galerie Neue Meister, Dresden",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.12,
+    "minY": 0.25,
+    "maxX": 0.55,
+    "maxY": 0.8
+   },
+   "tint": 0.37,
+   "darkest": "#000000",
+   "lightest": "#FED688",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/dff00cf4225e664691061b3a2c6c9a412043bcc5dc20b19cdf6cda0a7d0d9cde.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/friedrich-two-men-moon.thumb.avif"
@@ -2532,6 +4235,19 @@
    "museum": "National Gallery, London",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.678,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.433,
+    "minY": 0.04,
+    "maxX": 0.974,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#071903",
+   "lightest": "#E5E0BA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/8935866cc2b241de3598f89a34325d242208025d39ce9b4e80e7bc93d367e404.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/monet-waterlily-pond.thumb.avif"
@@ -2551,6 +4267,19 @@
    "museum": "Private collection (Bukowskis)",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.772,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.599,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#F2EDE7",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/fea9dbdcdc9c91f485f6e7336abc5d610f900d37cd8c65719cb6d4ad65e8820b.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hesselbom-dusk.thumb.avif"
@@ -2570,6 +4299,19 @@
    "museum": "Private collection",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.799,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.646,
+    "minY": 0.04,
+    "maxX": 0.984,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#020001",
+   "lightest": "#FDFFFE",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/2fb940cec7e35ac6ece81b26c22ddabcae033728e4b3b6095b410ff85dd5c0fa.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/toulmouche-vanity.thumb.avif"
@@ -2589,6 +4331,19 @@
    "museum": "Private collection (Sotheby's)",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.785,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.622,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#0F0800",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/67b1896bba4b874ea4e5db1388f44c2519496ad5e66b751005f4c88c534c8ef6.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hiroshige-zoshigaya.thumb.avif"
@@ -2608,6 +4363,19 @@
    "museum": "Art Institute of Chicago",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.675,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.428,
+    "minY": 0.04,
+    "maxX": 0.974,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#001711",
+   "lightest": "#FFFFF8",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/2dfecc27bf772c43e8f6c55ad18556cd7a29176dcfa50f86e83ce643d94a3d6f.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/monet-water-lilies.thumb.avif"
@@ -2627,6 +4395,19 @@
    "museum": "Museum of Fine Arts, Houston",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.726,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.518,
+    "minY": 0.04,
+    "maxX": 0.978,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#000321",
+   "lightest": "#FEFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/7b0649a260517a9444e73f40e9db6e528ced7a1f3e12b184b0f0a47b9c7f36cf.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/monet-water-lilies-1907.thumb.avif"
@@ -2646,6 +4427,19 @@
    "museum": "Brooklyn Museum, New York",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.85,
+    "maxY": 0.85
+   },
+   "tint": 0.38,
+   "darkest": "#010101",
+   "lightest": "#FFFFE4",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/c82a0919aa2675fbdbfa66523db433f74d2bfd28f69de0c247b87f94d2bdeb10.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bierstadt-storm-rockies.thumb.avif"
@@ -2665,6 +4459,19 @@
    "museum": "Tretyakov Gallery, Moscow",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.734,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.532,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#00000C",
+   "lightest": "#FFFFFD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ad121cfac8abf95f1a4ee616734a17fc307ac931c2bfcd6784afcbd64683265e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/korovin-place-opera.thumb.avif"
@@ -2684,6 +4491,19 @@
    "museum": "Österreichische Galerie Belvedere, Vienna",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.692,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.458,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#1E1B14",
+   "lightest": "#FFF3E9",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/287bd71bebb5801bbab50a015aa091916ad00688608901d64655f09e34a954af.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/klimt-garden-sunflowers.thumb.avif"
@@ -2703,6 +4523,19 @@
    "museum": "Museum of Modern Art, New York",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.769,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.593,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#000000",
+   "lightest": "#FFFFDF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/2885a205d561e716310b9ed70e7b2654c9a3e086d90055414f280739c0362aae.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/redon-butterflies.thumb.avif"
@@ -2722,6 +4555,19 @@
    "museum": "Private collection",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.763,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.583,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#020200",
+   "lightest": "#FEFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/54f108add64e3bedae90f817e2e5747e13eed4f3260d9f95a15f652ea697e735.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/aivazovsky-winter-landscape.thumb.avif"
@@ -2741,6 +4587,19 @@
    "museum": "Private collection (Sotheby's)",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.38,
+    "minY": 0.4,
+    "maxX": 0.68,
+    "maxY": 0.85
+   },
+   "tint": 0.43,
+   "darkest": "#090000",
+   "lightest": "#E1D6D4",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/5b5721686847a569b10fcd3f36184fb3e1d505a7c95e682c3dd3fa44811ec759.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/aivazovsky-along-coast.thumb.avif"
@@ -2760,6 +4619,19 @@
    "museum": "Kirklees Museums and Galleries",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.734,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.532,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000002",
+   "lightest": "#F9FFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/684daacab5068bad32fc2ad051078bbf5b7c17fa6f3912f7d0c6b2ea3fc0c502.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/grimshaw-silver-moonlight.thumb.avif"
@@ -2779,6 +4651,19 @@
    "museum": "Musée de l'Orangerie, Paris",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.8,
+    "maxY": 0.9
+   },
+   "tint": 0.4,
+   "darkest": "#191700",
+   "lightest": "#FFEDC2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/27e5f38c24d76d466044bfb1d7cdf2cee6c01918b4661be6f357463b822b12d9.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/monet-water-lilies-setting-sun.thumb.avif"
@@ -2798,6 +4683,19 @@
    "museum": "Library of Congress (impression)",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.794,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.637,
+    "minY": 0.04,
+    "maxX": 0.984,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#000000",
+   "lightest": "#FEFFFA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/79c19d3f48f198916aab745d60697633d1fbeb422c677ed5d61c4df52908b708.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hiroshige-hota-coast.thumb.avif"
@@ -2817,6 +4715,19 @@
    "museum": "Albertina, Vienna",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.785,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.622,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#000201",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/1b4ac74cb110d4ce7b34b641e58c0c0052e2b5723e5ba633a94cc1550a821d03.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/durer-praying-hands.thumb.avif"
@@ -2836,6 +4747,19 @@
    "museum": "National Gallery of Art, Washington",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.55,
+    "maxX": 0.45,
+    "maxY": 0.95
+   },
+   "tint": 0.35,
+   "darkest": "#040400",
+   "lightest": "#FFEEB3",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/73766f2178c84fae4383ce39ec2b77bbfc032fb87e142f2e36bd9148cc4f8b3c.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/cole-voyage-childhood.thumb.avif"
@@ -2855,6 +4779,19 @@
    "museum": "Musée Marmottan Monet, Paris",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.2,
+    "maxX": 0.75,
+    "maxY": 0.85
+   },
+   "tint": 0.45,
+   "darkest": "#000901",
+   "lightest": "#FFDBC4",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/c051b94f47467db360d1a26e8bb4934e36d1fe2e7a07e499d80acdea7969516b.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/monet-impression-sunrise.thumb.avif"
@@ -2874,6 +4811,19 @@
    "museum": "National Gallery of Art, Washington",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.748,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.556,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.34,
+   "darkest": "#000A16",
+   "lightest": "#FAFCFB",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/32bea714ca613b20c231f650dd215af86ab66351172d47beb8ed6e5b32b45722.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/monet-woman-parasol.thumb.avif"
@@ -2893,6 +4843,19 @@
    "museum": "Rijksmuseum, Amsterdam",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.737,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.537,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
+   "tint": 0.34,
+   "darkest": "#120300",
+   "lightest": "#F0EED7",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/fb08afea83f92766559fb71036b9f8595784271ae001a4869439f5d07a92d47d.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/velde-cannon-shot.thumb.avif"
@@ -2912,6 +4875,19 @@
    "museum": "Cleveland Museum of Art",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.648,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.38,
+    "minY": 0.04,
+    "maxX": 0.972,
+    "maxY": 0.7
+   },
+   "tint": 0.37,
+   "darkest": "#030027",
+   "lightest": "#FFFFFA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/b74e659f4abf5627bb20f8356d2f08e34f8bef0ac87377ab62a1999624d9ab33.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/cross-pink-cloud.thumb.avif"
@@ -2931,6 +4907,19 @@
    "museum": "Private collection (Bonhams)",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.0,
+    "maxX": 0.9,
+    "maxY": 0.6
+   },
+   "tint": 0.48,
+   "darkest": "#000000",
+   "lightest": "#F5EDDE",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/a47b16f5684b8fac00f48af3031d35982da64b1b839977f20bb5fafd00a7ac03.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/laurence-mckinley.thumb.avif"
@@ -2950,6 +4939,19 @@
    "museum": "J. Paul Getty Museum, Los Angeles",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.05,
+    "maxX": 0.9,
+    "maxY": 0.9
+   },
+   "tint": 0.48,
+   "darkest": "#090000",
+   "lightest": "#FEFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/c0c48769fc7e8e14714086bd7a00d1f9432f48b81ff0d388974089f8cd645280.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-irises.thumb.avif"
@@ -2969,6 +4971,19 @@
    "museum": "Tretyakov Gallery, Moscow",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.644,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.373,
+    "minY": 0.04,
+    "maxX": 0.972,
+    "maxY": 0.7
+   },
+   "tint": 0.38,
+   "darkest": "#0E0100",
+   "lightest": "#F9EFE3",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/e2ccb55469c10cae8f832eec92b578a72cda623a0cfc422d5904fc00b42523fb.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/kramskoi-christ-in-the-desert.thumb.avif"
@@ -2988,6 +5003,19 @@
    "museum": "National Gallery, London",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.05,
+    "minY": 0.15,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
+   "tint": 0.49,
+   "darkest": "#13120E",
+   "lightest": "#FCF1DD",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/522fe911b6c9e1d7878a27c7c2246b7242c70f1ba33281f3164b65b236483789.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/turner-temeraire.thumb.avif"
@@ -3007,6 +5035,19 @@
    "museum": "Gallerie dell'Accademia, Venice",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.769,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.593,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
+   "tint": 0.33,
+   "darkest": "#000000",
+   "lightest": "#FFFED6",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/59daa453113abcf75d1f7917440ece555a641bb2f445583453689a555370af69.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/leonardo-vitruvian-man.thumb.avif"
@@ -3026,6 +5067,19 @@
    "museum": "Kunsthistorisches Museum, Vienna",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.25,
+    "maxX": 0.85,
+    "maxY": 0.95
+   },
+   "tint": 0.49,
+   "darkest": "#000000",
+   "lightest": "#FFFFED",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/c13bc85c74e7c736bf6d57fe915bcee24ef2207e41451f81b8c9037e0e0ba3bd.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/bruegel-hunters-snow.thumb.avif"
@@ -3045,6 +5099,19 @@
    "museum": "National Gallery of Art, Washington",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.55,
+    "maxX": 0.85,
+    "maxY": 0.95
+   },
+   "tint": 0.42,
+   "darkest": "#180600",
+   "lightest": "#FFFACC",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/02391bc6d93bf1d294f30ecd00ab88e24ea9f1a08e189dec078d824b3dedc355.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/cole-voyage-youth.thumb.avif"
@@ -3064,6 +5131,19 @@
    "museum": "Alte Nationalgalerie, Berlin",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.3,
+    "maxX": 0.6,
+    "maxY": 0.97
+   },
+   "tint": 0.54,
+   "darkest": "#000600",
+   "lightest": "#DFE2D1",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/e69b653a545def017c996e8f75c01bfd17c852e8aee486747bb1300001fc91b1.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/friedrich-monk-by-the-sea.thumb.avif"
@@ -3083,6 +5163,19 @@
    "museum": "Metropolitan Museum of Art, New York",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.1,
+    "maxX": 0.95,
+    "maxY": 0.85
+   },
+   "tint": 0.53,
+   "darkest": "#000000",
+   "lightest": "#FFFFF2",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/3f99d93359924a393d7fc28e8e82ad58ceb5b8d2b75c6e585283e37ce53ce858.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-wheat-field-cypresses.thumb.avif"
@@ -3102,6 +5195,19 @@
    "museum": "Art Institute of Chicago",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.2,
+    "maxX": 0.95,
+    "maxY": 0.8
+   },
+   "tint": 0.57,
+   "darkest": "#240F0A",
+   "lightest": "#FDFFF5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/57c655478339b9ac266d73f60052bba552a2405f1edf586d71dac8d16ecf4e2e.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/monet-cliff-pourville.thumb.avif"
@@ -3121,6 +5227,19 @@
    "museum": "Van Gogh Museum, Amsterdam",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.05,
+    "maxX": 0.85,
+    "maxY": 0.95
+   },
+   "tint": 0.59,
+   "darkest": "#000200",
+   "lightest": "#FFFFF0",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/036131c5966a0f5fcfbde540e52aef51e89c843fa3f9e74bb6ff0f47c8b52a75.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-almond-blossom.thumb.avif"
@@ -3140,6 +5259,19 @@
    "museum": "Van Gogh Museum, Amsterdam",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.15,
+    "maxX": 0.8,
+    "maxY": 0.95
+   },
+   "tint": 0.57,
+   "darkest": "#020100",
+   "lightest": "#FEFFF5",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/fe48feed89efd9f61d9dc130291bb34d2f1b8dda127c481b9145cfb6d59f38d4.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-fishing-boats.thumb.avif"
@@ -3159,6 +5291,19 @@
    "museum": "Metropolitan Museum of Art, New York",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.5,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.05,
+    "minY": 0.05,
+    "maxX": 0.8,
+    "maxY": 0.95
+   },
+   "tint": 0.7,
+   "darkest": "#143242",
+   "lightest": "#FFFFEF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/3f9157f51d71a54074009bfbf487ed46f80516e090aceb63112e640986def4ea.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/hokusai-umezawa.thumb.avif"
@@ -3178,6 +5323,19 @@
    "museum": "Detroit Institute of Arts",
    "collection": "calm",
    "bundled": false,
+   "focal": {
+    "x": 0.765,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.586,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.3,
+   "darkest": "#040806",
+   "lightest": "#FFEC9C",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/9bdda51e5d87e8f2529424fcf8b1dbab0f2511fbb8d0cb26af232c8edacdf0c7.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/whistler-falling-rocket.thumb.avif"
@@ -3197,6 +5355,19 @@
    "museum": "Book illustration (wood engraving)",
    "collection": "dore",
    "bundled": false,
+   "focal": {
+    "x": 0.752,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.564,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/842d79fbe044d3192e4bfc187992ad17e07c642ed489b3598891c9656d1f3f07.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dore-fall-of-satan.thumb.avif"
@@ -3216,6 +5387,19 @@
    "museum": "Book illustration, La Grande Bible de Tours",
    "collection": "dore",
    "bundled": false,
+   "focal": {
+    "x": 0.757,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.572,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#010000",
+   "lightest": "#FFFEE8",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/710531504cd61465fcf7a0f5c5636746ef2ec9d8f410015bbb927eead52e9ea7.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dore-flood.thumb.avif"
@@ -3235,6 +5419,19 @@
    "museum": "Book illustration (1876 Warsaw edition of La Fontaine's Fables)",
    "collection": "dore",
    "bundled": false,
+   "focal": {
+    "x": 0.749,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.558,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#020202",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/0753bad7abe3408677a3586e35d357a5c1515383cedb47e223ba885d3a04f960.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dore-wolves-sheep.thumb.avif"
@@ -3254,6 +5451,19 @@
    "museum": "Book illustration, Doré's English Bible",
    "collection": "dore",
    "bundled": false,
+   "focal": {
+    "x": 0.751,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ad445a3abe53d3b06fdbbf49f0005b2cdcef0114b572ec79d9f694875851e4db.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dore-leviathan.thumb.avif"
@@ -3273,6 +5483,19 @@
    "museum": "Book illustration (wood engraving)",
    "collection": "dore",
    "bundled": true,
+   "focal": {
+    "x": 0.751,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/30d11cbc85a49007e81dcf7954243799ab1b2553f9c238b9fe9c771c5eb24f11.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dore-paradise-lost-book-vi.thumb.avif"
@@ -3293,6 +5516,19 @@
    "museum": "Book illustration, Doré's English Bible",
    "collection": "dore",
    "bundled": false,
+   "focal": {
+    "x": 0.751,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.31,
+   "darkest": "#000000",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ab61ca2c4c10e4ee7c853ddaa876ec9916f9116c65807e3e894a3eacfa6b4419.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dore-moses-tables.thumb.avif"
@@ -3312,6 +5548,19 @@
    "museum": "Book illustration (wood engraving)",
    "collection": "dore",
    "bundled": false,
+   "focal": {
+    "x": 0.747,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.555,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#080808",
+   "lightest": "#FFFFFF",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/ca7d09925d742281d50ada8ff5c4f699f0049466ca3b7bd1a4bc205c37215b2d.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dore-empyrean.thumb.avif"
@@ -3331,6 +5580,19 @@
    "museum": "Book illustration (engraving)",
    "collection": "dore",
    "bundled": false,
+   "focal": {
+    "x": 0.787,
+    "y": 0.45
+   },
+   "subject": {
+    "minX": 0.625,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
+   "tint": 0.32,
+   "darkest": "#1B191A",
+   "lightest": "#FFFFFA",
    "thumbnail": {
     "url": "https://files.cmux.com/cmux-art/feb41c211ef40a6cd2381b2dc27181c2d621fb173d95f0557f10438ded81ca71.avif",
     "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/dore-raven.thumb.avif"

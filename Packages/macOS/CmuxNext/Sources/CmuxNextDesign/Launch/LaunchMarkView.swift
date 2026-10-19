@@ -44,7 +44,7 @@ public final class LaunchMarkView: NSView {
         NSSize(width: ceil(Self.height * CGPath.launchMarkAspect), height: Self.height)
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func layout() {
         super.layout()

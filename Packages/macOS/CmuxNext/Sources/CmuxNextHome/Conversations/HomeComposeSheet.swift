@@ -163,7 +163,6 @@ public final class HomeComposeSheet: HomeSheetController, NSTextFieldDelegate, N
         label.frame = NSRect(x: Metrics.space2 + 22, y: 3, width: 320, height: 18)
         cell.addSubview(check)
         cell.addSubview(label)
-        cell.textField = label
         cell.setAccessibilityLabel(label.stringValue)
         cell.setAccessibilityValue(picked ? "1" : "0")
         return cell

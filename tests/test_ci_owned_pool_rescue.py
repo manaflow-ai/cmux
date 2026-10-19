@@ -1096,12 +1096,11 @@ class SideLanes(unittest.TestCase):
         fork = dict(run, head_repository={"full_name": "someone/cmux"})
         self.assertIsInstance(rescue.sweep_target(fork, "manaflow-ai/cmux", late=False), str)
 
-    def test_a_completed_failed_retry_attempt_is_still_eligible_for_refusal_rescue(self):
+    def test_a_completed_failed_blacksmith_retry_is_not_watched_again(self):
         run = dict(side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH, run_attempt=3,
                               status="completed", conclusion="failure")["workflow_run"])
-        target = rescue.target_from_event({"workflow_run": run}, "manaflow-ai/cmux")
-        self.assertIsInstance(target, rescue.Target)
-        self.assertEqual(target.attempt, 3)
+        self.assertFalse(rescue.owned_rerun(run))
+        self.assertEqual(rescue.sweep_target(run, "manaflow-ai/cmux", late=False), "attempt 3")
 
         ordinary = dict(run, conclusion="failure", status="in_progress")
         self.assertIsInstance(rescue.target_from_event({"workflow_run": ordinary}, "manaflow-ai/cmux"), str)
@@ -1319,60 +1318,56 @@ class SideLanes(unittest.TestCase):
     def test_side_lane_budget_is_ten_minutes_not_the_ninety_second_default(self):
         self.assertEqual(rescue.SIDE_DEFAULT_BUDGET_SECONDS, 600)
 
-    def test_side_lane_bot_attempts_two_and_three_are_watched_but_four_is_not(self):
-        # Bot attempt 3 still runs on the minis (it keeps macos-placement's
-        # label), so it is watched for refusals; attempt 4 is on Blacksmith.
+    def test_side_lane_bot_attempt_two_is_watched_but_three_is_not(self):
+        # Bot attempt 3 drops the stale placement label and runs on Blacksmith,
+        # so the sweeper must not issue a redundant attempt 4.
         path = ".github/workflows/cmux-next.yml"
-        for attempt, watched in ((2, True), (3, True), (4, False)):
+        for attempt, watched in ((2, True), (3, False), (4, False)):
             self.assertEqual(rescue.owned_rerun({"path": path, "run_attempt": attempt,
                                                  "triggering_actor": {"login": rescue.RESCUE_ACTOR}}), watched, attempt)
         self.assertTrue(rescue.owned_rerun({"path": path, "run_attempt": 4,
                                            "triggering_actor": {"login": "teamleaderleo"}}))
 
-    def follow_cmux_next_attempt_three(self, jobs):
-        run = dict(side_event(path=".github/workflows/cmux-next.yml", run_attempt=3, status="in_progress",
+    def follow_cmux_next_attempt_two(self, jobs):
+        run = dict(side_event(path=".github/workflows/cmux-next.yml", run_attempt=2, status="in_progress",
                               triggering_actor={"login": rescue.RESCUE_ACTOR})["workflow_run"])
         target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False)
         self.assertNotIsInstance(target, str)
         clock = Clock()
         api = FakeAPI(clock, lambda seconds: [], rerun_jobs=jobs)
-        api.attempt = 3
+        api.attempt = 2
         lines: list[str] = []
         outcome = rescue.follow(api, target, seconds=90, queue_rounds="0", now=clock.now, sleep=clock.sleep,
                                 log=lines.append)
         return api, outcome, "\n".join(lines)
 
-    def test_a_refusal_on_cmux_next_attempt_three_reruns_on_blacksmith(self):
-        # #18147, 2026-10-07 02:23Z: a lend drain refused the scheme compile on
-        # bot attempt 3, the last re-run, and nothing re-ran it.
+    def test_a_refusal_on_cmux_next_attempt_two_reruns_on_blacksmith(self):
+        # Bot attempt 3 is already on Blacksmith, so a refusal on attempt 2
+        # gets one failed-job retry there.
         passed = job("cmux-next swift test", status="completed", labels=[SIDE], runner="mini-1-glaeda-1")
         passed.update(conclusion="success", steps=[{"name": "Set up runner", "conclusion": "success"},
                                                    {"name": "Run package tests", "conclusion": "success"}])
-        api, outcome, log = self.follow_cmux_next_attempt_three(
+        api, outcome, log = self.follow_cmux_next_attempt_two(
             lambda seconds: [passed, refused_job("cmux app scheme compile (Debug)", labels=(SIDE,))])
         self.assertEqual(api.calls.count("rerun-failed"), 1, log)
         self.assertNotIn("cancel", api.calls)
-        self.assertIn("attempt 4 takes Blacksmith", log)
+        self.assertIn("attempt 3 takes the side lane's Blacksmith overflow", log)
 
-    def test_a_real_failure_on_cmux_next_attempt_three_is_not_rerun(self):
-        # Only refusals go to attempt 4: a re-run of failed jobs would also re-run the red test.
+    def test_a_real_failure_on_cmux_next_attempt_two_is_not_rescued(self):
+        # A failed job is never retried with a refusal in the same run.
         red = job("cmux-next swift test", status="completed", labels=[SIDE], runner="mini-1-glaeda-1")
         red.update(conclusion="failure", started_at=stamp(0), completed_at=stamp(900),
                    steps=[{"name": "Set up runner", "conclusion": "success"},
                           {"name": "Run package tests", "conclusion": "failure"}])
-        api, outcome, log = self.follow_cmux_next_attempt_three(
+        api, outcome, log = self.follow_cmux_next_attempt_two(
             lambda seconds: [red, refused_job("cmux app scheme compile (Debug)", labels=(SIDE,))])
         self.assertNotIn("rerun-failed", api.calls)
         self.assertNotIn("rerun", api.calls)
         self.assertIn("also failed for a reason that is not a refusal", outcome)
 
-    def test_a_queued_cmux_next_attempt_three_is_never_cancelled(self):
-        # Minis-first holds through attempt 3: a long queue there is not moved.
-        api, outcome, log = self.follow_cmux_next_attempt_three(
-            lambda seconds: [job("cmux app scheme compile (Debug)", labels=[SIDE])])
-        self.assertNotIn("cancel", api.calls)
-        self.assertNotIn("rerun", api.calls)
-        self.assertNotIn("rerun-failed", api.calls)
+    def test_a_bot_attempt_three_is_outside_the_owned_pool_sweep(self):
+        self.assertFalse(rescue.owned_rerun({"path": rescue.CMUX_NEXT_WORKFLOW_PATH, "run_attempt": 3,
+                                             "triggering_actor": {"login": rescue.RESCUE_ACTOR}}))
 
     def test_a_refused_side_job_is_rerun(self):
         def jobs(seconds):
@@ -1485,6 +1480,17 @@ class Nightly(unittest.TestCase):
         self.assertIn("newer:nightly-next", api.calls)
         self.assertNotIn("newer:main", api.calls)
         self.assertIn("a newer nightly run on nightly-next", summary)
+
+    def test_a_next_run_whose_head_is_no_longer_the_tip_is_never_rerun(self):
+        # nightly-next pushes share one job-level build slot, which the workflow-level
+        # pending check cannot see: a rerun of an older run would rejoin the slot and
+        # replace the newest push's waiting build. The branch head decides instead.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200, head="b" * 40)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("branch:nightly-next", api.calls)
+        self.assertIn("nightly-next has moved on", summary)
 
     def test_next_refusal_moves_failed_jobs_to_blacksmith(self):
         clock = Clock()
@@ -2058,8 +2064,11 @@ class Tokens(unittest.TestCase):
                          # on GITHUB_TOKEN (Tokens.test_a_read_the_app_may_not_make...).
                          {"permission-actions": "read", "permission-pull-requests": "read"})
         watch = next(step for step in steps if step.get("name") == "Watch runs on persistent pools")
-        self.assertEqual(watch["env"]["READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
-        self.assertEqual(watch["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(
+            watch["env"]["READ_TOKEN"],
+            "${{ steps.cmux-bot-token.outputs.token || steps.read-token.outputs.token }}",
+        )
+        self.assertEqual(watch["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
 
 
 class Workflow(unittest.TestCase):

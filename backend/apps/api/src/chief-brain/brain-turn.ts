@@ -2,13 +2,14 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
 import { ackWake, chiefPrincipal, postReply, readConversation, typing } from "./brain-io.ts"
 import { flushMarks, lastTalk, markPending, runError, type Run, type Step, upsertStep } from "./brain-runs.ts"
 import { writeConfig } from "./brain-store.ts"
+import { marksHeader, ttlMs, turnPlan } from "./cache-prefix.ts"
 import { AUTH_FAILED, claudeAuthFor } from "./claude-auth.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { RETRY_MS } from "./memory.ts"
-import { creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
+import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
-import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN_MS, HANDS_CONTINUE, type Admission } from "./brain-do.ts"
+import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, msOr, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
 
 /**
  * The turn loop of a ChiefBrainDO (brain-do.ts): a wake queues messages, the drain admits and opens one
@@ -17,21 +18,27 @@ import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN
  */
 
 /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
-export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; seq: number; reason: string }): Promise<{ queued: number } | { skipped: string }> {
+export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
   markPending(b.sql, "wake")
+  // When MuxDO committed the wake (the conversation's outbox delivered it): Run.timing mux_at.
+  if (typeof w.at === "number" && Date.now() - w.at < 60_000) markPending(b.sql, "mux", Math.min(w.at, Date.now()))
   // A cold object: when it was made (its constructor; wasm and memory load) and when its lifecycle was ready.
   // Only when this wake made the object (another entry point that made it long ago is not a cold wake).
   if (b.bootAt !== undefined) [Date.now() - b.bootAt < 10_000 && markPending(b.sql, "boot", b.bootAt), (b.bootAt = undefined)]
   await b.lifecycle.start()
   markPending(b.sql, "life")
+  // The admission and the conversation read go at the same time (the read changes nothing; a refusal ignores it).
+  const reading = readConversation(b.doEnv, w.conversation, chiefPrincipal(w.agent, w.owner))
+  reading.catch(() => undefined)
   const a = await b.admitted(w.agent, w.owner, false)
-  if (!a.ok) return { skipped: a.reason }
-  // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and pi open warm up.
+  if (!a.ok) return skip(b, w, a.reason)
+  // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and the team's meter warm up.
   if (isMetered(a.config.model)) b.doCtx.waitUntil(b.turns(w.owner).warm().catch(() => undefined))
   if (isClaude(a.config.model)) b.doCtx.waitUntil(claudeAuthFor(b.doEnv, b.holder).catch(() => undefined))
   b.doCtx.waitUntil(b.harness.pi().catch(() => undefined))
-  const view = await readConversation(b.doEnv, w.conversation, chiefPrincipal(w.agent, w.owner))
-  if ("refused" in view) return { skipped: view.refused }
+  b.doCtx.waitUntil(creditsCanStart(b.doEnv, a.config).catch(() => undefined))
+  const view = await reading
+  if ("refused" in view) return skip(b, w, view.refused)
   // A conversation this brain never read starts at the wake: older history is not answered.
   const cursor = b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? w.seq - 1
   let queued = 0
@@ -56,6 +63,23 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   if (queued > 0 && b.turnLive && b.turnId && b.turnConversation === w.conversation) await b.steerQueued(w.conversation)
   b.kick()
   return { queued }
+}
+
+/**
+ * A skipped wake: when no brain answers the woken message (archived Chief, owner or conversation
+ * unreachable or refused), the Chief's typing goes off now, so a client that shows "Thinking…" from
+ * the send ends it. (A turn refused later, for the daily limit or credits, is drain's.) Not when
+ * another brain may answer (this brain is off: a server-placed Chief's brain is off here) or the
+ * object serves another Chief.
+ */
+const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
+const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string }, reason: string): { skipped: string } => {
+  // A turn that runs, messages that wait for one, or a reply that waits to post in this conversation keep their indicator.
+  const busy =
+    (b.turnLive && b.turnConversation === w.conversation) ||
+    b.sql.exec(`SELECT 1 FROM cb_inbox WHERE conversation = ? AND state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE conversation = ? AND post = 'pending' LIMIT 1`, w.conversation, w.conversation).toArray().length > 0
+  if (!OTHER_BRAIN.has(reason) && !busy) b.doCtx.waitUntil(typing(b.doEnv, w.conversation, w.agent, false))
+  return { skipped: reason }
 }
 
 /**
@@ -151,17 +175,36 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
       // Not answered (off, archived, placed, over the limit): the wakes are acked so the queue stays bounded.
       b.sql.exec(`UPDATE cb_inbox SET state = 'skipped' WHERE state = 'queued' AND conversation = ?`, woken.conversation)
       console.warn(JSON.stringify({ msg: "chief_brain.turn_refused", reason: a.reason }))
+      // The notice may post nothing (one per hour, or it failed): the typing goes off either way.
       if (a.reason === "credits_exhausted") await creditsNotice(b.doEnv, cfg, woken.conversation)
+      if (cfg.agent && !OTHER_BRAIN.has(a.reason)) await typing(b.doEnv, woken.conversation, cfg.agent, false)
       if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(b.doEnv, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
       continue
     }
-    await (markPending(b.sql, "admitted"), (b.memory.foldDue() ? b.compactor.settle(AbortSignal.timeout(SETTLE_MS)) : Promise.resolve(true)).finally(() => markPending(b.sql, "settled")))
-    if (rows.length > 0) b.openTurn(woken.conversation, rows)
+    // The reference client's Memory.settle(mem, from): every message before the new ones summarized, so the
+    // view shows them all as lines and the input holds only the new messages; bounded (SETTLE_MS), after
+    // which the turn runs on the last rendered view plus the unsummarized messages whole.
+    // A failing or rate-limited compactor costs no wait (the turn goes at once on the last view plus the whole messages).
+    markPending(b.sql, "admitted")
+    const healthy = !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
+    const settleMs = msOr(b.doEnv.CHIEF_BRAIN_SETTLE_MS, SETTLE_MS)
+    const fresh = healthy && settleMs > 0 ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(settleMs)) : b.memory.first() >= b.memory.len()
+    markPending(b.sql, "settled")
+    // Messages that came during the wait ride along (the same conversation's queue, read again).
+    const all = b.sql
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>(`SELECT n, message, seq, kind, thread_root, text, woke FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .toArray()
+    if (!fresh) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
+    if (all.length > 0) b.openTurn(woken.conversation, all, fresh)
   }
 }
 
-/** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
-export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>): void {
+/**
+ * Logs the new messages, then builds the input (Memory.turnInput: a fresh view and the new messages, or the last view
+ * plus the unsummarized messages) and its cache marks (cache-prefix.ts) with the turn row in one transaction (a restart
+ * resubmits the same bytes).
+ */
+export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>, fresh = false): void {
   const id = `run_${rows[0]!.n}`
   let input = "[]"
   const trigger = [...rows].reverse().find((r) => r.woke === 1) ?? rows[rows.length - 1]!
@@ -171,7 +214,11 @@ export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyAr
       b.memory.append("user", r.text)
       b.sql.exec(`UPDATE cb_inbox SET state = 'running', turn = ? WHERE n = ?`, id, r.n)
     }
-    input = JSON.stringify(b.memory.turnInput(rows.length))
+    // pi-ai drops a whitespace-only text block, which would shift the mark indices.
+    const blocks = b.memory.turnInput(rows.length, fresh).filter((t) => t.trim().length > 0)
+    input = JSON.stringify(blocks)
+    // Where this turn's first request reads (an earlier turn's entry) and writes (the view's last whole block).
+    writeConfig(b.sql, { [`marks:${id}`]: marksHeader(turnPlan(b.sql, b.config().model, blocks, ttlMs(b.doEnv.CHIEF_BRAIN_CACHE_TTL))) })
     b.sql.exec(
       `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
       id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), b.config().model, Date.now(), input
@@ -231,6 +278,9 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
     b.turnLive = true
     // After a restart: the ops that joined this turn before (pi takes a repeated operation id once).
     for (const s of b.steerOps(id)) [b.steered.push(s.op), await b.harness.session().steer([{ type: "text" as const, text: s.text }], { operationId: s.op }).catch(() => undefined)]
+    // Messages of a burst that came while the turn was being set up (admitted, not live yet) join it now,
+    // instead of starting a second run after it.
+    if (!child) await b.steerQueued(row.conversation)
     let result = await Promise.race([b.harness.wait(id), limit])
     // Messages that joined the turn: wait for them as well (one that came after the last step runs on, under this turn).
     for (let i = 0; i < b.steered.length && result !== "timeout"; i++) {
@@ -247,7 +297,8 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
       b.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, 'continuation', ?) ON CONFLICT DO NOTHING`, id, Date.now())
       b.startTurnHands()
       // pi takes a repeated operation id once, so a resumed turn submits again safely.
-      await b.harness.submit([{ type: "text" as const, text: HANDS_CONTINUE }], { operationId: `${id}:hands` })
+      const info = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `hands_cont_info:${id}`).toArray()[0]?.value
+      await b.harness.submit([{ type: "text" as const, text: handsContinueText(info, b.doEnv.HAND_SANDBOX_WORKDIR || "/root/proj") }], { operationId: `${id}:hands` })
       result = await Promise.race([b.harness.wait(`${id}:hands`), limit])
       // Messages that joined during the continuation: wait for them too.
       for (let i = steeredBefore; i < b.steered.length && result !== "timeout"; i++) {
@@ -270,7 +321,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
     clearTimeout(timer)
     b.turnLive = false
     b.steered = []
-    b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?)`, `steer:${id}`, `hands_cont:${id}`)
+    b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?, ?, ?)`, `steer:${id}`, `hands_cont:${id}`, `hands_cont_info:${id}`, `marks:${id}`)
     b.turnId = undefined
     b.turnConversation = undefined
   }

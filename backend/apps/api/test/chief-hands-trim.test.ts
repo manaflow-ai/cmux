@@ -126,6 +126,31 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     await dmAndReply(token, chief, "then marker-six", 3)
     expect(turnTools("marker-six")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
   })
+  it("a hand paired just before a message that lists hands: the run continues once with the agent tool", async () => {
+    const { token, chief } = await ownerWithChief("hands-trim-race")
+    expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
+    await dmAndReply(token, chief, "first marker-race-one", 1)
+    // The sandbox exists before the message; the turn starts on the cached compact set and the turn-start check
+    // records the hand in the background, before the Chief's own list call sees it.
+    await pair(token, "sb-race")
+    // The first request is held, so the turn-start check (one hands list) has recorded the hand before the
+    // Chief's list call runs: that call no longer finds the first hand itself.
+    const release = holdTurns()
+    const key = "hands-marker-race-two"
+    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text: 'SIGNED marker-race-two tool:hands {"action":"list"}' }] }, key)).ok).toBe(true)
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
+    for (let i = 0; i < 200 && turnTools("marker-race-two").length === 0; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 25))
+    release()
+    for (let i = 0; i < 200 && (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length < 2; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    const replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+    expect(replies[1].parts[0].text, "the turn failed").not.toContain("could not reach the model")
+    const calls = fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && c.firstUser.join("\n").includes("marker-race-two"))
+    const continued = calls.filter((c) => c.laterUsers.join("\n").includes("Your new hand is ready"))
+    expect(continued.length, "no continuation: the list saw the hand but the turn had no agent tool").toBeGreaterThanOrEqual(1)
+    expect(continued[0]!.tools.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+    expect((await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs).toHaveLength(2)
+  })
   it("a hand paired between turns, then two more turns: every turn answers (no replayed thinking under another tools list)", async () => {
     const { token, chief } = await ownerWithChief("hands-between-signed")
     expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
@@ -208,6 +233,12 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     expect(tm.first_token_at).toBeLessThanOrEqual(sandboxStep.at)
     // Within each pi turn the tools list stayed the same; the continuation had the full tools.
     const calls = fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && c.firstUser.join("\n").includes("make a sandbox and start an agent"))
+    // The continuation starts from the made hand: its first tool call is agent (no second hands list).
+    expect(steps.filter((st) => st.kind === "tool").map((st) => st.tool?.name), JSON.stringify(steps.map((st) => st.tool?.name ?? st.kind))).toEqual(["hands", "agent"])
+    const contText = calls.flatMap((c) => c.laterUsers).find((t) => t.includes("Your new hand is ready")) ?? ""
+    expect(contText).toContain('"sb-one"')
+    expect(contText).toMatch(/\(hand_[A-Za-z0-9]+\), online/)
+    expect(contText).toContain("/root/proj")
     const root = calls.filter((c) => !c.laterUsers.join("\n").includes("Your new hand is ready")).map((c) => JSON.stringify(c.tools))
     const cont = calls.filter((c) => c.laterUsers.join("\n").includes("Your new hand is ready"))
     expect(new Set(root).size, `the tools changed inside the first pi turn: ${JSON.stringify(root)}`).toBe(1)

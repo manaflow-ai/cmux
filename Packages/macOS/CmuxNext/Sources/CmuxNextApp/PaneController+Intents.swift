@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextFocus
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
@@ -55,6 +56,7 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        if DebugTabSwitch.isRecording, stripModel.selectedID != id { DebugTabSwitch.began(self) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
@@ -70,9 +72,11 @@ extension PaneController {
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         state.selection.select(id.rawValue, in: paneKey)
-        stripModel.selectedID = id
-        PaneSelectionPresenter(pane: self).present()
+        setStripSelection(id)
+        presentSelection()
+        remapViewedTab()
         services.windows.recordSaver.stateDidChange(state)
+        DebugTabSwitch.shown(self, in: view.window)
     }
 
     /// Selects the neighbor `offset` tabs away, wrapping.
@@ -112,13 +116,15 @@ extension PaneController {
         // that types its own text first keeps the keys where they are.
         let window = self.workspace == nil || text != nil || page != nil ? nil : view.window
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
+        // The PTY starts at the grid this pane's view will fit, so the first frame is final (NewTerminalGrid).
+        let size = newTerminalSize
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
@@ -156,7 +162,7 @@ extension PaneController {
         var surfaces: [SurfaceID] = []
         for id in ids {
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
-                state?.localBrowserTabs[paneKey]?.removeAll { $0.id == id.rawValue }
+                state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
                 services.cache.release(id.rawValue)
                 continue
             }

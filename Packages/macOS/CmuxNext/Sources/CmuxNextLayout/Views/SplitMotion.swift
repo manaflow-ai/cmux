@@ -10,21 +10,34 @@ import CoreGraphics
 /// through each pane's start and end. The new pane grows from the split edge
 /// while the other shrinks, and the divider moves once.
 ///
-/// Content never animates: a pane whose size changes keeps one host frame
-/// for the whole motion (`heldFrame`) and is clipped to the presented rect,
-/// so its terminal reflows (or its page lays out) once, not per frame.
+/// Content never animates: a pane whose size changes takes its final host
+/// frame at the first frame (`heldFrame`) and is shown inside the presented
+/// rect, so its terminal reflows (or its page and tab strip lay out) once, in
+/// the frame that answers the key, and nothing jumps when the spring ends.
 struct SplitMotion {
     /// The host frame a pane keeps while its frame springs from `shown` to
-    /// `target`: the target when the pane grows (lay out once, now, and be
-    /// revealed), the frame it shows when it shrinks (keep the last layout,
-    /// clipped, and lay out once at rest). Nil for a pure move or a resize
-    /// that neither contains the other: those keep following the spring.
+    /// `target`: the target, whether the pane grows (revealed from the split
+    /// edge) or shrinks (the pane beside it slides over the space it left).
+    /// Keeping a shrinking pane's old layout clipped and laying it out at rest
+    /// made its tab strip and page jump when the spring ended (Lawrence
+    /// 2026-10-16, Cmd-D frames 14-15). Nil for a pure move or a resize that
+    /// neither contains the other: those keep following the spring.
     static func heldFrame(shown: CGRect, target: CGRect) -> CGRect? {
         guard shown.size != target.size else { return nil }
         let slack: CGFloat = 0.5
         if target.insetBy(dx: -slack, dy: -slack).contains(shown) { return target }
-        if shown.insetBy(dx: -slack, dy: -slack).contains(target) { return shown }
+        if shown.insetBy(dx: -slack, dy: -slack).contains(target) { return target }
         return nil
+    }
+
+    /// Where a held pane's host sits this frame: a pane that grows (a close's neighbour taking the
+    /// space) keeps its final size and moves with its spring rect's leading edges, so its content,
+    /// laid out once, slides with the edge that moves and is uncovered where it grows; it never
+    /// jumps to its final place under a reveal, nor reflows when the spring ends. A shrinking pane
+    /// keeps its final frame (Cmd-D, above).
+    static func placed(held: CGRect, shown: CGRect) -> CGRect {
+        guard held.width >= shown.width - 0.5, held.height >= shown.height - 0.5 else { return held }
+        return CGRect(origin: shown.origin, size: held.size)
     }
 
     /// The part of a pane cell the person sees: inside the pane padding, as

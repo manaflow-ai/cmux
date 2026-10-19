@@ -6,7 +6,10 @@
 
 mod adoption;
 mod aside;
+pub(crate) mod auto_resume;
 mod btw;
+mod exit_reason;
+mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 mod bookmarks;
 mod cancel;
@@ -46,7 +49,7 @@ mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
-pub(crate) use turns::is_limit_error;
+pub(crate) use turn_errors::is_limit_error;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -72,6 +75,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 mod peers;
+pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
 mod permissions;
 pub mod person;
@@ -79,6 +83,7 @@ mod processes;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
+mod start_gate;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
@@ -88,12 +93,11 @@ mod transfer_out;
 mod transfer_watch;
 mod turn_usage;
 mod turns;
-mod warm;
-mod xai;
-pub(crate) use turns::merge_mux_meta;
 pub(crate) mod views;
+mod warm;
 mod web_control;
 mod web_token;
+mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
 pub use web_token::WebToken;
@@ -102,6 +106,7 @@ use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
 use crate::mailbox::Mailbox;
 use crate::rpc::{Id, Message, RpcError, method};
+use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -139,6 +144,7 @@ pub struct RemoteRef {
 pub struct RemoteSession {
     pub peer: String,
     pub summary: Value,
+    pub receipt: SessionReceipt,
 }
 
 #[derive(Debug)]
@@ -195,6 +201,9 @@ pub struct PromptOptions {
     pub interrupt: bool,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
+    /// this turn, checked again once it holds the turn lock, else refused unrecorded.
+    pub after_turn: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -306,6 +315,8 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
+    /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
+    pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -368,6 +379,7 @@ impl Hub {
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             offers: Default::default(),
+            auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
@@ -559,6 +571,14 @@ impl Hub {
     /// Resolve by id, exact name, or unique prefix of either.
     pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
+        // A qualified id is authoritative for new routing. The old bare id,
+        // name and prefix forms below remain compatible.
+        if let Some((host, mux_id)) = SessionReceipt::split_qualified_id(key)
+            && host == LOCAL_HOST_ID
+            && let Some(s) = sessions.get(mux_id)
+        {
+            return Ok(s.clone());
+        }
         if let Some(s) = sessions.get(key) {
             return Ok(s.clone());
         }
@@ -897,4 +917,23 @@ fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
         .collect();
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
+}
+
+/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
+/// agent sent.
+pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    if !mux.is_object() {
+        *mux = json!({});
+    }
+    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
+        }
+    }
 }

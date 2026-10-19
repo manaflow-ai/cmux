@@ -88,7 +88,7 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.moveUp", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: -1, context) })
         registry.bind("workspaceGroup.moveDown", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: 1, context) })
         registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast)
+            try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast, toast: false)
         })
         registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             try WorkspaceGroupClose.close(invocation, context)
@@ -196,8 +196,8 @@ enum WorkspaceGroupHandlers {
         for step in 1...groups.count {
             let index = (start + offset * step + groups.count * 2) % groups.count
             let target = groups[index]
-            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue))?.workspaces.first(where: { $0.rowState != .placeholder }) {
-                context.services.windows.show(workspaceID: workspace.id.rawValue, in: window.state)
+            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue)).flatMap(WorkspaceGroupFocus.firstWorkspace) {
+                context.services.windows.show(workspaceID: workspace.rawValue, in: window.state)
                 return
             }
         }

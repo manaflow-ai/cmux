@@ -10,7 +10,7 @@ final class SidePanelHeaderView: NSView {
     var onPress: ((CEFSidePanelState.Control) -> Void)?
 
     private let icon = NSImageView()
-    private let title = NSTextField(labelWithString: "")
+    private let title = ChromeLabel(labelWithString: "")
     private lazy var pin = ChromeIconButton(icon: .actionPin, label: Strings.sidePanelPin, action: #selector(pressPin), target: self)
     private lazy var openInNewTab = ChromeIconButton(icon: .linkOpenNewtab, label: Strings.sidePanelOpenInNewTab,
                                                      action: #selector(pressOpenInNewTab), target: self)

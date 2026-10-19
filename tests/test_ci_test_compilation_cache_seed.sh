@@ -228,19 +228,15 @@ for removed in cmux-unit cmux-numeric-locale cmux-cli-tests; do
   fi
 done
 echo "PASS: the build compiles the app scheme, with the compilation cache on"
-if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
-  echo "FAIL: before Xcode 26.6 the app target must build without the compilation cache"
-  exit 1
-fi
-for newer in 26.6 26.6.1 27.0; do
+for version in 26.3 26.6 26.6.1 27.0; do
   : > "$STUB_XCODEBUILD_ARGS"
-  STUB_XCODE_VERSION="$newer" run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
-  if grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
-    echo "FAIL: on Xcode $newer the app target must keep the compilation cache"
+  STUB_XCODE_VERSION="$version" run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+  if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
+    echo "FAIL: on Xcode $version the app target must build without the compilation cache"
     exit 1
   fi
 done
-echo "PASS: the app target builds without the compilation cache only before Xcode 26.6"
+echo "PASS: the app target builds without the compilation cache on every Xcode"
 if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log"; then
   echo "FAIL: the warning-budget log must retain the app build output"
   exit 1
