@@ -316,3 +316,12 @@ The M5S fsync probe still timed out for 20 seconds after reclaim stopped. That
 rules out the reclaim process as the sole cause of the volume stall; it was an
 amplifier and a source of additional blocked scans, while the underlying APFS,
 bridge, or device path remains unhealthy.
+
+A follow-up after cleanup still cannot complete
+`os.listdir("/Volumes/Atelier")` within 20 seconds, while `diskutil info` can
+read static metadata and continues to report the volume mounted, writable,
+PCI-Express, and SMART `Verified`. This split is consistent with a
+filesystem-operation or bridge-path stall rather than a full device
+disappearance. No unmount, repair, or reboot has been attempted because active
+worktrees and the rescore job still have open ownership that must be resolved
+first.
