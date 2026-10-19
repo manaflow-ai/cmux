@@ -177,6 +177,8 @@ class App:
         # --hang-ms: the main-thread watchdog samples every stall over N ms (debug.hangs), for a late frame's cause.
         if os.environ.get("PERF_GATE_HANG_MS"):
             env["CMUX_NEXT_HANG_THRESHOLD_MS"] = os.environ["PERF_GATE_HANG_MS"]
+        if os.environ.get("CMUX_NEXT_PROBE_CGS"):
+            env["CMUX_NEXT_PROBE_CGS"] = os.environ["CMUX_NEXT_PROBE_CGS"]
         self.teardown.install()
         log = open(os.path.join(self.out, "app.log"), "a")
         self.process = subprocess.Popen([os.path.join(self.bundle, "Contents/MacOS/cmux DEV")], env=env,
