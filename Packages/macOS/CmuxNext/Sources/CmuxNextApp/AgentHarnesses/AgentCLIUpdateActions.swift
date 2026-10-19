@@ -21,6 +21,7 @@ final class AgentCLIUpdateActions {
         let start: @MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobReceipt
         let observe: @MainActor (AgentCLIJobReceipt) async throws -> AgentCLIJobStatus
         var resolve: (@MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobResolution)? = nil
+        var changes: (@MainActor () -> AsyncStream<Void>)? = nil
     }
 
     struct Persistence {
@@ -41,8 +42,10 @@ final class AgentCLIUpdateActions {
         let profile: String?
         let target: ActionTargetRef?
         @ObservationIgnored var work: Task<JSONValue, Error>?
+        @ObservationIgnored var following: Task<Void, Never>?
         var jobs: [JSONValue] = []
         var receipts: [AgentCLIJobReceipt] = []
+        var outcomeRevisions: [ResourceID: UInt64] = [:]
         var inputs: [AgentCLIUpdateIntent] = []
         var busy = false
         var restored = false
@@ -52,6 +55,8 @@ final class AgentCLIUpdateActions {
             self.profile = profile
             self.target = target
         }
+
+        nonisolated deinit { following?.cancel() }
     }
 
     init(capture: @escaping @MainActor (ActionInvocation) throws -> Route, persistence: Persistence? = nil,
@@ -141,25 +146,7 @@ final class AgentCLIUpdateActions {
 
     private func observeRetained() async {
         for intent in intents.values where intent.route.isCurrent() && !intent.busy {
-            for receipt in intent.receipts {
-                guard intent.route.isCurrent() else { break }
-                do {
-                    let status = try await intent.route.observe(receipt)
-                    guard intent.route.isCurrent(), status.terminalID == receipt.path.terminalID,
-                          let index = intent.jobs.firstIndex(where: { $0["terminal"]?.stringValue == status.terminalID.rawValue }),
-                          var job = intent.jobs[index].objectValue else { continue }
-                    job["state"] = .string(status.state.rawValue)
-                    if case .exit(let code) = status.outcome { job["exit_code"] = .number(Double(code)) }
-                    if case .signal(let number) = status.outcome { job["signal"] = .number(Double(number)) }
-                    if case .unknown = status.outcome { job["state"] = "unknown" }
-                    if status.state == .exited, let outcome = status.outcome, outcome != .unknown, let key = job["intent_key"]?.stringValue {
-                        settled.insert(key)
-                    }
-                    intent.jobs[index] = .object(job)
-                } catch {
-                    // Keep the receipt and original route; a failed observation is no completion.
-                }
-            }
+            await observe(intent, route: intent.route)
         }
     }
 
