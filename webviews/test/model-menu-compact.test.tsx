@@ -86,7 +86,7 @@ type Sent = { method: "model" | "effort" | "route"; value: string | null };
 
 /// A Claude chat on the compact menu, its accounts the routes `listed` (acpmux's reply), and the
 /// chat bound to `active`.
-async function mount(listed: unknown, options: { fast?: boolean; refuse?: boolean } = {}) {
+async function mount(listed: unknown, options: { fast?: boolean; refuse?: boolean; turnCount?: number } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -131,7 +131,7 @@ async function mount(listed: unknown, options: { fast?: boolean; refuse?: boolea
         sessionId: "s1",
         harness: "claude",
         model: state.model,
-        turnCount: 0,
+        turnCount: options.turnCount ?? 0,
         configOptions: [
           {
             id: "effort",
@@ -503,4 +503,25 @@ test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", asyn
   await settle();
   expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
   expect(menu()).toBeNull();
+});
+
+// Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add harness….
+// Once a chat has a message its harness is fixed, as in Claude Code: the compact menu lists its
+// models with no rail, and More models opens the full picker, which has no rail either.
+test("a started chat's compact menu has no harness rail and no Add harness…", async () => {
+  const { added } = await mount({ routes: [] }, { turnCount: 1 });
+  await open();
+  expect(menu()!.querySelector(".acpmux-quick-rail")).toBeNull();
+  expect(modelNames(menu()!).length).toBeGreaterThan(0);
+  expect(itemsOf(menu()!)).not.toContain("Add harness…");
+  const more = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("More models"),
+  )!;
+  await act(async () => more.click());
+  await settle();
+  const full = doc().querySelector<HTMLElement>(".acpmux-mp")!;
+  expect(full).not.toBeNull();
+  expect(full.querySelector(".acpmux-mp-rail-scroll")).toBeNull();
+  expect(full.querySelector(".acpmux-mp-add-harness")).toBeNull();
+  expect(added).toEqual([]);
 });
