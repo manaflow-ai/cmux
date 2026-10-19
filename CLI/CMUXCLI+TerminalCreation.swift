@@ -150,6 +150,7 @@ extension CMUXCLI {
             "--type",
             "--pane",
             "--url",
+            "--profile",
             "--provider",
             "--provider-id",
             "--renderer",
