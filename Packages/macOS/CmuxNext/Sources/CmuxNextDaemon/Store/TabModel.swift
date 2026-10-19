@@ -60,6 +60,10 @@ public final class TabModel: Identifiable {
     /// The device a browser tab emulates, as the daemon resolved it
     /// (`extra.emulation`, browser-devices-v1); the engine applies it as is.
     public internal(set) var emulation: JSONValue?
+    /// Marked unread by hand (Mark Tab Unread, `tab-mark-unread-v1`): a flag on the tab record
+    /// in the daemon, apart from ``notification``. Every client shows it; a client clears it
+    /// when the person views the tab.
+    public internal(set) var markedUnread = false
     /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
     public var fitValue: String? { emulation?["mode"]?.stringValue == "fit" ? emulation?["fit"]?["value"]?.stringValue ?? "16:9" : nil }
     /// A browser tab's saved back URLs (oldest first) and forward URLs
@@ -96,6 +100,10 @@ public final class TabModel: Identifiable {
     }
 
     public var hasUnread: Bool { notification?.unread == true }
+
+    /// Whether the tab shows as unread: an unread notification or the manual mark.
+    /// Acknowledging reads only ``hasUnread``; this is for dots and badges.
+    public var showsUnread: Bool { hasUnread || markedUnread }
 
     /// Public tab id (`tab_…`) on registry daemons. Stored and observed: a
     /// tab can get its id in a later snapshot of the same surface, and an
@@ -207,6 +215,7 @@ public final class TabModel: Identifiable {
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
         if emulation != record.emulation { emulation = record.emulation }
+        if markedUnread != record.markedUnread { markedUnread = record.markedUnread }
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }

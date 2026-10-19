@@ -80,6 +80,9 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// The page's policy plus the server: the Vite client's HMR socket and its reconnect ping.
     func csp(for page: PageDescriptor) -> PageCSP {
         var csp = page.csp
+        // Vite injects React Refresh as an inline module into entry HTML. This server is available
+        // only from an explicit loopback URL in Debug; bundled page responses keep their policy.
+        csp.inlineScript = true
         csp.connect += ["ws://" + authority, "http://" + authority]
         return csp
     }
