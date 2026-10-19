@@ -16,7 +16,8 @@
 # (macOS arm64; fetch it with --artifact) for the remote tab's GUI proofs.
 # screen: clippy and tests of cmux-screen (its own workspace: the WebRTC screen host and
 # cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
-# .build/go when the host has none), then a release build of both binaries.
+# .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
+# step: the imported host code predates a cmux-screen rustfmt config.
 # optchat-chief: fmt, clippy and tests of Native/OptChat/optchat-chief (its own workspace)
 # on macOS, where the Chief host runs: its macOS-only code (the acpmux socket peer check,
 # cx-ggai: LOCAL_PEERPID, proc_pidpath, the Security framework) runs only here.
@@ -712,27 +713,38 @@ if [[ "$mode" == rd-host ]]; then
   finish
 fi
 # Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
-# with GOTOOLCHAIN=auto when it has one, else the pinned release, checksummed,
-# in the step's own .build (no install on the host).
+# with GOTOOLCHAIN=auto (Go 1.21 or later) when it has one, else the pinned
+# release, checksummed, in the step's own .build. Go's module and build caches
+# also stay in .build, and toolchain downloads go only through the default
+# proxy with the checksum database on: nothing is installed on the host.
 ensure_screen_go() {
-  export GOTOOLCHAIN=auto
-  command -v go >/dev/null 2>&1 && { go version; return 0; }
-  local arch sum dir="$root/.build/go-1.27.1"
-  case "$(uname -m)" in
-    arm64) arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
-    x86_64) arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
-    *) echo "error: no pinned Go for $(uname -m)" >&2; return 3 ;;
-  esac
-  if [[ ! -x "$dir/go/bin/go" ]]; then
-    rm -rf "$dir" && mkdir -p "$dir" || return 3
-    curl -fsSL -o "$dir/go.tgz" "https://go.dev/dl/go1.27.1.darwin-$arch.tar.gz" || return 3
-    echo "$sum  $dir/go.tgz" | shasum -a 256 -c - || return 3
-    tar -xzf "$dir/go.tgz" -C "$dir" && rm -f "$dir/go.tgz" || return 3
+  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS=
+  export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
+  local arch sum dir="$root/.build/go-1.27.1" tmp
+  if ! command -v go >/dev/null 2>&1; then
+    case "$(uname -m)" in
+      arm64) arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
+      x86_64) arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
+      *) echo "error: no pinned Go for $(uname -m)" >&2; return 3 ;;
+    esac
+    if [[ ! -x "$dir/go/bin/go" ]]; then
+      # Extract beside the target and rename, so a cut-off extract never looks complete.
+      tmp="$dir.partial"
+      rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
+      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go1.27.1.darwin-$arch.tar.gz" || return 3
+      echo "$sum  $tmp/go.tgz" | shasum -a 256 -c - || return 3
+      tar -xzf "$tmp/go.tgz" -C "$tmp" && rm -f "$tmp/go.tgz" && mv "$tmp" "$dir" || return 3
+    fi
+    export PATH="$dir/go/bin:$PATH"
   fi
-  export PATH="$dir/go/bin:$PATH"
-  go version
+  # libtailscale's go.mod selects Go 1.27.1; GOTOOLCHAIN=auto switches to it inside that folder.
+  go version || return 3
 }
 if [[ "$mode" == screen ]]; then
+  if [[ ! -f "$root/cmux-screen/Cargo.toml" ]]; then
+    echo "error: screen mode: no cmux-screen workspace at this commit" >&2
+    exit 2
+  fi
   export CARGO_TARGET_DIR="$root/.build/cmux-screen-target"
   cd "$root/cmux-screen"
   warm_target_guard
