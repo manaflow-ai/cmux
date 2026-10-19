@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextWorkspaceRepair
 import Foundation
 
 /// A person's Cmd-N on this Mac (instant-new-surfaces): the new workspace and its New Tab page
