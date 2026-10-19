@@ -8,7 +8,7 @@ import CmuxNextDesign
 /// (the footer button) opens the open panel there; Cancel returns to the list.
 final class ImportAccessView: NSView {
     private let model: ImportStepModel
-    private let title = OnboardingLabel.make(font: .systemFont(ofSize: 15, weight: .semibold), lines: 2)
+    private let title = OnboardingLabel.make(font: .systemFont(ofSize: TypeScale.title, weight: TypeScale.emphasis), lines: 2)
     private let noAccess = OnboardingLabel.make(OnboardingStrings.accessNone, color: Palette.textSecondary, lines: 2)
     private let how = OnboardingLabel.make(color: Palette.textSecondary, lines: 2)
     private let stepContinue = OnboardingLabel.make(OnboardingStrings.accessStepContinue, color: Palette.textSecondary, lines: 1)
