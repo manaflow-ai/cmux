@@ -71,7 +71,13 @@ export type AcpmuxHostConfig = {
 };
 
 /** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
-export type AcpmuxAdopt = { harness: string; agentSessionId: string; ifLive?: "fork" | "open" };
+export type AcpmuxAdopt = {
+  harness: string;
+  agentSessionId: string;
+  ifLive?: "fork" | "open";
+  /** Show the chat and follow it without running it, until Take Over (acpmux `hub/watch.rs`). */
+  watch?: boolean;
+};
 
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. An adopt
  *  sends no cwd: acpmux resumes the chat where its harness recorded it. */
@@ -634,6 +640,8 @@ export class AcpmuxDirectClient {
   private missingSession?: string;
   /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
+  /** Take Over refused because the watched chat's app still runs it, until the user picks a way on. */
+  private liveTakeOver?: { canFork: boolean; command?: string };
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
@@ -2028,6 +2036,7 @@ export class AcpmuxDirectClient {
             promptCapabilities: summary.agentCapabilities?.promptCapabilities,
             steering: summary.steering === true,
             queuePaused: summary.queuePaused === true,
+            ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
@@ -2056,6 +2065,7 @@ export class AcpmuxDirectClient {
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       liveChat: this.liveAdopt && { canFork: this.liveAdopt.canFork, command: this.liveAdopt.command },
+      liveTakeOver: this.liveTakeOver,
     });
   }
 
@@ -2759,6 +2769,26 @@ export class AcpmuxDirectClient {
     this.liveAdopt = undefined;
     this.emit();
     await this.adoptChat({ ...live.adopt, ifLive: choice });
+  }
+  /// Takes over the watched chat shown here (`_acpmux/watch_take_over`), so it runs the
+  /// conversation itself. While the app that runs it still does, acpmux refuses (`adopt.live`) and
+  /// the pane offers Open Anyway and, for Claude Code, Fork It, which call this with `ifLive`.
+  async takeOver(ifLive?: "fork" | "open"): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return;
+    if (ifLive && (!this.liveTakeOver || (ifLive === "fork" && !this.liveTakeOver.canFork))) return;
+    this.liveTakeOver = undefined;
+    this.emit();
+    try {
+      await this.request("_acpmux/watch_take_over", { sessionId, ...(ifLive ? { ifLive } : {}) });
+    } catch (error) {
+      if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !ifLive) {
+        this.liveTakeOver = liveDetails((error as { details?: unknown }).details);
+        this.emit();
+        return;
+      }
+      this.notice(error instanceof Error && error.message ? error.message : String(error));
+    }
   }
   /// A line in the shown transcript (a pick the agent refused).
   notice(text: string): void {
