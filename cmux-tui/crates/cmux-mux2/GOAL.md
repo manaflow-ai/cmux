@@ -171,3 +171,44 @@ checks that path: the whole stream unwatched, then the final state.
 
 Rex starts shells through `login -fp` (as Terminal.app does), which writes
 login records; mux2 runs `$SHELL -l` directly.
+
+## Network (TCP, 2026-10-18)
+
+`MUX2_LISTEN=ADDR:PORT` adds a TCP listener for measurements across a
+network (`src/net.rs`: one explicit address, never a wildcard; peers
+limited to loopback and Tailscale ranges or `MUX2_LISTEN_ALLOW`;
+unauthenticated, not a production transport). Clients use it with
+`MUX2_CONNECT=ADDR:PORT`; `mux2-netbench` measures from the client side and
+`mux2-verify` runs unchanged over it.
+
+Every TCP socket sets `TCP_NODELAY` and keepalive (30 s idle, 10 s x 4);
+the server also sets `TCP_NOTSENT_LOWAT` (32 KiB), so output waits in the
+server's own queue, where a snapshot can replace it, not in a kernel send
+buffer of megabytes. Queued frames leave in one `writev`.
+
+A network viewer whose backlog would take more than 100 ms to drain at its
+measured rate, and is more than twice the terminal's last snapshot, goes
+stale: its unsent stream is dropped, nothing more is queued, and when its
+queue drains it gets one snapshot of the state at that moment, then the
+live stream. Unix-socket viewers keep the previous behavior.
+
+Ctrl-C during a flood until the prompt is on the remote viewer (p50, 8
+runs; "before" is the same TCP transport with Nagle on, no notsent mark and
+only the 16 MiB resync):
+
+| Path | Flood | Before | After |
+|---|---|---|---|
+| WAN shaped to 20 Mbit, 48 ms RTT | full-screen redraw (TUI) | 7.5 s | 71 ms |
+| same | plain `cat` | 5.4 s | 0.61 s |
+| same | SGR `cat` | 3.7 s | 1.5 s |
+| home Wi-Fi to office mini over tailnet relay + ssh -L | TUI | 3.2 s | 127 ms |
+| same | plain `cat` | 3.2 s | 1.5 s |
+| same | SGR `cat` | 7.4 s | 2.0 s |
+
+A keystroke in one pane while another pane floods on the same link (tailnet
+path): p99 762 -> 298 ms. 64 MB SGR `cat` until the viewer has the final
+state: 4.0 -> 1.4 s and 18.5 -> 12 MB on the wire (tailnet), 9.0 -> 3.1 s
+and 21 -> 5 MB (20 Mbit). An idle keystroke echo is one segment each way and
+takes one RTT in both. The plain and SGR floods are bounded by the size of
+a snapshot with full scrollback (0.6 and 2 MB here); a full-screen program's
+snapshot is about 11 KB.
