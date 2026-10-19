@@ -55,8 +55,9 @@ export const costOf = (id: string, u: Tokens, ttl: string | undefined) => {
   const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0)
   const prompt = n(u.input) + n(u.cacheRead) + n(u.cacheWrite)
   const p = t.long && prompt > t.long.above ? t.long.price : t.base
-  // The response says how many written tokens are 1-hour entries; else the TTL the route marks decides.
-  const w1h = typeof u.cacheWrite1h === "number" ? Math.min(n(u.cacheWrite1h), n(u.cacheWrite)) : undefined
+  // The response says how many written tokens are 1-hour entries; else (pi-ai reports 0 when the response has no
+  // split) the TTL the route marks decides, so a charge is never short.
+  const w1h = n(u.cacheWrite1h) > 0 ? Math.min(n(u.cacheWrite1h), n(u.cacheWrite)) : undefined
   const write = w1h === undefined ? n(u.cacheWrite) * writeRate(p, ttl) : w1h * p.write1h + (n(u.cacheWrite) - w1h) * p.write5m
   const c = { input: (n(u.input) * p.input) / 1e6, output: (n(u.output) * p.output) / 1e6, cacheRead: (n(u.cacheRead) * p.cacheRead) / 1e6, cacheWrite: write / 1e6 }
   return { ...c, total: c.input + c.output + c.cacheRead + c.cacheWrite }
