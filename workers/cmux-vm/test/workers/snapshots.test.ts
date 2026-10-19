@@ -383,6 +383,16 @@ describe("capture controls", () => {
     expect(pendingSnapshotId).toMatch(SNAPSHOT_ID);
     return { vmId, token, headers, id: pendingSnapshotId };
   };
+  it("looks up a keyed capture without source access or a provider request", async () => {
+    const { vmId, id, headers } = await pending("cloud-snapshot:base");
+    expect((await h.request(`/v1/vms/${vmId}`, headers, { method: "DELETE" })).status).toBe(204);
+    const count = h.upstream.calls.length;
+    const result = await h.request("/v1/snapshot-creations/by-key", headers);
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ state: "pending", id, receipt: { sourceVmId: vmId } });
+    expect(h.upstream.calls).toHaveLength(count);
+  });
+
   it("recovers an unkeyed capture from read-only history after its source is deleted", async () => {
     const { vmId, token, id } = await pending();
     const calls = h.upstream.calls.length;

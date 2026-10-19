@@ -117,6 +117,48 @@ describe("generated VM API Cloud transport", () => {
     await x.raw.deleteSnapshot(SNAPSHOT); await x.raw.delete(ID)
   })
 
+  it("recovers a committed capture before looking for its deleted source VM", async () => {
+    const x = fake((request) => {
+      if (new URL(request.url).pathname === "/v1/snapshot-creations/by-key") {
+        expect(request.headers.get("idempotency-key")).toBe(`cloud-snapshot:${slug}`);
+        return json({ id: SNAPSHOT, state: "committed", receipt: snapshot() });
+      }
+      return new Response(null, { status: 404 });
+    });
+    expect(await x.guarded.snapshot(name, { team, machine }, slug)).toEqual({ id: SNAPSHOT });
+    expect(x.calls.every((r) => new URL(r.url).pathname.startsWith("/v1/snapshot-creations"))).toBe(true);
+  });
+
+  it("reconstructs a lost capture reply from the VM service journal after a driver restart", async () => {
+    let captured = false, sourceGone = false, sends = 0;
+    const handler = async (r: Request) => {
+      const path = new URL(r.url).pathname;
+      if (path === "/v1/snapshot-creations/by-key") return captured ? json({ id: SNAPSHOT, state: "pending", receipt: snapshot() }) : new Response(null, { status: 404 });
+      if (path === `/v1/snapshot-creations/${SNAPSHOT}/reconcile`) return json({ id: SNAPSHOT, state: "committed", receipt: snapshot() });
+      if (path === "/v1/vms") return json({ items: sourceGone ? [] : [vm()], nextCursor: null });
+      if (path === "/v1/snapshots") return json({ items: [], nextCursor: null });
+      if (path === `/v1/vms/${ID}/snapshots`) { sends++; captured = true; return json({ _tag: "ServiceUnavailable", message: "capture uncertain", pendingSnapshotId: SNAPSHOT }, 503); }
+      return sourceGone ? new Response(null, { status: 404 }) : json(vm());
+    };
+    await expect(fake(handler).guarded.snapshot(name, { team, machine }, slug)).rejects.toThrow();
+    sourceGone = true;
+    expect(await fake(handler).guarded.snapshot(name, { team, machine }, slug)).toEqual({ id: SNAPSHOT });
+    expect(sends).toBe(1);
+  });
+
+  it("refuses another machine's capture receipt before any fresh capture", async () => {
+    const x = fake((r) => {
+      const path = new URL(r.url).pathname;
+      if (path === "/v1/snapshot-creations/by-key") return json({ id: SNAPSHOT, state: "committed", receipt: { ...snapshot(), labels: { ...labels(slug), cmux_next_machine: "another-machine" } } });
+      if (path === "/v1/vms") return json({ items: [vm()], nextCursor: null });
+      if (path === "/v1/snapshots") return json({ items: [], nextCursor: null });
+      if (r.method === "POST") return json(snapshot(), 201);
+      return json(vm());
+    });
+    await expect(x.guarded.snapshot(name, { team, machine }, slug)).rejects.toThrow();
+    expect(x.calls.some((r) => r.method === "POST")).toBe(false);
+  });
+
   it("writes UTF-8 bytes and root exec stdin without putting content in query strings", async () => {
     const x = fake(async (r) => {
       if (r.method === "PUT") {
