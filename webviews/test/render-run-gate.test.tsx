@@ -73,11 +73,22 @@ test("a waiting page has one large Run and no Open preview; preview comes once i
   expect(host.querySelector("iframe")).toBeNull();
   expect(preview()).toBeNull();
   const gate = host.querySelector<HTMLButtonElement>(".acpmux-render-card-gate");
-  expect(gate?.textContent).toBe("Show preview");
+  expect(gate?.textContent).toBe("Show visualization");
   // The title line carries no second, small Run.
   expect(host.querySelector(".acpmux-render-card-head button")).toBeNull();
   act(() => gate!.click());
   expect(host.querySelector("iframe")).not.toBeNull();
   expect(host.querySelector(".acpmux-render-card-gate")).toBeNull();
   expect(preview()).not.toBeNull();
+});
+
+// Lucas 2026-10-19: a render is a visualization, not a preview of something else.
+test("a page with no title is called a visualization", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<RenderCard call={{ html: "<p>Chart</p>" }} />));
+  expect(host.querySelector(".acpmux-render-card-head")?.textContent).toContain("Visualization");
+  expect(host.querySelector(".acpmux-render-card-gate")?.textContent).toBe("Show visualization");
 });

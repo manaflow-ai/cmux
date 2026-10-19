@@ -154,11 +154,11 @@ test("lab off keeps dev fences as source, lab on embeds an opaque frame without 
   expect(frame!.getAttribute("src")).toBeNull();
   const doc = new JSDOM(frame!.srcdoc).window.document;
   expect(doc.head.firstElementChild?.getAttribute("http-equiv")).toBe("Content-Security-Policy");
-  expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Show preview")).toBe(false);
+  expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Show visualization")).toBe(false);
   expect(host.querySelector(".acpmux-render-card-head")).toBeNull();
   expect(
     [...host.querySelectorAll("button")].some((button) =>
-      ["Stop", "Open preview", "Show preview"].includes(button.textContent!),
+      ["Stop", "Open preview", "Show visualization"].includes(button.textContent!),
     ),
   ).toBe(false);
 });
@@ -308,7 +308,7 @@ test("the side panel uses the same opaque dev frame for markup and components", 
       "```" + (artifact.kind === "html" ? "cmux-render" : "cmux-react") + "\n" + artifact.code + "\n```",
     );
     act(() => root!.render(<ArtifactPanel key={artifact.kind} artifact={artifact} onClose={() => {}} />));
-    click("Show preview");
+    click("Show visualization");
     const frame = host.querySelector("iframe")!;
     expect(frame.srcdoc).toContain("Content-Security-Policy");
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
@@ -879,7 +879,7 @@ test("turning live on replaces a frame already running under the Run gate", asyn
     const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
     document.documentElement.setAttribute("data-lab-live-render", "off");
     act(() => root!.render(<RenderCard turnStreaming call={{ html: PAGE }} />));
-    click("Show preview");
+    click("Show visualization");
     const old = host.querySelector("iframe")!;
     document.documentElement.setAttribute("data-lab-live-render", "on");
     act(() => root!.render(<RenderCard turnStreaming call={{ html: PAGE }} />));
@@ -1108,7 +1108,7 @@ test("history waits for Run and run pages survive remounts in the pane", async (
   const markdown = "```cmux-render\n<p>History</p>\n```";
   await draw(true, markdown, "history", false);
   expect(host.querySelectorAll("iframe").length).toBe(0);
-  click("Show preview");
+  click("Show visualization");
   expect(host.querySelectorAll("iframe").length).toBe(1);
   await draw(true, markdown, "history", false);
   expect(host.querySelectorAll("iframe").length).toBe(1);
@@ -1183,7 +1183,7 @@ test("an attached unfinished reply stays gated even when its row says streaming"
     ),
   );
   expect(host.querySelectorAll("iframe").length).toBe(0);
-  click("Show preview");
+  click("Show visualization");
   expect(host.querySelectorAll("iframe").length).toBe(1);
 });
 
@@ -1302,7 +1302,7 @@ test.each([false, true])("tool renders use their live provenance through the tra
   );
   expect(host.querySelectorAll("iframe")).toHaveLength(renderLive ? 1 : 0);
   if (!renderLive) {
-    click("Show preview");
+    click("Show visualization");
     expect(host.querySelectorAll("iframe")).toHaveLength(1);
   }
 });
@@ -1313,7 +1313,7 @@ test("a card with no live provider fails closed even when the turn is streaming"
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
   act(() => root!.render(<RenderCard turnStreaming call={{ html: "<p>No provenance</p>" }} />));
   expect(host.querySelectorAll("iframe")).toHaveLength(0);
-  click("Show preview");
+  click("Show visualization");
   expect(host.querySelectorAll("iframe")).toHaveLength(1);
 });
 
@@ -1360,7 +1360,7 @@ test("a page that loses its heartbeat after loading reports a hang after the lon
     expect(host.querySelector('[role="status"]')?.textContent).toContain("The page stopped responding");
     click("Ask to fix");
     expect(prefilled.at(-1)).toContain("Render error: The page stopped responding");
-    click("Show preview");
+    click("Show visualization");
     expect(host.querySelectorAll("iframe")).toHaveLength(1);
     expect(host.querySelector('[role="status"]')).toBeNull();
   } finally {
@@ -1381,7 +1381,7 @@ test("a history page in the side panel keeps Run until the reader runs it", asyn
     ),
   );
   expect(host.querySelectorAll("iframe")).toHaveLength(0);
-  click("Show preview");
+  click("Show visualization");
   expect(host.querySelectorAll("iframe")).toHaveLength(1);
 });
 
@@ -1433,7 +1433,7 @@ test("execution grants stay with their session and card through reattachment", a
     expect(host.querySelectorAll("iframe")).toHaveLength(1);
     await draw(true, markdown, "other-session", false);
     expect(host.querySelectorAll("iframe")).toHaveLength(0);
-    click("Show preview");
+    click("Show visualization");
     expect(host.querySelectorAll("iframe")).toHaveLength(1);
     const { renderAttachment } = await import("../src/agent-session/acpmux/conversation/renderExecution");
     const oldProvenance = { attachment: renderAttachment(sessionId) };
@@ -1454,14 +1454,14 @@ test("execution grants stay with their session and card through reattachment", a
     });
     await draw(true, markdown, sessionId, false);
     expect(host.querySelectorAll("iframe")).toHaveLength(0);
-    click("Show preview");
+    click("Show visualization");
     expect(host.querySelectorAll("iframe")).toHaveLength(1);
   } finally {
     client.close();
   }
 });
 
-test("identical HTML in another row waits for Show preview", async () => {
+test("identical HTML in another row waits for Show visualization", async () => {
   await draw();
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
   const { TranscriptRowContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
