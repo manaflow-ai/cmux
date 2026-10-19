@@ -3,8 +3,13 @@
 // fetched once per site by the host; a search aimed at one site (`site:…`) shows that site's.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { build } from "esbuild";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { reactCompilerPlugin } from "../scripts/agent-pane/reactCompilerPlugin.mjs";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -300,4 +305,86 @@ test("the last source reader cancels shared native favicon work", async () => {
   await act(async () => finish?.({}));
   expect(calls.filter((method) => method === "link.favicon")).toHaveLength(1);
   expect(calls.filter((method) => method === "link.cancelFavicon")).toHaveLength(1);
+});
+
+test("compiled sources fetch after inspection and display the completed icon", async () => {
+  const out = mkdtempSync(path.join(tmpdir(), "source-icons-compiled-"));
+  let compiledRoot: Root | undefined;
+  let finishIcon: ((reply: unknown) => void) | undefined;
+  try {
+    const webviews = path.resolve(import.meta.dir, "..");
+    const compiled = new Set<string>();
+    await build({
+      stdin: {
+        contents: [
+          'export { SummaryBody } from "./src/agent-session/acpmux/summary/SummaryBody";',
+          'export { setChipHost } from "./src/agent-session/acpmux/chips/host";',
+          'export { createRoot } from "react-dom/client";',
+          'export { act } from "react";',
+        ].join("\n"),
+        resolveDir: webviews,
+        loader: "ts",
+      },
+      bundle: true,
+      format: "esm",
+      platform: "browser",
+      define: { "process.env.NODE_ENV": '"development"' },
+      outfile: path.join(out, "sources.js"),
+      logLevel: "silent",
+      plugins: [
+        reactCompilerPlugin({
+          mode: "babel",
+          srcRoot: path.join(webviews, "src"),
+          onCompiled: (id: string) => compiled.add(id),
+        }),
+      ],
+    });
+    expect(compiled.has("agent-session/acpmux/chips/linkStore.ts:useSourceIcon")).toBe(true);
+    const page = await import(path.join(out, "sources.js"));
+    let finishInspect: ((reply: unknown) => void) | undefined;
+    const calls: { method: string; params: Record<string, unknown> }[] = [];
+    page.setChipHost((method: string, params: Record<string, unknown>) => {
+      calls.push({ method, params });
+      if (method === "link.inspect")
+        return new Promise((resolve) => {
+          finishInspect = resolve;
+        });
+      if (method === "link.favicon")
+        return new Promise((resolve) => {
+          finishIcon = resolve;
+        });
+      return Promise.resolve({});
+    });
+    const url = "https://en.wikipedia.org/wiki/Albert_Einstein";
+    const summary = {
+      scheduled: [],
+      pullRequests: [],
+      outputs: [],
+      subagents: [],
+      sources: [{ url, label: "Wikipedia" }],
+      backgroundTasks: [],
+    };
+    compiledRoot = page.createRoot(host);
+    await page.act(async () => compiledRoot?.render(<page.SummaryBody summary={summary} />));
+    expect(calls.map(({ method }) => method)).toEqual(["link.inspect"]);
+    expect(host.querySelector("img.acpmux-summary-favicon")).toBeNull();
+    await page.act(async () => finishInspect?.({ sites: {} }));
+    expect(calls.filter(({ method }) => method === "link.favicon")).toEqual([
+      { method: "link.favicon", params: { url } },
+    ]);
+    // An unrelated render while the host is fetching must not release its reader.
+    await page.act(async () => compiledRoot?.render(<page.SummaryBody summary={{ ...summary }} />));
+    expect(calls.filter(({ method }) => method === "link.cancelFavicon")).toHaveLength(0);
+    await page.act(async () => finishIcon?.({ icon: ICON }));
+    expect(host.querySelector("img.acpmux-summary-favicon")?.getAttribute("src")).toBe(ICON);
+    expect(calls.filter(({ method }) => method === "link.favicon")).toHaveLength(1);
+  } finally {
+    // Use this bundle's React instance for its root, including on a failing assertion.
+    const page = compiledRoot ? await import(path.join(out, "sources.js")) : undefined;
+    await page?.act(async () => {
+      compiledRoot?.unmount();
+      finishIcon?.({});
+    });
+    rmSync(out, { recursive: true, force: true });
+  }
 });
