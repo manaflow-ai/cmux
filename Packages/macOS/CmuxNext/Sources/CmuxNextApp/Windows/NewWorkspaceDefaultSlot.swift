@@ -19,23 +19,28 @@ import CmuxNextSidebar
 /// when the new one was asked for, inside its group when it has one; `top`
 /// when that workspace is not in the section (pinned, Home, another machine,
 /// none). `bottom` is the last slot of the current workspace's group; outside a
-/// group it leaves the daemon's place, the end of the loose rows. So a new
+/// group, after the last loose row (the end of the section when it lists
+/// none): placed there, never left to the daemon,
+/// whose place differs on the sidebar document (the end of the machine
+/// section, after every group). So a new
 /// workspace opened from inside a group stays in it under every value (cx-caoh).
 struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     var placement: NewWorkspacePlacement
     /// The workspace the window showed when the new one was asked for.
     var current: String?
 
-    /// The slot for new workspace `id` in `section` of a window's `sections`;
-    /// nil keeps the daemon's place. `home` is the home workspace's id.
-    func slot(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot? {
+    /// The slot for new workspace `id` in `section` of a window's `sections`:
+    /// the one its row draws at from the press (`PendingWorkspaceRows`) and
+    /// the one it is placed at once listed, so the row never moves. `home` is
+    /// the home workspace's id.
+    func slot(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?) -> WorkspaceSlot {
         switch placement {
         case .bottom:
             if let current, current != id, current != home,
                WorkspaceSlot.bottom(anchor: current).position(moving: [id], section: section, in: sections)?.group != nil {
                 return .bottom(anchor: current)
             }
-            return nil
+            return Self.bottom(for: id, section: section, in: sections)
         case .afterCurrent:
             if let current, current != id, current != home,
                WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
@@ -49,6 +54,18 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             }
             return Self.top(for: id, section: section, in: sections, home: home)
         }
+    }
+
+    /// After the section's last loose row; the end of the section when it lists
+    /// none (every workspace in a group), never first.
+    private static func bottom(for id: String, section: SectionID, in sections: [SidebarRowSection]) -> WorkspaceSlot {
+        guard let nodes = sections.first(where: { $0.id == section })?.nodes else { return .bottom(anchor: nil) }
+        var others = 0
+        for node in nodes {
+            guard case let .workspace(workspace) = node else { others += 1; continue }
+            if workspace.id.rawValue != id { return .bottom(anchor: nil) } // a loose row: after the last one
+        }
+        return .at(DropPosition(section: section, index: others))
     }
 
     /// First in the section, below a leading home row.

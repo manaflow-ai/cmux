@@ -73,7 +73,7 @@ final class PendingWorkspaceRows {
         let listed = Set(sections.flatMap(\.workspaces).map(\.id.rawValue))
         for row in rows where !listed.contains(row.id) {
             let section = SectionID.machine(row.machine)
-            // No slot keeps the daemon's place: the end of the loose rows.
+            // No rule (a create that does not place by the setting): the end of the loose rows.
             let slot = row.slot ?? row.byDefault?.slot(for: row.id, section: section, in: sections, home: home) ?? .bottom(anchor: nil)
             guard let position = slot.position(moving: [row.id], section: section, in: sections) else { continue }
             SidebarEdits.insert([row.face], at: position, in: &sections)
