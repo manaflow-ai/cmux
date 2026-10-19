@@ -3,15 +3,14 @@
 A group is the open PRs that carry the same `batch:<name>` label. The queue
 stacks them on feat-cmux-next as one combined head, runs the union of the
 checks each member's paths route to once on that head, and when it passes and
-every member has a review pass, merges them in order without waiting on each
-PR's own CI. This module holds the pure parts: membership, order, the review
-pass, and the check plan. next_batch.Controller runs them.
+every member has an independent review (next_batch.reviewed), merges them in
+order without waiting on each PR's own CI. This module holds the pure parts:
+membership, order and the check plan. next_batch.Controller runs them.
 """
 from __future__ import annotations
 
 import dataclasses
 import importlib.util
-import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,9 +21,6 @@ import cmux_next_route  # noqa: E402
 import web_subareas  # noqa: E402
 
 GROUP_PREFIX = "batch:"
-# A review pass: an APPROVED review of the head, or a comment line
-# `review-pass: <head sha>` (7+ hex) from the reviewer an agent lane runs.
-REVIEW_PASS = re.compile(r"(?m)^\s*review-pass:\s*([0-9a-f]{7,40})\b")
 
 _PATH_MAP = Path(__file__).resolve().parents[1] / "cmux-next/media/path_map.py"
 _spec = importlib.util.spec_from_file_location("cmux_next_media_path_map", _PATH_MAP)
@@ -79,12 +75,6 @@ def order(members: list[Member], labeled_at: dict[int, str],
         placed.append(pick)
         left.remove(pick)
     return placed
-
-
-def reviewed(sha: str, reviews: list[dict], comments: list[str]) -> bool:
-    if any(review.get("state") == "APPROVED" and (review.get("commit") or {}).get("oid") == sha for review in reviews):
-        return True
-    return any(sha.startswith(found) for body in comments for found in REVIEW_PASS.findall(body or ""))
 
 
 @dataclass

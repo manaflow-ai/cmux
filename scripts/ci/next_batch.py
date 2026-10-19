@@ -1880,13 +1880,11 @@ class Controller:
 
     # -- groups (docs/ci/cmux-next-batch.md#groups)
     GROUP_QUERY = """pr{n}: pullRequest(number: {n}) {{
-      reviews(last: 50) {{ nodes {{ state commit {{ oid }} }} }}
-      comments(last: 100) {{ nodes {{ body }} }}
       timelineItems(last: 50, itemTypes: [LABELED_EVENT]) {{ nodes {{ ... on LabeledEvent {{ createdAt label {{ name }} }} }} }}
     }}"""
 
     def group_meta(self, prs: list[PullRequest]) -> dict[int, dict]:
-        """Per member: whether its head has a review pass, and when each label was put on."""
+        """Per member: when each label was last put on."""
         owner, name = self.args.repo.split("/")
         body = "\n".join(self.GROUP_QUERY.format(n=int(pr.number)) for pr in prs)
         data = self.gh.graphql(f'query {{ repository(owner: "{owner}", name: "{name}") {{ {body} }} }}')["repository"]
@@ -1897,15 +1895,22 @@ class Controller:
             for event in (node.get("timelineItems") or {}).get("nodes") or []:
                 if event and event.get("label"):
                     labeled[event["label"]["name"]] = event["createdAt"]  # the latest application wins
-            meta[pr.number] = {
-                "reviewed": groups.reviewed(pr.sha, (node.get("reviews") or {}).get("nodes") or [],
-                                            [item.get("body") or "" for item in (node.get("comments") or {}).get("nodes") or []]),
-                "labeled": labeled,
-            }
+            meta[pr.number] = {"labeled": labeled}
         return meta
 
     def group_reviews(self, prs: list[PullRequest]) -> dict[int, bool]:
-        return {number: item["reviewed"] for number, item in self.group_meta(prs).items()}
+        """The batch's own gate (reviewed()): an independent review of this exact head."""
+        return {pr.number: reviewed(pr, self.gh) for pr in prs}
+
+    def frozen(self, pr: PullRequest) -> str:
+        """Why a merge freeze holds this PR ("" when none does). Groups skip
+        gh-merge-green, so they run its freeze check themselves; unreadable counts as frozen."""
+        completed = subprocess.run([sys.executable, "-I", str(TOOLS_ROOT / "scripts/ci/merge_freeze.py"), "check",
+                                    "--repo", self.args.repo, "--pr", str(pr.number), "--base", BASE],
+                                   capture_output=True, text=True, env=self.gh.env)
+        if completed.returncode == 0:
+            return ""
+        return "frozen: " + ((completed.stdout + completed.stderr).strip().splitlines() or ["freeze state unknown"])[-1]
 
     def is_ancestor(self, older: str, newer: str) -> bool:
         try:
@@ -1974,6 +1979,13 @@ class Controller:
         included = validation.stack.included
         if self.args.dry_run or self.args.no_land:
             return [(pr, "validated; landing disabled for this run") for pr in included]
+        if refusal := landing_refusal():
+            return [(pr, f"not landed: {refusal}") for pr in included]
+        # Every member clears the freeze check before any lands: a freeze never splits a group.
+        held = {pr.number: why for pr in included if (why := self.frozen(pr))}
+        if held:
+            why = "; ".join(f"#{number} {text}" for number, text in held.items())
+            return [(pr, f"not landed: {why}") for pr in included]
         files = {path for pr in included for path in pr.files}
         base = self.current_base()
         if base != validation.stack.base and self.base_moved_onto(validation.stack.base, base, files):

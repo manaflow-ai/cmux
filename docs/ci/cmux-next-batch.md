@@ -53,6 +53,26 @@ Every PR is independently reviewed before it merges, and the queue keeps that ru
 
 A push makes a new head that neither names, so approval never carries over. When the queue lands, it stacks only reviewed heads, so the stack it validates is exactly what lands; an unreviewed PR waits, with no comment, and joins the batch after its review. The merge is pinned to the validated head (`--match-head-commit`), and a head the queue formatted waits for its own validation and review. With neither source configured, or in a batch that may not land (Actions without coord-2's list, `--no-land`), the queue still validates, but each PR gets a `validated` note instead of a receipt, so it isn't held out of a later batch that can land it. Only a receipt-only `serve` posts receipts, which tell later batches the owner lands that head.
 
+## Groups
+
+A group is a set of PRs that land together on one combined run instead of each one's own CI: label each with the same `batch:<name>` (for example `batch:sidebar-polish`). The group's run stands in for the members' own checks and UI tours, so a member's red or pending check doesn't hold it. It follows the same switches as the batch: nothing runs while `CMUX_NEXT_BATCH_ENABLED` is unset unless a local `serve` runs it, and `--dry-run` or a receipt-only `serve` merges nothing.
+
+1. **Members.** The open PRs into feat-cmux-next that carry the label. Each one passes the batch's rules except the red-check rule: not a draft, same repository, a batch author or opted in, no hold label, no workflow change, no conflict with the base, a fresh head. A PR with two `batch:` labels is held until one goes. Group members never join the ordinary batch. If any member fails a rule, or any member lacks an independent review of its current head ([Review gate](#review-gate)), the whole group waits and nothing is validated.
+2. **Order.** Stack order first: a member whose head contains another member's head comes after it. Otherwise members go in the order the label was put on, then by PR number.
+3. **Validate once.** The members stack on the base head as in a batch, on `next-batch/<run>-<n>`. That head runs the union of what each member's paths route to, as if each were its own PR:
+   - `cmux-next.yml`, dispatched, which runs every tier, a superset of each member's `cmux_next_route.py` tiers;
+   - the fleet `--production` build;
+   - `cmux-next-web.yml` when any member touches a web subarea (`web_subareas.py`). A web job red on the base's own latest web run doesn't count;
+   - `cmux-next-media.yml` with `base_sha` set to the stack's base when any member maps to a tour (`scripts/cmux-next/media/path_map.py`). The tour maps the combined diff, so each UI member's own tour runs. Its verdict is the capture receipt (`ok` or `no-ui-paths`), since the capture step is continue-on-error.
+
+   The receipt and the sticky report list each member's tiers, web subareas and tours (`next_batch_groups.check_plan`).
+4. **Land or bisect.**
+   - Green: the queue checks every member against open merge freezes first (`scripts/ci/merge_freeze.py check`, as gh-merge-green does), then merges the members in order with `gh pr merge --squash --match-head-commit <validated sha>`, with no wait on their own CI. It lands nothing when the base has since changed a file the group changes (the next cycle revalidates), and stops at the first member that closed, moved or was refused, so a member never lands without what it was tested on.
+   - Red: the same halving bisect as a batch finds the first red prefix. Its last member is the culprit and gets a comment, and the rest validate again without it, for at most 3 culprits. A lane that never ran (no gui runner took the tour, a timeout) or a failed fleet build blames nobody; the group waits for the next cycle.
+5. **Then the batch.** When a group lands, the ordinary batch waits for the next cycle so it validates on the new base.
+
+Faster UI checks plug in at `Controller.start_group_lanes` / `finish_group_lanes`: a lane is a workflow dispatched on the group branch plus a judge for its verdict. The next one to add is a headless web render of the webviews UI on Linux (the Markdown, agent pane and settings pages in a browser, no macOS runner), selected by the same `check_plan` when a member touches `webviews/`. Its result would join `lanes`, so it gates and bisects like the tour.
+
 ## Serving locally
 
 Until the App exists, the queue runs on a workstation that is on the build tailnet, with a gh login that has `repo` and `workflow` scopes:
@@ -92,3 +112,4 @@ python3 scripts/ci/next_batch.py stack --prs "17505 17508" --no-regen --worktree
 | `CMUX_FLEET_CONTROLLER` (variable) | the build controller URL the mini's build job submits to |
 | `CMUX_NEXT_BATCH_STICKY` (variable) | `owner/repo#issue` for the sticky report |
 | `CMUX_NEXT_BATCH_AUTHORS` (variable) | authors whose PRs need no opt-in label |
+| label `batch:<name>` on PRs | members of a [group](#groups) |
