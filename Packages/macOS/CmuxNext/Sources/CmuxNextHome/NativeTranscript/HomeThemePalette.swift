@@ -3,18 +3,17 @@ import CmuxHomeRender
 import CmuxNextDesign
 
 /// The render core's palette from the cmux-next theme, in one of the Chief
-/// chat's two looks (`HomePalette.BubbleStyle`, `home.chiefChatIMessageStyle`).
-/// By default the bubbles take the theme's colours: the person's are the
-/// theme's accent (a neutral step of the theme when it names none), the
-/// Chief's the theme's surface (Leo, 2026-10-19: Messages' blue looks out of
-/// place over cmux's tinted glass themes, replacing Lawrence's iMessage blue
-/// on every theme of 2026-10-05). The iMessage style, opt in, keeps
-/// MessagesLab's measured Display P3 blue and gradient with white text
-/// (`Fixture`, `measuredAccent`) and Messages' grey for the Chief. Only an
-/// accent the caller chooses (`accentOverride`) replaces either sent colour.
+/// chat's two looks (`HomePalette.BubbleStyle`, `home.chiefBubbleStyle`).
+/// The iMessage style, the default (Lawrence 2026-10-05; Leo 2026-10-19: "the
+/// founders like the imessage apple blue"), is MessagesLab's measured Display
+/// P3 blue and gradient with white text (`Fixture`, `measuredAccent`) and
+/// Messages' grey for the Chief. The theme style, opt in for cmux's tinted
+/// glass themes, gives the person's bubbles the theme's accent (a neutral step
+/// of the theme when it names none) and the Chief's the theme's surface. Only
+/// an accent the caller chooses (`accentOverride`) replaces either sent colour.
 enum HomeThemePalette {
-    /// MessagesLab's measured sent-bubble blue (catalyst Fixture.outgoing), the iMessage style only.
-    static let messagesBlue = NSColor(srgbRed: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1) // theme-fixed: the opt-in iMessage style (check-system-blue.py exception)
+    /// MessagesLab's measured sent-bubble blue (catalyst Fixture.outgoing), the iMessage style's.
+    static let messagesBlue = NSColor(srgbRed: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1) // theme-fixed: the iMessage style, the default (check-system-blue.py exception)
 
     /// Whether the sent bubble is MessagesLab's blue: the iMessage style with no
     /// chosen accent. Callers run inside `performWithTheme`.

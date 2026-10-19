@@ -144,17 +144,17 @@ public struct HomePalette: Hashable, Sendable {
         )
     }
 
-    /// How the Chief chat's bubbles look (Settings > Agents > Chief Chat,
-    /// `home.chiefChatIMessageStyle`; Leo 2026-10-19: Messages' blue looks out
-    /// of place over cmux's tinted themes).
+    /// How the Chief chat's bubbles look (Settings > Agents > Chief Chat >
+    /// Bubble Style, `home.chiefBubbleStyle`; Leo 2026-10-19: iMessage's blue
+    /// stays the default, the theme's colours are the option).
     public enum BubbleStyle: Sendable, Hashable {
-        /// The default: the bubbles take the theme's colours (`themeStyled`).
-        case theme
-        /// Messages' blue for the person and its grey for the Chief (`iMessageStyled`).
+        /// The default: Messages' blue for the person and its grey for the Chief (`iMessageStyled`).
         case iMessage
+        /// The bubbles take the theme's colours (`themeStyled`).
+        case theme
     }
 
-    /// The theme's look, the default. The person's bubbles are `sent` (the
+    /// The theme's look (the opt-in style). The person's bubbles are `sent` (the
     /// theme's accent and the text on it) when the theme names an accent, else
     /// a neutral step of the theme's own colours; the Chief's sit on the
     /// theme's surface (`themed`). One flat colour: the viewport shading is
@@ -171,7 +171,7 @@ public struct HomePalette: Hashable, Sendable {
         return palette
     }
 
-    /// Messages' look (the opt-in style): its measured grey under the Chief's
+    /// Messages' look (the default style): its measured grey under the Chief's
     /// bubbles and its text colours, light or dark with the theme. The
     /// person's bubbles are `theme.accent` here; the host passes Messages'
     /// blue, and the renderer draws MessagesLab's measured blue and gradient

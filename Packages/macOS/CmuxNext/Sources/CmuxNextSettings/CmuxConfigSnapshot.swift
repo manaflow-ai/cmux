@@ -35,8 +35,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
-    /// `home.chiefChatIMessageStyle`: the Chief chat's bubbles are iMessage's; off (the theme's colours) when unset.
-    public var homeChiefChatIMessageStyle = false
+    /// `home.chiefBubbleStyle`: the Chief chat's bubbles, `imessage` (Messages' blue and grey) when unset or `theme`.
+    public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
     /// `browser.builtInAdBlocker`; on when unset.
     public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
     /// `browser.showAgentCursor`; on when unset.
@@ -233,7 +233,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserDefaultEngine.parse(root), \.browserDefaultEngine)
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
-        snapshot.takeHomeChatStyle(root)
+        snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
         snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
         snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
         snapshot.takeHome(root)

@@ -1185,8 +1185,11 @@ final class RowCell: UICollectionViewCell {
         box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
         box.contentsScale = renderScale
         badgeTop = c.y - 20
-        fill.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
-        fill.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
+        // cmux: my tapback's disc is the sent bubbles' fill (the theme style's, else the measured blue).
+        let stops: [(CGFloat, CGColor)] = Fixture.themedGradient?.map { ($0.0, $0.1.cgColor) }
+            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
+        fill.colors = stops.map(\.1)
+        fill.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
         RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
         if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
             holder.frame = CGRect(origin: .zero, size: size)

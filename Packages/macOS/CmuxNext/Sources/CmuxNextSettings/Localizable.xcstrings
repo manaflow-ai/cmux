@@ -133,266 +133,398 @@
         }
       }
     },
-    "settings.home.chiefChatIMessageStyle": {
-      "comment": "Title of the Chief chat's iMessage style setting (home.chiefChatIMessageStyle). iMessage is Apple's product name; keep it.",
+    "settings.home.chiefBubbleStyle": {
+      "comment": "Title of the Chief chat's bubble style setting (home.chiefBubbleStyle): iMessage or Theme.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iMessage Style"
+            "value": "Bubble Style"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "نمط iMessage"
+            "value": "نمط الفقاعات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stil iMessagea"
+            "value": "Stil oblačića"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iMessage-stil"
+            "value": "Boblestil"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iMessage-Stil"
+            "value": "Blasenstil"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estilo iMessage"
+            "value": "Estilo de burbujas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Style iMessage"
+            "value": "Style des bulles"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stile iMessage"
+            "value": "Stile dei fumetti"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iMessage スタイル"
+            "value": "吹き出しのスタイル"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រចនាប័ទ្ម iMessage"
+            "value": "រចនាប័ទ្មពពុះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iMessage 스타일"
+            "value": "말풍선 스타일"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iMessage-stil"
+            "value": "Boblestil"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Styl iMessage"
+            "value": "Styl dymków"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estilo iMessage"
+            "value": "Estilo dos balões"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Стиль iMessage"
+            "value": "Стиль пузырей"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สไตล์ iMessage"
+            "value": "สไตล์บับเบิล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iMessage Stili"
+            "value": "Baloncuk Stili"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Стиль iMessage"
+            "value": "Стиль бульбашок"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kiểu iMessage"
+            "value": "Kiểu bong bóng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iMessage 样式"
+            "value": "气泡样式"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iMessage 樣式"
+            "value": "泡泡樣式"
           }
         }
       }
     },
-    "settings.home.chiefChatIMessageStyle.help": {
-      "comment": "Help of the Chief chat's iMessage style setting (home.chiefChatIMessageStyle).",
+    "settings.home.chiefBubbleStyle.help": {
+      "comment": "Help of the Chief chat's bubble style setting (home.chiefBubbleStyle). iMessage is Apple's product name; keep it.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show the Chief chat in iMessage colors: blue for your messages and gray for the Chief's. When off, the bubbles use your theme's colors."
+            "value": "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عرض دردشة Chief بألوان iMessage: الأزرق لرسائلك والرمادي لرسائل Chief. عند الإيقاف، تستخدم الفقاعات ألوان السمة."
+            "value": "يعرض iMessage رسائلك باللون الأزرق ورسائل Chief باللون الرمادي. يستخدم خيار السمة ألوان التمييز والسطح في سمتك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikaži Chief razgovor u bojama iMessagea: plavo za tvoje poruke i sivo za Chiefove. Kada je isključeno, oblačići koriste boje tvoje teme."
+            "value": "iMessage prikazuje tvoje poruke plavo, a Chiefove sivo. Tema koristi boju naglaska i površine tvoje teme."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis Chief-chatten i iMessage-farver: blå til dine beskeder og grå til Chiefs. Når den er slået fra, bruger boblerne dit temas farver."
+            "value": "iMessage viser dine beskeder i blå og Chiefs i grå. Tema bruger dit temas accent- og overfladefarver."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Den Chief-Chat in iMessage-Farben anzeigen: Blau für deine Nachrichten und Grau für die von Chief. Wenn aus, nutzen die Blasen die Farben deines Themes."
+            "value": "iMessage zeigt deine Nachrichten in Blau und die von Chief in Grau. Theme nutzt die Akzent- und Flächenfarben deines Themes."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Muestra el chat de Chief con los colores de iMessage: azul para tus mensajes y gris para los de Chief. Si está desactivado, las burbujas usan los colores de tu tema."
+            "value": "iMessage muestra tus mensajes en azul y los de Chief en gris. Tema usa los colores de acento y superficie de tu tema."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afficher la discussion avec Chief aux couleurs d'iMessage : bleu pour vos messages et gris pour ceux de Chief. Désactivé, les bulles prennent les couleurs de votre thème."
+            "value": "iMessage affiche vos messages en bleu et ceux de Chief en gris. Thème utilise les couleurs d'accent et de surface de votre thème."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra la chat di Chief con i colori di iMessage: blu per i tuoi messaggi e grigio per quelli di Chief. Se disattivato, i fumetti usano i colori del tuo tema."
+            "value": "iMessage mostra i tuoi messaggi in blu e quelli di Chief in grigio. Tema usa i colori di accento e di superficie del tuo tema."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief チャットを iMessage の配色で表示します。自分のメッセージは青、Chief のメッセージはグレーになります。オフのときは、吹き出しにテーマの色が使われます。"
+            "value": "iMessage では自分のメッセージが青、Chief のメッセージがグレーで表示されます。テーマでは、テーマのアクセントカラーと面の色が使われます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្ហាញការជជែក Chief ជាពណ៌ iMessage៖ ពណ៌ខៀវសម្រាប់សាររបស់អ្នក និងពណ៌ប្រផេះសម្រាប់សាររបស់ Chief។ នៅពេលបិទ ពពុះប្រើពណ៌នៃរចនាប័ទ្មរបស់អ្នក។"
+            "value": "iMessage បង្ហាញសាររបស់អ្នកជាពណ៌ខៀវ និងសាររបស់ Chief ជាពណ៌ប្រផេះ។ រចនាប័ទ្មប្រើពណ៌សង្កត់ និងពណ៌ផ្ទៃនៃរចនាប័ទ្មរបស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 채팅을 iMessage 색상으로 표시합니다. 내 메시지는 파란색, Chief의 메시지는 회색입니다. 끄면 말풍선에 테마 색상이 사용됩니다."
+            "value": "iMessage는 내 메시지를 파란색, Chief의 메시지를 회색으로 표시합니다. 테마는 테마의 강조 색상과 표면 색상을 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis Chief-chatten i iMessage-farger: blått for meldingene dine og grått for Chiefs. Når den er av, bruker boblene temaets farger."
+            "value": "iMessage viser meldingene dine i blått og Chiefs i grått. Tema bruker temaets aksent- og overflatefarger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokazuj czat z Chiefem w kolorach iMessage: niebieski dla Twoich wiadomości i szary dla wiadomości Chiefa. Po wyłączeniu dymki mają kolory motywu."
+            "value": "iMessage pokazuje Twoje wiadomości na niebiesko, a wiadomości Chiefa na szaro. Motyw używa koloru akcentu i powierzchni Twojego motywu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mostra o chat do Chief nas cores do iMessage: azul para suas mensagens e cinza para as do Chief. Quando desativado, os balões usam as cores do seu tema."
+            "value": "O iMessage mostra suas mensagens em azul e as do Chief em cinza. Tema usa as cores de destaque e de superfície do seu tema."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показывать чат с Chief в цветах iMessage: синий для ваших сообщений и серый для сообщений Chief. Если выключено, пузыри берут цвета темы."
+            "value": "iMessage показывает ваши сообщения синим, а сообщения Chief серым. Тема использует акцентный цвет и цвет поверхности вашей темы."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงแชท Chief ด้วยสีของ iMessage: สีน้ำเงินสำหรับข้อความของคุณและสีเทาสำหรับข้อความของ Chief เมื่อปิด บับเบิลจะใช้สีของธีม"
+            "value": "iMessage แสดงข้อความของคุณเป็นสีน้ำเงินและข้อความของ Chief เป็นสีเทา ธีมใช้สีเน้นและสีพื้นผิวของธีมของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief sohbetini iMessage renkleriyle göster: mesajların için mavi, Chief'inkiler için gri. Kapalıyken baloncuklar temanın renklerini kullanır."
+            "value": "iMessage mesajlarını mavi, Chief'inkileri gri gösterir. Tema, temanın vurgu ve yüzey renklerini kullanır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показувати чат із Chief у кольорах iMessage: синій для ваших повідомлень і сірий для повідомлень Chief. Якщо вимкнено, бульбашки беруть кольори теми."
+            "value": "iMessage показує ваші повідомлення синім, а повідомлення Chief сірим. Тема використовує акцентний колір і колір поверхні вашої теми."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiển thị cuộc trò chuyện với Chief theo màu iMessage: xanh cho tin nhắn của bạn và xám cho tin nhắn của Chief. Khi tắt, bong bóng dùng màu của chủ đề."
+            "value": "iMessage hiển thị tin nhắn của bạn màu xanh và của Chief màu xám. Chủ đề dùng màu nhấn và màu nền của chủ đề."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "以 iMessage 的配色显示 Chief 聊天：你的消息为蓝色，Chief 的消息为灰色。关闭时，气泡使用主题的颜色。"
+            "value": "iMessage 将你的消息显示为蓝色，Chief 的消息显示为灰色。主题使用你的主题的强调色和表面颜色。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "以 iMessage 的配色顯示 Chief 聊天：你的訊息為藍色，Chief 的訊息為灰色。關閉時，泡泡使用主題的顏色。"
+            "value": "iMessage 將你的訊息顯示為藍色，Chief 的訊息顯示為灰色。主題使用你的主題的強調色和表面顏色。"
+          }
+        }
+      }
+    },
+    "settings.choice.chiefBubbleStyle.theme": {
+      "comment": "The Chief chat's bubble style choice that uses the theme's colors (home.chiefBubbleStyle = theme).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theme"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テーマ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រចនាប័ទ្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "테마"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motyw"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tema"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тема"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chủ đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主題"
           }
         }
       }

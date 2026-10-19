@@ -63,11 +63,11 @@ public final class HomeNativeTranscriptView: NSView {
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
     }
-    /// A chosen sent-bubble colour (opt in); nil keeps the style's (the theme's accent, or iMessage blue).
+    /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
-    /// The bubbles' look: the theme's colours (the default) or iMessage's; follows
-    /// `home.chiefChatIMessageStyle` (`DesignSettings.homeChiefChatIMessageStyle`, `followBubbleStyle`).
-    public var bubbleStyle: HomePalette.BubbleStyle = .theme { didSet { if bubbleStyle != oldValue { applyTheme() } } }
+    /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
+    /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followBubbleStyle`).
+    public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
@@ -218,10 +218,10 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
-    /// Settings > Agents > Chief Chat: iMessage's colours or the theme's, live.
+    /// Settings > Agents > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
     private func followBubbleStyle() {
         withObservationTracking {
-            bubbleStyle = DesignSettings.shared.homeChiefChatIMessageStyle ? .iMessage : .theme
+            bubbleStyle = DesignSettings.shared.homeChiefBubblesThemed ? .theme : .iMessage
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followBubbleStyle() }
         }

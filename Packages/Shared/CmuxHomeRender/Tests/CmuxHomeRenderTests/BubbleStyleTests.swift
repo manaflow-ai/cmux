@@ -2,9 +2,9 @@ import CoreGraphics
 import Testing
 @testable import CmuxHomeRender
 
-/// The Chief chat's two looks (`home.chiefChatIMessageStyle`): by default the
-/// bubbles take the theme's colours and nothing is Messages' blue; the opt-in
-/// iMessage style gives the Chief Messages' grey.
+/// The Chief chat's two looks (`home.chiefBubbleStyle`): the default iMessage
+/// style gives the Chief Messages' grey; the theme style takes the theme's
+/// colours and nothing in it is Messages' blue.
 @MainActor
 @Suite struct BubbleStyleTests {
     /// Rose Pine: a tinted dark theme, the case Messages' blue looked out of place on.
@@ -16,7 +16,7 @@ import Testing
     /// A rough sRGB stand-in for check-system-blue.py's blue test: blue well above red and green.
     static func isBlue(_ c: HomeColor) -> Bool { c.blue - max(c.red, c.green) > 0.25 }
 
-    @Test func defaultSentBubblesAreTheThemeAccent() {
+    @Test func themeStyleSentBubblesAreTheThemeAccent() {
         let p = HomePalette.themeStyled(Self.rosePine, sent: (Self.iris, Self.onIris))
         #expect(p.outgoingGradient.allSatisfy { $0.color == Self.iris }, "one flat accent fill, no viewport shading")
         #expect(p.outgoingText == Self.onIris)
@@ -34,7 +34,7 @@ import Testing
         #expect(fill != p.incomingBubble, "the person's and the Chief's bubbles differ")
     }
 
-    @Test func noMessagesBlueByDefaultOnLightOrDark() {
+    @Test func themeStyleHasNoMessagesBlueOnLightOrDark() {
         let light = HomePalette.Theme(background: .rgb255(250, 244, 237), foreground: .rgb255(87, 82, 121),
                                       accent: .rgb255(144, 122, 169), failure: .rgb255(180, 99, 122))
         for theme in [Self.rosePine, light] {

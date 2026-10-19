@@ -4,18 +4,22 @@ import CmuxNextDesign
 /// `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum HomeSettingsSchema {
     /// Rows an agent may set (looks only): the Chief chat's bubble style.
-    static let agentSettableKeys: Set<String> = [HomeChiefChatStyleSetting.key]
+    static let agentSettableKeys: Set<String> = [HomeChiefBubbleStyleSetting.key]
 
     static var descriptors: [SettingDescriptor] {
         let attachments = SettingsText.keyed("settings.group.attachments", "Attachments")
         return [
-            // The Chief chat's look (Leo 2026-10-19): the theme's colours by default, iMessage's on request.
+            // The Chief chat's look: iMessage's by default (the founders like its blue), the theme's on request (Leo 2026-10-19).
             SettingDescriptor(
-                HomeChiefChatStyleSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefChat", "Chief Chat"),
-                title: SettingsText.keyed("settings.home.chiefChatIMessageStyle", "iMessage Style"),
-                help: SettingsText.keyed("settings.home.chiefChatIMessageStyle.help",
-                                         "Show the Chief chat in iMessage colors: blue for your messages and gray for the Chief's. When off, the bubbles use your theme's colors."),
-                kind: .toggle, default: .bool(false),
+                HomeChiefBubbleStyleSetting.configPath, section: .home, group: SettingsText.keyed("settings.group.chiefChat", "Chief Chat"),
+                title: SettingsText.keyed("settings.home.chiefBubbleStyle", "Bubble Style"),
+                help: SettingsText.keyed("settings.home.chiefBubbleStyle.help",
+                                         "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."),
+                kind: .choice([
+                    SettingChoice(HomeChiefBubbleStyleSetting.iMessage, "iMessage"), // a product name, not translated
+                    SettingChoice(HomeChiefBubbleStyleSetting.theme, SettingsText.keyed("settings.choice.chiefBubbleStyle.theme", "Theme")),
+                ]),
+                default: .string(HomeChiefBubbleStyleSetting.defaultStyle),
                 keywords: ["chief", "imessage", "messages", "bubbles", "blue", "chat", "theme", "colors", "home"]
             ),
             SettingDescriptor(
