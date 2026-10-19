@@ -28,6 +28,7 @@ import Testing
         defer { Motion.reduceMotionOverride = nil }
         try #require(Motion.animatesMovement, "animation speed is off on this host")
 
+        print("DIAG tabclose: canAnimate=\(Motion.canAnimate(in: strip)) asleep=\(window.screen.map { DisplaySleep.shared.isAsleep($0) } ?? true) speed=\(Motion.speed)")
         model.tabs.removeLast()
         strip.sync(fromModel: true)
         try #require(strip.dying.contains(TabID("tab2")), "the close did not animate")

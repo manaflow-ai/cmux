@@ -52,7 +52,7 @@ struct SwitchToColdTabTypeAheadTests {
         let responder = window.firstResponder
         let entry = controller.services.cache.terminals[tab]
         let mine = (responder as? NSView).map { view in entry.map { view === $0.session.surfaceView || view.isDescendant(of: $0.session.view) } ?? false } ?? false
-        print("DIAG \(label): responder=\(responder.map { String(describing: type(of: $0)) } ?? "nil") isTabsSurface=\(mine) hidden=\((responder as? NSView)?.isHiddenOrHasHiddenAncestor ?? false) current=\(pane.currentTabKey ?? "nil") tab=\(tab) selected=\(pane.stripModel.selectedID?.rawValue ?? "nil") focus=\(controller.focus.state.resolved) takesKeys=\(CreationInputCoordinator.responderTakesKeys(controller, window: window)) hasContent=\(controller.services.cache.hasContent(for: tab))")
+        print("DIAG \(label): responder=\(responder.map { String(describing: Swift.type(of: $0)) } ?? "nil") isTabsSurface=\(mine) hidden=\((responder as? NSView)?.isHiddenOrHasHiddenAncestor ?? false) current=\(pane.currentTabKey ?? "nil") tab=\(tab) selected=\(pane.stripModel.selectedID?.rawValue ?? "nil") focus=\(controller.focus.state.resolved) takesKeys=\(CreationInputCoordinator.responderTakesKeys(controller, window: window)) hasContent=\(controller.services.cache.hasContent(for: tab))")
     }
 
     @Test func keysTypedRightAfterSelectingAColdTabReachItsTerminal() async throws {
