@@ -76,26 +76,54 @@ import Testing
         return (overlap, drawn, barRect)
     }
 
-    /// Leo 2026-10-19: Chrome's tab groups. By default the members' line starts a small,
-    /// deliberate cut below the header bar; an unnamed group's header is the same solid bar.
+    /// The header bar's layer and the last member row, in the sidebar's coordinates.
+    private static func parts(_ sidebar: SidebarView) throws -> (bar: CALayer, lastRow: CGRect) {
+        let header = try Self.header(sidebar)
+        let bar = try #require(header.layer?.sublayers?.first { !$0.isHidden && $0.frame.width >= header.bounds.width - 0.5 && $0.cornerRadius > 0 })
+        let last = try #require(sidebar.list.rowViews[.workspace(Self.measured)], "no last member row")
+        return (bar, sidebar.convert(last.bounds, from: last))
+    }
+
+    /// The bar's corner that meets the members' line: its bottom-left one, in the layer's own
+    /// coordinates (flipped or not).
+    private static func bottomLeft(_ sidebar: SidebarView) throws -> CACornerMask {
+        try #require(Self.header(sidebar).layer).contentsAreFlipped() ? .layerMinXMaxYCorner : .layerMinXMinYCorner
+    }
+
+    /// Leo 2026-10-19, his Chrome reference: by default a 26 pt header bar with 6 pt round
+    /// corners, then a small cut (`SidebarStyle.groupLineCut`), then a thin line in the bar's
+    /// color, round at both ends, inset a little inside the bar's left edge (`groupBarX`), that
+    /// runs to the last member row's bottom. An unnamed group's header is the same solid bar.
     @Test(arguments: [false, true], ["cmux-next app", ""])
     func theMembersLineStartsACutBelowTheBar(minimal: Bool, name: String) throws {
         let sidebar = Self.sidebar(minimal: minimal, name: name)
         let (overlap, drawn, bar) = try Self.overlap(sidebar, name: name)
         #expect(abs(-overlap - SidebarStyle.groupLineCut) < 0.01,
                 "minimal \(minimal): a \(-overlap) pt gap between the bar and its members' line, want the \(SidebarStyle.groupLineCut) pt cut")
-        #expect(drawn.minX >= bar.minX && drawn.maxX <= bar.maxX, "the line \(drawn) is not under the bar \(bar)")
+        #expect(SidebarStyle.groupLineCut == Metrics.space3, "Chrome's cut is about 6 pt, the space3 step")
+        #expect(abs(drawn.minX - bar.minX - SidebarStyle.groupBarX) < 0.01, "the line \(drawn) is not \(SidebarStyle.groupBarX) pt inside the bar \(bar)")
+        #expect(abs(drawn.width - Metrics.space1) < 0.01, "a \(drawn.width) pt line, want Chrome's thin \(Metrics.space1) pt one")
+        let (layer, lastRow) = try Self.parts(sidebar)
+        let lineEnd = sidebar.isFlipped ? drawn.maxY : drawn.minY, rowEnd = sidebar.isFlipped ? lastRow.maxY : lastRow.minY
+        #expect(abs(lineEnd - rowEnd) < 0.01, "the line ends at \(lineEnd), the last member row at \(rowEnd)")
+        #expect(layer.maskedCorners == [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner],
+                "the default bar rounds every corner")
+        #expect(abs(layer.cornerRadius - Metrics.space3) < 0.51, "a \(layer.cornerRadius) pt bar corner, Chrome's is about 6 pt")
     }
 
-    /// `sidebar.groupLineJoinsHeader` (off by default): the line joins the bar as one shape,
-    /// no gap; only its round top end tucks into the bar, so the bar's rounded corner shows no seam.
+    /// `sidebar.groupLineJoinsHeader` (off by default), Leo 2026-10-19 "all lined up on the left":
+    /// the line's left edge is flush with the bar's left edge and meets the bar with no gap, and the
+    /// bar's bottom-left corner is square there, so bar and line are one L shape.
     @Test(arguments: [false, true], ["cmux-next app", ""])
     func theJoinSettingRunsTheLineIntoTheBar(minimal: Bool, name: String) throws {
         let sidebar = Self.sidebar(minimal: minimal, name: name, joined: true)
         let (overlap, drawn, bar) = try Self.overlap(sidebar, name: name)
         #expect(overlap >= 0, "minimal \(minimal): a \(-overlap) pt gap between the bar and its members' line")
-        #expect(overlap <= drawn.width / 2 + 0.01, "minimal \(minimal): the line runs \(overlap) pt into the bar")
-        #expect(drawn.minX >= bar.minX && drawn.maxX <= bar.maxX, "the line \(drawn) is not under the bar \(bar)")
+        #expect(overlap <= drawn.width + 0.01, "minimal \(minimal): the line runs \(overlap) pt into the bar")
+        #expect(abs(drawn.minX - bar.minX) < 0.01, "the line \(drawn) is not flush with the bar's left edge \(bar)")
+        let (layer, _) = try Self.parts(sidebar)
+        #expect(!layer.maskedCorners.contains(try Self.bottomLeft(sidebar)), "the bar's corner over the line is still round")
+        #expect(layer.maskedCorners.roundedCount == 3, "only the corner over the line is square: \(layer.maskedCorners)")
     }
 
     /// Turning the setting on or off moves an open sidebar's lines, without a relaunch: the
@@ -155,5 +183,12 @@ import Testing
     @Test func aConnectingPlaceholderKeepsItsIndeterminateBar() {
         let ws = SidebarWorkspace(id: WorkspaceID("ws-ssh"), title: "", progress: SidebarProgress(value: nil), rowState: .placeholder)
         #expect(WorkspaceRowContent.bar(ws) != nil)
+    }
+}
+
+private extension CACornerMask {
+    /// How many corners the mask rounds.
+    var roundedCount: Int {
+        [CACornerMask.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner].filter(contains).count
     }
 }
