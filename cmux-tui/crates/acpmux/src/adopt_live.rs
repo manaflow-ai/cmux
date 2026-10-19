@@ -124,8 +124,8 @@ fn pid_exists(pid: u32) -> bool {
         return false;
     }
     // SAFETY: signal 0 only checks that the pid exists; nothing is sent.
-    unsafe { libc::kill(pid, 0) == 0 }
-        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    let sent = unsafe { libc::kill(pid, 0) } == 0;
+    sent || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 #[cfg(not(unix))]
