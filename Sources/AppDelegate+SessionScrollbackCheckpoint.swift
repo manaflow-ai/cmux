@@ -133,7 +133,9 @@ extension AppDelegate {
                     guard let terminal else { return nil }
                     return TerminalScrollbackCheckpointExport.begin(
                         terminal: terminal,
-                        lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+                        // One row past the cap so persisted scrollback can tell
+                        // a full tail from one that dropped older lines.
+                        lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal + 1
                     )
                 }
             ))
