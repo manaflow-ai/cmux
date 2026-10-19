@@ -11,6 +11,7 @@ final class ConversationArtifactTests: XCTestCase {
         let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let client = ArtifactTestClient(data: data, sha256: hash, fileName: "../../private.txt")
         let model = ConversationModel(client: client, scopeID: "artifact-host")
+        defer { model.selectSession(id: nil) }
         model.selectSession(id: ArtifactTestClient.sessionID)
         try await waitUntilConnected(model)
 
@@ -27,6 +28,7 @@ final class ConversationArtifactTests: XCTestCase {
         let wrongHash = String(repeating: "0", count: 64)
         let client = ArtifactTestClient(data: data, sha256: wrongHash, fileName: "artifact.txt")
         let model = ConversationModel(client: client, scopeID: "artifact-host")
+        defer { model.selectSession(id: nil) }
         model.selectSession(id: ArtifactTestClient.sessionID)
         try await waitUntilConnected(model)
 
@@ -44,6 +46,7 @@ final class ConversationArtifactTests: XCTestCase {
         let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let client = ArtifactTestClient(data: data, sha256: hash, fileName: "artifact.txt", changesHashAfterFirstChunk: true)
         let model = ConversationModel(client: client, scopeID: "artifact-host")
+        defer { model.selectSession(id: nil) }
         model.selectSession(id: ArtifactTestClient.sessionID)
         try await waitUntilConnected(model)
 
@@ -57,10 +60,11 @@ final class ConversationArtifactTests: XCTestCase {
     }
 
     private func waitUntilConnected(_ model: ConversationModel) async throws {
-        for _ in 0..<50 {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        repeat {
             if model.connectionState == .connected { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+            await Task.yield()
+        } while ContinuousClock.now < deadline
         XCTFail("Fixture client did not connect")
     }
 }
@@ -72,6 +76,7 @@ private actor ArtifactTestClient: ConversationArtifactClient {
     private let fileName: String
     private let changesHashAfterFirstChunk: Bool
     private var calls = 0
+    private var streamContinuation: AsyncThrowingStream<ConversationEvent, any Error>.Continuation?
 
     init(data: Data, sha256: String, fileName: String, changesHashAfterFirstChunk: Bool = false) {
         self.data = data
@@ -95,8 +100,12 @@ private actor ArtifactTestClient: ConversationArtifactClient {
 
     nonisolated func replay(sessionID: ConversationID, after: ConversationCursor) async throws -> [ConversationEvent] { [] }
 
-    nonisolated func events(sessionID: ConversationID, after: ConversationCursor) async -> AsyncThrowingStream<ConversationEvent, any Error> {
-        AsyncThrowingStream { continuation in continuation.finish() }
+    func events(sessionID: ConversationID, after: ConversationCursor) async -> AsyncThrowingStream<ConversationEvent, any Error> {
+        let pair = AsyncThrowingStream<ConversationEvent, any Error>.makeStream()
+        // A healthy provider keeps its stream open during an artifact transfer.
+        // Selecting nil in test cleanup cancels the model's subscription.
+        streamContinuation = pair.continuation
+        return pair.stream
     }
 
     nonisolated func execute(_ command: ConversationCommandEnvelope) async throws -> ConversationReceipt {
