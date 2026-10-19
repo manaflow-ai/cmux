@@ -30,12 +30,14 @@ export const pendingMeshCreationEvidenceOf = <C, M>(proof: PendingMeshCreation<C
 
 export const pendingMeshCreation = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, key: string, holder: string) => Effect.gen(function* () {
   const p = caller.value, limits = yield* TenantLimits;
-  if ((p.resourceAllowlist !== null && !p.resourceAllowlist.has(mesh.value)) || !carriesRequiredLabels(p, { [MESH_CREATION_LABEL]: key })) return null;
+  if (p.resourceAllowlist !== null && !p.resourceAllowlist.has(mesh.value)) return null;
   if (p.actor.kind === "session" && ! (yield* (yield* TeamAdmin).isAdmin(p.tenantId, p.actor.userId))) return null;
   const found = yield* limits.meshCreation(p.tenantId, { op: "get", key });
   const reservation = yield* limits.meshCreation(p.tenantId, { op: "reservation", key, meshId: mesh.value });
   const cidr = yield* (yield* MeshStore).cidrOf(p.tenantId, mesh.value);
   if (found.state !== "record" || found.record.phase !== "creating" || found.record.meshId !== mesh.value || found.record.holder !== holder || reservation.state !== "reservation" || Option.isNone(cidr)) return null;
+  const labels = found.record.labels ?? { [MESH_CREATION_LABEL]: key };
+  if (labels[MESH_CREATION_LABEL] !== key || !carriesRequiredLabels(p, labels)) return null;
   let record = found.record;
   const fail = () => new UpstreamError({ operation: "meshCreationIntent", status: null });
   const write = (command: MeshCreationCommand) => limits.meshCreation(p.tenantId, command).pipe(
