@@ -237,10 +237,21 @@ final class CloudService {
         // task-owner: observers; cancelled in stop()
         observers.append(Task {
             for await state in ObservationStream({ local.store.connectionState }) {
-                guard case .connected = state, let connection = local.connection else { continue }
-                provider.stop()
+                guard case .connected = state, let connection = local.connection else { provider.stop(); continue }
                 let allowed = await connection.userOriginAllowed
-                _ = await CloudCredentialProvider.register(userOriginAllowed: allowed) { try await connection.request($0) }
+                _ = await provider.register(userOriginAllowed: allowed,
+                    send: { try await connection.request($0) }, invalidate: { try await connection.request($0) })
+            }
+        })
+        let selection = cloudTeam
+        let changes = ObservationStream.current { try? selection.current() }.later
+        // task-owner: observers; closes idle resources even when no Cloud operation follows the change.
+        observers.append(Task { [weak self] in
+            for await _ in changes {
+                guard let self else { return }
+                self.dropAllMachines()
+                guard let connection = local.connection else { provider.stop(); continue }
+                await provider.scopeChanged { try await connection.request($0) }
             }
         })
     }

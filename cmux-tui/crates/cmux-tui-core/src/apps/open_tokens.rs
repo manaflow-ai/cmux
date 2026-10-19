@@ -64,6 +64,11 @@ pub(super) fn mint_open_token(
     token
 }
 
+/// A credential scope change also retires unconsumed gestures from that app's old scope.
+pub(super) fn forget_open_tokens(inner: &mut Inner, app: &str) {
+    inner.open_tokens.retain(|_, token| token.app != app);
+}
+
 impl Supervisor {
     /// Verifies an open token a server passed on (the host side of the
     /// terminal connector and backend calls this in its connect path). A

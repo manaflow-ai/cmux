@@ -643,6 +643,10 @@ impl Supervisor {
                 self.scope_ready_locked(&mut inner, app, &value);
                 return;
             }
+            if value["type"] == "scope.invalidated" {
+                // Cleanup acknowledgment only; it never admits a request or changes authority.
+                return;
+            }
             if value["t"] == "host.request" {
                 // The scope is read under the lock; the folder checks run after it is released.
                 let allowed = Self::host_op_allowed(&inner, app, "cmux.host.link.get");

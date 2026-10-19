@@ -417,6 +417,7 @@ impl Supervisor {
     /// A provider connection closed: its families go away and its pending
     /// calls fail at once.
     pub(super) fn provider_disconnect_locked(&self, inner: &mut Inner, client: u64) -> Vec<Out> {
+        let credential = inner.providers.get("credential") == Some(&client);
         inner.providers.retain(|_, provider| *provider != client);
         let gone: Vec<u64> = inner
             .provider_calls
@@ -429,6 +430,9 @@ impl Supervisor {
             let call = inner.provider_calls.remove(&id).expect("listed");
             self.timers.cancel(call.timer);
             outs.extend(self.finish_locked(inner, &call, Ending::Gone));
+        }
+        if credential {
+            outs.extend(self.end_credential_scope_locked(inner).1);
         }
         outs
     }

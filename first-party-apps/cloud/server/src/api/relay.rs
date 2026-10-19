@@ -161,6 +161,8 @@ pub struct HostRelay<R, W> {
     /// A relay call read a wake and dropped it ([`Self::next_step`]).
     wake_dropped: bool,
     expected_scope: Option<String>,
+    /// A parent invalidation interrupts a relay and takes priority over already queued work.
+    scope_invalidated: bool,
 }
 
 /// Team wire events a relay call keeps waiting. They are kept in order and
@@ -195,12 +197,16 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             frame_overflow: false,
             wake_dropped: false,
             expected_scope: None,
+            scope_invalidated: false,
         }
     }
 
     /// The next host message that is not a relay answer: queued ones first.
     /// `None` at end of input. Wakes are skipped (only the serve loop takes them).
     pub fn next_message(&mut self) -> std::io::Result<Option<Value>> {
+        if std::mem::take(&mut self.scope_invalidated) {
+            return Ok(Some(json!({"type": "scope.invalidate"})));
+        }
         if let Some(m) = self.pop_queued() {
             return Ok(Some(m));
         }
@@ -210,6 +216,9 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     /// The serve loop's next step: a queued or new host message, or a wake.
     /// `None` at end of input.
     pub(crate) fn next_step(&mut self) -> std::io::Result<Option<Next>> {
+        if std::mem::take(&mut self.scope_invalidated) {
+            return Ok(Some(Next::Message(json!({"type": "scope.invalidate"}))));
+        }
         if let Some(m) = self.pop_queued() {
             return Ok(Some(Next::Message(m)));
         }
@@ -280,6 +289,9 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     }
 
     fn exchange(&mut self, mut request: Value) -> Result<Value, RelayError> {
+        if self.scope_invalidated {
+            return Err(RelayError::Unavailable("the parent invalidated the Cloud scope".into()));
+        }
         self.next_id += 1;
         let id = format!("r{}", self.next_id);
         request["id"] = json!(id);
@@ -290,6 +302,13 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                 .read_line()
                 .map_err(|e| RelayError::Unavailable(e.to_string()))?
                 .ok_or_else(|| RelayError::Unavailable("the host closed the channel".into()))?;
+            if message["type"] == "scope.invalidate" {
+                self.expected_scope = None;
+                self.scope_invalidated = true;
+                return Err(RelayError::Unavailable(
+                    "the parent invalidated the Cloud scope".into(),
+                ));
+            }
             let is_answer = message["type"].as_str().is_some_and(|t| t.starts_with("relay."));
             if !is_answer {
                 self.hold(message).map_err(|e| RelayError::Unavailable(e.to_string()))?;

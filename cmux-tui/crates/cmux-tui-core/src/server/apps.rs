@@ -111,6 +111,8 @@ enum Command {
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
     ProviderRegister { families: Vec<String> },
+    #[serde(rename = "apps-provider-scope-changed")]
+    ProviderScopeChanged,
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -390,6 +392,9 @@ pub(super) fn try_handle(
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
         Command::ProviderRegister { families } => {
             supervisor.register_provider(client, claim_for(mux, client), families)
+        }
+        Command::ProviderScopeChanged => {
+            supervisor.provider_scope_changed(client, claim_for(mux, client))
         }
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)

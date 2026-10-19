@@ -413,6 +413,56 @@ fn open_tokens_are_single_use_bound_to_the_app_and_expire() {
 }
 
 #[test]
+fn cloud_scope_invalidation_retires_old_open_tokens_even_after_the_server_is_gone() {
+    let root = temp_dir();
+    write_fake_server(&root.0.join("servers"));
+    for app in ["scoped", "plain"] {
+        let mut server = native_server(&root.0.join(format!("{app}.marker")), json!({}));
+        if app == "scoped" {
+            server["scopes"] = json!({"op:cmux.credential.relay": "Cloud"});
+        }
+        write_server_app(&root.0.join("bundled"), app, server);
+        with_open_ops(&root.0.join("bundled"), app, &[&format!("{app}.ping")]);
+    }
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/scoped");
+    f.install("cmux/plain");
+    let now = Instant::now();
+    let (control, old, unrelated) = {
+        let mut inner = f.supervisor.inner.lock().unwrap();
+        (
+            super::super::open_tokens::mint_open_token(
+                &mut inner,
+                "cmux/scoped",
+                "scoped.ping",
+                None,
+                now,
+            ),
+            super::super::open_tokens::mint_open_token(
+                &mut inner,
+                "cmux/scoped",
+                "scoped.ping",
+                None,
+                now,
+            ),
+            super::super::open_tokens::mint_open_token(
+                &mut inner,
+                "cmux/plain",
+                "plain.ping",
+                None,
+                now,
+            ),
+        )
+    };
+    assert!(f.supervisor.consume_open_token(&control, "cmux/scoped").is_some());
+    let claim = super::super::provider::ProviderClaim { agent: false, verified_app: true };
+    f.supervisor.register_provider(CLIENT, claim, vec!["credential".into()]).unwrap();
+    assert_eq!(f.supervisor.provider_scope_changed(CLIENT, claim).unwrap()["servers"], 0);
+    assert!(f.supervisor.consume_open_token(&old, "cmux/scoped").is_none());
+    assert!(f.supervisor.consume_open_token(&unrelated, "cmux/plain").is_some());
+}
+
+#[test]
 fn only_user_runs_of_open_ops_get_an_open_token() {
     let root = temp_dir();
     let marker = root.0.join("opn.marker");

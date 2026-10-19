@@ -129,6 +129,59 @@ fn cloud_scope_provider_loss_ends_idle_credential_servers_without_another_call()
 }
 
 #[test]
+fn cloud_scope_invalidation_requires_the_verified_current_credential_provider() {
+    let (f, _) = setup(&[Probe::new("scoped", true, vec![]), Probe::new("plain", false, vec![])]);
+    let _rx = credential_provider(&f);
+    f.install("cmux/scoped");
+    f.install("cmux/plain");
+    for claim in [
+        ProviderClaim { agent: true, verified_app: true },
+        ProviderClaim { agent: false, verified_app: false },
+    ] {
+        assert_eq!(
+            f.supervisor.provider_scope_changed(PROVIDER, claim).unwrap_err().code,
+            "apps.provider.forbidden"
+        );
+    }
+    assert_eq!(
+        f.supervisor.provider_scope_changed(PROVIDER + 1, MAC_APP).unwrap_err().code,
+        "apps.provider.unknown"
+    );
+    assert!(!f.supervisor.inner.lock().unwrap().servers["cmux/scoped"].stopping);
+    assert_eq!(f.supervisor.provider_scope_changed(PROVIDER, MAC_APP).unwrap()["servers"], 1);
+    f.wait("scope invalidation teardown", |event| {
+        event["event"] == "apps-server"
+            && event["app"] == "cmux/scoped"
+            && event["state"] == "stopped"
+    });
+    assert!(f.supervisor.inner.lock().unwrap().servers.contains_key("cmux/plain"));
+}
+
+#[test]
+fn cloud_scope_invalidation_cancels_pending_relay_answers() {
+    let (f, _) =
+        setup(&[Probe::new("scoped", true, vec![json!({"type": "relay.session", "id": "r1"})])]);
+    let rx = credential_provider(&f);
+    f.install("cmux/scoped");
+    let request = next_event(&rx, "apps-provider-request");
+    f.supervisor.provider_scope_changed(PROVIDER, MAC_APP).unwrap();
+    let cancel = next_event(&rx, "apps-provider-cancel");
+    assert_eq!(cancel["request_id"], request["request_id"]);
+    assert_eq!(
+        f.supervisor
+            .provider_result(
+                PROVIDER,
+                request["request_id"].as_u64().unwrap(),
+                true,
+                json!({"signed_in": true, "scope": "a".repeat(64)})
+            )
+            .unwrap_err()
+            .code,
+        "apps.provider.unknown"
+    );
+}
+
+#[test]
 fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() {
     let lines = vec![
         relay_op("r1", "cloud.machine.connect_info"),

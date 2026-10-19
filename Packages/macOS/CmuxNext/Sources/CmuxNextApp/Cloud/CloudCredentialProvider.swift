@@ -13,11 +13,14 @@ import os
 final class CloudCredentialProvider {
     typealias Register = @Sendable (AppsProviderRegisterRequest) async throws -> JSONValue
     typealias Reply = @Sendable (AppsProviderResultRequest) async throws -> Void
+    typealias Invalidate = @Sendable (AppsProviderScopeChangedRequest) async throws -> JSONValue
 
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.relay")
     private let relay: CloudCredentialRelay
     /// One task per call in flight, by request id; a cancel ends it.
     private var running: [UInt64: Task<Void, Never>] = [:]
+    private var generation: UInt64 = 0
+    private var ready = false
 
     init(relay: CloudCredentialRelay) {
         self.relay = relay
@@ -28,17 +31,36 @@ final class CloudCredentialProvider {
 
     /// Registers the family when `userOriginAllowed`; returns whether it is
     /// registered. A refusal is logged and not retried on this connection.
-    static func register(userOriginAllowed: Bool, send: Register) async -> Bool {
+    func register(userOriginAllowed: Bool, send: Register, invalidate: Invalidate) async -> Bool {
+        stop()
+        let bound = generation
         guard userOriginAllowed else {
-            logger.info("credential provider: not the verified app connection; not registered")
+            Self.logger.info("credential provider: not the verified app connection; not registered")
             return false
         }
         do {
             _ = try await send(AppsProviderRegisterRequest(families: [CloudCredentialRelay.family]))
+            // Probe the invalidation path before serving credentials. Older daemons fail closed.
+            _ = try await invalidate(AppsProviderScopeChangedRequest())
+            guard generation == bound else { return false }
+            ready = true
             return true
         } catch {
-            logger.error("credential provider: register refused: \(String(describing: error), privacy: .public)")
+            Self.logger.error("credential provider: register refused: \(String(describing: error), privacy: .public)")
             return false
+        }
+    }
+
+    /// A local account/team/policy change ends pending replies and idle daemon resources.
+    func scopeChanged(send: Invalidate) async {
+        guard ready else { return }
+        stop()
+        let bound = generation
+        do {
+            _ = try await send(AppsProviderScopeChangedRequest())
+            if generation == bound { ready = true }
+        } catch {
+            Self.logger.error("credential provider: scope invalidation refused: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -53,9 +75,16 @@ final class CloudCredentialProvider {
               call.op.hasPrefix(CloudCredentialRelay.family + ".") else { return }
         let relay = relay
         let id = call.requestID
+        let enabled = ready, bound = generation
         // task-owner: running[id]; removed when it answers, cancelled by apps-provider-cancel or stop()
         running[id] = Task { [weak self] in
-            let answer = await relay.answer(call)
+            let answer: (ok: Bool, body: JSONValue)
+            if enabled {
+                let result = await relay.answer(call)
+                answer = (result.ok, result.body)
+            } else {
+                answer = (false, .object(["code": .string("credential.unavailable"), "message": .string("credential scope is not ready"), "retryable": .bool(true)]))
+            }
             if !Task.isCancelled {
                 do {
                     try await reply(AppsProviderResultRequest(requestID: id, ok: answer.ok, body: answer.body))
@@ -63,13 +92,18 @@ final class CloudCredentialProvider {
                     Self.logger.error("credential provider: result \(id) not sent: \(String(describing: error), privacy: .public)")
                 }
             }
-            self?.running[id] = nil
+            if self?.generation == bound { self?.running[id] = nil }
         }
     }
 
     /// Ends every call in flight (sign-out, quit, connection gone).
-    func stop() {
-        for task in running.values { task.cancel() }
+    @discardableResult
+    func stop() -> [Task<Void, Never>] {
+        generation &+= 1
+        ready = false
+        let tasks = Array(running.values)
+        for task in tasks { task.cancel() }
         running.removeAll()
+        return tasks
     }
 }

@@ -10,6 +10,10 @@ pub(super) fn changed() -> CloudError {
 }
 
 impl<C: ControlPlane> Server<C> {
+    /// The host owns this channel. A notice only removes authority; the next op still asks its owner.
+    pub(crate) fn parent_scope_changed(&mut self) {
+        self.forget_scope();
+    }
     pub(super) fn check_scope(&mut self, request: &Request) -> Result<(), CloudError> {
         let current = match self.control_plane.request_scope(request.expected_scope.is_some()) {
             Ok(scope) => scope,

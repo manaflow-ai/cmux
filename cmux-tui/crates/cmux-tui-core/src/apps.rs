@@ -42,6 +42,8 @@ mod open_tokens;
 #[cfg(unix)]
 mod provider;
 #[cfg(unix)]
+mod provider_scope;
+#[cfg(unix)]
 mod relay;
 #[cfg(unix)]
 pub(crate) mod routing;
