@@ -26,6 +26,9 @@ extension Motion {
                                           look: AttentionHighlightLook = AttentionHighlightLook.tunable.value,
                                           showing: Bool = false) -> CAAnimation? {
         guard animatesFades, settings.style != .none else { return nil }
+        // Static status indicators (cx-sya4n): the steady ring, no blink or pulse.
+        var settings = settings
+        if DesignSettings.shared.statusIndicator.animation == .static { settings.style = .steady }
         let rest = attentionRestingOpacity(settings, look: look)
         let peak = look.peakOpacity
         guard animatesLoops else {

@@ -409,6 +409,15 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser fit-desktop"
             ),
+            // Fit (cx-qby5j): any fit by value (an aspect ratio at the pane's height, or a fixed
+            // width), or off; the context menu lists the common ones with the current one checked.
+            ActionDescriptor(
+                id: "browserFit",
+                title: String(localized: "action.browserFit", defaultValue: "Fit as Desktop…", bundle: .module),
+                keywords: ["browser", "fit", "desktop", "aspect", "ratio", "16:9", "16:10", "4:3", "21:9", "1280", "1440", "1920", "width", "scale", "viewport"],
+                category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
+                arguments: [CatalogArgument.fitChoice], targets: [.pane], cliName: "browser fit"
+            ),
             // Fit as Desktop (1280) (cx-2ftlq): the same toggle with a fixed 1280 CSS px layout
             // width (browser.tab.emulate {fit: "1280"}); only one fit is on a tab at a time.
             ActionDescriptor(
@@ -418,6 +427,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser fit-desktop-1280"
             ),
-        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + pinnedPageDescriptors()
+        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + pinnedPageDescriptors()
     }
 }

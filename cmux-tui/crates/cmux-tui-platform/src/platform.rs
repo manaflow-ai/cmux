@@ -942,11 +942,11 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
 /// in the foreground when that job is not the terminal's own PTY child
 /// `pid`: the program a shell started and waits for. `None` when the child
 /// itself is in the foreground (an idle shell, or a command terminal whose
-/// command is the child), or when the lookup fails. One PTY query of a
-/// known process, never a process scan.
+/// command is the child, or login(1)'s shell), or when the lookup fails. One
+/// PTY query of a known process, never a process scan.
 pub fn foreground_job_name(pid: u32) -> Option<String> {
     let leader = foreground_process_group(pid)?;
-    if leader == pid {
+    if leader == pid || crate::kinfo_proc::login_session_shell(pid, leader) {
         return None;
     }
     let name = process_name(leader)?;
@@ -1012,7 +1012,7 @@ fn process_cwd(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
-    let pid = libc::c_int::try_from(pid).ok()?;
+    let (raw_pid, pid) = (pid, libc::c_int::try_from(pid).ok()?);
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
     let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
     // SAFETY: proc_pidinfo writes at most `size` bytes into `info` and
@@ -1021,7 +1021,7 @@ fn foreground_process_group(pid: u32) -> Option<u32> {
         libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
     };
     if written != size {
-        return None;
+        return crate::kinfo_proc::KinfoProc::read(raw_pid)?.foreground_group(); // login(1)
     }
     // SAFETY: proc_pidinfo initialized the full structure.
     let info = unsafe { info.assume_init() };
@@ -1188,13 +1188,24 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
 /// for a report that names no safe local directory (a remote host, or no
 /// host where `allow_hostless` is false).
 fn kitty_shell_cwd_to_local_path(value: &str, allow_hostless: bool) -> Option<Option<PathBuf>> {
-    let rest = value.strip_prefix("kitty-shell-cwd://")?;
+    const SCHEME: &str = "kitty-shell-cwd://";
+    let rest = value
+        .get(..SCHEME.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(SCHEME))
+        .map(|_| &value[SCHEME.len()..])?;
     let Some(slash) = rest.find('/') else { return Some(None) };
     let (host, path) = rest.split_at(slash);
     let host_ok = if host.is_empty() { allow_hostless } else { terminal_pwd_host_is_local(host) };
     if path.contains('\0') {
         return Some(None);
     }
+    // `kitty-shell-cwd://host/C:/Users/me` keeps the URI's slash before a
+    // Windows drive, which a rooted Windows path does not have.
+    #[cfg(windows)]
+    let path = path
+        .strip_prefix('/')
+        .filter(|rest| windows_path_is_rooted_local_drive(rest))
+        .unwrap_or(path);
     let path = Path::new(path);
     Some((host_ok && terminal_pwd_path_is_safe(path)).then(|| path.to_owned()))
 }

@@ -73,7 +73,7 @@ final class PaneOverlayView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// Whether the focus ring or glow is showing (for `debug.layers`).

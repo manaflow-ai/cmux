@@ -11,6 +11,9 @@
 # with a `// cmux-web-test-timeout: SECONDS` header line.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
+# CMUX_WEB_TEST_SHARD / CMUX_WEB_TEST_SHARD_COUNT: optional one-based shard selector (for example
+# 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
+# same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
 #
 # Files that start a Vite dev server run after the rest: the agent pane and gallery configs
 # (vite.config.acpmux-pane.mjs, vite.config.gallery-dev.ts), and files that spawn `vp dev`
@@ -133,9 +136,28 @@ trap 'rm -rf "$results"' EXIT
 # bun test's default file names, from the git index so the list is the same everywhere.
 git ls-files -z -- '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' '*.test.mjs' \
   '*_test.ts' '*_test.tsx' '*.spec.ts' '*.spec.tsx' '*_spec.ts' '*_spec.tsx' > "$results/files"
+shard="${CMUX_WEB_TEST_SHARD:-}"
+shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
+if [ -n "$shard" ] || [ -n "$shard_count" ]; then
+  if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
+    echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
+    exit 2
+  fi
+  python3 - "$results/files" "$shard" "$shard_count" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+shard = int(sys.argv[2])
+count = int(sys.argv[3])
+files = [item for item in path.read_bytes().split(b"\0") if item]
+selected = [item for index, item in enumerate(files) if index % count == shard - 1]
+path.write_bytes(b"\0".join(selected) + (b"\0" if selected else b""))
+PY
+fi
 count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
 if [ "$count" -eq 0 ]; then
-  echo "error: no webviews test files found under $PWD" >&2
+  echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
   exit 1
 fi
 # Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
@@ -149,7 +171,9 @@ xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parall
 # 8-core runner was CPU bound (no faster per file) and frame-budget plays (instructions-notice)
 # and attach timing (agent-pane-seen) failed.
 dev_jobs="${CMUX_WEB_TEST_DEV_JOBS:-$((jobs > 3 ? jobs / 4 : 1))}"
-echo "running $count webviews test files, $jobs at a time ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
+shard_note=""
+if [ -n "$shard" ]; then shard_note=", shard $shard/$shard_count"; fi
+echo "running $count webviews test files${shard_note}, $jobs at a time ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
 xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/parallel"
 

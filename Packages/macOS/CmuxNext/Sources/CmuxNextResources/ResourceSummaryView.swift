@@ -21,7 +21,7 @@ public final class ResourceSummaryView: NSView {
     private let stack = NSStackView()
     private let totalLabel = ResourceSummaryView.label(Typography.caption)
     private let sharedLabel = ResourceSummaryView.label(Typography.caption)
-    private var rows: [(title: NSTextField, value: NSTextField, row: NSStackView)] = []
+    private var rows: [(title: ChromeLabel, value: ChromeLabel, row: NSStackView)] = []
     private var report: ResourceReport?
 
     public override init(frame: NSRect) {
@@ -56,9 +56,9 @@ public final class ResourceSummaryView: NSView {
     /// The text the view shows, one entry per line (tests, accessibility).
     public var lines: [String] {
         stack.arrangedSubviews.filter { !$0.isHidden }.compactMap { view in
-            if let field = view as? NSTextField { return field.stringValue }
+            if let field = view as? any ShownText { return field.stringValue }
             if let row = view as? NSStackView {
-                return row.arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }.joined(separator: " ")
+                return row.arrangedSubviews.compactMap { ($0 as? any ShownText)?.stringValue }.joined(separator: " ")
             }
             return nil
         }
@@ -143,12 +143,12 @@ public final class ResourceSummaryView: NSView {
         for (index, row) in rows.enumerated() { row.row.isHidden = index >= count }
     }
 
-    private static func label(_ font: NSFont) -> NSTextField {
-        let field = NSTextField(labelWithString: "")
+    private static func label(_ font: NSFont) -> ChromeLabel {
+        let field = ChromeLabel(labelWithString: "")
         field.font = font
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
-        field.cell?.truncatesLastVisibleLine = true
+        field.truncatesLastVisibleLine = true
         return field
     }
 }

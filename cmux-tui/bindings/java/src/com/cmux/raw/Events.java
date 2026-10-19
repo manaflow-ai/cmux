@@ -13,6 +13,8 @@ public final class Events {
 
     public static final EventMetadata ACTIVITY_CHANGED = new EventMetadata("activity-changed", 12, "vm-activity-v1", List.of("control"), true);
     public static final EventMetadata AGENT_CHANGED = new EventMetadata("agent-changed", 11, null, List.of("subscribe"), true);
+    public static final EventMetadata AGENT_INVENTORY_CHANGED = new EventMetadata("agent-inventory-changed", 12, "agent-inventory-watch-v1", List.of("control"), true);
+    public static final EventMetadata AGENT_INVENTORY_WATCH_ENDED = new EventMetadata("agent-inventory-watch-ended", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_PRESENCE_CHANGED = new EventMetadata("agent-presence-changed", 12, "agent-presence-v1", List.of("subscribe"), true);
     public static final EventMetadata BELL = new EventMetadata("bell", 5, null, List.of("subscribe"), true);
     public static final EventMetadata BOOKMARKS_CHANGED = new EventMetadata("bookmarks-changed", 12, "bookmarks-v1", List.of("subscribe"), true);
@@ -23,8 +25,10 @@ public final class Events {
     public static final EventMetadata CLIENT_DETACHED = new EventMetadata("client-detached", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CLIENT_LIST_INVALIDATED = new EventMetadata("client-list-invalidated", 9, null, List.of("subscribe"), false);
     public static final EventMetadata CLOUD_CONVERSATION_CHANGED = new EventMetadata("cloud-conversation-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_CONVERSATION_LIVE = new EventMetadata("cloud-conversation-live", 12, "cloud-chief-live-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_RESYNCED = new EventMetadata("cloud-conversation-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_RUN_CHANGED = new EventMetadata("cloud-conversation-run-changed", 12, "cloud-conversation-runs-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_CONVERSATION_TYPING = new EventMetadata("cloud-conversation-typing", 12, "cloud-conversation-typing-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_CHANGED = new EventMetadata("cloud-inbox-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_INBOX_RESET = new EventMetadata("cloud-inbox-reset", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_MUX_RESYNCED = new EventMetadata("cloud-mux-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
@@ -36,6 +40,7 @@ public final class Events {
     public static final EventMetadata CONVERSATION_CHANGED = new EventMetadata("conversation-changed", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_DRAFT = new EventMetadata("conversation-draft", 12, "conversation-draft-events-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_INBOX_CHANGED = new EventMetadata("conversation-inbox-changed", 12, "conversation-inbox-state-v1", List.of("subscribe"), true);
+    public static final EventMetadata CONVERSATION_LIVE = new EventMetadata("conversation-live", 12, "chief-live-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_RUN_CHANGED = new EventMetadata("conversation-run-changed", 12, "conversation-runs-v1", List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_TYPING = new EventMetadata("conversation-typing", 12, "local-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
@@ -98,6 +103,8 @@ public final class Events {
         LinkedHashMap<String, EventMetadata> values = new LinkedHashMap<>();
         values.put("activity-changed", ACTIVITY_CHANGED);
         values.put("agent-changed", AGENT_CHANGED);
+        values.put("agent-inventory-changed", AGENT_INVENTORY_CHANGED);
+        values.put("agent-inventory-watch-ended", AGENT_INVENTORY_WATCH_ENDED);
         values.put("agent-presence-changed", AGENT_PRESENCE_CHANGED);
         values.put("bell", BELL);
         values.put("bookmarks-changed", BOOKMARKS_CHANGED);
@@ -108,8 +115,10 @@ public final class Events {
         values.put("client-detached", CLIENT_DETACHED);
         values.put("client-list-invalidated", CLIENT_LIST_INVALIDATED);
         values.put("cloud-conversation-changed", CLOUD_CONVERSATION_CHANGED);
+        values.put("cloud-conversation-live", CLOUD_CONVERSATION_LIVE);
         values.put("cloud-conversation-resynced", CLOUD_CONVERSATION_RESYNCED);
         values.put("cloud-conversation-run-changed", CLOUD_CONVERSATION_RUN_CHANGED);
+        values.put("cloud-conversation-typing", CLOUD_CONVERSATION_TYPING);
         values.put("cloud-inbox-changed", CLOUD_INBOX_CHANGED);
         values.put("cloud-inbox-reset", CLOUD_INBOX_RESET);
         values.put("cloud-mux-resynced", CLOUD_MUX_RESYNCED);
@@ -121,6 +130,7 @@ public final class Events {
         values.put("conversation-changed", CONVERSATION_CHANGED);
         values.put("conversation-draft", CONVERSATION_DRAFT);
         values.put("conversation-inbox-changed", CONVERSATION_INBOX_CHANGED);
+        values.put("conversation-live", CONVERSATION_LIVE);
         values.put("conversation-run-changed", CONVERSATION_RUN_CHANGED);
         values.put("conversation-typing", CONVERSATION_TYPING);
         values.put("daemon-shutdown", DAEMON_SHUTDOWN);

@@ -78,6 +78,79 @@ impl Mux {
         Ok(value)
     }
 
+    /// Publishes one live frame of `actor`'s running run (`chief-live-v1`):
+    /// checked against the run, kept in the live buffer and sent to the
+    /// connections that asked, with the run's agent. A step that starts again
+    /// (`seq` 0) sends the conversation's `run.live` instead. Under the publish
+    /// lock, so no frame of a run goes out after the run's end.
+    pub(crate) fn conversation_live_publish(
+        &self,
+        conversation: &str,
+        actor: &str,
+        frame: &crate::conversation_live::LiveFrame,
+    ) -> anyhow::Result<()> {
+        let _order = self.conversations.publish.lock().unwrap_or_else(PoisonError::into_inner);
+        self.with_conversations(|store| store.live_run(conversation, actor, frame.run()))?;
+        let applied = self
+            .conversations
+            .live
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .apply(conversation, actor, frame, Instant::now())?;
+        let wire = match applied {
+            crate::conversation_live::Applied::Frame => frame.wire(actor),
+            crate::conversation_live::Applied::Reset => self.live_snapshot(conversation)?,
+        };
+        self.emit(MuxEvent::Conversation(Arc::new(
+            crate::conversation_store::ConversationEvent::Live {
+                conversation: conversation.to_owned(),
+                frame: wire,
+            },
+        )));
+        Ok(())
+    }
+
+    /// The `run.live` snapshot of `conversation`: the text so far of its
+    /// running runs. Under the publish lock, so a run that starts meanwhile
+    /// keeps its text.
+    pub(crate) fn conversation_live(&self, conversation: &str) -> anyhow::Result<Value> {
+        let _order = self.conversations.publish.lock().unwrap_or_else(PoisonError::into_inner);
+        self.live_snapshot(conversation)
+    }
+
+    /// The snapshot; the caller holds the publish lock.
+    fn live_snapshot(&self, conversation: &str) -> anyhow::Result<Value> {
+        let runs = self
+            .conversations
+            .live
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .runs_of(conversation);
+        let running = self.with_conversations(|store| store.running_of(conversation, &runs))?;
+        Ok(self.conversations.live.lock().unwrap_or_else(PoisonError::into_inner).snapshot(
+            conversation,
+            &runs,
+            &running,
+        ))
+    }
+
+    /// A run's rows were written: an ended run's live text goes, and so does
+    /// each talk or thought step's whose stream ended (`steps`).
+    pub(crate) fn conversation_live_rows(
+        &self,
+        conversation: &str,
+        run: &str,
+        ended: bool,
+        steps: &[String],
+    ) {
+        let mut live = self.conversations.live.lock().unwrap_or_else(PoisonError::into_inner);
+        if ended {
+            live.end(conversation, run);
+        } else {
+            live.rows_written(conversation, run, steps);
+        }
+    }
+
     /// The Chief registry (chief_registry.rs).
     pub(crate) fn chiefs(&self) -> &crate::chief_registry::ChiefHost {
         &self.chiefs

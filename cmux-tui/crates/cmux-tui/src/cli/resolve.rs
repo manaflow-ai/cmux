@@ -190,7 +190,7 @@ fn active_tab_of(value: &Value, pane: &str) -> Option<String> {
     }
 }
 
-fn route(params: &Map<String, Value>) -> Map<String, Value> {
+pub(super) fn route(params: &Map<String, Value>) -> Map<String, Value> {
     ["machine", "session"]
         .into_iter()
         .filter_map(|key| params.get(key).map(|value| (key.to_string(), value.clone())))
@@ -253,7 +253,7 @@ fn unregistered_terminal(terminal: &str) -> Failure {
 
 /// A `session.events` stream of the request's session on its own
 /// connection, or `None` when the daemon cannot give one before `deadline`.
-fn session_events(
+pub(super) fn session_events(
     socket: &SocketRoute<'_>,
     route: &Map<String, Value>,
     deadline: Instant,
@@ -351,13 +351,19 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
     }
 }
 
-/// `--machine` and `--session` name the scope of a request that names none
-/// (or `current`).
+/// Applies route defaults shared by CLI and MCP. Catalog reads have no session ancestor;
+/// `--session` still chooses their socket but never becomes a metadata field.
 pub(super) fn apply_global_route(
     global: &GlobalArgs,
-    params: &mut Value,
+    plan: &mut RequestPlan,
 ) -> Result<(), &'static str> {
-    let Some(params) = params.as_object_mut() else {
+    let has_session = !matches!(
+        plan.operation,
+        super::command::WireOperation::Typed(
+            ResourceOperation::MachineList | ResourceOperation::MachineGet
+        )
+    );
+    let Some(params) = plan.params.as_object_mut() else {
         return Err("request params are not an object");
     };
     if let Some(machine) = &global.machine
@@ -366,6 +372,7 @@ pub(super) fn apply_global_route(
         params.insert("machine".into(), Value::String(machine.clone()));
     }
     if let Some(session) = &global.session
+        && has_session
         && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
     {
         params.insert("session".into(), Value::String(session.clone()));

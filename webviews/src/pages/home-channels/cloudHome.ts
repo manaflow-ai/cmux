@@ -180,7 +180,7 @@ export class CloudHome {
       pinned: entry.pinned === true,
       ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
       ...(entry.marked_unread === true ? { markedUnread: true } : {}),
-      muted: entry.muted === true,
+      muted: mutedNow(entry),
       lastText: base.lastText ?? (String(entry.preview ?? "") || undefined),
     };
   }
@@ -220,6 +220,10 @@ export class CloudHome {
     inboxStale?: boolean;
     /** A Cloud Chief's run change (the run and the steps that changed), in the owner's shape. */
     run?: { run: Json; steps: Json[] };
+    /** A Cloud Chief's live frame (`step.delta`, `run.activity`, `run.live`), in the owner's shape. */
+    live?: Json;
+    /** Someone typing in a cloud conversation (the owner's `conversation-typing`). */
+    typing?: { conversation: string; participant: string; on: boolean };
   } | null {
     // A new lease (the app signed in or switched accounts), or the owner reset the inbox.
     if (event.event === "cloud-inbox-reset") {
@@ -250,6 +254,18 @@ export class CloudHome {
       case "cloud-conversation-run-changed":
         if (!event.run || typeof event.run !== "object") return null;
         return { run: { run: this.localize(event.run as Json), steps: (event.steps as Json[] | undefined) ?? [] } };
+      case "cloud-conversation-live":
+        if (!event.frame || typeof event.frame !== "object") return null;
+        return { live: event.frame as Json };
+      case "cloud-conversation-typing":
+        if (typeof event.conversation !== "string" || typeof event.participant !== "string") return null;
+        return {
+          typing: {
+            conversation: event.conversation,
+            participant: this.localize({ participant: event.participant }).participant,
+            on: event.on === true,
+          },
+        };
       case "cloud-conversation-resynced": {
         const id = String(event.conversation);
         this.keepHead(id, this.localize(event.summary as Json));
@@ -347,13 +363,27 @@ function listed(entry: Json): boolean {
   return entry.removed !== true && entry.archived !== true;
 }
 
+/** The person's mute, until `muted_until` (Unix ms) when it has one. */
+function mutedNow(entry: Json): boolean {
+  return entry.muted === true && (typeof entry.muted_until !== "number" || entry.muted_until > Date.now());
+}
+
 /** A conversation known only from its inbox entry (no people yet): a DM names its peer's id. */
 function fromEntry(entry: Json): HomeConversation {
   const at = time(entry.last_at);
   const peer = typeof entry.dm_peer === "string" ? entry.dm_peer : undefined;
   const participants: HomeParticipant[] = [{ id: LOCAL_USER, kind: "human", name: "You", chief: false }];
-  if (peer)
-    participants.push({ id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", name: "", chief: false });
+  if (peer) {
+    // Named once its head is read; until then a Chief is "Chief" and a person their id (the
+    // daemon's home-inbox rows name them the same way).
+    const chief = entry.kind === "chief";
+    participants.push({
+      id: peer,
+      kind: peer.startsWith("agent_") ? "agent" : "human",
+      name: chief ? "Chief" : peer,
+      chief,
+    });
+  }
   return {
     id: String(entry.conversation),
     owner: "cloud",
@@ -366,7 +396,7 @@ function fromEntry(entry: Json): HomeConversation {
     createdAt: at,
     unread: num(entry.unread),
     mentions: num(entry.mentions),
-    muted: entry.muted === true,
+    muted: mutedNow(entry),
     pinned: entry.pinned === true,
     ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
     ...(entry.marked_unread === true ? { markedUnread: true } : {}),

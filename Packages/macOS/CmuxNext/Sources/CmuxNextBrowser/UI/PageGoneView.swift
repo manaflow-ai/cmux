@@ -9,8 +9,8 @@ import CmuxNextIcons
 final class PageGoneView: NSView {
     var onReload: (() -> Void)?
     private let symbol = NSImageView()
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let messageLabel = NSTextField(wrappingLabelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     private let codeLabel = NSTextField(labelWithString: "")
     private let reloadButton = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: nil)
     private let density = DensityBinding()

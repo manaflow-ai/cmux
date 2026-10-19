@@ -29,7 +29,7 @@ Every source line below is in `ThemeTokens.derive` (`ThemeTokens.swift`) unless 
 | textTertiary | textPrimary mixed toward bg, up to 0.55, keeping 3:1 | :157 |
 | hoverFill | fg @ 0.06 / 0.05 | :148 |
 | selectionFill | fg @ 0.10 / 0.08; with appearance.accent: accent @ 0.26 / 0.16 | :150 |
-| secondarySelectionFill | fg @ 0.07 / 0.055 | :196 |
+| secondarySelectionFill | fg @ 0.07 / 0.055; with appearance.accent: accent @ 0.18 / 0.11 | :196 |
 | pressedFill | fg @ 0.14 / 0.11 | :151 |
 | badgeFill | fg @ 0.14 / 0.10 | :198 |
 | separator | fg @ 0.08 / 0.07; clear under borders none | :199; Palette.swift:66 (`Palette.separator`) |
@@ -211,7 +211,7 @@ Every listed surface draws through `OverlaySurfaceView`: the drop overlay, drop 
 
 The "older macOS" column cannot run in the macOS app today: `Packages/macOS/CmuxNext/Package.swift` requires macOS 26. Ports on a platform without Liquid Glass use the vibrancy row where the platform has a blur, else the opaque fallback.
 
-The overlay tint strength Debug tunable (default 1, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
+The overlay tint strength Debug tunable (default 1.25, `ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)`) scales the tint of `OverlaySurface` only. `Glass.makePanel` panels use `glassTint` unscaled.
 
 ## 5. Motion
 
@@ -239,7 +239,7 @@ Speed `fast` (default) scales times by 1, `normal` by 1.5, `off` disables (`Moti
 | theme | 0.16 | theme switch |
 | highlight | 1.20 | Settings row highlight after a search jump or deep link |
 
-Loops: spinner 0.9 s/turn (the braille style steps its 10 frames over the same period), status pulse 1.8 s (easeInEaseOut, low opacity 0.35), attention flash 0.6 s (two blinks of 0.3 s). The pane attention ring's pulse style uses the 1.8 s period with low opacity 0.3 and runs for `notifications.attention.duration` (`Motion/Motion+Attention.swift:14-50 (Motion.attentionAnimation)`). Marquee: delay 0.6 s, 40 pt/s, minimum 0.4 s, hold 1.2 s, ignore under 2 pt. Palette open scale 0.97, close 0.98. Source: `Motion/MotionTunables.swift:10-80 (MotionTunables.springDefaults, fadeDefaults, loopDefaults, marquee*, panel*Scale)`.
+Loops: spinner 0.9 s/turn (the braille style steps its 10 frames over the same period), status pulse 1.8 s (easeInEaseOut, low opacity 0.35), attention flash 1.0 s (two blinks of 0.5 s; nothing flashes faster than 2 Hz). The pane attention ring's pulse style uses the 1.8 s period with low opacity 0.3 and runs for `notifications.attention.duration` (`Motion/Motion+Attention.swift:14-50 (Motion.attentionAnimation)`). Marquee: delay 0.6 s, 40 pt/s, minimum 0.4 s, hold 1.2 s, ignore under 2 pt. Palette open scale 0.97, close 0.98. Source: `Motion/MotionTunables.swift:10-80 (MotionTunables.springDefaults, fadeDefaults, loopDefaults, marquee*, panel*Scale)`.
 
 Reduce Motion: no movement springs and no loops; fades capped at 0.1 s; the attention ring fades in once (`Motion/MotionPolicy.swift (MotionPolicy)`).
 
@@ -257,7 +257,7 @@ Reduce Motion: no movement springs and no loops; fades capped at 0.1 s; the atte
 | focus.inactiveTabStyle (the Debug tunable of the same name overrides it) | fade, tonal, quiet; strength 0.35 (Debug tunable) | see tabs page (`CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath)`) |
 | sidebar.sectionLook (Debug tunable `sidebar.sections.look` overrides it) | quiet, card, tray, lines, linesIcons | see sidebar page |
 | sidebar.topBandMaxShare / bottomBandMaxShare / pinnedBandsScroll | 1/3, 0.25 (range 0.1-0.9), true | share of the sidebar height a pinned band takes before it scrolls inside; false: bands never scroll and the list shrinks (three rows minimum) |
-| notifications.attention.* | style none (no ring by default, Lawrence 2026-10-14; opt-in steady or blink), width 2, blinkCount 2, duration 3 s, persist true | pane attention ring. Blink: blinkCount blinks over 0.3 s each (0.6 s for 2), then holds. duration applies to the pulse style only |
+| notifications.attention.* | style none (no ring by default, Lawrence 2026-10-14; opt-in steady or blink), width 2, blinkCount 2, duration 3 s, persist true | pane attention ring. Blink: blinkCount blinks over 0.5 s each (1.0 s for 2), then holds. duration applies to the pulse style only |
 | appearance.backgroundBlur | unset (Ghostty's background-blur), frosted, glass, glass-clear, none | the window material |
 | appearance.statusIndicator.* | style arc (arc, native, dot, braille, none), size 1 (0.5-1.5), thickness 1.5, color textSecondary, honorStatusStyle true | status glyphs on sidebar rows, section headers and tabs. The cmux.json key is `size` (`StatusIndicatorConfigParser.swift:13`); the model field is `StatusIndicatorSettings.scale` |
 | layout.panePadding / paneCornerRadius / paneBorder / paneBorderColor / paneBorderWidth | density values | pane chrome |

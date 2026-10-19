@@ -10,7 +10,7 @@ public import AppKit
 /// `subtle` default.
 public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// The default. A blink or pulse runs, then the ring rests faint; the steady
-    /// ring (the default style) swells in once and rests clearly visible.
+    /// ring (opt-in; the default style is no ring) swells in once and rests clearly visible.
     case subtle
     /// The ring flashes and rests at full strength (the look before cx-epgo).
     case strong
@@ -34,8 +34,8 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
         }
     }
 
-    /// The steady ring's opacity (the default style): clearly visible, since it has no blink
-    /// to catch the eye (Leo, 2026-10-14).
+    /// The steady ring's opacity (an opt-in style; the default is no ring): clearly visible,
+    /// since it has no blink to catch the eye (Leo, 2026-10-14).
     public var steadyOpacity: Float {
         switch self {
         case .subtle: 0.75

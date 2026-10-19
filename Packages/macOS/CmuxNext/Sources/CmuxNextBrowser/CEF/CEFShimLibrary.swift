@@ -204,6 +204,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let popupWindowBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
                                            UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
     let popupWindowAttach: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32) -> Int32
+    // DevTools device mode (fork API 24).
+    let devToolsInspectedBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
+                                                 UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
     // Side panel header (fork API 13).
     let sidePanelState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let sidePanelPress: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
@@ -360,6 +363,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setPopupWindowsEnabled = try r("cmux_shim_set_popup_windows_enabled")
         popupWindowBounds = try r("cmux_shim_popup_window_bounds")
         popupWindowAttach = try r("cmux_shim_popup_window_attach")
+        devToolsInspectedBounds = try r("cmux_shim_devtools_inspected_bounds")
         sidePanelState = try r("cmux_shim_side_panel_state")
         sidePanelPress = try r("cmux_shim_side_panel_press")
     }

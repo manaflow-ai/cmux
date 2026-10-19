@@ -58,6 +58,11 @@ public struct Metrics {
     public static var tabHeight: CGFloat { MetricTunables.tabHeight.value }
     public static var controlHeight: CGFloat { MetricTunables.controlHeight.value }
     public static var tabMaxWidth: CGFloat { MetricTunables.tabMaxWidth.value }
+    /// Chrome's crowding minimums and pinned width (`appearance.metrics.tabMinActiveWidth`,
+    /// `tabMinInactiveWidth`, `tabPinnedWidth`; defaults from design-tokens.json `motion.tabStrip`).
+    public static var tabMinActiveWidth: CGFloat { MetricTunables.tabMinActiveWidth.value }
+    public static var tabMinInactiveWidth: CGFloat { MetricTunables.tabMinInactiveWidth.value }
+    public static var tabPinnedWidth: CGFloat { MetricTunables.tabPinnedWidth.value }
     /// Icon-only width (pinned tabs and fully shrunk tabs).
     public static var tabMinWidth: CGFloat { MetricTunables.tabMinWidth.value }
 

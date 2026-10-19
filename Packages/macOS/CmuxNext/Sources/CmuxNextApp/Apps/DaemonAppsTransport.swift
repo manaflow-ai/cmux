@@ -24,6 +24,7 @@ final class DaemonAppsTransport: AppsTransport {
 
     private let daemon: DaemonService
     let provider: AppsProviderChannel
+    let inventory: AgentInventoryProviderBridge
     private(set) var availability: AppsAvailability = .unavailable(.notConnected)
     var onEvent: ((AppsTransportEvent) -> Void)?
     /// DisabledFeatures `apps`: the reason shown while it holds.
@@ -31,6 +32,7 @@ final class DaemonAppsTransport: AppsTransport {
         didSet {
             guard turnedOff != oldValue else { return }
             provider.turnedOff = turnedOff
+            inventory.setDisabled(turnedOff != nil)
             update(daemon.store.connectionState, storeEpoch: daemon.store.connectionEpoch)
         }
     }
@@ -40,16 +42,21 @@ final class DaemonAppsTransport: AppsTransport {
     private var following: Task<Void, Never>?
     private var subscription: UInt64?
 
-    init(daemon: DaemonService) {
+    init(daemon: DaemonService, inventoryRoutes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute] = { [] }) {
         self.daemon = daemon
-        provider = AppsProviderChannel(link: .daemon(daemon))
+        let inventory = AgentInventoryProviderBridge(routes: inventoryRoutes)
+        self.inventory = inventory
+        provider = AppsProviderChannel(link: .daemon(daemon, inventory: inventory))
     }
 
     func start() {
         guard following == nil else { return }
-        subscription = daemon.store.sideEvents.subscribe { [weak self] event in
-            guard case .unknown(let name, let payload) = event, DaemonSideEvents.isAppsEvent(name), let self else { return }
-            if provider.handle(name: name, payload: payload) { return }
+        inventory.start()
+        subscription = daemon.store.sideEvents.subscribeEnvelopes { [weak self] envelope in
+            guard let self else { return }
+            inventory.handle(envelope)
+            guard case .unknown(let name, let payload) = envelope.event, DaemonSideEvents.isAppsEvent(name) else { return }
+            if provider.handle(envelope) { return }
             if let decoded = AppsWireDecoding.event(name: name, payload: payload) { onEvent?(decoded) }
         }
         let daemon = daemon

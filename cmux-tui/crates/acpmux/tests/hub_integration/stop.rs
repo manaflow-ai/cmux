@@ -146,3 +146,51 @@ async fn a_slow_stop_does_not_fold_the_next_prompt_into_the_stopped_turn() {
         "the queued prompt never started its own turn: {seen:?}"
     );
 }
+
+/// How soon after Stop a person sees it (Lawrence 2026-10-19: "interrupt them
+/// faster"): the cancel's answer must not wait for the agent, and an agent
+/// that honours the cancel has its turn end within the budget.
+const STOP_BUDGET: Duration = Duration::from_millis(200);
+
+/// Stop timing: the agent that takes the cancel (it checks every 50 ms) ends
+/// its turn, as cancelled, within [`STOP_BUDGET`] of the cancel.
+#[tokio::test]
+async fn a_cancel_ends_an_honouring_agents_turn_within_the_budget() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-timing").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", None)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
+        .await;
+    let asked = std::time::Instant::now();
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    let done = tokio::time::timeout(
+        Duration::from_secs(5),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_end"),
+    )
+    .await
+    .expect("the turn did not end after Stop");
+    let took = asked.elapsed();
+    assert_eq!(done["msg"]["stopReason"], "cancelled", "{done}");
+    assert!(took < STOP_BUDGET, "the turn ended {took:?} after Stop (budget {STOP_BUDGET:?})");
+}
+
+/// Stop timing: the cancel's answer (the CLI's "cancel sent") never waits for
+/// the agent, even one that never takes the cancel.
+#[tokio::test]
+async fn a_cancel_is_answered_within_the_budget_while_the_agent_ignores_it() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-ack").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "deaf-to-cancel", None)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
+        .await;
+    let asked = std::time::Instant::now();
+    let cancel = c.send(method::SESSION_CANCEL, json!({"sessionId": "stop-ack"})).await;
+    let (r, _) = tokio::time::timeout(Duration::from_secs(5), c.response(cancel))
+        .await
+        .expect("the cancel was not answered");
+    let took = asked.elapsed();
+    assert_eq!(r.unwrap(), json!({}));
+    assert!(took < STOP_BUDGET, "the cancel was answered {took:?} after it was sent");
+}
