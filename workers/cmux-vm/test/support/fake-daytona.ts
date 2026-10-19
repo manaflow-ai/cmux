@@ -20,7 +20,8 @@ interface FakeSandbox {
   readonly toolboxProxyUrl: string;
 }
 
-const jsonObject = (value: unknown): Record<string, unknown> => (typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
+const jsonObject = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
 
 const snapshotResources = (snapshot: string | undefined): { cpu: number; memory: number; disk: number } => {
   switch (snapshot) {
@@ -68,7 +69,7 @@ export function makeFakeDaytona() {
     const text = await request.clone().text();
     if (text.length === 0) return null;
     try {
-      return JSON.parse(text) as unknown;
+      return JSON.parse(text);
     } catch {
       return null;
     }
@@ -90,7 +91,7 @@ export function makeFakeDaytona() {
         autoStopInterval: typeof body.autoStopInterval === "number" ? body.autoStopInterval : 0,
         autoDeleteInterval: typeof body.autoDeleteInterval === "number" ? body.autoDeleteInterval : -1,
         ttlMinutes: typeof body.ttlMinutes === "number" ? body.ttlMinutes : 0,
-        labels: jsonObject(body.labels) as Record<string, string>,
+        labels: Object.fromEntries(Object.entries(jsonObject(body.labels)).map(([key, value]) => [key, String(value)])),
         createdAt: "2026-10-18T00:00:00.000Z",
         updatedAt: "2026-10-18T00:00:00.000Z",
         toolboxProxyUrl: "https://proxy.daytona.test/toolbox",
@@ -161,20 +162,21 @@ export function makeFakeDaytona() {
       const entries = [...files.keys()]
         .filter((entry) => entry.startsWith(`${sandboxId}\u0000${prefix}`))
         .map((entry) => entry.slice(`${sandboxId}\u0000${prefix}`.length).split("/")[0])
-        .filter((entry, index, all) => entry.length > 0 && all.indexOf(entry) === index)
-        .map((name) => ({ name, isDir: false }));
+        .filter((entry, index, all) => entry !== undefined && entry.length > 0 && all.indexOf(entry) === index)
+        .flatMap((name) => (name === undefined ? [] : [{ name, isDir: false }]));
       return Response.json(entries);
     }
     return Response.json({ message: "not found" }, { status: 404 });
   };
 
-  const fetch = async (request: Request): Promise<Response> => {
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init);
     const url = new URL(request.url);
     const bytes = await record(request);
     let parsed: unknown = null;
     if (bytes !== null && request.headers.get("content-type")?.includes("json") === true) {
       try {
-        parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+        parsed = JSON.parse(new TextDecoder().decode(bytes));
       } catch {
         parsed = null;
       }

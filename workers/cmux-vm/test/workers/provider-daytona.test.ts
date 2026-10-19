@@ -1,4 +1,4 @@
-import { name } from "@gdp-ts/core";
+import { name, type Named } from "@gdp-ts/core";
 import { describe, expect, it } from "vitest";
 import { Effect, Layer, Redacted, Option } from "effect";
 import { signWebhookContent } from "../../src/auth/webhook-signature.ts";
@@ -8,7 +8,8 @@ import { TenantId, newSnapshotId, newVmId, UpstreamId } from "../../src/lib/ids.
 import { memoryLimitsLayer } from "../../src/limits/service.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
 import { Entitlements, tenantMayCreate } from "../../src/proofs/tenant-may-create.ts";
-import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
+import { keyHasScope, type KeyHasScope } from "../../src/proofs/key-has-scope.ts";
+import type { Scope } from "../../src/domain/scopes.ts";
 import { tenantOwnsSnapshot, tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
 import { makeDaytonaUpstreamClient } from "../../src/providers/daytona/live.ts";
 import { DAYTONA_CAPABILITIES } from "../../src/providers/capabilities.ts";
@@ -17,6 +18,11 @@ import type { UsageEvent } from "../../src/metering/recorder.ts";
 import { makeFakeDaytona } from "../support/fake-daytona.ts";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> => Effect.runPromise(effect);
+
+const scopeOf = <C, const S extends Scope>(caller: Named<C, Principal>, scope: S): Effect.Effect<KeyHasScope<C, S>> => {
+  const proof = keyHasScope(caller, scope);
+  return proof === null ? Effect.die("test scope proof missing") : Effect.succeed(proof);
+};
 
 const tenant = TenantId.make("tenant_daytona");
 const principal: Principal = {
@@ -43,21 +49,7 @@ const makeProofs = async () => {
     tenantPolicyLayer({ environment: "local" }),
     Layer.succeed(Entitlements, { mayCreate: () => Effect.succeed(true) }),
   );
-  const caller = await run(name(principal, (value) => Effect.succeed(value)));
-  const ownVm = async (cmuxId: ReturnType<typeof newVmId>, upstreamId: string) => {
-    resources.push({ tenantId: tenant, kind: "vm", cmuxId, upstreamId: UpstreamId.make(upstreamId), createdBy: "test", createdAt: new Date(), displayName: null, labels: {} });
-    return run(name(cmuxId, (value) => tenantOwnsVm(caller, value)).pipe(Effect.provide(ownership)));
-  };
-  const ownSnapshot = async (cmuxId: ReturnType<typeof newSnapshotId>, upstreamId: string) => {
-    resources.push({ tenantId: tenant, kind: "snapshot", cmuxId, upstreamId: UpstreamId.make(upstreamId), createdBy: "test", createdAt: new Date(), displayName: null, labels: {} });
-    return run(name(cmuxId, (value) => tenantOwnsSnapshot(caller, value)).pipe(Effect.provide(ownership)));
-  };
-  const mayCreate = async () => {
-    const decision = await run(tenantMayCreate(caller, "vm").pipe(Effect.provide(runtime)));
-    if (decision._tag !== "granted") throw new Error(`expected create proof, got ${decision._tag}`);
-    return decision.proof;
-  };
-  return { caller, ownVm, ownSnapshot, mayCreate, resources };
+  return { ownership, runtime, resources };
 };
 
 describe("Daytona provider adapter", () => {
@@ -72,34 +64,54 @@ describe("Daytona provider adapter", () => {
     });
     const proofs = await makeProofs();
     const vmId = newVmId();
-    const create = await run(
-      client.createVm(proofs.caller, { cmuxId: vmId, idleTimeoutSeconds: 120, environment: "test", size: { vcpus: 2, memoryMib: 4096, diskMib: 8192 } }, { mayCreate: await proofs.mayCreate(), scope: keyHasScope(proofs.caller, "vm:write")! }),
+    await run(
+      name(principal, (caller) =>
+        Effect.gen(function* () {
+          const decision = yield* tenantMayCreate(caller, "vm").pipe(Effect.provide(proofs.runtime));
+          if (decision._tag !== "granted") return yield* Effect.die("test create proof missing");
+          const write = yield* scopeOf(caller, "vm:write");
+          const create = yield* client.createVm(caller, { cmuxId: vmId, idleTimeoutSeconds: 120, environment: "test", size: { vcpus: 2, memoryMib: 4096, diskMib: 8192 } }, { mayCreate: decision.proof, scope: write });
+          proofs.resources.push({ tenantId: tenant, kind: "vm", cmuxId: vmId, upstreamId: create.upstreamId, createdBy: "test", createdAt: new Date(), displayName: null, labels: {} });
+          expect(create.vm).toMatchObject({ state: "running", resources: { cpu: 2, memory: 4096, storage: 8192 }, idleTimeoutSeconds: 120 });
+          return yield* name(vmId, (vm) =>
+            Effect.gen(function* () {
+              const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.provide(proofs.ownership));
+              if (owns === null) return yield* Effect.die("test VM ownership proof missing");
+              const read = yield* scopeOf(caller, "vm:read");
+              const exec = yield* scopeOf(caller, "vm:exec");
+              const files = yield* scopeOf(caller, "vm:files");
+              expect((yield* client.getVm(vm, { owns, scope: read })).state).toBe("running");
+              expect((yield* client.getVmForWrite(vm, { owns, scope: write })).resources.memory).toBe(4096);
+              const output = yield* client.exec(vm, { owns, scope: exec }, { command: "echo ok" });
+              const outputText = yield* Effect.promise(() => new Response(output).text());
+              expect(JSON.parse(outputText)).toEqual({ exitCode: 0, stdout: "ran: echo ok\n", stderr: "" });
+              const content = new TextEncoder().encode("hello daytona");
+              yield* client.writeFile(vm, { owns, scope: files }, { path: "workspace/hello.txt", mode: 0o644, body: new ReadableStream({ start(controller) { controller.enqueue(content); controller.close(); } }), length: content.length });
+              const file = yield* client.readFile(vm, { owns, scope: files }, "workspace/hello.txt", undefined);
+              const fileText = yield* Effect.promise(() => new Response(file.body).text());
+              expect(fileText).toBe("hello daytona");
+              expect(yield* client.listFiles(vm, { owns, scope: files }, "workspace")).toEqual([{ name: "hello.txt", kind: "file" }]);
+              const grown = yield* create.grow({ vcpus: 3, memoryMib: 5120, diskMib: 9216 });
+              expect(grown.resources).toEqual({ cpu: 3, memory: 5120, storage: 9216 });
+              const snapshotCmuxId = newSnapshotId();
+              const snapshot = yield* client.snapshotForFork(caller, vm, { cmuxId: snapshotCmuxId }, { owns, scope: write, mayCreate: decision.proof });
+              proofs.resources.push({ tenantId: tenant, kind: "snapshot", cmuxId: snapshotCmuxId, upstreamId: snapshot.upstreamId, createdBy: "test", createdAt: new Date(), displayName: null, labels: {} });
+              return yield* name(snapshotCmuxId, (snapshotNamed) =>
+                Effect.gen(function* () {
+                  const snapshotOwns = yield* tenantOwnsSnapshot(caller, snapshotNamed).pipe(Effect.provide(proofs.ownership));
+                  if (snapshotOwns === null) return yield* Effect.die("test snapshot ownership proof missing");
+                  expect(yield* client.deleteSnapshot(snapshotNamed, { owns: snapshotOwns, scope: write })).toBe("deleted");
+                  expect((yield* client.pauseVm(vm, { owns, scope: write })).state).toBe("stopped");
+                  expect((yield* client.startVm(vm, { owns, scope: write })).state).toBe("running");
+                  yield* client.shutdownVm(vm, { owns, scope: write });
+                  expect(yield* client.deleteVm(vm, { owns, scope: write })).toBe("deleted");
+                }),
+              );
+            }),
+          );
+        }),
+      ),
     );
-    expect(create.vm).toMatchObject({ state: "running", resources: { cpu: 2, memory: 4096, storage: 8192 }, idleTimeoutSeconds: 120 });
-    const owns = await proofs.ownVm(vmId, create.upstreamId);
-    const read = keyHasScope(proofs.caller, "vm:read")!;
-    const write = keyHasScope(proofs.caller, "vm:write")!;
-    const exec = keyHasScope(proofs.caller, "vm:exec")!;
-    const files = keyHasScope(proofs.caller, "vm:files")!;
-    expect((await run(client.getVm(vmId, { owns, scope: read }))).state).toBe("running");
-    expect((await run(client.getVmForWrite(vmId, { owns, scope: write }))).resources.memory).toBe(4096);
-    const output = await run(client.exec(vmId, { owns, scope: exec }, { command: "echo ok" }));
-    expect(JSON.parse(await new Response(output).text())).toEqual({ exitCode: 0, stdout: "ran: echo ok\n", stderr: "" });
-    const content = new TextEncoder().encode("hello daytona");
-    await run(client.writeFile(vmId, { owns, scope: files }, { path: "workspace/hello.txt", mode: 0o644, body: new ReadableStream({ start(controller) { controller.enqueue(content); controller.close(); } }), length: content.length }));
-    const file = await run(client.readFile(vmId, { owns, scope: files }, "workspace/hello.txt", undefined));
-    expect(await new Response(file.body).text()).toBe("hello daytona");
-    expect(await run(client.listFiles(vmId, { owns, scope: files }, "workspace")).then((entries) => entries)).toEqual([{ name: "hello.txt", kind: "file" }]);
-    const grown = await run(create.grow({ vcpus: 3, memoryMib: 5120, diskMib: 9216 }));
-    expect(grown.resources).toEqual({ cpu: 3, memory: 5120, storage: 9216 });
-    const snapshotCmuxId = newSnapshotId();
-    const snapshot = await run(client.snapshotForFork(proofs.caller, vmId, { cmuxId: snapshotCmuxId }, { owns, scope: write, mayCreate: await proofs.mayCreate() }));
-    const snapshotOwns = await proofs.ownSnapshot(snapshotCmuxId, snapshot.upstreamId);
-    expect(await run(client.deleteSnapshot(snapshotCmuxId, { owns: snapshotOwns, scope: write }))).toBe("deleted");
-    expect((await run(client.pauseVm(vmId, { owns, scope: write }))).state).toBe("stopped");
-    expect((await run(client.startVm(vmId, { owns, scope: write }))).state).toBe("running");
-    await run(client.shutdownVm(vmId, { owns, scope: write }));
-    expect(await run(client.deleteVm(vmId, { owns, scope: write }))).toBe("deleted");
     expect(fake.calls.some((call) => call.url.pathname.endsWith("/sandbox") && call.method === "POST")).toBe(true);
     expect(fake.calls.find((call) => call.method === "POST" && call.url.pathname.endsWith("/sandbox"))?.url.pathname).toBe("/api/sandbox");
   });
@@ -109,13 +121,24 @@ describe("Daytona provider adapter", () => {
     const client = makeDaytonaUpstreamClient({ apiKey: Redacted.make("daytona-test-key"), apiUrl: "https://daytona.test/api", environment: "test", fetch: fake.fetch });
     const proofs = await makeProofs();
     const vmId = newVmId();
-    const owns = await proofs.ownVm(vmId, "missing-sandbox");
-    const result = await run(Effect.either(client.getVm(vmId, { owns, scope: keyHasScope(proofs.caller, "vm:read")! })));
+    proofs.resources.push({ tenantId: tenant, kind: "vm", cmuxId: vmId, upstreamId: UpstreamId.make("missing-sandbox"), createdBy: "test", createdAt: new Date(), displayName: null, labels: {} });
+    const result = await run(
+      Effect.either(
+        name(principal, (caller) =>
+          name(vmId, (vm) =>
+            Effect.gen(function* () {
+              const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.provide(proofs.ownership));
+              if (owns === null) return yield* Effect.die("test ownership proof missing");
+              const read = yield* scopeOf(caller, "vm:read");
+              return yield* client.getVm(vm, { owns, scope: read });
+            }),
+          ),
+        ),
+      ),
+    );
     expect(result._tag).toBe("Left");
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("UpstreamError");
-      expect(result.left.status).toBe(404);
-    }
+    if (result._tag === "Left" && result.left._tag === "UpstreamError") expect(result.left.status).toBe(404);
+    else expect.fail("expected Daytona UpstreamError");
   });
 
   it("refuses the capabilities the Daytona default sandbox does not provide", () => {

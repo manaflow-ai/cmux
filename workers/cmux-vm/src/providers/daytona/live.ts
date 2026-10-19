@@ -14,33 +14,23 @@ export interface DaytonaClientConfig {
   readonly apiKey: Redacted.Redacted<string>;
   readonly apiUrl: string;
   readonly organizationId?: string;
-  readonly fetch?: typeof fetch;
+  readonly fetch?: typeof globalThis.fetch;
   readonly environment: string;
 }
 
 interface DaytonaSandbox {
   readonly id: string;
-  readonly name?: string;
-  readonly state?: string;
-  readonly cpu?: number;
-  readonly memory?: number;
-  readonly disk?: number;
-  readonly autoStopInterval?: number;
-  readonly autoDeleteInterval?: number;
-  readonly ttlMinutes?: number;
-  readonly createdAt?: string;
-  readonly updatedAt?: string;
-  readonly toolboxProxyUrl?: string;
-}
-
-interface DaytonaExecResult {
-  readonly result?: unknown;
-  readonly exitCode?: unknown;
-}
-
-interface DaytonaFileInfo {
-  readonly name?: unknown;
-  readonly isDir?: unknown;
+  readonly name: string | undefined;
+  readonly state: string | undefined;
+  readonly cpu: number | undefined;
+  readonly memory: number | undefined;
+  readonly disk: number | undefined;
+  readonly autoStopInterval: number | undefined;
+  readonly autoDeleteInterval: number | undefined;
+  readonly ttlMinutes: number | undefined;
+  readonly createdAt: string | undefined;
+  readonly updatedAt: string | undefined;
+  readonly toolboxProxyUrl: string | undefined;
 }
 
 class DaytonaHttpFailure extends Error {
@@ -58,10 +48,7 @@ const MAX_MEMORY_MIB = 8192;
 const MAX_DISK_MIB = 10240;
 const encoder = new TextEncoder();
 
-const asObject = (value: unknown): Record<string, unknown> => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("expected an object");
-  return value as Record<string, unknown>;
-};
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 const optionalString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 
@@ -111,7 +98,8 @@ const vmFromSandbox = (sandbox: DaytonaSandbox): UpstreamVm => {
 };
 
 const decodeSandbox = (value: unknown): DaytonaSandbox => {
-  const object = asObject(value);
+  if (!isRecord(value)) throw new Error("expected an object");
+  const object = value;
   const id = optionalString(object.id);
   if (id === undefined) throw new Error("sandbox id is missing");
   return {
@@ -137,7 +125,7 @@ const timeoutSignal = (timeoutMs: number): AbortSignal => AbortSignal.timeout(ti
 /** A fetch-backed Daytona adapter. The API key is only read in this module. */
 export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): UpstreamClientService {
   const base = new URL(config.apiUrl.endsWith("/") ? config.apiUrl : `${config.apiUrl}/`);
-  const sendRequest: typeof fetch = config.fetch ?? globalThis.fetch;
+  const sendRequest: typeof globalThis.fetch = config.fetch ?? globalThis.fetch;
 
   const mainUrl = (path: string): URL => new URL(path.replace(/^\/+/, ""), base);
   const toolboxUrl = (proxy: string, sandboxId: string, path: string): URL => {
@@ -186,12 +174,12 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
       catch: (cause) => new UpstreamError({ operation, status: cause instanceof DaytonaHttpFailure ? cause.status : null }),
     });
 
-  const readJson = <T>(operation: string, response: Response): Effect.Effect<T, UpstreamError> =>
+  const readJson = (operation: string, response: Response): Effect.Effect<unknown, UpstreamError> =>
     Effect.tryPromise({
       try: async () => {
         const text = await response.text();
         if (text.length > MAX_RESPONSE_BYTES) throw new Error("response too large");
-        return JSON.parse(text) as T;
+        return JSON.parse(text);
       },
       catch: () => new UpstreamError({ operation, status: response.status }),
     });
@@ -199,7 +187,7 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
   const drain = (response: Response): Effect.Effect<void> => Effect.promise(async () => void (await response.body?.cancel()));
 
   const decodeSandboxResponse = (operation: string, response: Response): Effect.Effect<{ readonly sandbox: DaytonaSandbox; readonly vm: UpstreamVm }, UpstreamError> =>
-    readJson<unknown>(operation, response).pipe(
+    readJson(operation, response).pipe(
       Effect.flatMap((body) => {
         try {
           const sandbox = decodeSandbox(body);
@@ -276,9 +264,10 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
 
   const idOf = <C, R>(owns: TenantOwnsResource<C, R>): Effect.Effect<UpstreamId> => Effect.sync(() => upstreamIdOf(owns));
 
-  const execStream = (result: DaytonaExecResult): ReadableStream<Uint8Array> => {
-    const exitCode = typeof result.exitCode === "number" && Number.isInteger(result.exitCode) ? result.exitCode : null;
-    const stdout = typeof result.result === "string" ? result.result : "";
+  const execStream = (result: unknown): ReadableStream<Uint8Array> => {
+    const record = isRecord(result) ? result : {};
+    const exitCode = typeof record.exitCode === "number" && Number.isInteger(record.exitCode) ? record.exitCode : null;
+    const stdout = typeof record.result === "string" ? record.result : "";
     const body = encoder.encode(JSON.stringify({ exitCode, stdout, stderr: "" }));
     return new ReadableStream({
       start(controller) {
@@ -288,9 +277,9 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
     });
   };
 
-  const toolboxRequest = <T>(operation: string, sandbox: DaytonaSandbox, path: string, init: Parameters<typeof send>[2]) => {
+  const toolboxRequest = (operation: string, sandbox: DaytonaSandbox, path: string, init: Parameters<typeof send>[2]) => {
     if (sandbox.toolboxProxyUrl === undefined) return Effect.fail(new UpstreamError({ operation, status: null }));
-    return send(operation, toolboxUrl(sandbox.toolboxProxyUrl, sandbox.id, path), init, false).pipe(Effect.flatMap((response) => readJson<T>(operation, response)));
+    return send(operation, toolboxUrl(sandbox.toolboxProxyUrl, sandbox.id, path), init, false).pipe(Effect.flatMap((response) => readJson(operation, response)));
   };
 
   return {
@@ -315,7 +304,7 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
         Effect.flatMap((response) => decodeSandboxResponse("createVm", response)),
         Effect.map(({ sandbox, vm }) => {
           const createdId = upstreamId(sandbox.id);
-          const discard = deleteById("discardVm", `/sandbox/${encodeURIComponent(createdId)}`).pipe(Effect.asVoid);
+          const discard = deleteById("discardVm", `/sandbox/${encodeURIComponent(createdId)}`).pipe(Effect.ignore);
           return { upstreamId: createdId, vm, discard, grow: (size: SizeRequest) => growVm(createdId, vm, size) };
         }),
       );
@@ -350,7 +339,7 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
       idOf(owns).pipe(
         Effect.flatMap((id) => getSandbox("execVm", id)),
         Effect.flatMap(({ sandbox }) => {
-          const envs: Record<string, string> = { ...(spec.env ?? {}) };
+          const envs: Record<string, string> = { ...spec.env };
           let command = spec.command;
           if (spec.stdinBase64 !== undefined) {
             envs.CMUX_DAYTONA_STDIN = spec.stdinBase64;
@@ -359,7 +348,7 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
           }
           const request: Record<string, unknown> = { command, ...(Object.keys(envs).length === 0 ? {} : { envs }) };
           if (spec.timeoutMs !== undefined) request.timeout = Math.max(1, Math.ceil(spec.timeoutMs / 1000));
-          return toolboxRequest<DaytonaExecResult>("execVm", sandbox, "/process/execute", { method: "POST", json: request });
+          return toolboxRequest("execVm", sandbox, "/process/execute", { method: "POST", json: request });
         }),
         Effect.map(execStream),
       ),
@@ -368,9 +357,9 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
       idOf(owns).pipe(
         Effect.flatMap((id) => getSandbox("readFile", id)),
         Effect.flatMap(({ sandbox }) => {
-          const headers = range === undefined ? undefined : { range };
           if (sandbox.toolboxProxyUrl === undefined) return Effect.fail(new UpstreamError({ operation: "readFile", status: null }));
-          return send("readFile", toolboxUrl(sandbox.toolboxProxyUrl, sandbox.id, "/files/download"), { method: "GET", headers, timeoutMs: 900_000 }, false).pipe(
+          const init = range === undefined ? { method: "GET" as const, timeoutMs: 900_000 } : { method: "GET" as const, headers: { range }, timeoutMs: 900_000 };
+          return send("readFile", toolboxUrl(sandbox.toolboxProxyUrl, sandbox.id, `/files/download?path=${encodeURIComponent(path)}`), init, false).pipe(
             Effect.map((response): FileRead => ({
               status: response.status === 206 ? 206 : 200,
               contentRange: response.headers.get("content-range"),
@@ -385,13 +374,14 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
       idOf(owns).pipe(
         Effect.flatMap((id) => getSandbox("writeFile", id)),
         Effect.flatMap(({ sandbox }) => {
-          if (sandbox.toolboxProxyUrl === undefined) return Effect.fail(new UpstreamError({ operation: "writeFile", status: null }));
-          return send("writeFile", toolboxUrl(sandbox.toolboxProxyUrl, sandbox.id, `/files/upload-v2?path=${encodeURIComponent(file.path)}`), { method: "POST", body: file.body, length: file.length, timeoutMs: 900_000 }, false).pipe(
+          const proxy = sandbox.toolboxProxyUrl;
+          if (proxy === undefined) return Effect.fail(new UpstreamError({ operation: "writeFile", status: null }));
+          return send("writeFile", toolboxUrl(proxy, sandbox.id, `/files/upload-v2?path=${encodeURIComponent(file.path)}`), { method: "POST", body: file.body, length: file.length, timeoutMs: 900_000 }, false).pipe(
             Effect.flatMap(drain),
             Effect.flatMap(() =>
               file.mode === undefined
                 ? Effect.void
-                : send("writeFileMode", toolboxUrl(sandbox.toolboxProxyUrl as string, sandbox.id, `/files/permissions?path=${encodeURIComponent(file.path)}&mode=${file.mode.toString(8)}`), { method: "POST" }, false).pipe(Effect.flatMap(drain)),
+                : send("writeFileMode", toolboxUrl(proxy, sandbox.id, `/files/permissions?path=${encodeURIComponent(file.path)}&mode=${file.mode.toString(8)}`), { method: "POST" }, false).pipe(Effect.flatMap(drain)),
             ),
           );
         }),
@@ -400,11 +390,12 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
     listFiles: (_vm, { owns }, path) =>
       idOf(owns).pipe(
         Effect.flatMap((id) => getSandbox("listFiles", id)),
-        Effect.flatMap(({ sandbox }) => toolboxRequest<ReadonlyArray<DaytonaFileInfo>>("listFiles", sandbox, `/files?path=${encodeURIComponent(path)}`, { method: "GET" })),
+        Effect.flatMap(({ sandbox }) => toolboxRequest("listFiles", sandbox, `/files?path=${encodeURIComponent(path)}`, { method: "GET" })),
         Effect.flatMap((entries) => {
           if (!Array.isArray(entries)) return Effect.fail(new UpstreamError({ operation: "listFiles", status: null }));
           return Effect.succeed(
             entries.flatMap((entry) => {
+              if (!isRecord(entry)) return [];
               const name = typeof entry.name === "string" ? entry.name : null;
               if (name === null) return [];
               return [{ name, kind: entry.isDir === true ? "directory" : "file" }];

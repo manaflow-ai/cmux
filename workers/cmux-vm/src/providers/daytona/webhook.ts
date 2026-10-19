@@ -24,7 +24,7 @@ const response = (status: number, body: Record<string, unknown>): Response => Re
 
 const bodyObject = (value: unknown): Record<string, unknown> | null => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(value));
 };
 
 const stringField = (object: Record<string, unknown>, key: string): string | null => (typeof object[key] === "string" ? object[key] : null);
@@ -60,7 +60,7 @@ const eventFor = (payload: Record<string, unknown>, resource: DaytonaUsageResour
 /** Creates a signed Daytona webhook handler. Svix delivery ids are replay-protected in this isolate. */
 export const makeDaytonaWebhookHandler = (config: DaytonaWebhookConfig) => {
   const seen = new Map<string, number>();
-  return (request: Request): Effect.Effect<Response> =>
+  return (request: Request) =>
     Effect.gen(function* () {
       if (request.method !== "POST") return response(405, { _tag: "MethodNotAllowed", message: "Use POST" });
       const declared = Number(request.headers.get("content-length") ?? "0");
@@ -75,7 +75,7 @@ export const makeDaytonaWebhookHandler = (config: DaytonaWebhookConfig) => {
       seen.set(signature.messageId, nowMs);
       let parsed: unknown;
       try {
-        parsed = JSON.parse(body) as unknown;
+        parsed = JSON.parse(body);
       } catch {
         return response(400, { _tag: "BadRequest", message: "Malformed webhook body" });
       }
@@ -94,4 +94,4 @@ export const makeDaytonaWebhookHandler = (config: DaytonaWebhookConfig) => {
 };
 
 /** One-shot form used by the wave-2 route composition root. */
-export const handleDaytonaWebhook = (request: Request, config: DaytonaWebhookConfig): Effect.Effect<Response> => makeDaytonaWebhookHandler(config)(request);
+export const handleDaytonaWebhook = (request: Request, config: DaytonaWebhookConfig) => makeDaytonaWebhookHandler(config)(request);
