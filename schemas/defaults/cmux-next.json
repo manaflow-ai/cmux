@@ -517,6 +517,7 @@
     "setting.sidebar.borderWidth": null,
     "setting.sidebar.bottomBandMaxShare": 0.25,
     "setting.sidebar.cards.tips": true,
+    "setting.sidebar.cloudGroup": true,
     "setting.sidebar.cmd9": "last",
     "setting.sidebar.density": "compact",
     "setting.sidebar.detailedStatusIcons": false,
