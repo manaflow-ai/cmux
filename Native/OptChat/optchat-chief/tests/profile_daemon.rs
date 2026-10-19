@@ -360,6 +360,7 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
             control: None,
             inspector: None,
             chief: Some(Arc::new(tools)),
+            turn: None,
         },
     )
     .unwrap();

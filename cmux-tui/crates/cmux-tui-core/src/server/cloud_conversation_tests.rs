@@ -566,6 +566,153 @@ fn a_cloud_chiefs_live_frames_pass_through_and_a_subscriber_asks_for_the_snapsho
     assert!(subscribe < get, "{sent:?}");
 }
 
+/// `cloud-conversation-typing`: the owner's `typing {on, conversation}` frame
+/// goes out on the conversation's shared socket once it is live, from any
+/// client of the daemon while the conversation has a subscriber (a Chief
+/// brain subscribes on one connection and writes on another); without a
+/// subscriber it is refused and nothing is sent.
+#[test]
+fn typing_goes_out_as_the_owners_typing_frame_on_the_shared_socket() {
+    let (mux, client, backend) = cloud_mux();
+    let identity = run(&mux, client, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "cloud-conversation-typing-v1"),
+        "{identity}"
+    );
+    sign_in(&mux, client);
+    let refused = reply(
+        &mux,
+        client,
+        json!({"id":1,"cmd":"cloud-conversation-typing","conversation":CONV,"on":true}),
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(refused["reason"], "not_subscribed", "{refused}");
+
+    let events = mux.subscribe();
+    let wire = backend.wire();
+    wire.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    let mut seen = Vec::new();
+    wait_until("the socket to go live", || {
+        seen.extend(cloud_events(&events));
+        seen.iter()
+            .any(|event| event["event"] == "cloud-subscription-state" && event["state"] == "live")
+    });
+    let typing_frames = |wire: &crate::cloud_conversations::testing::ScriptedWire| -> Vec<Value> {
+        wire.sent()
+            .iter()
+            .filter_map(|frame| serde_json::from_str::<Value>(frame).ok())
+            .filter(|frame| frame["t"] == "typing")
+            .collect()
+    };
+    let frame = |on: bool| json!({"t":"typing","on":on,"conversation":CONV});
+    let writer_client = mux.control_clients.register(ClientTransport::Unix, writer());
+    for (n, on) in [true, false, true].into_iter().enumerate() {
+        let sent = run(
+            &mux,
+            writer_client,
+            json!({"cmd":"cloud-conversation-typing","conversation":CONV,"on":on}),
+        )
+        .unwrap();
+        assert_eq!(sent["conversation"], CONV, "{sent}");
+        wait_until("the typing frame", || typing_frames(&wire).len() > n);
+    }
+    assert_eq!(typing_frames(&wire), vec![frame(true), frame(false), frame(true)]);
+
+    // The socket drops while on: the owner turned it off at the close, so the
+    // next socket sends it again once live.
+    let second = backend.wire();
+    wire.push_close(None);
+    second.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    wait_until("the typing frame on the new socket", || !typing_frames(&second).is_empty());
+    assert_eq!(typing_frames(&second), vec![frame(true)]);
+    // The sender's connection closes while on; the subscriber keeps the
+    // socket, so the daemon turns it off.
+    disconnect_client(&mux, writer_client, false);
+    wait_until("the typing off", || typing_frames(&second).len() > 1);
+    assert_eq!(typing_frames(&second), vec![frame(true), frame(false)]);
+    mux.cloud_conversations().unwrap().shutdown();
+}
+
+/// The owner's `conversation-typing` broadcast of a subscribed conversation
+/// (a Cloud Chief, or another person, types) reaches the daemon socket's
+/// subscribers that echoed `cloud-conversation-typing-v1` as
+/// `cloud-conversation-typing {conversation, participant, on}`, on and off,
+/// so the app's Home page shows the Chief typing. Another conversation's
+/// frame and a frame without a participant or a boolean `on` do not pass; a
+/// connection that did not echo the capability hears none.
+#[cfg(unix)]
+#[test]
+fn the_owners_typing_reaches_the_socket_subscribers_that_asked_for_it() {
+    use super::super::client_hello::tests::Client;
+    const CHIEF: &str = "agent_01M4X1B5362SM3QJVJ155DA0GB";
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let mut page = Client::connect(&mux, "cloud-typing-page");
+    let echoed = page.request(json!({"cmd":"set-client-info","name":"cmux page: home-channels",
+        "capabilities":["cloud-conversation-typing-v1"]}));
+    assert_eq!(echoed["ok"], true, "{echoed}");
+    assert_eq!(page.request(json!({"cmd":"subscribe"}))["ok"], true);
+    let mut old = Client::connect(&mux, "cloud-typing-old");
+    assert_eq!(old.request(json!({"cmd":"subscribe"}))["ok"], true);
+
+    let wire = backend.wire();
+    wire.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    let live =
+        |event: &Value| event["event"] == "cloud-subscription-state" && event["state"] == "live";
+    assert!(page.event_within(Duration::from_secs(10), live).is_some(), "the socket went live");
+    // The old connection hears the stream (its silence below is the capability).
+    assert!(old.event_within(Duration::from_secs(10), live).is_some(), "the old one hears it");
+
+    let typing = |conversation: &str, on: Value| {
+        json!({"t":"conversation-typing","conversation":conversation,"participant":CHIEF,"on":on})
+            .to_string()
+    };
+    wire.push_text(typing("conv_ZZZZZZZZZZZZZZZZZZZZZZZZZZ", json!(true)));
+    wire.push_text(json!({"t":"conversation-typing","conversation":CONV,"on":true}).to_string());
+    wire.push_text(typing(CONV, json!("yes")));
+    wire.push_text(typing(CONV, json!(true)));
+    wire.push_text(typing(CONV, json!(false)));
+    let is_typing = |event: &Value| event["event"] == "cloud-conversation-typing";
+    let mut seen = Vec::new();
+    while let Some(event) = page.event_within(Duration::from_secs(10), is_typing) {
+        seen.push(event);
+        if seen.len() == 2 {
+            break;
+        }
+    }
+    let expected = |on: bool| json!({"event":"cloud-conversation-typing","conversation":CONV,"participant":CHIEF,"on":on});
+    assert_eq!(seen, vec![expected(true), expected(false)]);
+    // Nothing else came: the dropped frames were before the two that passed.
+    assert!(page.event_within(Duration::from_millis(300), is_typing).is_none());
+
+    // The Chief types again and the socket drops: its `off` could only come
+    // on that socket, so the daemon turns it off for the page.
+    wire.push_text(typing(CONV, json!(true)));
+    let on = page.event_within(Duration::from_secs(10), is_typing);
+    assert_eq!(on, Some(expected(true)));
+    let _next = backend.wire();
+    wire.push_close(None);
+    let off = page.event_within(Duration::from_secs(10), is_typing);
+    assert_eq!(off, Some(expected(false)));
+    assert!(old.event_within(Duration::from_millis(300), is_typing).is_none());
+    mux.cloud_conversations().unwrap().shutdown();
+}
+
 /// One `message.send` event of the conversation stream at `seq`.
 fn message_event(seq: u64) -> String {
     json!({"t":"event","stream":format!("conv:{CONV}"),"seq":seq,"tx":format!("tx-{seq}"),

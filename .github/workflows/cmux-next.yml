@@ -139,6 +139,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-phone-lane-fields.py
+      - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -325,6 +327,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-phone-lane-fields.py
+      - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -1100,6 +1104,13 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/gen-settings-sources.py --check
 
+      # The phone daemon lane's per-command field allowlist, generated from the daemon's request
+      # schema and the lane's command allowlist (DaemonLanePolicy+Fields.generated.swift).
+      - name: Phone lane field allowlist
+        id: phone-lane-fields
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+
       # The backdrop art list (ids, titles, image and thumbnail URLs, Shuffle Daily) exported
       # from the CmuxNextDesign Swift to plans/cmux-next/backdrop-art.json for the GPUI app.
       - name: Backdrop art export
@@ -1353,6 +1364,7 @@ jobs:
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
+            ${{ steps.phone-lane-fields.outcome }}|Phone lane field allowlist
             ${{ steps.backdrop-art.outcome }}|Backdrop art export
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
@@ -1593,6 +1605,10 @@ jobs:
     needs: [macos-placement, push-head-preflight]
     if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
     name: cmux-next fast tier
+    # The cache saves name the R2 write credentials, which live in the ci-cache-writer
+    # environment (main only; tests/test_ci_pull_request_caches_are_read_only.py). This job
+    # never runs on main, so it still enters no environment: the line changes nothing at run time.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier', github.ref) || format('cmux-next-run-{0}-fast-tier', github.run_id) }}
       cancel-in-progress: false

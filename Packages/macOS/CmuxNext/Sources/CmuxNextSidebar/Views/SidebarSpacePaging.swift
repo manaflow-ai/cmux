@@ -199,6 +199,7 @@ import QuartzCore
         model.collapsedWorkspaces = host.model.collapsedWorkspaces
         (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
+        model.detailedStatus = host.model.detailedStatus
         model.activeWorkspaceID = host.model.activeWorkspaceID
         let list = SidebarListView(model: model)
         let container = SpacePageView(frame: page.frame)
