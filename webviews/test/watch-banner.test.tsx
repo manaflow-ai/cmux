@@ -2,7 +2,7 @@
 // `hub/watch.rs`, Leo 2026-10-18): the pane names the app the session runs in and offers Take Over.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { WatchBanner, watchedApp } from "../src/agent-session/acpmux/WatchBanner";
+import { WatchBanner, watchGoBack, watchedApp } from "../src/agent-session/acpmux/WatchBanner";
 
 test("the banner names the app the watched session runs in and offers Take Over", () => {
   const html = renderToStaticMarkup(<WatchBanner family="claude" onTakeOver={() => {}} />);
@@ -28,4 +28,17 @@ test("the banner says a reply takes the session over", () => {
   expect(renderToStaticMarkup(<WatchBanner family="codex" onTakeOver={() => {}} />)).toContain(
     "Reply to take over this session",
   );
+});
+
+// Going back (Leo 2026-10-19): after a take-over the transcript says how the original app goes on.
+test("a take-over says how to continue in the original app", () => {
+  const claude = watchGoBack({ family: "claude", agentSessionId: "abc", cwd: "/Users/me/my project" });
+  expect(claude).toContain("Claude Code");
+  expect(claude).toContain("cd '/Users/me/my project' && claude --resume abc");
+  const codex = watchGoBack({ family: "codex", agentSessionId: "019a", cwd: "/w" });
+  expect(codex).toContain("cd /w && codex resume 019a");
+  const fork = watchGoBack({ family: "claude", agentSessionId: "abc", cwd: "/w", fork: true });
+  expect(fork).toContain("untouched");
+  expect(watchGoBack({ family: "opencode", agentSessionId: "x", cwd: "/w" })).toBeUndefined();
+  expect(watchGoBack({ family: "claude", cwd: "/w" })).toBeUndefined();
 });

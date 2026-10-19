@@ -209,6 +209,13 @@ async fn taking_over_a_watched_chat_lets_it_run_the_conversation() {
     until_prompts(&hub, &sid, 1).await;
     let taken = c.request("_acpmux/watch_take_over", json!({"sessionId": sid})).await.unwrap();
     assert!(taken["watching"].is_null(), "{taken}");
+    // The record says which app and folder the conversation goes back to (the pane's "to continue
+    // there" line).
+    let record = hub.events(&sid, 0, 10_000).unwrap().into_iter().find(|e| e.kind == "watch_taken_over");
+    let record = record.expect("watch_taken_over").msg;
+    assert_eq!(record["family"], "codex", "{record}");
+    assert_eq!(record["agentSessionId"], id.as_str(), "{record}");
+    assert!(record["cwd"].as_str().is_some_and(|c| !c.is_empty()), "{record}");
     let r = c.request(method::SESSION_PROMPT, prompt(&sid, "carry on", None)).await.unwrap();
     assert_eq!(r["stopReason"], "end_turn", "{r}");
     assert_eq!(prompts(&hub, &sid), ["earlier", "carry on"]);
