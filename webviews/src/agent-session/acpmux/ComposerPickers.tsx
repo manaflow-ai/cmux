@@ -217,10 +217,7 @@ export function ComposerPickers({
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
-  // A sessionless New Tab has no live mode report yet. Keep the last mode catalog observed for
-  // this harness active so its shield remains a usable picker instead of an inert PendingChip.
-  const modeSource = summary?.modes ?? harnessProfiles.get(summary?.harness)?.modes;
-  const allModes: Choice[] = (modeSource?.availableModes ?? []).map((mode) => ({
+  const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     name: mode.name || mode.id,
     description: mode.description,
@@ -228,7 +225,7 @@ export function ComposerPickers({
   const plan = allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
   const hasGrants = (permissionAccess?.grants.length ?? 0) > 0;
-  const currentId = summary?.modes?.currentModeId ?? modeSource?.currentModeId;
+  const currentId = summary?.modes?.currentModeId;
   const planning = plan !== undefined && currentId === plan.id;
   // Leaving Plan returns to the permission mode this session had before it, never another session's.
   const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
@@ -549,19 +546,18 @@ export function ComposerPickers({
           ?.name ??
         startMode.modeId)
       : undefined;
-  // A fresh cmux-next chat may know only the start mode until the harness reports its full mode
-  // catalog. Keep that harness-specific full-access id in a real menu so the control is clickable
-  // and still routes through the normal mode setter.
-  const pendingAccessModes: Choice[] =
-    startMode && !startMode.borrowed
-      ? [
-          {
-            id: startMode.modeId,
-            name: startModeName ?? t(PICKER_LABELS.mode),
-            description: t(PICKER_LABELS.fullAccessWarning),
-          },
-        ]
-      : [];
+  // Until the chat reports its modes, the start mode acpmux answered is a live menu (not an inert
+  // chip): the harness's last mode catalog for the rows, checked at the start mode, never at the
+  // mode its last chat showed. A pick routes through the normal mode setter.
+  const pendingAccessModes: Choice[] = (() => {
+    if (!startMode || startMode.borrowed) return [];
+    const known = (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [])
+      .filter((choice) => !isPlan(choice.id))
+      .map((choice) => ({ id: choice.id, name: choice.name || choice.id, description: choice.description }));
+    if (known.some((choice) => choice.id === startMode.modeId)) return known;
+    const description = unrestricted(startMode.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
+    return [{ id: startMode.modeId, name: startModeName ?? startMode.modeId, description }, ...known];
+  })();
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortShown)
       rememberLastChips(chipHarness, { effort: effortShown });
@@ -691,7 +687,7 @@ export function ComposerPickers({
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
           modes={modes.length > 0 ? modes : pendingAccessModes}
-          current={mode?.id ?? pendingAccessModes[0]?.id}
+          current={mode?.id ?? (pendingAccessModes.length > 0 ? startMode?.modeId : undefined)}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           permissionAccess={permissionAccess}
