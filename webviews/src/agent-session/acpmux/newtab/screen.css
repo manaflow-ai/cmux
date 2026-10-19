@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(16px,calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll). */
 @media (max-height:480px){.nt-screen{padding-top:12px}}
@@ -86,30 +86,17 @@
 }
 /* The location strip (ComposerContext, the composer's own; hq#1957 composer location strip) heads
    the card as plain text a few px over it (Cursor's home, #21133; the rules after the strip's fill
-   below). Under a top strip variant (Debug Settings) it is a tab of the card's fill instead, in
-   from the card's sides by its corner radius. Its wrapper only marks the page as touched, so it
+   below). Under a top strip variant (Debug Settings) it is a strip of the card's fill instead,
+   spanning the card, its top corners the template's --acpmux-strip-radius. Its wrapper only marks the page as touched, so it
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
 .nt-location { display: contents; }
-.nt-composer { --acpmux-strip-inset: 20px; }
-/* The strip is the box's fill (.nt-box below): the composer's surface, and the box's hover lift
-   while the box has the pointer, so the two stay one surface at rest and on hover. */
+.nt-composer { --acpmux-strip-radius: 20px; }
+/* The strip is the box's fill (.nt-box below): the composer's surface, so the two stay one
+   surface. Neither changes on hover (Leo 2026-10-18: a composer is quiet, like Claude's and
+   ChatGPT's; only its controls answer the pointer). */
 .nt-composer .acpmux-composer-strip {
-  --nt-box-fill: color-mix(
-    in srgb,
-    var(--cmux-hover, color-mix(in srgb, var(--agent-text) 6%, transparent)) var(--nt-box-lift),
-    transparent
-  );
-  background: linear-gradient(var(--nt-box-fill), var(--nt-box-fill)),
-    var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-}
-.nt-composer:has(.nt-box:hover:not(:focus-within)) .acpmux-composer-strip {
-  --nt-box-lift: 100%;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .nt-composer .acpmux-composer-strip {
-    transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
-  }
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
 }
 /* Without a top strip variant (Debug Settings agentPane.debug.topStripStyle, composerLocation.css),
    the folder and computer are plain text over the card, as Cursor's home draws them: no tab shape,
@@ -136,7 +123,7 @@
 .nt-screen .nt-create .nt-tool {
   height: 28px;
   padding: 0 12px 0 10px;
-  border-radius: 999px;
+  border-radius: 8px;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-soft);
   font-weight: 400;
@@ -167,7 +154,7 @@
   border-radius: 10px;
 }
 .nt-screen[data-template="console"] .nt-composer {
-  --acpmux-strip-inset: 10px;
+  --acpmux-strip-radius: 10px;
 }
 .nt-screen[data-template="console"],
 .nt-screen[data-template="console"] .nt-field {
@@ -184,7 +171,7 @@
   border-radius: 24px;
 }
 .nt-screen[data-template="composer"] .nt-composer {
-  --acpmux-strip-inset: 24px;
+  --acpmux-strip-radius: 24px;
 }
 .nt-screen[data-template="composer"] .nt-input {
   min-height: 96px;
@@ -348,17 +335,10 @@
 .nt-style-name[data-shown]{opacity:1;transition-duration:var(--agent-motion-hover,80ms)}
 @media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option::after{transition:none}}
 
-/* The browser omnibar's pointer and hover (OmnibarPointer, cx-d0d.80): the field row is the
-   text area, so the I-beam shows over all of it (a press there focuses the field, focusFromRow);
-   the pickers and buttons keep the arrow. The box lifts on hover by the native hover fill
-   (Palette.hoverFill, --cmux-hover) over the composer's surface, not while it has the keyboard,
-   and eases with the hover token both ways. The lift is a gradient layer over the surface, clear
-   at rest, so it is a registered property that can ease. */
-@property --nt-box-lift {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 0%;
-}
+/* The browser omnibar's pointer (OmnibarPointer, cx-d0d.80): the field row is the text area, so
+   the I-beam shows over all of it (a press there focuses the field, focusFromRow); the pickers and
+   buttons keep the arrow. The box itself has no hover state: it is the composer's surface at rest,
+   under the pointer and while it has the keyboard (Leo 2026-10-18). */
 .nt-input {
   cursor: text;
 }
@@ -366,21 +346,7 @@
   cursor: default;
 }
 .nt-box {
-  --nt-box-fill: color-mix(
-    in srgb,
-    var(--cmux-hover, color-mix(in srgb, var(--agent-text) 6%, transparent)) var(--nt-box-lift),
-    transparent
-  );
-  background: linear-gradient(var(--nt-box-fill), var(--nt-box-fill)),
-    var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
-}
-.nt-box:hover:not(:focus-within) {
-  --nt-box-lift: 100%;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .nt-box {
-    transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
-  }
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
 }
 /* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
    opens them before the row's harness icon, and when open the children indented below it. The

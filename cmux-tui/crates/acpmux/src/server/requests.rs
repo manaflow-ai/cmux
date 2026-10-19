@@ -11,10 +11,19 @@ mod presets;
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
+    let resolved = hub.resolve(id).ok();
     if conn.subscribe(id)
-        && let Ok(s) = hub.resolve(id)
+        && let Some(s) = &resolved
     {
-        hub.attach_count(&s, 1, true);
+        hub.attach_count(s, 1, true);
+    }
+    if let Some(s) = resolved {
+        conn.bind_mailbox_receipt(crate::session_identity::SessionReceipt::new(
+            crate::session_identity::LOCAL_HOST_ID,
+            s.id.clone(),
+            s.meta().agent_session_id,
+            hub.started_at,
+        ));
     }
 }
 
@@ -72,7 +81,16 @@ pub(super) async fn handle_request(
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
-    let verdict = hub.person_check(conn.is_person(), remote_authenticated, m, &params).await?;
+    let verdict = hub
+        .person_check(
+            conn.is_person(),
+            remote_authenticated,
+            conn.caller(),
+            !conn.origin.web_class(),
+            m,
+            &params,
+        )
+        .await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
@@ -137,12 +155,12 @@ async fn dispatch_request(
                 "personInstance": hub.person.instance(),
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
+                    method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory", "promptWithdraw", "processes"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory", "promptWithdraw", "processes", "harnessInventory", super::inventory_watch::FEATURE], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -262,6 +280,7 @@ async fn dispatch_request(
             }
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
+            let adopting = adopt.is_some();
             let pick = |key: &str| {
                 meta.and_then(|m| m.get(key))
                     .and_then(Value::as_str)
@@ -291,12 +310,16 @@ async fn dispatch_request(
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
-                keep_harness_mode: false,
+                keep_harness_mode: hub
+                    .keeps_harness_mode(conn.is_person(), conn.caller(), &params)
+                    .await,
                 route,
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
                 super::remote_guard::settle_web_session_mode(hub, &s).await?;
+            } else {
+                hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }
             attach(hub, conn, &s.id);
             let meta = s.meta();
@@ -395,6 +418,7 @@ async fn dispatch_request(
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
                 provenance,
+                after_turn: None,
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -807,6 +831,7 @@ async fn dispatch_request(
         }
         method::MUX_VIEW => view::view(hub, conn, &params),
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
+        method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         method::MUX_WATCH => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             conn.watch_all.store(on, Ordering::SeqCst);
@@ -835,6 +860,16 @@ async fn dispatch_request(
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+            // A peer read the prompt masked (`peer_text.rs`): it may move or send one
+            // with a secret, not rewrite it.
+            if super::peer_text::masks(conn.origin)
+                && str_param(&params, "op") == Some("update")
+                && hub.queued_holds_secret(&s, str_param(&params, "promptId").unwrap_or_default())
+            {
+                return Err(RpcError::invalid_params(
+                    "this queued prompt holds a masked secret: edit it on the machine that runs the session",
+                ));
+            }
             hub.queue_edit(&s, &params, control, super::trust_gate::gated(conn.origin, &params))
                 .await
         }

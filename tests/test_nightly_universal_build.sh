@@ -383,11 +383,25 @@ if ! awk '
   job == "app" && /Clear build outputs a persistent runner kept/ { in_clear=1; next }
   in_clear && /^      - name:/ { in_clear=0 }
   in_clear && /clear-dirs\.sh remote-daemon-assets/ { saw_clear=1 }
-  job == "app" && /Prepare persistent Release DerivedData/ { saw_prepare=1 }
+  job == "app" && /^      - name: Start Release DerivedData empty/ { in_prepare=1; saw_prepare=1; next }
+  in_prepare && /^      - name:/ { in_prepare=0 }
+  in_prepare && /clear-dirs\.sh build-universal/ { saw_clear_dd=1 }
+  in_prepare && /track \}\}" = nightly-next/ && !saw_clear_dd { next_first=1 }
+  in_prepare && /ln -s/ { saw_link=1 }
   job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
-  END { exit !(saw_clear && saw_prepare && saw_key) }
+  job == "app" && /^      - name: Restore Xcode compilation cache/ && !saw_clear_dd { restore_first=1 }
+  job == "app" && /^      - name: Build nightly app \(Release\)/ { saw_build=1 }
+  job == "app" && !saw_build && /ln -s .*build-universal/ { saw_link=1 }
+  job == "app" && !saw_build && /persistent Release DerivedData/ { saw_persistent=1 }
+  job == "app" && /nightly_build_state\.py (replay|record)/ { saw_replay=1 }
+  END { exit !(saw_clear && saw_prepare && saw_clear_dd && !restore_first && !next_first && !saw_link && !saw_key && !saw_persistent && !saw_replay) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: persistent minis must retain channel/toolchain-keyed Release DerivedData"
+  # An incremental build can keep stale autolink and force-load data in
+  # objects it did not recompile after an import set changed. The shipped app
+  # must start from empty DerivedData with its inputs at their checkout times;
+  # only the content-keyed compilation cache (restored into it) and the Swift
+  # package checkouts may be warm.
+  echo "FAIL: the shipped nightly build must start from empty Release DerivedData, never a persistent tree or replayed input times"
   exit 1
 fi
 
@@ -1302,7 +1316,8 @@ done
 for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
   "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" \
-  './scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" --require-stapled-app' \
+  'stapled_flag=(--require-stapled-app)' \
+  './scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
   "tested_sha256: \${{ steps.smoke.outputs.tested_sha256 }}"; do
   grep -Fq -- "$expected" <<<"$verify_job" || { echo "FAIL: verify-nightly-identity-legacy must contain: $expected"; exit 1; }
 done

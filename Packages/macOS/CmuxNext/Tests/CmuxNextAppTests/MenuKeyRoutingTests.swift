@@ -5,6 +5,7 @@ import CmuxNextActions
 import Foundation
 import GhosttyNextKit
 import Testing
+import CmuxNextFocus
 
 /// Which of a terminal's Command chords the main menu takes before Ghostty (hq#2015 C11), through
 /// the real path: the key router decides the key-down (`interceptKeyDown`), then the terminal

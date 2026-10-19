@@ -36,6 +36,16 @@
       "size": 7571
     },
     {
+      "path": "AgentInventoryChangedEvent.java",
+      "sha256": "c027a12981fef0eb104e1abc7e952edea9a0d648119eb5886311e6bd9a403a9a",
+      "size": 3827
+    },
+    {
+      "path": "AgentInventoryWatchEndedEvent.java",
+      "sha256": "00c88942e6b2378b3663d7bc093b385958c8b3da1175b39486d84ea1f81616b6",
+      "size": 3833
+    },
+    {
       "path": "AgentPresenceActivity.java",
       "sha256": "3a4e09b8305370e5ed01bc0de1e4625beeb68c8cdbfbb4f721ae302b68cb8250",
       "size": 1067
@@ -652,8 +662,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "440c3c19b7338fe4072ec4923e3a7e20eb198be1fb961307edf39422712a5637",
-      "size": 74301
+      "sha256": "bac5a29a4bf7d8253b96182d19e8b76949e9ced74fd62441e4b1f8e0eca37299",
+      "size": 74788
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -951,6 +961,11 @@
       "size": 4927
     },
     {
+      "path": "ConversationTabSplit.java",
+      "sha256": "45b3742739422f49b279cf97c4016b6f6f188067250e4f44a31aef134939c4d2",
+      "size": 3683
+    },
+    {
       "path": "ConversationTextRun.java",
       "sha256": "b714f7cd64500ba78c31747f69e056d7f143214960b2674fa949d96f70b07139",
       "size": 3712
@@ -1192,8 +1207,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "51d75bbb0d906171aa2c3fb1302a4b6ef7a3f20249d58b2a284036aa4dae1491",
-      "size": 17273
+      "sha256": "4bc6fcf6da56b3c8ca35d2a975e01ed08fa9f7816452bce5606d3658c586e979",
+      "size": 17769
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1297,8 +1312,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "a881a0e6e6e87df77a547be017df3f8101f7d173f2176c6c8b158c6ba543efde",
-      "size": 64895
+      "sha256": "895c5bbc29c72278cfa97a6f99710c99dcdfff26e85b8f41820782067b0a672e",
+      "size": 65059
     },
     {
       "path": "GetBlobRequest.java",
@@ -1432,13 +1447,13 @@
     },
     {
       "path": "IdentifyRequest.java",
-      "sha256": "d4f60f090c8924ff3052cfe80a5a0cc17954f9a76063cd315ba5b9ecb158812b",
-      "size": 1321
+      "sha256": "857561525efe62ceb96fde015f872ec4b2fd2e2f7adcd46e932453605dbd8c3f",
+      "size": 2079
     },
     {
       "path": "IdentifyResult.java",
-      "sha256": "230e37e8a9ae90c402f7e1bd00bc7ef8bb40e23b34337df32fb5aa2c4a3c19e1",
-      "size": 14296
+      "sha256": "daf5efdec992602e76fb6bbe2aea33f6ea1e8fd0bc2fe66d4961fe27fcd72e03",
+      "size": 16694
     },
     {
       "path": "IdsRequest.java",
@@ -1507,8 +1522,8 @@
     },
     {
       "path": "LayoutChangedEvent.java",
-      "sha256": "73cad6c52efe673777c1cc8ee7247a300e7bf5df59d4c5fb8e83f8712015079e",
-      "size": 2285
+      "sha256": "860553e8272d47999220571d5c7a9793b5be28f696b7b5178dd552368cf41d1e",
+      "size": 5584
     },
     {
       "path": "LayoutLeaf.java",
@@ -1517,8 +1532,8 @@
     },
     {
       "path": "LayoutSplit.java",
-      "sha256": "424703677780650fbc0e9671ba2c49cb63ab2926b60f6e68a78d5a3a0249ce67",
-      "size": 4381
+      "sha256": "207d7ad42c9285b064757f87057171f88f00636ee2b119f5787848e500b5a5f4",
+      "size": 5149
     },
     {
       "path": "LayoutStack.java",
@@ -1639,6 +1654,11 @@
       "path": "MachineListeningTcpResult.java",
       "sha256": "979c7e04483fcddfe320c86f74b6255fe5f6ec1d7633e33f2278ecc12d0fb380",
       "size": 2004
+    },
+    {
+      "path": "MachinePlatform.java",
+      "sha256": "ab094ddfce650af6ea544b60c3914b6150199bb1b6053af4c744dba9cdf696d4",
+      "size": 2447
     },
     {
       "path": "MachineUsage.java",
@@ -1781,14 +1801,19 @@
       "size": 7054
     },
     {
+      "path": "NameSource.java",
+      "sha256": "649c9df1468685f28056cccfd523392a7d8c60a8b8f6703b15b8a17bdfbd3ea6",
+      "size": 866
+    },
+    {
       "path": "NewBrowserTabRequest.java",
       "sha256": "b75f3b0dfb06b7fcd2b1f22997b8257c2d96119c3dbcc07285ae01b059c4d185",
       "size": 3749
     },
     {
       "path": "NewConversationTabRequest.java",
-      "sha256": "92c3fb9b67cb673637f242333fb6d6b53cb6ffa24b2e5077c6a7b65ae96ae46f",
-      "size": 9487
+      "sha256": "48220f72500dfb32fadd17aec4ead52fe883652476a418ba8eb783b7da6fb093",
+      "size": 10319
     },
     {
       "path": "NewConversationTabResult.java",
@@ -2007,8 +2032,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "a533073f4e8f97d91086f92d3532b99498d6620c47e6f791a40142d1a9eb0254",
-      "size": 7112
+      "sha256": "aa47bfbb2e7174271d12b451ad9e6d50029fb6546fc6669e83f36915c440d5a6",
+      "size": 7299
     },
     {
       "path": "ProtocolEvent.java",
@@ -2137,8 +2162,8 @@
     },
     {
       "path": "RenameWorkspaceRequest.java",
-      "sha256": "1b86791b526625fc739e3c87eb8433ba074bc0d4543327c057e4aac2291ecc2c",
-      "size": 6370
+      "sha256": "130928afd94c647cee816e6709c8db305a60bf4640fd8750052f73f98cbdfb49",
+      "size": 8922
     },
     {
       "path": "RenderAttachEvent.java",
@@ -2692,8 +2717,8 @@
     },
     {
       "path": "SplitRequest.java",
-      "sha256": "3b8bd71e38940d3fca52747d4821573168d8d0f9ef452152c850baaa947f060c",
-      "size": 9442
+      "sha256": "bcb475263db6a825d89e6ab087cf382d0a2c815e418687057d55db9604bc6e0d",
+      "size": 10089
     },
     {
       "path": "SplitRespawn.java",
@@ -3212,8 +3237,8 @@
     },
     {
       "path": "Workspace.java",
-      "sha256": "37b4b2ac889082fd95481de8e644ad36a207b05e9e315d7c9e355cc00145142a",
-      "size": 4922
+      "sha256": "081d466d05322049051338e0928e6fae9ec23601035dd4fb46046f386b76a395",
+      "size": 6289
     },
     {
       "path": "WorkspaceAddedEvent.java",
@@ -3267,7 +3292,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8",
+  "ir_sha256": "d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

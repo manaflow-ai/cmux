@@ -71,8 +71,12 @@ public struct SidebarDocMachines {
         Task { for await _ in ObservationStream({ (connected(), serves()) }) { store.refresh() } }
         // task-owner: the app's services; one view call per document or live-set change
         Task {
-            for await live in ObservationStream({ () -> [SidebarDocWorkspaceRef] in _ = (store.version, store.isActive); return liveRefs() }) {
-                store.show(live: live, connectedRemotes: connectedRemotes())
+            // A trigger: a document change (`version`) with the same live set still redraws the bands.
+            for await live in ObservationStream({ () -> ObservationTrigger<[SidebarDocWorkspaceRef]> in
+                _ = (store.version, store.isActive)
+                return ObservationTrigger(liveRefs())
+            }) {
+                store.show(live: live.value, connectedRemotes: connectedRemotes())
                 shown(store.shown?.layout)
             }
         }

@@ -18,7 +18,7 @@ public struct SidebarDragHandoff {
     public var image: CGImage?
 }
 
-extension SidebarView {
+extension SidebarViewComponents {
     /// Offered each row drag once its pointer leaves the sidebar sideways.
     /// Return true to take it over: the sidebar ends its own drag at once
     /// (rows reappear in place) and sends no intent. Nil keeps every drag in
@@ -29,7 +29,7 @@ extension SidebarView {
     }
 }
 
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// Hands `drag` over when the pointer is beyond the sidebar's side
     /// edges. Returns true when the App took it (the drag is then over here).
     func offerHandoff(_ drag: Drag, windowPoint: NSPoint) -> Bool {

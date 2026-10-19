@@ -1,9 +1,10 @@
 import type { Api, AssistantMessage, AssistantMessageEvent, AssistantMessageEventStream, Context, Model } from "@earendil-works/pi-ai"
 import type { MutableModels } from "@earendil-works/pi-ai/models"
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/utils/event-stream"
-import { Effect } from "effect"
+import { CACHE_BLOCKS_HEADER } from "../chief-brain/cache-prefix.ts"
 import { CreditsGate } from "../chief-brain/credits-gate.ts"
-import { Credits, CreditsLive, creditsMargin, creditsRequired, payerTeam } from "../credits.ts"
+import { reprice } from "./bedrock-price.ts"
+import { creditsRequired, payerTeam } from "../credits.ts"
 import type { Env } from "../env.ts"
 
 /**
@@ -18,7 +19,8 @@ import type { Env } from "../env.ts"
  *   attempt (`<brain object>:<run>:<generation>:<n>`). Refused (out of credits, meter unreachable):
  *   nothing is sent; the stream ends in an error the turn reports, and the conversation gets the one
  *   out-of-credits notice (`notice`).
- * - After every sent response, also a failed one: settle the real provider cost (pi-ai usage cost).
+ * - After every sent response, also a failed one: settle the real provider cost (the Claude route: the
+ *   Bedrock price, bedrock-price.ts; other routes: pi-ai usage cost).
  *   A request that was sent but never answered keeps its hold (the meter charges it after an hour).
  * - A reservation is released only when the upstream request was never sent.
  * Compactor calls are charged after the fact (settle without reserve: charged once).
@@ -32,6 +34,8 @@ export interface GatewayWho {
   readonly conversation: string | undefined
   readonly agent: string | null
   readonly owner: string | null
+  /** The running turn's cache mark indices for its first user message (chief-brain/cache-prefix.ts), "" or undefined: none. */
+  readonly cache_blocks?: string | undefined
 }
 export interface GatewayUsage {
   readonly input: number
@@ -49,6 +53,8 @@ export interface GatewayHooks {
   readonly failed?: (run: string, message: string) => void
   /** The upstream region that answered a turn call (the Claude route's x-bedrock-region), for its run. */
   readonly region?: (run: string, region: string) => void
+  /** A step of a run's first turn call (first write per run wins, as request_at and first_token_at): reserved (credits held), upstream (request sent), headers (the route answered). */
+  readonly mark?: (run: string, name: "reserved" | "upstream" | "headers") => void
   /** Post the out-of-credits notice once in the conversation (the team was told only once). */
   readonly notice?: (conversation: string, text: string) => Promise<void>
 }
@@ -106,15 +112,18 @@ export class ModelGatewayLive {
             if (w.conversation) await this.noticeOnce(w.conversation)
             return this.finish(out, failed(model, text))
           }
+          if (w.run) this.hooks.mark?.(w.run, "reserved")
         }
         // Only the Claude route takes the payer team, chief and call id (its service key needs them); no other provider sees them.
         const routed = model.provider === CLAUDE_ROUTE_PROVIDER
-        const headers = routed ? { ...(options?.headers ?? {}), "x-cmux-team-id": payerTeam(w.owner ?? ""), ...(w.agent ? { "x-cmux-chief-id": w.agent } : {}), "x-request-id": safeId(`${this.scope}:${key}`) } : options?.headers
+        const headers = routed ? { ...(options?.headers ?? {}), "x-cmux-team-id": payerTeam(w.owner ?? ""), ...(w.agent ? { "x-cmux-chief-id": w.agent } : {}), "x-request-id": safeId(`${this.scope}:${key}`), ...(w.cache_blocks ? { [CACHE_BLOCKS_HEADER]: w.cache_blocks } : {}) } : options?.headers
         const onResponse = (r: { headers?: Record<string, string> }, m: Model<Api>) => {
+          if (w.run) this.hooks.mark?.(w.run, "headers")
           const region = r.headers?.["x-bedrock-region"]
           if (region && w.run) this.hooks.region?.(w.run, region.slice(0, 32))
           return (options as { onResponse?: (r: unknown, m: Model<Api>) => unknown } | undefined)?.onResponse?.(r, m)
         }
+        if (w.run) this.hooks.mark?.(w.run, "upstream")
         const src = this.upstream.streamSimple(model, context, { ...options, ...(headers ? { headers } : {}), onResponse } as typeof options)
         sent = true
         // The terminal event goes out after the charge: pi-durable may retry as soon as it sees it.
@@ -126,11 +135,15 @@ export class ModelGatewayLive {
           if (e.type === "done" || e.type === "error") terminal = e
           else out.push(e)
         }
-        const final = await src.result()
+        // The Claude route's cost is what Bedrock charges (bedrock-price.ts), not the catalog's first-party price.
+        const got = await src.result()
+        const final = routed ? reprice(got, this.env.CHIEF_BRAIN_CACHE_TTL) : got
         if ((final.stopReason === "error" || terminal?.type === "error") && w.run) this.hooks.failed?.(w.run, String(final.errorMessage ?? "model error").replace(/\s+/g, " ").slice(0, 400))
         if (priced) await this.gate.after(key, final).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", call: key, error: String(e).slice(0, 200) })))
         if (w.run) this.hooks.usage?.(w.run, usageOf(final))
-        if (terminal) out.push(terminal)
+        // The terminal event carries the repriced message: pi-ai resolves result() from it.
+        if (terminal?.type === "done") out.push({ ...terminal, message: final })
+        else if (terminal?.type === "error") out.push({ ...terminal, error: final })
         out.end(final)
       } catch (e) {
         if (priced && !sent) await this.gate.release(key).catch(() => undefined)
@@ -142,16 +155,31 @@ export class ModelGatewayLive {
     return out
   }
 
-  /** The compactor's call: charged after the fact, once (settle without reserve). */
+  /** The compactor's (and the hand classifier's) call: the same credits gate as a turn (reserve, then settle), so a team with no credits gets no paid call. */
   async completeSimple(model: Model<Api>, context: Context, options?: Parameters<MutableModels["completeSimple"]>[2]): Promise<AssistantMessage> {
-    const reply = await this.upstream.completeSimple(model, context, options)
     const name = nameOf(model)
-    const cost = usageOf(reply).cost_usd
-    if (creditsRequired(this.env, name) && cost > 0) {
-      const w = this.who()
-      const res = { team: payerTeam(w.owner ?? ""), request: safeId(`${this.scope}:compact:${crypto.randomUUID()}`), chief: w.agent, conversation: null, held_usd: 0, margin: creditsMargin(this.env), replayed: false }
-      await Effect.runPromise(Credits.use((c) => c.settle(res, cost)).pipe(Effect.provide(CreditsLive(this.env)))).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.compactor_settle_failed", error: String(e).slice(0, 200) })))
+    const priced = creditsRequired(this.env, name)
+    const w = this.who()
+    if (priced && !w.owner) return failed(model, "credits: this chief has no owner to bill")
+    const key = safeId(`compact:${crypto.randomUUID()}`)
+    if (priced) {
+      const g = await this.gate.before(key, model, name, context.messages)
+      if (!g.ok) return failed(model, `credits.exhausted: available ${g.available_usd} USD, this call needs up to ${g.needed_usd} USD`)
     }
+    // The service-key route needs the payer team, chief and call id on every call, the compactor's too (claude-auth.ts signedFetch).
+    const routed = model.provider === CLAUDE_ROUTE_PROVIDER
+    // The cache mark indices (the compactor's) are for the Claude route's body conversion only.
+    const { [CACHE_BLOCKS_HEADER]: _marks, ...rest } = (options?.headers ?? {}) as Record<string, string>
+    const headers = routed ? { ...(options?.headers ?? {}), "x-cmux-team-id": payerTeam(w.owner ?? ""), ...(w.agent ? { "x-cmux-chief-id": w.agent } : {}), "x-request-id": safeId(`${this.scope}:${key}`) } : options?.headers ? rest : undefined
+    let reply: AssistantMessage
+    try {
+      const got = await this.upstream.completeSimple(model, context, { ...options, ...(headers ? { headers } : {}) } as typeof options)
+      reply = routed ? reprice(got, this.env.CHIEF_BRAIN_CACHE_TTL) : got
+    } catch (e) {
+      if (priced) await this.gate.release(key).catch(() => undefined)
+      throw e
+    }
+    if (priced) await this.gate.after(key, reply).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.compactor_settle_failed", call: key, error: String(e).slice(0, 200) })))
     return reply
   }
 

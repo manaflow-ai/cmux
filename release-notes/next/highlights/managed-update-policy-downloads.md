@@ -1,4 +1,5 @@
 title: Updates your organization requires download by themselves
 category: improved
+docs: https://cmux.com/docs/managed-policies
 
-When your organization sets a minimum cmux version, the newer version now downloads and waits as "Update ready" even if you turned automatic downloads off, so a required update never waits for a download. When your organization pins the update channel, a cmux on another channel no longer downloads its own updates.
+When your organization requires a minimum cmux version, the update downloads by itself even with automatic downloads off. When it pins the update channel, cmux on another channel stops downloading its own updates.

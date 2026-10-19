@@ -452,7 +452,20 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "terminal": terminal,
             "grace_ms": grace_ms,
         }),
-        MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
+        MuxEvent::LayoutChanged(screen, delta) => {
+            let mut value = json!({"event": "layout-changed", "screen": screen});
+            // `layout-delta-v1`: the screen's layout fields, flat, as in `Screen`.
+            if let Some(delta) = delta {
+                value["workspace"] = json!(delta.workspace);
+                if let (Value::Object(value), Value::Object(layout)) = (&mut value, &delta.layout) {
+                    value.extend(layout.iter().map(|(key, field)| (key.clone(), field.clone())));
+                }
+                if let Some(transaction) = &delta.transaction {
+                    value["transaction"] = json!(transaction.as_ref());
+                }
+            }
+            value
+        }
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({
             "event": "client-attached",
             "client": client,

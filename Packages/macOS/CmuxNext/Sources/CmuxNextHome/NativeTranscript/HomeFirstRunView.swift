@@ -20,11 +20,11 @@ final class HomeFirstRunView: NSView {
     let terminal = HomeFirstRunRow(title: HomeStrings.firstRunOpenTerminal, icon: .terminalNew)
     let agent = HomeFirstRunRow(title: HomeStrings.firstRunStartAgent, icon: .agentChat)
     /// "Your agents", over the agent rows; out of the stack with no agents.
-    let agentsHeader = NSTextField(labelWithString: HomeStrings.firstRunAgentsHeader)
+    let agentsHeader = ChromeLabel(labelWithString: HomeStrings.firstRunAgentsHeader)
     /// One row per listed agent (`setAgents`), the status word at the trailing edge.
     private(set) var agentRows: [HomeFirstRunRow] = []
     private(set) var agents: [HomeAgentGlance] = []
-    let hint = NSTextField(labelWithString: "")
+    let hint = ChromeLabel(labelWithString: "")
     private let stack = NSStackView()
     private var scale: CGFloat = 1
     private var colors: Colors?
@@ -66,7 +66,7 @@ final class HomeFirstRunView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// The agents to list: at most five, most urgent first. No agents, no
     /// list. Rows are rebuilt only when what they show changed.
@@ -201,10 +201,10 @@ final class HomeFirstRunView: NSView {
 final class HomeFirstRunRow: NSView {
     let surface = NSView()
     let glyph = NSImageView()
-    let label: NSTextField
+    let label: ChromeLabel
     /// The row's cmux icon.
     let icon: IconName
-    let shortcutLabel = NSTextField(labelWithString: "")
+    let shortcutLabel = ChromeLabel(labelWithString: "")
     /// An agent row's state in the shared indicator, before its status word.
     let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
     var onClick: () -> Void = {}
@@ -229,7 +229,7 @@ final class HomeFirstRunRow: NSView {
     private var isHovered = false { didSet { if isHovered != oldValue { paint() } } }
 
     init(title: String, icon: IconName) {
-        label = NSTextField(labelWithString: title)
+        label = ChromeLabel(labelWithString: title)
         self.icon = icon
         super.init(frame: .zero)
         surface.wantsLayer = true
@@ -252,7 +252,7 @@ final class HomeFirstRunRow: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override var intrinsicContentSize: NSSize { NSSize(width: width, height: Self.height * scale) }
 

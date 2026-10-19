@@ -16,7 +16,8 @@ import CmuxNextWakeups
 /// Every window showing one file shares one decoder (``BackdropVideoPlayers``), as idlesse found
 /// one decoder per display doubled the video decoder's load; a 0.5 s forward buffer keeps 4K
 /// frames out of memory, and the layer stays clear until its first frame is ready, so a new
-/// window never flashes black.
+/// window never flashes black. The first frame fades in over the poster, and a video no one has
+/// been able to see for a minute gives its decoder back (``BackdropVideoPlayers/releaseAfter``).
 public final class BackdropVideoView: NSView {
     /// The file shown, nil when the wallpaper is no video.
     public private(set) var url: URL?
@@ -97,14 +98,23 @@ public final class BackdropVideoView: NSView {
     /// Whether this view asks its player to run: shown, seen, and allowed to move.
     public var wantsPlayback: Bool { seen && !coverage.resting }
 
+    /// Whether someone could see the video now: on screen, uncovered, the screens awake. A video
+    /// held for Low Power Mode or Reduce Motion is still seen and keeps its frame and decoder.
+    public var canBeSeen: Bool { onScreen && !coverage.resting }
+
     /// Everything ``wantsPlayback`` asks but coverage, which is sampled only while this holds.
     private var seen: Bool {
-        guard url != nil, !isHidden, let window else { return false }
-        let visible = visibleOverride ?? (window.occlusionState.contains(.visible) && !window.isMiniaturized && !NSApp.isHidden)
         let lowPower = lowPowerOverride ?? ProcessInfo.processInfo.isLowPowerModeEnabled
         let reduced = reduceMotionOverride ?? !Motion.animatesLoops
         let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
-        return visible && !screensAsleep && !sessionInactive && !lowPower && !hot && !reduced
+        return onScreen && !lowPower && !hot && !reduced
+    }
+
+    /// Shown in a window that is on screen, with the screens awake and the session active.
+    private var onScreen: Bool {
+        guard url != nil, !isHidden, let window else { return false }
+        let visible = visibleOverride ?? (window.occlusionState.contains(.visible) && !window.isMiniaturized && !NSApp.isHidden)
+        return visible && !screensAsleep && !sessionInactive
     }
 
     override public func viewDidMoveToWindow() {
@@ -120,9 +130,17 @@ public final class BackdropVideoView: NSView {
         didSet { if isHidden != oldValue { update() } }
     }
 
+    /// The first frame fades in over the poster (as long as the motion policy's fade, shorter
+    /// under Reduce Motion); frames that stop
+    /// (a released decoder) hide at once, leaving the poster below.
     private func showFrames(_ ready: Bool) {
+        if ready, playerLayer.opacity == 0, window != nil {
+            Motion.set(playerLayer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0))
+            return
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        playerLayer.removeAnimation(forKey: "opacity")
         playerLayer.opacity = ready ? 1 : 0
         CATransaction.commit()
     }
@@ -134,7 +152,7 @@ public final class BackdropVideoView: NSView {
         } else {
             stopCoverage()
         }
-        players.setPlaying(wantsPlayback, url, viewer: ObjectIdentifier(self))
+        players.setPlaying(wantsPlayback, seen: canBeSeen, url, viewer: ObjectIdentifier(self))
     }
 
     /// Samples how much of the window other windows hide, and rests or resumes the video on it.
@@ -227,24 +245,50 @@ public final class BackdropVideoView: NSView {
 }
 
 /// The looping players behind every video wallpaper, one per file, shared by every window that
-/// shows it. A player runs while any of its windows wants it and pauses when none does.
+/// shows it. A player runs while any of its windows wants it and pauses when none does. When none
+/// of its windows can even be seen (hidden, covered, the screens asleep) for ``releaseAfter``, it
+/// drops its items, which frees the decoder and its frame buffers, and picks up where it was when
+/// one is seen again: hours behind other windows cost no video memory.
 @MainActor
 public final class BackdropVideoPlayers {
     public static let shared = BackdropVideoPlayers()
 
     private struct Entry {
         let player: AVQueuePlayer
-        let looper: AVPlayerLooper
+        /// Nil while released.
+        var looper: AVPlayerLooper?
         var viewers: Set<ObjectIdentifier>
         var playing: Set<ObjectIdentifier>
+        /// The viewers someone could see now.
+        var seen: Set<ObjectIdentifier>
+        /// Where a released player picks up.
+        var resumeAt: CMTime = .zero
+        /// A restored item still to be sought to ``resumeAt``, and the wait for it to be ready.
+        var pendingRestore = false
+        var restoring: NSKeyValueObservation?
+        let release: DemandTimer
     }
 
     private var entries: [URL: Entry] = [:]
 
-    public init() {}
+    /// How long a player no one can see keeps its decoder.
+    public var releaseAfter: Duration = .seconds(60)
+
+    private let clock: any Clock<Duration>
+
+    /// `clock` times ``releaseAfter`` (tests step a manual one).
+    public init(clock: any Clock<Duration> = ContinuousClock()) {
+        self.clock = clock
+    }
 
     /// Players alive now (tests).
     public var count: Int { entries.count }
+
+    /// Whether `url`'s player has given back its decoder (tests).
+    public func isReleased(_ url: URL) -> Bool { entries[url].map { $0.looper == nil } ?? false }
+
+    /// Whether `url`'s restored player is still waiting to seek back to its frame (tests).
+    public func isRestoring(_ url: URL) -> Bool { entries[url]?.pendingRestore == true }
 
     func attach(_ url: URL, viewer: ObjectIdentifier) -> AVQueuePlayer {
         if var entry = entries[url] {
@@ -252,14 +296,13 @@ public final class BackdropVideoPlayers {
             entries[url] = entry
             return entry.player
         }
-        let item = AVPlayerItem(url: url)
-        item.preferredForwardBufferDuration = 0.5
         let player = AVQueuePlayer()
         player.isMuted = true
         player.volume = 0
         player.preventsDisplaySleepDuringVideoPlayback = false
         player.actionAtItemEnd = .advance
-        entries[url] = Entry(player: player, looper: AVPlayerLooper(player: player, templateItem: item), viewers: [viewer], playing: [])
+        entries[url] = Entry(player: player, looper: Self.looper(url, player), viewers: [viewer], playing: [], seen: [],
+                             release: DemandTimer(owner: "backdrop-video-release", clock: clock))
         return player
     }
 
@@ -267,29 +310,84 @@ public final class BackdropVideoPlayers {
         guard var entry = entries[url] else { return }
         entry.viewers.remove(viewer)
         entry.playing.remove(viewer)
+        entry.seen.remove(viewer)
         guard entry.viewers.isEmpty else {
             entries[url] = entry
-            return apply(entry)
+            return apply(url)
         }
         // Torn down in idlesse's order: pause, stop looping, then drop the items.
+        entry.release.cancel()
+        entry.restoring = nil
         entry.player.pause()
-        entry.looper.disableLooping()
+        entry.looper?.disableLooping()
         entry.player.removeAllItems()
         entries[url] = nil
     }
 
-    func setPlaying(_ plays: Bool, _ url: URL, viewer: ObjectIdentifier) {
+    func setPlaying(_ plays: Bool, seen: Bool = true, _ url: URL, viewer: ObjectIdentifier) {
         guard var entry = entries[url], entry.viewers.contains(viewer) else { return }
         if plays { entry.playing.insert(viewer) } else { entry.playing.remove(viewer) }
+        if seen { entry.seen.insert(viewer) } else { entry.seen.remove(viewer) }
         entries[url] = entry
-        apply(entry)
+        apply(url)
     }
 
-    private func apply(_ entry: Entry) {
+    /// Gives back `url`'s decoder now if no one can see it (the release timer's work; tests).
+    func releaseIfUnseen(_ url: URL) {
+        guard var entry = entries[url], entry.playing.isEmpty, entry.seen.isEmpty, let looper = entry.looper else { return }
+        entry.resumeAt = entry.player.currentTime()
+        entry.pendingRestore = false
+        entry.restoring = nil
+        entry.player.pause()
+        looper.disableLooping()
+        entry.player.removeAllItems()
+        entry.looper = nil
+        entries[url] = entry
+    }
+
+    private func apply(_ url: URL) {
+        guard var entry = entries[url] else { return }
+        if entry.seen.isEmpty, entry.looper != nil {
+            // The minute counts from when the last viewer went out of sight, not from each update.
+            if !entry.release.isScheduled {
+                entry.release.schedule(after: releaseAfter) { @MainActor [weak self] in self?.releaseIfUnseen(url) }
+            }
+        } else {
+            entry.release.cancel()
+        }
+        if entry.looper == nil, !entry.seen.isEmpty || !entry.playing.isEmpty {
+            // Seen again: new items, at the exact frame it held once the first is ready (a seek
+            // sent before then can be dropped, or undone by the looper).
+            entry.looper = Self.looper(url, entry.player)
+            entry.pendingRestore = true
+            // Stored before observing: an item already ready reports inline, on this turn.
+            entries[url] = entry
+            let resumeAt = entry.resumeAt
+            let observation = entry.player.observe(\.currentItem?.status, options: [.initial, .new]) { [weak self] player, _ in
+                guard player.currentItem?.status == .readyToPlay else { return }
+                // AVFoundation may report from its own threads: inline on main, a hop otherwise.
+                MainDelivery().run {
+                    guard let self, let entry = self.entries[url], entry.pendingRestore else { return }
+                    self.entries[url]?.pendingRestore = false
+                    self.entries[url]?.restoring = nil
+                    entry.player.seek(to: resumeAt, toleranceBefore: .zero, toleranceAfter: .zero)
+                }
+            }
+            // Kept only while the seek is still to come (an inline report has already done it).
+            if entries[url]?.pendingRestore == true { entries[url]?.restoring = observation }
+            entry = entries[url] ?? entry
+        }
         if entry.playing.isEmpty {
             if entry.player.rate != 0 { entry.player.pause() }
         } else if entry.player.rate == 0 {
             entry.player.play()
         }
+    }
+
+    /// A muted, looping item for `url` on `player`, with a short forward buffer.
+    private static func looper(_ url: URL, _ player: AVQueuePlayer) -> AVPlayerLooper {
+        let item = AVPlayerItem(url: url)
+        item.preferredForwardBufferDuration = 0.5
+        return AVPlayerLooper(player: player, templateItem: item)
     }
 }

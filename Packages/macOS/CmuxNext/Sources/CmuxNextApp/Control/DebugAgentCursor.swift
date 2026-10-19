@@ -38,7 +38,7 @@ enum DebugAgentCursor {
         let daemonTabs = services.machines.allWorkspaces.flatMap { workspace, _ in
             workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .browser }.map(\.id)
         }
-        let localTabs = services.windows.controllers.flatMap { $0.state.localBrowserTabs.values.flatMap { $0.map(\.id) } }
+        let localTabs = services.windows.controllers.flatMap { $0.state.localBrowserTabs.all.flatMap { $0.tabs.map(\.id) } }
         return daemonTabs + localTabs
     }
 

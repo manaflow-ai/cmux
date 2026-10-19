@@ -18,7 +18,10 @@ import type { Api, Context, Model, ProviderStreams, TranscriptContext } from "@e
  * it answers with the tool result; anything else gets "[model] reply to: <text>". A text with
  * "THINK" also streams a thought first. Compactor calls (system starts "You write the memory of")
  * answer a one-line summary; a step containing "OVERSHOOT" first answers 600 bytes so the size
- * loop retries, a step containing "HANG_COMPACT" answers after 45 s, and one containing "REFUSE" is refused by the model `fake-echo` (other models
+ * loop retries, a step containing "HANG_COMPACT" answers after 45 s, "RATE_LIMIT_COMPACT" fails its
+ * first 4 calls as a rate-limited Workers AI does, "RETRY_AFTER_COMPACT" fails its first 2 naming
+ * "retry after 1 s" (every compactor call's time is kept in `compactTimes`, on globalThis so a test
+ * file's copy of this module sees the Worker's calls), and one containing "REFUSE" is refused by the model `fake-echo` (other models
  * answer it).
  *
  * `holdTurns()` makes every turn request wait until the returned release is called, so tests can
@@ -40,6 +43,14 @@ export interface FakeCall {
 }
 
 export const fakeCalls: FakeCall[] = [];
+/** When each compactor call came, with its marker (RATE_LIMIT_COMPACT, RETRY_AFTER_COMPACT or ""). */
+export const compactTimes: Array<{ marker: string; at: number }> = ((globalThis as Record<string, unknown>).__fakeCompactTimes ??= []) as Array<{ marker: string; at: number }>;
+const markerFails: Map<string, number> = ((globalThis as Record<string, unknown>).__fakeMarkerFails ??= new Map<string, number>()) as Map<string, number>;
+/** Forgets the scripted compactor failures and call times (each test starts fresh). */
+export function resetFakeCompacts(): void {
+  markerFails.clear();
+  compactTimes.length = 0;
+}
 let failNext = 0;
 
 /** The next `n` fake compactor calls fail (to test compactor retries). */
@@ -114,7 +125,8 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     (m) => m.role !== "system",
   );
   const system = systemOf(context);
-  const compact = system.includes("You write the memory of");
+  // A compaction call: the old prompt's line, or the core's task line ("Compaction: compress|merge ...") in the step.
+  const compact = system.includes("You write the memory of") || /(^|\n)Compaction: (compress|merge)/.test(blocksOf(messages.find((m) => m.role === "user")?.content).at(-1) ?? "");
   const firstUser = messages.find((m) => m.role === "user");
   fakeCalls.push({
     model: model.id,
@@ -129,6 +141,17 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   });
   // A step containing "HANG_COMPACT" answers only after 45 s (a rate-limited or slow compactor).
   if (compact && (blocksOf(firstUser?.content).at(-1) ?? "").includes("HANG_COMPACT")) await new Promise((r) => setTimeout(r, 45_000));
+  if (compact) {
+    const step = blocksOf(firstUser?.content).at(-1) ?? "";
+    const marker = step.includes("RATE_LIMIT_COMPACT") ? "RATE_LIMIT_COMPACT" : step.includes("RETRY_AFTER_COMPACT") ? "RETRY_AFTER_COMPACT" : "";
+    compactTimes.push({ marker, at: Date.now() });
+    if (marker) {
+      const n = (markerFails.get(marker) ?? 0) + 1;
+      markerFails.set(marker, n);
+      if (marker === "RATE_LIMIT_COMPACT" && n <= 4) throw new Error("Workers AI rate limiting: inference request per min rate reached");
+      if (marker === "RETRY_AFTER_COMPACT" && n <= 2) throw new Error("429 Too Many Requests: retry after 1 s");
+    }
+  }
   if (compact && failNext > 0) {
     failNext--;
     throw new Error("fake model failure (scripted)");
@@ -153,10 +176,8 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   // Like Anthropic's API: a signed thinking block of an earlier step is valid only with the same tools list.
   const hash = toolsHash(context);
   if (!compact) {
-    // Only the open turn (assistant messages after the last user message) is checked, as Anthropic does: a
-    // finished turn's thinking stays valid when the tools change before the next user message.
-    const lastUser = messages.map((m) => m.role).lastIndexOf("user");
-    for (const m of messages.slice(lastUser + 1)) {
+    // Every replayed signed thinking block is checked against this request's tools list, as the model route does.
+    for (const m of messages) {
       if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
       for (const [i, b] of (m.content as Array<{ type: string; thinkingSignature?: string }>).entries()) {
         if (b.type === "thinking" && b.thinkingSignature?.startsWith("sig:") && b.thinkingSignature !== `sig:${hash}`)
@@ -201,6 +222,8 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   // "tool:<name> <json args>" calls any registered tool (the hands e2e drives `hands` and `agent` this way).
   // The brain's continuation after a first hand: run the original request's "then:<tool> <json>" script.
   if (text.includes("Your new hand is ready")) {
+    // Without the hand's details the model lists its hands first (staging, 2026-10-16); with them it goes on.
+    if (!text.includes("Your hand:")) return withThinking(fauxAssistantMessage([fauxToolCall("hands", { action: "list" })], { stopReason: "toolUse" }));
     const then = /then:([a-z_]+)\s+(\{[^\n]*?\})\s+tool:/.exec(blocksOf(firstUser?.content).join("\n"));
     if (then) return withThinking(fauxAssistantMessage([fauxToolCall(then[1]!, JSON.parse(then[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" }));
   }
@@ -213,7 +236,11 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     }
   }
   const reply = fauxText(`[${model.id}] reply to: ${text.slice(0, 200)}`);
-  return fauxAssistantMessage(text.includes("THINK") ? [fauxThinking("pondering the request"), reply] : [reply]);
+  if (!text.includes("THINK")) return fauxAssistantMessage([reply]);
+  // Every thinking block the fake makes is signed for the tools list of its request.
+  const pondering = fauxThinking("pondering the request");
+  (pondering as { thinkingSignature?: string }).thinkingSignature = `sig:${hash}`;
+  return fauxAssistantMessage([pondering, reply]);
 };
 
 let core: ReturnType<typeof createFauxCore> | undefined;

@@ -57,16 +57,22 @@ import QuartzCore
 
     private static func addDelta(to layer: CALayer, position: CGPoint, size: CGSize) {
         serial &+= 1
+        // The spring starts now, when it is added, not at the start of this run-loop turn: after a long main-thread
+        // update in the same turn (a drag's first move builds its hit geometry, ~30 ms at 1,000 rows) the first frame
+        // showed the spring 30 ms on, a 12-17 pt step (hitch3/dphb0 scenario 4, cx-8quut).
+        let begin = layer.convertTime(CACurrentMediaTime(), from: nil)
         let dp = CGPoint(x: position.x - layer.position.x, y: position.y - layer.position.y)
         let ds = CGSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height)
         if dp != .zero {
             let animation = Motion.springAnimation(.move, "position", from: NSValue(point: dp), to: NSValue(point: .zero))
             animation.isAdditive = true
+            animation.beginTime = begin
             layer.add(animation, forKey: "drag.position.\(serial)")
         }
         if ds != .zero {
             let animation = Motion.springAnimation(.move, "bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero))
             animation.isAdditive = true
+            animation.beginTime = begin
             layer.add(animation, forKey: "drag.size.\(serial)")
         }
     }

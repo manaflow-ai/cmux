@@ -31,7 +31,7 @@ public struct SidebarDebugStatusGlyph: Sendable {
     public var phase: Double? = nil
 }
 
-extension SidebarView {
+extension SidebarViewComponents {
     public func debugStatusGlyphs() -> [SidebarDebugStatusGlyph] {
         guard let window else { return [] }
         let height = window.contentView?.bounds.height ?? window.frame.height

@@ -5,7 +5,7 @@ import Testing
 
 /// Coherence pass (Leo 10-13, cx-iif6y): the omnibar's suggestion card is a popup like every
 /// other menu and popover, so the part around the bar casts the one popup shadow rather than a
-/// darker one of its own. (Its corners are the omnibar's own 12 pt since cx-d0d.102.) The panel of rows casts none:
+/// darker one of its own. (Its corners are the bar's own, so bar and card are one shape.) The panel of rows casts none:
 /// it floats over the bar, so a shadow reaching up to the seam would darken the bar.
 @MainActor
 struct OmnibarCardElevationTests {

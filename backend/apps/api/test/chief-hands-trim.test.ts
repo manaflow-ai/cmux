@@ -126,6 +126,54 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     await dmAndReply(token, chief, "then marker-six", 3)
     expect(turnTools("marker-six")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
   })
+  it("a hand paired just before a message that lists hands: the run continues once with the agent tool", async () => {
+    const { token, chief } = await ownerWithChief("hands-trim-race")
+    expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
+    await dmAndReply(token, chief, "first marker-race-one", 1)
+    // The sandbox exists before the message; the turn starts on the cached compact set and the turn-start check
+    // records the hand in the background, before the Chief's own list call sees it.
+    await pair(token, "sb-race")
+    // The first request is held, so the turn-start check (one hands list) has recorded the hand before the
+    // Chief's list call runs: that call no longer finds the first hand itself.
+    const release = holdTurns()
+    const key = "hands-marker-race-two"
+    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text: 'SIGNED marker-race-two tool:hands {"action":"list"}' }] }, key)).ok).toBe(true)
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
+    for (let i = 0; i < 200 && turnTools("marker-race-two").length === 0; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 25))
+    release()
+    for (let i = 0; i < 200 && (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length < 2; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    const replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+    expect(replies[1].parts[0].text, "the turn failed").not.toContain("could not reach the model")
+    const calls = fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && c.firstUser.join("\n").includes("marker-race-two"))
+    const continued = calls.filter((c) => c.laterUsers.join("\n").includes("Your new hand is ready"))
+    expect(continued.length, "no continuation: the list saw the hand but the turn had no agent tool").toBeGreaterThanOrEqual(1)
+    expect(continued[0]!.tools.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+    expect((await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs).toHaveLength(2)
+  })
+  it("a hand paired between turns, then two more turns: every turn answers (no replayed thinking under another tools list)", async () => {
+    const { token, chief } = await ownerWithChief("hands-between-signed")
+    expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
+    await dmAndReply(token, chief, "SIGNED THINK turn one", 1)
+    await pair(token, "sb-between")
+    for (const [n, t] of [[2, "SIGNED THINK turn two"], [3, "SIGNED THINK turn three"], [4, "SIGNED THINK turn four"]] as const) await dmAndReply(token, chief, t, n)
+    const replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+    expect(replies.map((m) => m.parts[0].text).filter((t: string) => t.includes("could not reach the model")), JSON.stringify(replies.map((m) => m.parts[0].text))).toHaveLength(0)
+    expect(turnTools("turn four")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+  })
+
+  it("a run whose first answer is a tool call only: first_token_at is that first output, before the tool step", async () => {
+    const { token, chief } = await ownerWithChief("hands-first-token")
+    await dmAndReply(token, chief, 'first-token tool:hands {"action":"list"}', 1)
+    const run = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs[0]
+    const steps = (await http("GET", `/v1/chiefs/${chief.id}/runs/${run.id}?conversation=${chief.main_conversation}`, token)).json.value.steps as Array<any>
+    const tool = steps.find((st) => st.kind === "tool")
+    const talk = steps.find((st) => st.kind === "talk")
+    expect(run.timing.first_token_at, JSON.stringify(run.timing)).toBeLessThanOrEqual(tool.at)
+    expect(tool.ended_at).toBeGreaterThanOrEqual(tool.at)
+    expect(talk.ended_at).toBeGreaterThanOrEqual(tool.ended_at)
+  })
+
   it("one message makes a sandbox and starts an agent: one run, one reply, no 400 (the run continues once with the full tools)", async () => {
     const { token, chief } = await ownerWithChief("hands-one-msg")
     expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
@@ -173,8 +221,24 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     const runs = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs
     expect(runs).toHaveLength(1)
     expect(runs[0]).toMatchObject({ status: "done", reply: { state: "posted" } })
+    // Run timing: the run's first token is the first request's (before the continuation), and the continuation has its own.
+    const tm = runs[0].timing
+    expect(tm.first_token_at, JSON.stringify(tm)).toBeLessThan(tm.continuation_at)
+    expect(tm.continuation_first_token_at).toBeGreaterThanOrEqual(tm.continuation_at)
+    // Steps carry ended_at: the sandbox tool step ends at its result, after it started.
+    const steps = (await http("GET", `/v1/chiefs/${chief.id}/runs/${runs[0].id}?conversation=${chief.main_conversation}`, token)).json.value.steps as Array<any>
+    const sandboxStep = steps.find((st) => st.kind === "tool" && st.tool?.name === "hands")
+    expect(sandboxStep.ended_at, JSON.stringify(sandboxStep)).toBeGreaterThanOrEqual(sandboxStep.at)
+    expect(steps.filter((st) => st.kind === "talk").every((st) => typeof st.ended_at === "number")).toBe(true)
+    expect(tm.first_token_at).toBeLessThanOrEqual(sandboxStep.at)
     // Within each pi turn the tools list stayed the same; the continuation had the full tools.
     const calls = fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && c.firstUser.join("\n").includes("make a sandbox and start an agent"))
+    // The continuation starts from the made hand: its first tool call is agent (no second hands list).
+    expect(steps.filter((st) => st.kind === "tool").map((st) => st.tool?.name), JSON.stringify(steps.map((st) => st.tool?.name ?? st.kind))).toEqual(["hands", "agent"])
+    const contText = calls.flatMap((c) => c.laterUsers).find((t) => t.includes("Your new hand is ready")) ?? ""
+    expect(contText).toContain('"sb-one"')
+    expect(contText).toMatch(/\(hand_[A-Za-z0-9]+\), online/)
+    expect(contText).toContain("/root/proj")
     const root = calls.filter((c) => !c.laterUsers.join("\n").includes("Your new hand is ready")).map((c) => JSON.stringify(c.tools))
     const cont = calls.filter((c) => c.laterUsers.join("\n").includes("Your new hand is ready"))
     expect(new Set(root).size, `the tools changed inside the first pi turn: ${JSON.stringify(root)}`).toBe(1)

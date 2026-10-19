@@ -30,6 +30,7 @@ pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod agent_open;
 mod call;
+mod classic;
 mod events;
 mod keybinding;
 mod open;
@@ -44,6 +45,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "app",
     "action",
     "settings",
+    "config",
     "window",
     "events",
     "history",
@@ -52,6 +54,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "open",
     "keybinding",
     "ghostty",
+    "errors",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -60,6 +63,8 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
+/// `errors.list` reads the app's logs first (the app bounds it at 12 s).
+const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -106,37 +111,14 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
-}
-
-/// The classic CLI's top-level discovery verbs: `cmux identify`, `cmux ping`
-/// and `cmux capabilities`, with the classic `--id-format <refs|uuids|both>`
-/// before or after the verb (ignored: these answers carry no refs). Skills,
-/// prompts and agent habits written for both apps still run them (cx-4w47
-/// D1); they are this app's `app identify|ping|capabilities`, the same
-/// `system.*` methods the classic CLI sends.
-fn classic_system_method(args: &[String]) -> Option<&'static str> {
-    let words = args.iter().map(String::as_str).collect::<Vec<_>>();
-    let verb = match words.as_slice() {
-        [verb] => *verb,
-        ["--id-format", format, verb] | [verb, "--id-format", format]
-            if matches!(*format, "refs" | "uuids" | "both") =>
-        {
-            *verb
-        }
-        _ => return None,
-    };
-    match verb {
-        "identify" => Some("system.identify"),
-        "ping" => Some("system.ping"),
-        "capabilities" => Some("system.capabilities"),
-        _ => None,
-    }
+    /// `settings list|schema|validate` (app/settings.rs).
+    Settings(settings::Command),
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
 pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let Some(scope) = args.first() else { return Ok(None) };
-    if let Some(method) = classic_system_method(args) {
+    if let Some(method) = classic::classic_system_method(args) {
         return Ok(Some(AppCommand::Call {
             method,
             params: json!({}),
@@ -209,7 +191,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             };
             run_action(id, tail, ActionName::Any)?
         }
-        ("settings", Some("get" | "set" | "reset" | "unset")) => settings::parse(rest)?,
+        ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
+            settings::parse(rest)?
+        }
         // The app's AI provider accounts, no secrets (`accounts.list`); the
         // other `accounts` verbs are app actions.
         ("accounts", Some("list")) => {
@@ -225,6 +209,51 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 return Err(UsageError::new(messages.scope_usage.replace("{scope}", scope)));
             }
             call("ghostty.diagnostics", json!({}))
+        }
+        // The app's error journal: deduplicated warnings, errors, faults and
+        // crashes from its log, page consoles, acpmux, the Chief and crash reports.
+        ("errors", None | Some("list")) => {
+            let tail = if rest.len() > 1 { &rest[1..] } else { &[] };
+            let options = Options::parse(
+                tail,
+                &["since", "source", "level", "text", "limit"],
+                &["top", "no-harvest"],
+            )?;
+            let mut params = Map::new();
+            for key in ["since", "level", "text"] {
+                if let Some(value) = options.value(key) {
+                    params.insert(key.into(), json!(value));
+                }
+            }
+            let sources = options.values("source");
+            if !sources.is_empty() {
+                params.insert("source".into(), json!(sources));
+            }
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
+            }
+            if options.flag("top") {
+                params.insert("order".into(), json!("count"));
+            }
+            if options.flag("no-harvest") {
+                params.insert("harvest".into(), json!(false));
+            }
+            AppCommand::Call {
+                method: "errors.list",
+                params: Value::Object(params),
+                timeout: Some(ERRORS_TIMEOUT),
+                pick: None,
+            }
+        }
+        ("errors", Some("clear")) => {
+            let options = Options::parse(&rest[1..], &["fingerprint"], &[])?;
+            let fingerprints = options.values("fingerprint");
+            let params = if fingerprints.is_empty() {
+                json!({})
+            } else {
+                json!({ "fingerprints": fingerprints })
+            };
+            call("errors.clear", params)
         }
         // Bookmarks of a browser profile (plans/cmux-next/bookmarks.md).
         ("bookmark", Some(verb @ ("list" | "search"))) => {
@@ -488,6 +517,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if let Some(refusal) = command_refusal(&command) {
         return Ran::Done(super::wire::print_operation_error(&refusal, global.output));
     }
+    if let AppCommand::Settings(command) = command {
+        return Ran::Done(command.run(global));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -576,6 +608,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::DebugCall { method, params } => {
             return Ran::Done(call::run(global, stream, &method, params));
         }
+        AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {

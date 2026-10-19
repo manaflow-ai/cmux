@@ -50,6 +50,12 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
         anyhow::bail!("the hand cannot protect its person key: {e}");
     }
     pair::check_api(&cfg.api)?;
+    // A sandbox starts its agent daemon now, so the first agent.start does not wait for it (about 1.3 s).
+    if cfg.profile == super::config::Profile::Sandbox {
+        tokio::spawn(async {
+            let _ = super::daemon::connect().await;
+        });
+    }
     // One running hand per hand home: a second copy (a service plus a manual
     // run) would take turns replacing each other's socket.
     let _lock = single_instance()?;
@@ -75,7 +81,13 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
     });
     let mut backoff = Duration::from_secs(1);
     loop {
-        match serve(&cfg, &agents, &approvals, &out_tx, &mut out_rx).await {
+        let mut connected = false;
+        let ended = serve(&cfg, &agents, &approvals, &out_tx, &mut out_rx, &mut connected).await;
+        // A link that came up starts the backoff again (a long-lived hand does not drift to the maximum).
+        if connected && !matches!(ended, Err(Ended::Revoked(_))) {
+            backoff = Duration::from_secs(1);
+        }
+        match ended {
             Ok(()) => backoff = Duration::from_secs(1),
             Err(Ended::Revoked(code)) => {
                 eprintln!(
@@ -85,6 +97,11 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
             }
             Err(Ended::Failed(e)) => {
                 eprintln!("hand: connection failed: {e}");
+            }
+            Err(Ended::Resumed) => {
+                // The machine slept (a paused sandbox resumed): reconnect at once.
+                eprintln!("hand: the machine was suspended; connecting again");
+                continue;
             }
         }
         // A bounded, intentional delay between reconnects (not synchronization).
@@ -152,7 +169,14 @@ fn single_instance() -> Result<std::fs::File> {
 enum Ended {
     Revoked(u16),
     Failed(String),
+    /// The wall clock jumped while the process did not run (the machine was paused): the socket
+    /// is gone even when the network did not say so.
+    Resumed,
 }
+
+/// How often the link checks the wall clock for a suspend, and the jump that counts as one.
+const SUSPEND_CHECK: Duration = Duration::from_secs(2);
+const SUSPEND_JUMP: Duration = Duration::from_secs(10);
 
 async fn serve(
     cfg: &Arc<HandConfig>,
@@ -160,6 +184,7 @@ async fn serve(
     approvals: &Approvals,
     out_tx: &mpsc::Sender<Value>,
     out_rx: &mut mpsc::Receiver<Value>,
+    connected: &mut bool,
 ) -> Result<(), Ended> {
     let mut req =
         socket_url(cfg).into_client_request().map_err(|e| Ended::Failed(e.to_string()))?;
@@ -203,11 +228,24 @@ async fn serve(
         .map_err(|e| Ended::Failed(e.to_string()))?;
     // Keepalive: the Cloud answers "ping" with "pong" without waking its object;
     // no pong for KEEPALIVE_DEAD means the path is gone, so reconnect.
+    *connected = true;
     let mut keepalive = tokio::time::interval(KEEPALIVE);
     keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut last_pong = tokio::time::Instant::now();
+    // The monotonic clock stops while a VM is paused; the wall clock does not.
+    let mut suspend = tokio::time::interval(SUSPEND_CHECK);
+    suspend.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut wall = std::time::SystemTime::now();
     loop {
         tokio::select! {
+            _ = suspend.tick() => {
+                let now = std::time::SystemTime::now();
+                let jumped = now.duration_since(wall).is_ok_and(|gap| gap > SUSPEND_JUMP);
+                wall = now;
+                if jumped {
+                    return Err(Ended::Resumed);
+                }
+            }
             _ = keepalive.tick() => {
                 if last_pong.elapsed() > KEEPALIVE_DEAD {
                     return Err(Ended::Failed("no keepalive answer".into()));

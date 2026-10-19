@@ -102,6 +102,7 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
+pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
 #[cfg(unix)]
 mod browser_runtime;
 #[path = "server/image_paste.rs"]
@@ -120,6 +121,8 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[cfg(unix)]
+mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
@@ -237,6 +240,7 @@ use responses::{
     send_response,
 };
 use screen_json::screen_json;
+pub(crate) use screen_json::screen_layout_json;
 mod group_outcome_json;
 use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
@@ -285,6 +289,10 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// `layout-changed` carries the screen's layout fields, its workspace and
+/// the transaction of the request that caused it (events.md
+/// `layout-changed`): a frontend patches that one screen.
+pub const LAYOUT_DELTA_CAPABILITY: &str = "layout-delta-v1";
 /// A docked column marked permanent stays docked on its edge for every
 /// client: `set-column-dock` takes `permanent`, and an undock, another edge,
 /// a replacement or a close or move that would remove it answers
@@ -522,19 +530,8 @@ pub(crate) use protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
 };
 
-/// `machine-usage` result and `machine-usage-changed` payload body: `usage`
-/// is the readout object or null when the daemon has none.
-fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
-    json!({
-        "usage": usage.map(|usage| json!({
-            "vm_id": usage.vm_id,
-            "period_days": usage.period_days,
-            "total_tokens": usage.total_tokens,
-            "api_equivalent_usd": usage.api_equivalent_usd,
-            "as_of": usage.as_of,
-        })),
-    })
-}
+mod wire_values;
+use wire_values::{default_renderer_capability_ttl_ms, json_line_payload_len, machine_usage_json};
 
 #[derive(Deserialize)]
 struct Request {
@@ -658,7 +655,10 @@ impl DetachNotice {
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify,
+    Identify {
+        #[serde(default)]
+        machine_metadata: bool,
+    },
     BrowserHostProvider,
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
@@ -2009,11 +2009,8 @@ enum Command {
         name: String,
     },
     RenameWorkspace {
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        key: Option<String>,
-        name: String,
+        #[serde(flatten)]
+        request: cmd_workspaces::WorkspaceRenameRequest,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2530,13 +2527,9 @@ pub use websocket_listener::{
 };
 
 #[cfg(test)]
-fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    handle_connection_with_permit(mux, stream, Arc::new(RenderService::new()), None);
-}
-
-fn json_line_payload_len(line: &str) -> usize {
-    line.strip_suffix('\n').map_or(line.len(), str::len)
-}
+mod test_dispatch;
+#[cfg(test)]
+use test_dispatch::{handle_connection, handle_message};
 
 mod disconnect;
 pub use disconnect::detach_control_client;
@@ -2546,14 +2539,6 @@ use disconnect::{
     disconnect_client, kick_client, own_view_detach_target, size_state_event_json,
     size_state_for_client,
 };
-
-#[cfg(test)]
-fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
-    match serde_json::from_str::<Request>(message) {
-        Ok(request) => handle_request(mux, client, request, writer),
-        Err(error) => send_bad_request(writer, message, &error),
-    }
-}
 
 mod journal_filter;
 #[cfg(test)]
@@ -2606,17 +2591,30 @@ use connection_frame::{
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
 
-fn node_json(node: &Node, active_pane: PaneId) -> Value {
+/// One layout node. `split_ids`: the public ids of the splits
+/// (`State::resource_indexes`); a split with one carries it as `split_id`
+/// (`split-client-split-id-v1`).
+fn node_json(
+    node: &Node,
+    active_pane: PaneId,
+    split_ids: &HashMap<SplitId, crate::resource::SplitPublicId>,
+) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => json!({
-            "type": "split",
-            "split": id,
-            "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
-            "ratio": ratio,
-            "a": node_json(a, active_pane),
-            "b": node_json(b, active_pane),
-        }),
+        Node::Split { id, dir, ratio, a, b } => {
+            let mut value = json!({
+                "type": "split",
+                "split": id,
+                "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
+                "ratio": ratio,
+                "a": node_json(a, active_pane, split_ids),
+                "b": node_json(b, active_pane, split_ids),
+            });
+            if let Some(public_id) = split_ids.get(id) {
+                value["split_id"] = json!(public_id);
+            }
+            value
+        }
         Node::Stack { panes, expanded } => json!({
             "type": "stack",
             "panes": panes.as_slice(),
@@ -2650,10 +2648,6 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
             Ok(LayoutSpec::Stack { pane_count: panes.len(), expanded_index })
         }
     }
-}
-
-fn default_renderer_capability_ttl_ms() -> u64 {
-    30_000
 }
 
 mod tree_json;
@@ -2744,6 +2738,10 @@ mod loopback_forward_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_inventory_tests.rs"]
+mod agent_inventory_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
