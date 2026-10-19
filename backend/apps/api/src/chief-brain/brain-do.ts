@@ -500,6 +500,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
    * turn boundary (startTurnHands): after new_sandbox or pairing, the next turn has the full tools.
    */
   installHands(): void {
+    // Hands off on this deployment (HANDS_ENABLED): no hands tools at all.
+    if (this.env.HANDS_ENABLED !== "1") return
     const v = (k: string) => this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
     // The tools are fixed for a whole turn (a model signs its thinking for the tools list; a change inside the
     // turn makes the next request a 400). The running turn's mode wins, also when the object opens again mid-turn.
@@ -516,6 +518,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** Checks for a hand (one list call) and records it; true when it found the first one now. The full tools come at the next pi turn, never inside one. */
   async refreshHands(): Promise<boolean> {
+    if (this.env.HANDS_ENABLED !== "1") return false
     if (this.childOf() !== null || this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'hands_full'`).toArray()[0]?.value === "1") return false
     if (!(await hasHand(this.env, () => ({ ...this.config() })))) return false
     writeConfig(this.sql, { hands_full: "1" })
