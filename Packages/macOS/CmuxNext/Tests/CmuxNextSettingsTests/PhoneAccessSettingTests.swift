@@ -40,7 +40,8 @@ struct PhoneAccessSettingTests {
     @Test func theRowsShowUnderAccountsWithTheDisclosure() throws {
         let accounts = try #require(SettingsPageLayout().categories().first { $0.spec.id == "accounts" })
         let rows = accounts.groups.flatMap(\.rows)
-        #expect(rows == ["phone.allowConnections", "phone.startSessions", "phone.keepAwake"])
+        // Remote Hosting (this Mac for your other devices) has its own card after phone access.
+        #expect(rows == ["phone.allowConnections", "phone.startSessions", "phone.keepAwake", "remoteHosting.enabled"])
         let toggle = try #require(SettingsSchema.descriptor(for: ["phone", "allowConnections"]))
         #expect(toggle.defaultValue == .bool(false))
         #expect(toggle.help?.contains("is sent to cmux servers") == true)
