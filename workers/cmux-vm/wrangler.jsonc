@@ -12,6 +12,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
+  "triggers": { "crons": ["*/5 * * * *"] },
   "vars": {
     "ENVIRONMENT": "local",
     "STACK_API_URL": "https://api.stack-auth.com",
@@ -64,6 +65,7 @@
       "name": "cmux-vm-staging",
       "workers_dev": false,
       "routes": [{ "pattern": "vm-staging.cmux.dev", "custom_domain": true }],
+      "triggers": { "crons": ["*/5 * * * *"] },
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {
@@ -83,6 +85,7 @@
       "name": "cmux-vm-production",
       "workers_dev": false,
       "routes": [{ "pattern": "vm.cmux.dev", "custom_domain": true }],
+      "triggers": { "crons": ["*/5 * * * *"] },
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
       "vars": {

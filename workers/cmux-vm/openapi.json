@@ -1213,6 +1213,152 @@
         }
       }
     },
+    "/v1/usage": {
+      "get": {
+        "tags": [
+          "usage"
+        ],
+        "operationId": "usage.getUsage",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": true,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": true,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "vmId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+              "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "UsageResponse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read metered VM usage for a time range. Requires the vm:read scope. Usage is tenant-scoped; a key's resource allowlist limits the VMs included. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Read metered VM usage for a time range"
+      }
+    },
     "/v1/vms/{vmId}/exec": {
       "post": {
         "tags": [
@@ -6300,6 +6446,87 @@
         "additionalProperties": false,
         "description": "The fork's snapshot was taken but the new VM was not created. The snapshot is kept in the caller's tenant; retry with the same Idempotency-Key to create from it without a second snapshot."
       },
+      "UsageResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageVmSummary"
+            }
+          },
+          "total": {
+            "$ref": "#/components/schemas/UsageTotals"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UsageVmSummary": {
+        "type": "object",
+        "required": [
+          "vmId",
+          "vcpuHours",
+          "memoryGibHours",
+          "storageGibHours",
+          "listCostMicrodollars",
+          "markedUpCostMicrodollars"
+        ],
+        "properties": {
+          "vmId": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "vcpuHours": {
+            "type": "number"
+          },
+          "memoryGibHours": {
+            "type": "number"
+          },
+          "storageGibHours": {
+            "type": "number"
+          },
+          "listCostMicrodollars": {
+            "$ref": "#/components/schemas/Int"
+          },
+          "markedUpCostMicrodollars": {
+            "$ref": "#/components/schemas/Int"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UsageTotals": {
+        "type": "object",
+        "required": [
+          "vcpuHours",
+          "memoryGibHours",
+          "storageGibHours",
+          "listCostMicrodollars",
+          "markedUpCostMicrodollars"
+        ],
+        "properties": {
+          "vcpuHours": {
+            "type": "number"
+          },
+          "memoryGibHours": {
+            "type": "number"
+          },
+          "storageGibHours": {
+            "type": "number"
+          },
+          "listCostMicrodollars": {
+            "$ref": "#/components/schemas/Int"
+          },
+          "markedUpCostMicrodollars": {
+            "$ref": "#/components/schemas/Int"
+          }
+        },
+        "additionalProperties": false
+      },
       "ExecRequest": {
         "type": "object",
         "required": [
@@ -7814,6 +8041,9 @@
     },
     {
       "name": "vms"
+    },
+    {
+      "name": "usage"
     },
     {
       "name": "exec"

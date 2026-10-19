@@ -3,6 +3,7 @@
  * Redacted immediately; they are never logged or returned.
  */
 import { Effect, Layer, Redacted } from "effect";
+import { name } from "@gdp-ts/core";
 import { makeWebHandler } from "./app.ts";
 import { stackLayers } from "./auth/credentials.ts";
 import { serviceKeysLayer } from "./auth/service-keys.ts";
@@ -23,6 +24,11 @@ import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
+import { MeteringLedger } from "./metering/ledger.ts";
+import { meteringConfig, meteringLayer } from "./metering/live.ts";
+import { mintMeteringMayReadFleet } from "./proofs/metering-may-read-fleet.ts";
+import { UpstreamClient, UpstreamError } from "./upstream/client.ts";
+import { UpstreamId } from "./lib/ids.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -51,6 +57,14 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
+  /** Metering provider and region; defaults to Freestyle and its default region. */
+  readonly CMUX_VM_PROVIDER?: string;
+  readonly CMUX_VM_PROVIDER_REGION?: string;
+  /** Integer basis points added to provider list prices; invalid values disable export. */
+  readonly CMUX_VM_MARKUP_BPS?: string;
+  /** Stripe Billing Meter event name; export is off unless this and STRIPE_SECRET_KEY are set. */
+  readonly CMUX_VM_STRIPE_METER_EVENT?: string;
+  readonly STRIPE_SECRET_KEY?: string;
 }
 
 const liveServices = (env: Env) => {
@@ -61,6 +75,7 @@ const liveServices = (env: Env) => {
     manaflowTenantIds: parseTenantList(env.MANAFLOW_TEAM_TENANT_IDS),
     vmQuotas: parseVmQuotas(env.TENANT_VM_QUOTAS),
   });
+  const metering = meteringLayer(meteringConfig(env)).pipe(Layer.provide(sql));
   return Layer.mergeAll(
     // Snapshot rows and API key management (slice S3a) share the request's connection with the other stores.
     Layer.mergeAll(sqlStoresLayer, sqlSnapshotStoreLayer, sqlApiKeyAdminStoreLayer, sqlMeshStoreLayer, sqlWebhookDeliveryStoreLayer).pipe(
@@ -68,8 +83,9 @@ const liveServices = (env: Env) => {
     ),
     policy,
     serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS),
-    // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
-    entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
+    // Entitlements reads policy flags and the metering billing_accounts seam.
+    entitlementsFromPolicyLayer.pipe(Layer.provide(policy), Layer.provide(metering)),
+    metering,
     durableObjectLimitsLayer(env.TENANT_LIMITS),
     upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
     // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
@@ -89,6 +105,32 @@ const liveServices = (env: Env) => {
       serverKey: Redacted.make(env.STACK_SECRET_SERVER_KEY),
     }),
   );
+};
+
+const runScheduled = (env: Env): Promise<void> => {
+  if (!env.HYPERDRIVE || !env.UPSTREAM_API_KEY) return Promise.resolve();
+  const now = new Date();
+  const effect = Effect.gen(function* () {
+    const ledger = yield* MeteringLedger;
+    const upstream = yield* UpstreamClient;
+    yield* name("scheduled", (caller) => {
+      const proof = mintMeteringMayReadFleet(caller);
+      return Effect.gen(function* () {
+        yield* ledger.reconcile(now, (resource) =>
+          upstream
+            .getVmForMetering(UpstreamId.make(resource.upstreamVmId), proof)
+            .pipe(
+              Effect.map((vm) => ({ kind: "present" as const, vm: { state: vm.state, vcpus: vm.resources.cpu, memoryMb: vm.resources.memory, storageMb: vm.resources.storage } })),
+              Effect.catchTag("UpstreamError", (error: UpstreamError) =>
+                Effect.succeed(error.status === 404 ? ({ kind: "gone" as const } as const) : ({ kind: "unavailable" as const } as const)),
+              ),
+            ),
+        );
+        yield* ledger.exportStripe(now);
+      });
+    });
+  });
+  return Effect.runPromise(Effect.provide(effect, liveServices(env))).catch(() => undefined);
 };
 
 /** The provider snapshot and terminal clients (slice S3a). */
@@ -139,5 +181,8 @@ export default {
   fetch(request: Request, env: Env): Promise<Response> {
     if (cached === undefined || cached.env !== env) cached = { env, handler: makeHandler(env) };
     return cached.handler(request);
+  },
+  scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
+    ctx.waitUntil(runScheduled(env));
   },
 } satisfies ExportedHandler<Env>;

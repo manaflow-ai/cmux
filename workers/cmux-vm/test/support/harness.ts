@@ -24,6 +24,7 @@ import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
 import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
+import { makeMemoryMetering } from "./metering-fake.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -43,6 +44,8 @@ export interface HarnessOptions {
   readonly ratePerMinute?: Partial<Record<"read" | "write" | "exec" | "files", number>>;
   /** Largest file upload accepted, in bytes. */
   readonly maxUploadBytes?: number;
+  /** Markup used by the in-memory metering ledger in boundary tests. */
+  readonly meteringMarkupBps?: number;
   /** Mesh experiment (cx-0op): flag, allowlisted tenants (default team_alpha and team_bravo) and budgets. */
   readonly mesh?: MeshFakeOptions;
   /** The Stack webhook signing secret (whsec_...); absent: the webhook answers 503. */
@@ -75,6 +78,10 @@ interface StoredKey extends ApiKeyRecord {
 
 export async function makeHarness(options: HarnessOptions = {}) {
   const resources: OwnedResource[] = [];
+  const metering = makeMemoryMetering(
+    () => resources.map((row) => ({ tenantId: row.tenantId, cmuxVmId: row.cmuxId, upstreamVmId: row.upstreamId })),
+    options.meteringMarkupBps ?? 0,
+  );
   const keys: StoredKey[] = [];
   /** Service keys (cx-b4h.13), as parsed from the CMUX_VM_SERVICE_KEYS secret. */
   const serviceKeys: Array<{
@@ -168,7 +175,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
   });
 
   const entitlements = Layer.succeed(Entitlements, {
-    mayCreate: (tenantId) => Effect.sync(() => billed.has(tenantId)),
+    mayCreate: (tenantId) => Effect.sync(() => billed.has(tenantId) || metering.billingAccounts.has(tenantId)),
   });
 
   const apiKeys = Layer.succeed(ApiKeyStore, {
@@ -233,6 +240,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     webhookDeliveries.layer,
     s3a.layer(upstreamFetch),
     mesh.layer(upstreamFetch),
+    metering.layer,
     Layer.succeed(TeamAdmin, {
       isAdmin: (tenantId, userId) => Effect.sync(() => admins.get(tenantId)?.has(userId) ?? false),
     }),
@@ -299,6 +307,11 @@ export async function makeHarness(options: HarnessOptions = {}) {
       if (allowed) billed.add(tenant);
       else billed.delete(tenant);
     },
+    setBillingAccount(tenant: string, stripeCustomerId: string | null = "cus_test") {
+      if (stripeCustomerId === null) metering.billingAccounts.delete(tenant);
+      else metering.billingAccounts.set(tenant, stripeCustomerId);
+    },
+    metering,
     /** Snapshots and terminals (slice S3a): fake stores, audit log, entitlements and terminal sockets. */
     s3a,
     /** Mesh experiment (cx-0op): mesh tables and the provider's networking state. */

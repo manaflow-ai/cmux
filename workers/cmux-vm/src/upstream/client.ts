@@ -16,6 +16,7 @@ import { Context, Data, Effect, Schema } from "effect";
 import type { Principal } from "../domain/principal.ts";
 import type { SnapshotId, UpstreamId, VmId } from "../lib/ids.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
+import type { MeteringMayReadFleet } from "../proofs/metering-may-read-fleet.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
@@ -87,6 +88,11 @@ export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
+  /** Scheduled metering reconciliation may inspect an owned provider VM by exact id. */
+  readonly getVmForMetering: <C>(
+    upstreamVmId: UpstreamId,
+    proof: MeteringMayReadFleet<C>,
+  ) => Effect.Effect<UpstreamVm, UpstreamError>;
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },
@@ -163,4 +169,3 @@ export interface UpstreamClientService {
 }
 
 export class UpstreamClient extends Context.Tag("cmux-vm/UpstreamClient")<UpstreamClient, UpstreamClientService>() {}
-

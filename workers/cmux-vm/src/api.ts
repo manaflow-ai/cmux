@@ -95,6 +95,34 @@ export class VmList extends Schema.Class<VmList>("VmList")({
   nextCursor: Schema.NullOr(Schema.String).annotations({ description: "Pass as `cursor` to read the next page; null on the last page." }),
 }) {}
 
+export const UsageQueryParams = Schema.Struct({
+  from: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128)),
+  to: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128)),
+  vmId: Schema.optional(VmId),
+});
+
+export class UsageVmSummary extends Schema.Class<UsageVmSummary>("UsageVmSummary")({
+  vmId: VmId,
+  vcpuHours: Schema.Number,
+  memoryGibHours: Schema.Number,
+  storageGibHours: Schema.Number,
+  listCostMicrodollars: Schema.Int,
+  markedUpCostMicrodollars: Schema.Int,
+}) {}
+
+export class UsageTotals extends Schema.Class<UsageTotals>("UsageTotals")({
+  vcpuHours: Schema.Number,
+  memoryGibHours: Schema.Number,
+  storageGibHours: Schema.Number,
+  listCostMicrodollars: Schema.Int,
+  markedUpCostMicrodollars: Schema.Int,
+}) {}
+
+export class UsageResponse extends Schema.Class<UsageResponse>("UsageResponse")({
+  items: Schema.Array(UsageVmSummary),
+  total: UsageTotals,
+}) {}
+
 const IdleTimeoutSeconds = Schema.Int.pipe(Schema.between(-1, 7 * 24 * 60 * 60)).annotations({
   description: `${IDLE_DEFINITION} Dev/test tenants: 1 to 300, default 300. Other tenants: default -1 (the cmux app pauses product machines itself).`,
 });
@@ -257,6 +285,19 @@ export class HealthGroup extends HttpApiGroup.make("health").add(
     .addSuccess(Health)
     .annotateContext(OpenApi.annotations({ summary: "Liveness check; no credentials needed" })),
 ) {}
+
+export class UsageGroup extends HttpApiGroup.make("usage")
+  .add(
+    HttpApiEndpoint.get("getUsage", "/v1/usage")
+      .setUrlParams(UsageQueryParams)
+      .setHeaders(TeamHeaders)
+      .addSuccess(UsageResponse)
+      .addError(BadRequest)
+      .addError(NotFound)
+      .addError(QuotaExceeded)
+      .annotateContext(describe("Read metered VM usage for a time range", "vm:read", "Usage is tenant-scoped; a key's resource allowlist limits the VMs included.")),
+  )
+  .middleware(Authentication) {}
 
 /** A VM action that answers with the VM's new state. */
 const vmAction = <const Name extends string>(endpointName: Name, path: `/v1/vms/:vmId/${string}`, summary: string, details: string) =>
@@ -434,6 +475,7 @@ export class FilesGroup extends HttpApiGroup.make("files")
 export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(HealthGroup)
   .add(VmsGroup)
+  .add(UsageGroup)
   .add(ExecGroup)
   .add(FilesGroup)
   .add(SnapshotsGroupDefinition.middleware(Authentication))

@@ -55,8 +55,8 @@ actor (user or key id), action, cmux id, outcome; never commands or contents.
 A tenant is dev/test when the Worker is not production, or when its id is in
 `DEV_TEST_TENANT_IDS` on production. Dev/test VMs get an idle timeout of at
 most 300 s (default 300); product VMs default to -1 and the web app's CloudDO
-pauses them. Until the billing source is wired (TODO in
-`src/proofs/tenant-may-create.ts`), only dev/test tenants may create.
+pauses them. Tenants with an active `cmux_vm.billing_accounts` row may create;
+the dev/test and manaflow-team policy lists remain entitled as before.
 
 `bun scripts/smoke.ts` (CI job `smoke-staging`, after each staging deploy)
 creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
@@ -72,7 +72,7 @@ creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
 | `src/limits/` | per-tenant Durable Object: rate limits, quota reservations, idempotency keys |
 | `src/policy.ts` | dev/test tenants, quotas, rate limits, upload size |
 | `src/upstream/` | provider client (proof-gated); `exec-stream.ts` filters exec output as it streams |
-| `migrations/` | SQL for schema `cmux_vm`: `resources`, `api_keys`, `audit_log` (additive) |
+| `migrations/` | SQL for schema `cmux_vm`: ownership, audit, mesh and metering tables (additive) |
 | `upstream/` | pinned provider OpenAPI document and SDK type surface (`PINNED.json`) |
 
 ## Checks
@@ -83,12 +83,11 @@ budget. CI runs the same in `.github/workflows/cmux-vm.yml`.
 
 ## Operations
 
-Entitlement until billing exists (`src/proofs/tenant-may-create.ts`): outside
-production every tenant may create; in production a tenant may create when it is
-listed in `DEV_TEST_TENANT_IDS` (dev/test: idle timeout at most 300 s) or in
-`MANAFLOW_TEAM_TENANT_IDS` (the manaflow-team flag, cx-b4h.16: product tenant,
-no idle cap). Every other team gets 402. Both lists are Worker vars in
-`wrangler.jsonc`; change them in a reviewed commit.
+Entitlement (`src/proofs/tenant-may-create.ts`): outside production every
+tenant may create; in production a tenant may create when it is listed in
+`DEV_TEST_TENANT_IDS`, in `MANAFLOW_TEAM_TENANT_IDS`, or has an active row in
+`cmux_vm.billing_accounts`. Every other team gets 402. The two policy lists are
+Worker vars in `wrangler.jsonc`; change them in a reviewed commit.
 
 API key management (`/v1/api-keys`) writes `cmux_vm.api_keys`. Besides
 SELECT, the Worker's database role needs, applied by an operator:
@@ -102,3 +101,32 @@ staging branch first; the Worker never runs DDL. Deploys run only from CI,
 gated by the environment variable `CMUX_VM_DEPLOY_ENABLED`, and create or
 update the environment's Hyperdrive config before deploying; the workflow header
 lists the GitHub environments and the secrets each needs.
+
+## Metering and billing
+
+The Worker records VM lifecycle facts in `cmux_vm.usage_intervals`. Running and
+starting intervals bill vCPU, memory and storage; paused and stopped intervals
+bill storage until the VM is deleted. The five-minute Cron Trigger reconciles
+owned VMs with the provider so provider-side idle pauses and identity wakes are
+included. Usage is available to the owning tenant at `GET /v1/usage` with ISO
+`from` and `to` timestamps, and includes per-VM and total vCPU-hours,
+GiB-hours, storage GiB-hours, list cost and marked-up cost. Transfer billing is
+not emitted because the current provider response has no per-VM transfer
+counter. TODO: add transfer intervals when the provider exposes that field.
+
+Freestyle list prices are kept in `src/metering/prices.ts` (source and date are
+documented there). Set `CMUX_VM_PROVIDER` and `CMUX_VM_PROVIDER_REGION` when a
+different provider/region price table is selected. `CMUX_VM_MARKUP_BPS` is an
+integer basis-point markup and defaults to zero. A negative, non-integer or
+unsafe value disables Stripe export without taking VM requests down.
+
+Stripe export is off unless both the `STRIPE_SECRET_KEY` secret and
+`CMUX_VM_STRIPE_METER_EVENT` are set. When enabled, the Cron Trigger sends one
+closed tenant-hour at a time to Stripe's Billing Meter API, using micro-dollars
+as the meter value and a deterministic tenant-hour identifier. Successful
+hours are recorded in `cmux_vm.usage_exports`, so retries do not double bill.
+Before enabling export, an operator applies `migrations/0011_cmux_vm_usage.sql`,
+grants the Worker role `SELECT, INSERT, UPDATE` on `usage_intervals`, `SELECT`
+on `billing_accounts`, and `SELECT, INSERT` on `usage_exports`, and writes an
+active `cmux_vm.billing_accounts` row for each Stripe customer. Stripe's meter
+must interpret the submitted value as micro-dollars.

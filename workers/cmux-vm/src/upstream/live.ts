@@ -18,6 +18,7 @@ import {
   type SizeRequest,
   type UpstreamClientService,
 } from "./client.ts";
+import type { MeteringMayReadFleet } from "../proofs/metering-may-read-fleet.ts";
 import { execResultStream } from "./exec-stream.ts";
 import { upstreamName } from "./naming.ts";
 
@@ -198,6 +199,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
   const discardSnapshot = (id: UpstreamId) => deleteById("discardSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`).pipe(Effect.ignore);
 
   return {
+    getVmForMetering: <C>(upstreamVmId: UpstreamId, _proof: MeteringMayReadFleet<C>) => getVmById("getVmForMetering", upstreamVmId),
     getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),

@@ -32,6 +32,9 @@ import type { UpstreamMesh } from "./upstream/mesh.ts";
 import type { MembershipCache } from "./auth/membership-cache.ts";
 import type { WebhookDeliveryStore } from "./db/identity.ts";
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./handlers/stack-webhook.ts";
+import { usageHandlers } from "./handlers/usage.ts";
+import type { MeteringLedger, TenantBillingAccounts } from "./metering/ledger.ts";
+import type { UsageRecorder } from "./metering/recorder.ts";
 
 export type Services =
   | OwnershipStore
@@ -44,6 +47,9 @@ export type Services =
   | TenantLimits
   | TenantPolicy
   | Entitlements
+  | UsageRecorder
+  | MeteringLedger
+  | TenantBillingAccounts
   | S3aServices
   | MeshServices;
 
@@ -92,6 +98,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
   const api = HttpApiBuilder.api(CmuxVmApi).pipe(
     Layer.provide(healthHandlers),
     Layer.provide(authenticated(vmsHandlers)),
+    Layer.provide(authenticated(usageHandlers)),
     Layer.provide(authenticated(execHandlers)),
     Layer.provide(authenticated(filesHandlers)),
     Layer.provide(authenticated(snapshotsHandlers)),

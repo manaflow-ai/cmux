@@ -128,6 +128,15 @@ describe("createVm", () => {
     expect(t.audit).toEqual([expect.objectContaining({ action: "vm.create", cmuxId: null, outcome: "PaymentRequired" })]);
   });
 
+  it("allows a production tenant with an active billing account", async () => {
+    const t = await harness({ environment: "production" });
+    t.setBilling(TENANT_A, false);
+    t.setBillingAccount(TENANT_A);
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+
+    expect((await createVm(t, key)).status).toBe(201);
+  });
+
   it("enforces the per-tenant VM quota, counting only the tenant's live VMs", async () => {
     const t = await harness({ maxVms: 1 });
     const keyA = await t.addKey(TENANT_A, ["vm:write"]);

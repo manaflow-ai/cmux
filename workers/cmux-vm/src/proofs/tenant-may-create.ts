@@ -14,6 +14,7 @@ import type { Principal } from "../domain/principal.ts";
 import type { ResourceKind, TenantId } from "../lib/ids.ts";
 import { TenantLimits, type LimitsUnavailable } from "../limits/service.ts";
 import { TenantPolicy } from "../policy.ts";
+import { TenantBillingAccounts } from "../metering/ledger.ts";
 
 /** The tenant of caller `C` may create one more resource of kind `K` now. */
 export interface TenantMayCreate<C, K extends ResourceKind> extends Proof<`TenantMayCreate:${K}`, [C]> {
@@ -47,15 +48,27 @@ export const entitlementsDenyAllLayer = Layer.succeed(Entitlements, {
 });
 
 /**
- * Until the billing source exists: dev/test tenants and teams under the
- * manaflow-team flag (per TenantPolicy, cx-b4h.16) may create, everyone else is
- * refused with 402. Fails closed in production.
+ * Dev/test tenants and teams under the manaflow-team flag (per TenantPolicy,
+ * cx-b4h.16) may create. A tenant with an active billing account may also
+ * create; the account table is the seam for the later control-plane billing
+ * integration. Everyone else is refused with 402.
  */
 export const entitlementsFromPolicyLayer = Layer.effect(
   Entitlements,
-  Effect.map(TenantPolicy, (policy) => ({
-    mayCreate: (tenantId: TenantId) => Effect.succeed(policy.isDevTest(tenantId) || policy.isManaflowTeam(tenantId)),
-  })),
+  Effect.gen(function* () {
+    const policy = yield* TenantPolicy;
+    const accounts = yield* TenantBillingAccounts;
+    return {
+      mayCreate: (tenantId: TenantId) =>
+        Effect.gen(function* () {
+          if (policy.isDevTest(tenantId) || policy.isManaflowTeam(tenantId)) return true;
+          const account = yield* accounts.activeForTenant(tenantId).pipe(
+            Effect.mapError((cause) => new EntitlementUnavailable({ cause })),
+          );
+          return account !== null;
+        }),
+    };
+  }),
 );
 
 export type CreateDecision<C, K extends ResourceKind> =
