@@ -386,7 +386,13 @@ mod imp {
             let written = unsafe {
                 libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size)
             };
-            (written == size).then_some(info.pbi_ppid)
+            if written == size {
+                return Some(info.pbi_ppid);
+            }
+            // A login(1) PTY child runs setuid root, which proc_pidinfo does
+            // not answer for; the process table does.
+            let pid = u32::try_from(pid).ok()?;
+            crate::kinfo_proc::KinfoProc::read(pid).map(|process| process.parent())
         }
 
         pub(super) fn sample(&self, pid: u32) -> Option<ProcessSample> {

@@ -117,6 +117,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var minimal = false
     /// Expanded rows (`sidebar.density`), unless minimal: `WorkspaceRowContent(expanded:)`.
     public var expanded = false
+    /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
+    public var detailedStatus = false
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
@@ -139,6 +141,12 @@ nonisolated extension SidebarLayoutOptions {
     /// stage), the status block, counts and badges; the working spinner,
     /// loading, the progress bar and attention states still show, like the unread mark.
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+        var content = baseRowContent(ws, machine: machine)
+        content.detailedStatus = detailedStatus
+        return content
+    }
+
+    private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         if expanded && !minimal {
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
                                        showsNotification: workspaceRow.resolved(for: ws.rowKind).shows(.notification))

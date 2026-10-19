@@ -48,6 +48,17 @@ nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
                 surfaces: [.keyboard], requires: [.codeEditorFocused], arguments: [CatalogArgument.textString],
                 targets: [.pane], cliName: "browser editor-action"
             ),
+            // Settings > Code Editor: the editor's defaults already follow VS Code, Cursor, Windsurf,
+            // VSCodium or Zed (`editor.importFrom`); this writes them into cmux.json (only keys not
+            // set there) so they show and stay as they are. It never writes the other editor's files.
+            ActionDescriptor(
+                id: "fileEditor.importEditorSettings",
+                title: String(localized: "action.fileEditor.importEditorSettings",
+                              defaultValue: "Copy Settings from VS Code or Zed", bundle: .module),
+                keywords: ["editor", "import", "vscode", "zed", "cursor", "windsurf", "vscodium", "settings", "monaco"],
+                category: .settings, symbol: "square.and.arrow.down", surfaces: [.palette],
+                cliName: "settings import-editor-settings"
+            ),
         ]
     }
 }

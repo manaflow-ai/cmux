@@ -158,11 +158,13 @@ fn push_arg(line: &mut Vec<u16>, arg: &OsStr) {
 
 /// This process's environment for the daemon: `ACPMUX_HOME` set to `home`
 /// (a host override its own environment would not reproduce), without the
-/// nested Claude keys `scrub_nested_claude_env` removes. Sorted, as
+/// nested Claude keys `scrub_nested_claude_env` removes and without its
+/// starter's turn values (`config::inherited_caller_scoped_keys`). Sorted, as
 /// CreateProcessW expects (names compare without case).
 fn environment_block(home: &Path, extra: &[(&str, &OsStr)]) -> Vec<u16> {
     let drop: Vec<String> = crate::config::nested_claude_keys()
         .iter()
+        .chain(crate::config::inherited_caller_scoped_keys().iter())
         .map(|k| k.to_string_lossy().to_uppercase())
         .collect();
     let mut vars: Vec<(OsString, OsString)> = std::env::vars_os()

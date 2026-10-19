@@ -820,6 +820,10 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
     let mut cmd = std::process::Command::new(exe);
     crate::config::scrub_nested_claude_env(&mut cmd);
+    // The daemon serves every session: its starter's turn values are not its own.
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
     // The daemon must use this client's state directory, including a host
     // override that its own environment would not reproduce.
     cmd.env("ACPMUX_HOME", home())
@@ -912,6 +916,10 @@ async fn notify_loop(hub: Arc<Hub>) {
             ),
         };
         let mut c = tokio::process::Command::new("sh");
+        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+        for k in crate::config::inherited_caller_scoped_keys() {
+            c.env_remove(k);
+        }
         crate::login_env::apply_tokio(&mut c);
         c.arg("-c")
             .arg(&cmd)

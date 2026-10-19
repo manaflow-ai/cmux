@@ -14,7 +14,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -65,6 +65,17 @@ pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
+/// A run that waits for a person's answer in the app (an agent's cookie
+/// import shows a consent panel, then macOS asks for a password): the app
+/// bounds it at 200 s (`ActionDescriptor.personDeadline`).
+pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
+/// The CLI names of the actions that wait for a person (`waits_for_person`).
+const PERSON_ACTIONS: &[&str] = &["browser import-cookies", "browser.importCookies"];
+
+/// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
+pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
+    if PERSON_ACTIONS.contains(&action) { PERSON_RUN_TIMEOUT } else { WAITING_RUN_TIMEOUT }
+}
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -460,7 +471,7 @@ pub(super) fn run_action(
     Ok(AppCommand::Call {
         method: "action.run",
         params: Value::Object(params),
-        timeout: Some(if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT }),
+        timeout: Some(if wait { waiting_run_timeout(action) } else { READ_TIMEOUT }),
         pick: None,
     })
 }
@@ -827,7 +838,7 @@ pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &std::path::Path) 
 
 /// No app listens at `socket` (no file, or a stale one): the command needs
 /// the app, which a Chief without the app must hear plainly (E17).
-pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
+pub(super) fn connect(socket: &Path) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
     connect_for_uid(socket, cmux_tui_core::platform::effective_uid()).map_err(|error| {
         let template = match error.kind() {
@@ -856,7 +867,12 @@ fn connect_for_uid(socket: &std::path::Path, expected_uid: u32) -> std::io::Resu
 /// Every app request first lets the app catch up with the daemon
 /// (`after: "sync"`, one daemon round trip), so it sees what an earlier
 /// `cmux` call wrote to the daemon (plans/cmux-next/state-ownership.md 4).
-fn with_read_barrier(mut params: Value) -> Value {
+/// The liveness probes skip it: they read no session state, and a busy
+/// daemon must not make a live app look dead.
+fn with_read_barrier(method: &str, mut params: Value) -> Value {
+    if matches!(method, "system.ping" | "system.capabilities") {
+        return params;
+    }
     if let Some(object) = params.as_object_mut() {
         object.entry("after").or_insert_with(|| json!("sync"));
     }
@@ -928,11 +944,30 @@ pub(super) fn request(
 ) -> Result<Result<Value, Value>, String> {
     let timeout = timeout.into();
     let (with, added) = with_caller(method, params.clone());
-    let response = exchange(stream, method, with_read_barrier(with), timeout)?;
+    let mut response = exchange(stream, method, with_read_barrier(method, with.clone()), timeout)?;
+    // On a loaded machine the app's 2 s request deadline (mostly its daemon
+    // read barrier) can pass while both are healthy. A read changes nothing,
+    // so it is asked once more; a mutation is never resent.
+    if is_retryable_read(method) && timed_out(&response) {
+        response = exchange(stream, method, with_read_barrier(method, with), timeout)?;
+    }
     if added && refused_caller(&response) {
-        return exchange(stream, method, with_read_barrier(params), timeout);
+        return exchange(stream, method, with_read_barrier(method, params), timeout);
     }
     Ok(response)
+}
+
+/// An app method that only reads state: safe to send again after a timeout.
+fn is_retryable_read(method: &str) -> bool {
+    method.starts_with("system.")
+        || method == "snapshot.get"
+        || method == "action.list"
+        || method == "action.describe"
+        || [".list", ".get", ".describe", ".status"].iter().any(|suffix| method.ends_with(suffix))
+}
+
+fn timed_out(response: &Result<Value, Value>) -> bool {
+    matches!(response, Err(error) if error_code(error) == Some("timeout"))
 }
 
 /// One request with exactly `params` (no read barrier) and its response.
