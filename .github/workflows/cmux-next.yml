@@ -117,6 +117,8 @@ on:
       - scripts/cmux-next/fast-tier.json
       - scripts/cmux-next/quarantine.json
       - scripts/cmux-next/tests/fast-tier.test.sh
+      - scripts/cmux-next/fast-tier-cache-key.sh
+      - scripts/ci/e2e_warm_derived_data.py
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
@@ -305,6 +307,8 @@ on:
       - scripts/cmux-next/fast-tier.json
       - scripts/cmux-next/quarantine.json
       - scripts/cmux-next/tests/fast-tier.test.sh
+      - scripts/cmux-next/fast-tier-cache-key.sh
+      - scripts/ci/e2e_warm_derived_data.py
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
@@ -1666,44 +1670,6 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # Owned minis use their connected SSD scratch/cache. Blacksmith overflow
-      # restores from HQ R2 instead; never duplicate the fleet CAS on a mini.
-      - name: Compute Swift fast-tier cache key
-        id: swift-fast-cache-key
-        if: ${{ !contains(runner.name, '-glaeda') }}
-        run: |
-          set -euo pipefail
-          toolchain="$(xcodebuild -version | shasum -a 256 | awk '{print $1}')"
-          inputs="${{ hashFiles('**/Package.swift', '**/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}"
-          prefix="cmux-next-fast-swift-v1-${RUNNER_OS}-${RUNNER_ARCH}-${toolchain}-${inputs}-"
-          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-          echo "key=${prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          # r2-cache.sh archives one directory per key, so CmuxHomeRender gets its own.
-          home_prefix="cmux-next-fast-swift-home-v1-${RUNNER_OS}-${RUNNER_ARCH}-${toolchain}-${inputs}-"
-          echo "home-prefix=$home_prefix" >> "$GITHUB_OUTPUT"
-          echo "home-key=${home_prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore Swift fast-tier cache
-        id: swift-fast-cache-restore
-        if: ${{ !contains(runner.name, '-glaeda') }}
-        continue-on-error: true
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: Packages/macOS/CmuxNext/.build
-          key: ${{ steps.swift-fast-cache-key.outputs.key }}
-          restore-keys: ${{ steps.swift-fast-cache-key.outputs.prefix }}
-
-      - name: Restore CmuxHomeRender fast-tier cache
-        if: ${{ !contains(runner.name, '-glaeda') }}
-        continue-on-error: true
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: Packages/Shared/CmuxHomeRender/.build
-          key: ${{ steps.swift-fast-cache-key.outputs.home-key }}
-          restore-keys: ${{ steps.swift-fast-cache-key.outputs.home-prefix }}
-
       # Checkout removes .build. Link the owned Mac's kept build after Xcode
       # selection so its fingerprint uses the compiler that runs this job.
       - name: Keep Swift package builds on this owned Mac
@@ -1721,78 +1687,45 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Compute Cargo fast-tier cache key
-        id: cargo-fast-cache-key
+      # Owned minis keep their builds on their own SSD (above). Blacksmith overflow
+      # restores the newest seed cmux-next-fast-tier-seed.yml saved from a
+      # feat-cmux-next push to the GitHub Actions cache; a pull request reads its
+      # base branch's entries and never writes one. One entry holds every build
+      # directory, so they all come from one seed and one input-time manifest.
+      - name: Compute fast-tier cache key
+        id: fast-cache-key
         if: ${{ !contains(runner.name, '-glaeda') }}
-        run: |
-          set -euo pipefail
-          rust="$(rustc -vV | shasum -a 256 | awk '{print $1}')"
-          lock="${{ hashFiles('cmux-tui/Cargo.lock', 'cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.toml') }}"
-          ghostty="$(git rev-parse HEAD:ghostty-next)"
-          prefix="cmux-next-fast-cargo-v1-${RUNNER_OS}-${RUNNER_ARCH}-${rust}-${lock}-${ghostty}-"
-          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-          echo "key=${prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+        run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
 
-      - name: Restore Cargo fast-tier cache
-        id: cargo-fast-cache-restore
+      - name: Restore fast-tier build cache
+        id: fast-cache-restore
         if: ${{ !contains(runner.name, '-glaeda') }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: cmux-tui/target
-          key: ${{ steps.cargo-fast-cache-key.outputs.key }}
-          restore-keys: ${{ steps.cargo-fast-cache-key.outputs.prefix }}
+          backend: github
+          path: |
+            Packages/macOS/CmuxNext/.build
+            Packages/Shared/CmuxHomeRender/.build
+            cmux-tui/target
+          key: ${{ steps.fast-cache-key.outputs.key }}
+          restore-keys: ${{ steps.fast-cache-key.outputs.prefix }}
+
+      # A fresh checkout stamps every source with the checkout time, which SwiftPM
+      # and cargo read as "changed". Give each file whose content matches the
+      # seed's the time the seed built it from, so only what changed rebuilds.
+      - name: Replay the seed's input times
+        if: ${{ steps.fast-cache-restore.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
 
       - name: Run the fast tier
         env:
-          CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.swift-fast-cache-key.outputs.key }}
-          CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.swift-fast-cache-restore.outputs.cache-hit }}
-          CMUX_FAST_CARGO_CACHE_KEY: ${{ steps.cargo-fast-cache-key.outputs.key }}
-          CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-fast-cache-restore.outputs.cache-hit }}
+          CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.key }}
+          CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
+          CMUX_FAST_CARGO_CACHE_KEY: ${{ steps.fast-cache-key.outputs.key }}
+          CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
         run: python3 -I scripts/cmux-next/fast-tier.py --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
-
-      - name: Save Swift fast-tier cache
-        if: ${{ success() && !contains(runner.name, '-glaeda') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-        continue-on-error: true
-        uses: ./.github/actions/cache-save
-        env:
-          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        with:
-          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: Packages/macOS/CmuxNext/.build
-          key: ${{ steps.swift-fast-cache-key.outputs.key }}
-
-      - name: Save CmuxHomeRender fast-tier cache
-        if: ${{ success() && !contains(runner.name, '-glaeda') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-        continue-on-error: true
-        uses: ./.github/actions/cache-save
-        env:
-          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        with:
-          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: Packages/Shared/CmuxHomeRender/.build
-          key: ${{ steps.swift-fast-cache-key.outputs.home-key }}
-
-      - name: Save Cargo fast-tier cache
-        if: ${{ success() && !contains(runner.name, '-glaeda') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-        continue-on-error: true
-        uses: ./.github/actions/cache-save
-        env:
-          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        with:
-          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: cmux-tui/target
-          key: ${{ steps.cargo-fast-cache-key.outputs.key }}
 
       - name: Upload fast-tier timing receipt
         if: always()
