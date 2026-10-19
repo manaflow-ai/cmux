@@ -47,6 +47,7 @@ mod relay;
 pub(crate) mod routing;
 #[cfg(unix)]
 mod runs;
+mod server_scope;
 #[cfg(unix)]
 mod server_tmp;
 #[cfg(unix)]

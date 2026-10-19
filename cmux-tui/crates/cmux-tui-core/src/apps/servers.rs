@@ -139,6 +139,9 @@ pub(super) struct Server {
     /// Calls by wire id; every one waits for its `result` line.
     pub pending: HashMap<String, Responder>,
     pub expected_scopes: HashMap<String, String>,
+    pub scope_ready: bool,
+    pub scope_probe: Option<TimerId>,
+    pub scoped_queued: Vec<(String, Vec<u8>)>,
     /// Wire ids of pending calls admitted with origin user: while one is in
     /// flight, a relay line may claim origin user (`relay.rs`).
     pub user_ops: HashSet<String>,
@@ -424,6 +427,7 @@ impl Supervisor {
             "type": "op", "id": id, "op": op, "args": args, "origin": origin,
             "idempotency_key": idempotency_key,
         });
+        let scoped = expected_scope.is_some();
         if let Some(scope) = expected_scope {
             message["expected_scope"] = json!(scope);
             server.expected_scopes.insert(id.clone(), scope);
@@ -438,6 +442,8 @@ impl Supervisor {
         }
         if server.stopping {
             server.queued.push((id.clone(), message));
+        } else if scoped {
+            self.queue_scoped_locked(inner, app, id.clone(), message);
         } else {
             server.process.send(message);
         }
@@ -505,6 +511,9 @@ impl Supervisor {
                 spec,
                 pending: HashMap::new(),
                 expected_scopes: HashMap::new(),
+                scope_ready: false,
+                scope_probe: None,
+                scoped_queued: Vec::new(),
                 user_ops: HashSet::new(),
                 queued: Vec::new(),
                 next_id: 0,
@@ -535,6 +544,11 @@ impl Supervisor {
             return vec![];
         };
         server.stopping = true;
+        if let Some(timer) = server.scope_probe.take() {
+            self.timers.cancel(timer);
+        }
+        server.scoped_queued.clear();
+        server.expected_scopes.clear();
         if let Some(timer) = server.idle.take() {
             self.timers.cancel(timer);
         }
@@ -623,6 +637,10 @@ impl Supervisor {
                     }
                     Err(reply) => inner.servers[app].process.send(line(&reply)),
                 }
+                return;
+            }
+            if value["type"] == "scope.ready" {
+                self.scope_ready_locked(&mut inner, app, &value);
                 return;
             }
             if value["t"] == "host.request" {
@@ -724,7 +742,10 @@ impl Supervisor {
                 return;
             }
             let mut server = inner.servers.remove(app).expect("server");
-            for timer in [server.idle.take(), server.kill.take()].into_iter().flatten() {
+            for timer in [server.idle.take(), server.kill.take(), server.scope_probe.take()]
+                .into_iter()
+                .flatten()
+            {
                 self.timers.cancel(timer);
             }
             let queued: Vec<(String, Vec<u8>)> = std::mem::take(&mut server.queued);
@@ -792,18 +813,23 @@ impl Supervisor {
         };
         match started {
             Ok(mut outs) => {
-                let server = inner.servers.get_mut(app).expect("started");
                 // Queued calls keep their wire ids; new ones never reuse them.
-                server.next_id = next_id;
+                inner.servers.get_mut(app).expect("started").next_id = next_id;
                 for (id, message) in queued {
                     if let Some(respond) = pending.remove(&id) {
-                        if let Ok(line) = serde_json::from_slice::<Value>(&message)
-                            && let Some(scope) = line["expected_scope"].as_str()
-                        {
-                            server.expected_scopes.insert(id.clone(), scope.to_owned());
+                        let scope = serde_json::from_slice::<Value>(&message)
+                            .ok()
+                            .and_then(|line| line["expected_scope"].as_str().map(str::to_owned));
+                        let server = inner.servers.get_mut(app).expect("started");
+                        if let Some(scope) = &scope {
+                            server.expected_scopes.insert(id.clone(), scope.clone());
                         }
-                        server.pending.insert(id, respond);
-                        server.process.send(message);
+                        server.pending.insert(id.clone(), respond);
+                        if scope.is_some() {
+                            self.queue_scoped_locked(inner, app, id, message);
+                        } else {
+                            server.process.send(message);
+                        }
                     }
                 }
                 outs.extend(pending.into_values().map(|respond| {

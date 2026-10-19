@@ -24,8 +24,13 @@ import json, sys
 sent = 0
 for line in sys.stdin:
     request = json.loads(line)
+    if request.get("type") == "scope.probe":
+        print(json.dumps({"type": "scope.ready", "id": request["id"]}), flush=True)
+        continue
     if request.get("type") != "op":
         continue
+    with open(sys.argv[1], "a") as calls:
+        calls.write(line)
     sent += 1
     result = {"scope": request.get("expected_scope"), "sent": sent}
     print(json.dumps({"type": "result", "id": request["id"], "ok": True, "result": result, "expected_scope": request.get("expected_scope")}), flush=True)
@@ -47,7 +52,8 @@ for line in sys.stdin:
             "server": {"kind": "native", "binaries": {
                 "darwin-arm64": "scope-probe", "darwin-x64": "scope-probe",
                 "linux-arm64": "scope-probe", "linux-x64": "scope-probe"
-            }, "instances": "machine", "hosts": ["local"], "lifecycle": {"start": "onDemand"}}
+            }, "instances": "machine", "hosts": ["local"], "lifecycle": {"start": "onDemand"},
+            "args": [apps.dir.join("scope-ops.jsonl").to_string_lossy()]}
         }),
     );
 }
@@ -102,12 +108,17 @@ fn cloud_scope_an_older_server_cannot_return_an_unscoped_cached_success() {
     write_scope_app(&apps);
     let path = apps.dir.join("servers/scope-probe");
     let source = std::fs::read_to_string(&path).unwrap();
-    write_script(
-        &path,
-        &source.replace(", \"expected_scope\": request.get(\"expected_scope\")", ""),
-    );
+    let probe = "    if request.get(\"type\") == \"scope.probe\":\n        print(json.dumps({\"type\": \"scope.ready\", \"id\": request[\"id\"]}), flush=True)\n        continue\n";
+    assert!(source.contains(probe));
+    write_script(&path, &source.replace(probe, ""));
     apps.start();
-    let reply = apps.app().rpc(json!({"cmd": "apps-run-scoped", "app": "cmux/scope", "op": "scope.write",
+    let mut app = apps.app();
+    app.reader.get_mut().set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    let reply = app.rpc(json!({"cmd": "apps-run-scoped", "app": "cmux/scope", "op": "scope.write",
         "args": {}, "idempotency_key": "old-cached", "origin": "user", "expected_scope": "a".repeat(64)}));
     assert_eq!(error_code(&reply), "apps.scope_unsupported", "{reply}");
+    assert!(
+        !apps.dir.join("scope-ops.jsonl").exists(),
+        "an old server must receive no operation before admission"
+    );
 }

@@ -174,9 +174,10 @@ impl Supervisor {
         server.user_ops.remove(&wire);
         server.expected_scopes.remove(&wire);
         let Some(pending) = server.pending.remove(&wire) else { return outs };
-        let queued = server.queued.len();
+        let queued = server.queued.len() + server.scoped_queued.len();
         server.queued.retain(|(id, _)| *id != wire);
-        if server.queued.len() == queued {
+        server.scoped_queued.retain(|(id, _)| *id != wire);
+        if server.queued.len() + server.scoped_queued.len() == queued {
             server.process.send(super::servers::line(&json!({ "type": "op.cancel", "id": wire })));
         }
         // Ends the op and releases its key: a same-key retry runs again.

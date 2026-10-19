@@ -81,6 +81,7 @@ fn answer<R: BufRead, W: Write>(
     }
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     Some(match message.get("type").and_then(Value::as_str) {
+        Some("scope.probe") => json!({"type": "scope.ready", "id": id}),
         // A connect never waits here for its link: its result goes out
         // later, from `send_events`, when the link is up or ended.
         Some("op") => match serde_json::from_value::<Request>(message) {
