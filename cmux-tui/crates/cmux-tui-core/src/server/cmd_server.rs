@@ -58,6 +58,7 @@ pub(super) fn identify(mux: &Arc<Mux>, machine_metadata: bool) -> anyhow::Result
     });
     if machine_metadata {
         identity["machine_id"] = json!(mux.machine_public_id);
+        identity["session_resource_id"] = json!(mux.session_public_id);
         identity["machine_platform"] = crate::resource_api::machine_platform();
         identity["machine_capabilities"] = crate::resource_api::machine_capabilities();
     }
