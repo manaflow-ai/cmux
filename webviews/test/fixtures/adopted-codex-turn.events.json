@@ -1,0 +1,71 @@
+[
+  {
+    "at": 1790931600000,
+    "dir": "mux",
+    "kind": "turn_started",
+    "msg": {
+      "client": "adopt",
+      "control": "local",
+      "prompt": "Bump the version to 1.3.0 and note it in the changelog",
+      "promptId": "adopted-prompt-0",
+      "turnId": "adopted-0"
+    },
+    "seq": 1
+  },
+  {
+    "at": 1790931600000,
+    "dir": "mux",
+    "kind": "user_message",
+    "msg": {
+      "client": "adopt",
+      "promptId": "adopted-prompt-0",
+      "text": "Bump the version to 1.3.0 and note it in the changelog",
+      "turnId": "adopted-0"
+    },
+    "seq": 2
+  },
+  {
+    "at": 1790931692000,
+    "dir": "in",
+    "kind": "agent_message_chunk",
+    "msg": {
+      "jsonrpc": "2.0",
+      "method": "session/update",
+      "params": {
+        "sessionId": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60",
+        "update": {
+          "content": {
+            "text": "Bumped demo to 1.3.0 and added a 1.3.0 entry to CHANGELOG.md.",
+            "type": "text"
+          },
+          "sessionUpdate": "agent_message_chunk"
+        }
+      }
+    },
+    "seq": 3
+  },
+  {
+    "at": 1790931692000,
+    "dir": "mux",
+    "kind": "turn_end",
+    "msg": {
+      "stopReason": "end_turn",
+      "turnId": "adopted-0",
+      "turnSeq": 1
+    },
+    "seq": 4
+  },
+  {
+    "at": 1790931692000,
+    "dir": "mux",
+    "kind": "turn_result",
+    "msg": {
+      "promptId": "adopted-prompt-0",
+      "status": "completed",
+      "stopReason": "end_turn",
+      "turnId": "adopted-0",
+      "turnSeq": 1
+    },
+    "seq": 5
+  }
+]
