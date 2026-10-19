@@ -1056,6 +1056,40 @@ import Testing
         #expect((await source.sent).map(\.0) == ["first instruction", "second instruction"])
     }
 
+    @Test func staleSendCompletionCannotClearReplacementSendInFlightState() async {
+        let oldSource = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)], pages: [:]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(oldSource)
+        await settle()
+        let oldGate = await oldSource.holdSends()
+        model.draft = "Old host instruction"
+        let oldSend = Task { await model.sendDraft() }
+        await oldSource.waitForSendStart()
+
+        let replacement = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .claude)], pages: [:]
+        )
+        model.updateSource(replacement)
+        await settle()
+        let newGate = await replacement.holdSends()
+        model.draft = "New host instruction"
+        let newSend = Task { await model.sendDraft() }
+        await replacement.waitForSendStart()
+        #expect(model.sendingSessionIDs == ["session"])
+
+        await oldGate.open()
+        await oldSend.value
+        #expect(model.sendingSessionIDs == ["session"])
+        #expect(model.selectedPendingPrompts == ["New host instruction"])
+
+        await newGate.open()
+        await newSend.value
+        #expect(model.sendingSessionIDs.isEmpty)
+        #expect((await replacement.sent).map(\.0) == ["New host instruction"])
+    }
+
     @Test func attachmentsAreDeduplicatedAndForwardedWithThePrompt() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],
