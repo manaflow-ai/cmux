@@ -157,6 +157,8 @@ must work with no page.
 - The screen's create row (cx-ag5.7): New terminal and New browser tab ask the host's `tab.open`
   with no text (a blank terminal in the tab's folder; a browser tab on `browser.newTabPage`); New
   chat is Return's chat with nothing to send. Ctrl-` is New Terminal Tab everywhere (#18133).
+  The same three also end the suggestion list under the field (Leo, 2026-10-18), after the agent,
+  search and workspace rows and outside their cap, so ArrowDown reaches them from a prompt.
 - `check-action-surfaces.sh` gets the new action with every surface.
 
 ## 6. Ownership
