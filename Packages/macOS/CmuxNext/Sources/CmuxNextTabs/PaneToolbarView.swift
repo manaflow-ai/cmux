@@ -37,6 +37,8 @@ public final class PaneToolbarView: NSView {
     public private(set) var hasMore = false
     public private(set) var lit = false
     public private(set) var items: [PaneToolbarItem] = []
+    /// Buttons' room the bar keeps even while fewer show (``show(_:more:lit:reserving:)``).
+    public private(set) var reservedCount = 0
     public private(set) var buttons: [TitlebarBandButton] = []
     public let moreButton = TitlebarBandButton(symbol: "ellipsis")
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
@@ -71,8 +73,12 @@ public final class PaneToolbarView: NSView {
     override public var mouseDownCanMoveWindow: Bool { false }
 
     /// The pinned buttons, whether "…" has a menu, and whether it is lit (the pane is zoomed: shown without hover).
-    public func show(_ items: [PaneToolbarItem] = [], more: Bool, lit: Bool) {
-        guard items != self.items || more != hasMore || lit != self.lit else { return }
+    ///
+    /// - Parameter reserving: buttons' room to keep even while fewer show: the most any tab of the
+    ///   pane shows, so the strip's width (and every tab's) does not follow the selected tab.
+    public func show(_ items: [PaneToolbarItem] = [], more: Bool, lit: Bool, reserving: Int = 0) {
+        guard items != self.items || more != hasMore || lit != self.lit || reserving != reservedCount else { return }
+        reservedCount = reserving
         if items != self.items { setButtons(items) }
         hasMore = more
         self.lit = lit
@@ -107,16 +113,20 @@ public final class PaneToolbarView: NSView {
 
     /// Nothing to offer: no width, so the strip keeps the whole bar.
     override public var intrinsicContentSize: NSSize {
-        let count = buttons.count + (hasMore ? 1 : 0)
+        let count = max(shownCount, reservedCount)
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
         let side = TitlebarBandButton.side
         return NSSize(width: CGFloat(count) * side + CGFloat(count - 1) * Metrics.space1 / 2 + Metrics.space2, height: NSView.noIntrinsicMetric)
     }
 
+    private var shownCount: Int { buttons.count + (hasMore ? 1 : 0) }
+
     override public func layout() {
         super.layout()
         let side = TitlebarBandButton.side
-        var x: CGFloat = 0
+        // At the trailing end: "…" keeps its place while the reserved room on its leading side is empty.
+        let used = shownCount > 0 ? CGFloat(shownCount) * side + CGFloat(shownCount - 1) * Metrics.space1 / 2 + Metrics.space2 : 0
+        var x = max(0, bounds.width - used)
         for button in buttons + [moreButton] {
             button.frame = NSRect(x: x, y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
             x += side + Metrics.space1 / 2
