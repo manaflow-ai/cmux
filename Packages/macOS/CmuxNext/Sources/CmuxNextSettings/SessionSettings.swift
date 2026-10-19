@@ -2,7 +2,7 @@
 // schemas/settings/source/sessions.json (Schema/SettingsSchema+Sessions*.generated.swift);
 // this file only parses.
 
-/// `sessions.*` and `phone.*` in cmux.json: what this Mac does while agent sessions run,
+/// `sessions.*`, `phone.*` and `remoteHosting.*` in cmux.json: what this Mac does while agent sessions run,
 /// and for phones signed in to the same cmux account. Idle sleep stays off while an agent
 /// works on adapter power unless the user picks otherwise; phone access is off until turned on.
 public nonisolated struct SessionSettings: Sendable, Equatable {
@@ -13,6 +13,9 @@ public nonisolated struct SessionSettings: Sendable, Equatable {
     public var phoneStartsSessions = SessionSettings.startSessionsDefault
     /// `phone.keepAwake`: idle sleep stays off while phones can reach this Mac.
     public var phoneKeepAwake = SessionSettings.phoneKeepAwakeDefault
+    /// `remoteHosting.enabled`: this Mac serves the app's session to the owner's other
+    /// devices; nil while unset (the app then leaves hosting as the CLI set it).
+    public var remoteHosting: Bool?
 
     public init() {}
 
@@ -26,6 +29,10 @@ public nonisolated struct SessionSettings: Sendable, Equatable {
             if let value = reader.bool("allowConnections") { settings.allowsPhone = value }
             if let value = reader.bool("startSessions") { settings.phoneStartsSessions = value }
             if let value = reader.choice("keepAwake", PhoneKeepAwakeSetting.self) { settings.phoneKeepAwake = value }
+            diagnostics += reader.diagnostics
+        }
+        if var reader = ConfigFieldReader(root, at: ["remoteHosting"], diagnostics: &diagnostics) {
+            if let value = reader.bool("enabled") { settings.remoteHosting = value }
             diagnostics += reader.diagnostics
         }
         return settings

@@ -172,8 +172,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
             actions: [.home], aliases: [.home]),
         CategorySpec(
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
-            // Phone access sits beside the account it signs in with and the machines list.
-            groups: [group("settings.group.phone")],
+            // Phone access sits beside the account it signs in with and the machines list;
+            // Remote Hosting (this Mac for your other devices) beside it.
+            groups: [group("settings.group.phone"), group("settings.group.remoteHosting")],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],

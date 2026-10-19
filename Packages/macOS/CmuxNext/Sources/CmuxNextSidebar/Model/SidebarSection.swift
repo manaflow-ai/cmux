@@ -78,15 +78,20 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     /// The machine's own icon (`session-icon-v1`, from the home session
     /// registry), drawn in place of its kind's symbol; nil draws the symbol.
     public var icon: WorkspaceIcon?
+    /// The machine is a group of its own in the one-list sidebar too (`sidebar.groupByComputer`
+    /// off): its header and status show, and its rows do not name it (a remote host,
+    /// plans/cmux-next/remote-hosts.md 9: "a remote host is a group, not a row decoration").
+    public var keepsHeaderInList: Bool
 
     public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil,
-                icon: WorkspaceIcon? = nil) {
+                icon: WorkspaceIcon? = nil, keepsHeaderInList: Bool = false) {
         self.id = id
         self.name = name
         self.kind = kind
         self.status = status
         self.detail = detail
         self.icon = icon
+        self.keepsHeaderInList = keepsHeaderInList
     }
 
     /// A connected machine whose link redials reads as reconnecting

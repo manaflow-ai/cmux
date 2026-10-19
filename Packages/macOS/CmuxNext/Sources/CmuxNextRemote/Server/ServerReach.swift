@@ -17,6 +17,9 @@ public import Foundation
 ///   overlay route (transport.md step 5), which replaces only this route.
 /// - `unix`: the server is this Mac (the user made this Mac a server); the
 ///   app connects to the brain's daemon socket directly.
+/// - `overlay`: through this Mac's `cmux link` (`cmux link dial`).
+/// - `tailnet`: a remote host on the user's private network, from
+///   `cmux host list` (`cmux host dial`; plans/cmux-next/remote-hosts.md 9).
 ///
 /// Either way the server's daemon sees a trusted local Unix client of its
 /// own user and the app reads its full tree; nothing on the server gets a
@@ -38,6 +41,51 @@ public struct ServerReach: Hashable, Sendable {
         /// This Mac's `cmux link` socket (absolute): each connection runs the
         /// bundled `cmux` with ``dialArguments(linkSocket:)``.
         case overlay(linkSocket: String)
+        /// A remote host on the user's private network (plans/cmux-next/remote-hosts.md):
+        /// each connection runs the bundled `cmux` with ``dialArguments(tailnetHost:)``.
+        /// The host admits only its owner (or a login it allows), before any daemon byte.
+        case tailnet(host: String)
+    }
+
+    /// The fixed argv (after the bundled `cmux`) of a remote host's bridge (`cmux host dial`).
+    public static func dialArguments(tailnetHost host: String) -> [String] {
+        ["host", "dial", host]
+    }
+
+    /// Whether this is a remote host from `cmux host list` (the app's `RemoteHostSource`), not a paired server.
+    public var isTailnetHost: Bool {
+        if case .tailnet = route { true } else { false }
+    }
+
+    /// A remote host listed by `cmux host list`: `name` is its tailnet device name (the
+    /// section title and the `host dial` argument). Its ids are derived from the name, so
+    /// the same host keeps its machine id (and its registry record) across runs.
+    /// - Throws: ``Invalid`` when `name` is not a plain host name.
+    public static func tailnetHost(name: String) throws(Invalid) -> ServerReach {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isTailnetName(trimmed) else { throw Invalid(field: "tailnet_host") }
+        let digest = stableDigest(trimmed.lowercased())
+        return try ServerReach(hostID: tailnetPrefix.host + digest, installID: tailnetPrefix.install + digest,
+                               name: trimmed, route: .tailnet(host: trimmed))
+    }
+
+    static let tailnetPrefix = (host: "host_tn", install: "inst_tn")
+
+    /// A tailnet device name or MagicDNS name: letters, digits, dots and dashes, never a flag.
+    static func isTailnetName(_ name: String) -> Bool {
+        !name.isEmpty && name.count <= 253 && !name.hasPrefix("-") && !name.hasPrefix(".")
+            && name.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == ".") }
+    }
+
+    /// 64-bit FNV-1a of `text` as 16 lowercase hex digits (an id, not a secret).
+    static func stableDigest(_ text: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        let hex = String(hash, radix: 16)
+        return String(repeating: "0", count: 16 - hex.count) + hex
     }
 
     /// The fixed argv (after the bundled `cmux`) of an overlay connection's
@@ -66,6 +114,7 @@ public struct ServerReach: Hashable, Sendable {
         guard !trimmed.isEmpty, trimmed.count <= 80 else { throw Invalid(field: "name") }
         if case .unix(let path) = route, !Self.isLocalSocket(path) { throw Invalid(field: "socket") }
         if case .overlay(let path) = route, !Self.isLocalSocket(path) { throw Invalid(field: "link_socket") }
+        if case .tailnet(let host) = route, !Self.isTailnetName(host) { throw Invalid(field: "tailnet_host") }
         self.hostID = hostID
         self.installID = installID
         self.name = trimmed
@@ -139,6 +188,9 @@ public struct ServerReach: Hashable, Sendable {
         case .overlay(let path):
             fields["route"] = "overlay"
             fields["link_socket"] = path
+        case .tailnet(let host):
+            fields["route"] = "tailnet"
+            fields["tailnet_host"] = host
         }
         return fields
     }
@@ -161,6 +213,9 @@ public struct ServerReach: Hashable, Sendable {
         case "overlay":
             guard let socket = fields["link_socket"] else { return nil }
             route = .overlay(linkSocket: socket)
+        case "tailnet":
+            guard let host = fields["tailnet_host"] else { return nil }
+            route = .tailnet(host: host)
         default:
             return nil
         }

@@ -54,6 +54,10 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
+    /// Remote hosts on the private network (`cmux host list`) in the sidebar, and this Mac's
+    /// own Remote Hosting setting (`cmux host enable`), through the bundled CLI.
+    private(set) lazy var remoteHosts = RemoteHostSource.app(services: self)
+    private(set) lazy var remoteHosting = RemoteHostingFollower.app(services: self)
     let mobile = MobileHostService(displayName: { await MacName.computerName() })  // phone access; the account layer starts it
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).

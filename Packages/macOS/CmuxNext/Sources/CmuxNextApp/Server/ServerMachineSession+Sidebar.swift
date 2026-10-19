@@ -28,8 +28,12 @@ extension ServerMachineSession {
         let detail: String? = switch session.reach.route {
         case .ssh(let host): [host.destination.description, session.link.flatMap(RemoteStrings.detail)].compactMap { $0 }.joined(separator: "\n")
         case .unix, .overlay: nil
+        // Why the host is not connected (the dial's refusal), as the header's tooltip.
+        case .tailnet: status == .unreachable ? session.notConnectedReason.map(RemoteHostStrings.dialFailure) : nil
         }
-        return SidebarMachine(id: MachineID(session.machineID), name: session.name, kind: .server, status: status, detail: detail)
+        // A remote host is a group of its own, also in the one-list sidebar.
+        return SidebarMachine(id: MachineID(session.machineID), name: session.name, kind: .server, status: status, detail: detail,
+                              keepsHeaderInList: session.reach.isTailnetHost)
     }
 }
 

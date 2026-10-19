@@ -43,6 +43,9 @@ extension SettingsWindowService {
             "ghostty_diagnostics": GhosttyDiagnosticsModel.shared.diagnostics.map { .array($0.map(GhosttyDiagnosticsControl.json)) } ?? .null,
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
+            // Remote Hosting (Machines): the status line of `cmux host status --remote` (null while unknown).
+            "remote_hosting": ["status": services.remoteHosting.statusLine.map(JSONValue.string) ?? .null,
+                               "disabled_by_policy": .bool(services.remoteHosting.policyDisabled)],
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),

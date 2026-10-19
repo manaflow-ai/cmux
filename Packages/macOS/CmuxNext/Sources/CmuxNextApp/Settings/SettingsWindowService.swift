@@ -190,7 +190,12 @@ final class SettingsWindowService: InternalPageProvider {
             SettingsListRow.machine(id: session.machineID, title: session.machine.title, icon: machines.icon(machine: session.machineID),
                                     symbol: "cloud", isActive: Self.isConnected(session.daemon.store.connectionState))
         }
-        return ssh + cloud
+        // Remote hosts on the private network (`cmux host list`), connected or not.
+        let hosts = services.remoteHosts.hosts.map { session in
+            SettingsListRow.machine(id: session.machineID, title: session.name, icon: machines.icon(machine: session.machineID),
+                                    symbol: "network", isActive: Self.isConnected(session.daemon.store.connectionState))
+        }
+        return ssh + cloud + hosts
     }
 
     private static func isConnected(_ state: DaemonConnectionState) -> Bool {

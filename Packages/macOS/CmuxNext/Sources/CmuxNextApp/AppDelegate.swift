@@ -135,6 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: services.feed.apiBaseURL, settings: services.settings, signedIn: { [weak services] in services.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         services.ssh.start()
         services.serverReach.start()
+        services.remoteHosts.start()
         services.updater.start()
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -252,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ChatSettingsPush.start(settings: settings, environment: QuitAgents.environment(services))
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
+        services.remoteHosting.start(settings: settings)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
@@ -392,6 +394,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
         services?.ssh.stop()
+        services?.remoteHosts.stop()
+        services?.remoteHosting.stop()
         services?.serverReach.stop()
         control.stop()
         services?.configActions.stop()

@@ -152,7 +152,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
-            let flat = o.flattensMachines && section.machine != nil
+            // A machine that keeps its header (a remote host) is a group in one list too.
+            let flat = o.flattensMachines && section.machine.map { !$0.keepsHeaderInList } ?? false
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
@@ -160,7 +161,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.topPadding : m.sectionSpacing }
             firstSection = false
             previousWasBlock = blockHeight > 0 && nodes.isEmpty
-            previousWasMachine = section.machine != nil
+            previousWasMachine = flat
             if let docID, blockHeight > 0 {
                 rows.append(SidebarRow(
                     key: .block(docID), y: y, height: blockHeight, section: section.id,

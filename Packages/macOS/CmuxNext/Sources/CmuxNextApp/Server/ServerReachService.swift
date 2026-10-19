@@ -205,7 +205,8 @@ final class ServerReachService {
 
     /// Adds the servers that should show and removes (and forgets) the rest.
     func apply(_ desired: [ServerReach]) async {
-        let change = ServerReachPlan.diff(shown: machines.servers.map(\.reach), desired: desired)
+        // Remote hosts (`RemoteHostSource`) are not paired servers: this read never removes them.
+        let change = ServerReachPlan.diff(shown: machines.servers.map(\.reach).filter { !$0.isTailnetHost }, desired: desired)
         for reach in change.add {
             removed.remove(reach.hostID)
             add(reach, connect: true)
@@ -247,7 +248,7 @@ final class ServerReachService {
         guard signedInUser() != nil else { return }
         for record in records {
             guard let fields = record.transport.flatMap(SSHService.fields), let reach = ServerReach(transportFields: fields),
-                  !removed.contains(reach.hostID), machines.server(reach.machineID) == nil else { continue }
+                  !removed.contains(reach.hostID), !reach.isTailnetHost, machines.server(reach.machineID) == nil else { continue }
             // A `unix` record restores only this Mac's own brain socket.
             if case .unix(let path) = reach.route, path != local()?.brainSocket { continue }
             add(reach, connect: fields["connect"] != "false")
@@ -296,7 +297,8 @@ final class ServerReachService {
     /// Sign-out: the servers belong to the account; their records stay for
     /// the next sign-in's read to keep or forget.
     private func closeAll() {
-        for session in machines.servers {
+        // Remote hosts belong to the private network, not the cmux account: they stay.
+        for session in machines.servers where !session.reach.isTailnetHost {
             session.close()
             _ = machines.removeServer(session.machineID)
         }

@@ -107959,6 +107959,399 @@
           }
         }
       }
+    },
+    "settings.group.remoteHosting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote Hosting"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاستضافة عن بُعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udaljeno hostovanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fjernhosting"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remote-Hosting"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alojamiento remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hébergement à distance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosting remoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホスティング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបង្ហោះពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 호스팅"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekstern vertskap"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hosting zdalny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hospedagem remota"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалённый хостинг"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การโฮสต์ระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzaktan Barındırma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Віддалений хостинг"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lưu trữ từ xa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程托管"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端託管"
+          }
+        }
+      }
+    },
+    "settings.remoteHosting.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Your Other Devices Use This Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح لأجهزتك الأخرى باستخدام هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli drugim uređajima da koriste ovaj Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lad dine andre enheder bruge denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine anderen Geräte diesen Mac nutzen lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que tus otros dispositivos usen este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser vos autres appareils à utiliser ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti agli altri dispositivi di usare questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのデバイスからこの Mac を使えるようにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យឧបករណ៍ផ្សេងទៀតរបស់អ្នកប្រើ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 기기에서 이 Mac 사용 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La de andre enhetene dine bruke denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwól innym urządzeniom używać tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir que seus outros dispositivos usem este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить другим устройствам использовать этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตให้อุปกรณ์อื่นของคุณใช้ Mac นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer Cihazlarınızın Bu Mac’i Kullanmasına İzin Verin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити іншим пристроям використовувати цей Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép các thiết bị khác của bạn dùng máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许你的其他设备使用这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許你的其他裝置使用這台 Mac"
+          }
+        }
+      }
+    },
+    "settings.remoteHosting.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your other computers on your private network can open this Mac's workspaces and terminals while cmux is running. Only devices signed in as you can connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن لأجهزة الكمبيوتر الأخرى على شبكتك الخاصة فتح مساحات العمل والطرفيات على هذا الـ Mac أثناء تشغيل cmux. يمكن فقط للأجهزة المسجّل دخولها باسمك الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaši drugi računari na privatnoj mreži mogu otvoriti radne prostore i terminale ovog Maca dok je cmux pokrenut. Povezati se mogu samo uređaji prijavljeni kao vi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine andre computere på dit private netværk kan åbne denne Macs arbejdsområder og terminaler, mens cmux kører. Kun enheder, der er logget ind som dig, kan oprette forbindelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine anderen Computer in deinem privaten Netzwerk können die Arbeitsbereiche und Terminals dieses Macs öffnen, solange cmux läuft. Nur Geräte, die mit deinem Konto angemeldet sind, können sich verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tus otros ordenadores de tu red privada pueden abrir los espacios de trabajo y terminales de este Mac mientras cmux se ejecuta. Solo pueden conectarse los dispositivos con tu sesión iniciada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vos autres ordinateurs sur votre réseau privé peuvent ouvrir les espaces de travail et terminaux de ce Mac tant que cmux est ouvert. Seuls les appareils connectés avec votre compte peuvent se connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli altri tuoi computer sulla rete privata possono aprire gli spazi di lavoro e i terminali di questo Mac mentre cmux è in esecuzione. Possono connettersi solo i dispositivi con il tuo accesso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の実行中は、プライベートネットワーク上のほかのコンピュータからこの Mac のワークスペースとターミナルを開けます。接続できるのは、あなたとしてサインインしているデバイスだけです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំព្យូទ័រផ្សេងទៀតរបស់អ្នកនៅលើបណ្តាញឯកជនអាចបើកកន្លែងធ្វើការ និងស្ថានីយរបស់ Mac នេះ ខណៈពេល cmux កំពុងដំណើរការ។ មានតែឧបករណ៍ដែលបានចូលជាអ្នកប៉ុណ្ណោះដែលអាចភ្ជាប់បាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 실행 중일 때 개인 네트워크의 다른 컴퓨터에서 이 Mac의 작업 공간과 터미널을 열 수 있습니다. 본인 계정으로 로그인한 기기만 연결할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "De andre datamaskinene dine på det private nettverket kan åpne arbeidsområdene og terminalene på denne Macen mens cmux kjører. Bare enheter som er logget på som deg, kan koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inne Twoje komputery w sieci prywatnej mogą otwierać obszary robocze i terminale tego Maca, gdy cmux działa. Połączyć się mogą tylko urządzenia zalogowane jako Ty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seus outros computadores na sua rede privada podem abrir as áreas de trabalho e os terminais deste Mac enquanto o cmux estiver em execução. Só dispositivos conectados com a sua conta podem se conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другие ваши компьютеры в частной сети могут открывать рабочие пространства и терминалы этого Mac, пока работает cmux. Подключиться могут только устройства, на которых выполнен вход под вашей учётной записью."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คอมพิวเตอร์อื่นของคุณบนเครือข่ายส่วนตัวสามารถเปิดพื้นที่ทำงานและเทอร์มินัลของ Mac นี้ได้ขณะที่ cmux ทำงานอยู่ เฉพาะอุปกรณ์ที่ลงชื่อเข้าใช้เป็นคุณเท่านั้นที่เชื่อมต่อได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özel ağınızdaki diğer bilgisayarlarınız, cmux çalışırken bu Mac’in çalışma alanlarını ve terminallerini açabilir. Yalnızca sizin hesabınızla oturum açmış cihazlar bağlanabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інші ваші комп’ютери в приватній мережі можуть відкривати робочі простори й термінали цього Mac, поки працює cmux. Під’єднатися можуть лише пристрої, на яких виконано вхід під вашим обліковим записом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các máy tính khác của bạn trên mạng riêng có thể mở không gian làm việc và terminal của máy Mac này khi cmux đang chạy. Chỉ những thiết bị đăng nhập bằng tài khoản của bạn mới kết nối được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 运行时，你专用网络上的其他电脑可以打开这台 Mac 的工作区和终端。只有以你的身份登录的设备才能连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 執行時，你私人網路上的其他電腦可以開啟這台 Mac 的工作區和終端機。只有以你的身分登入的裝置才能連線。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

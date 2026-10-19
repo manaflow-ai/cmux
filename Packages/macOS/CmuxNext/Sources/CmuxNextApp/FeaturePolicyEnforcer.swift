@@ -27,6 +27,8 @@ struct FeaturePolicyEnforcer {
         services.cloud.applyPolicy(disabled: disabled.contains(.cloud))
         services.ssh.applyPolicy(disabled: disabled.contains(.remoteHosts))
         services.serverReach.applyPolicy(disabled: disabled.contains(.remoteHosts))
+        services.remoteHosts.applyPolicy(disabled: disabled.contains(.remoteHosts))
+        services.remoteHosting.applyPolicy(disabled: disabled.contains(.remoteHosts))
         services.apps.applyPolicy(disabled: disabled.contains(.apps))
     }
 }

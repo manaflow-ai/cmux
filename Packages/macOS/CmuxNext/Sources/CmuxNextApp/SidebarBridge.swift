@@ -60,8 +60,10 @@ final class SidebarBridge {
         model.ungroupedFirst = !services.machines.local.store.supportsPersonalMixedOrder
         // Synchronous, before the hide animation starts: focus leaves the
         // sidebar in the same turn (plans/cmux-next/focus.md).
-        model.onPresentationChange = { [weak state] presentation in
+        model.onPresentationChange = { [weak state, weak services] presentation in
             state?.focus.send(.sidebarVisibility(hidden: presentation == .hidden))
+            // A sidebar that opens lists the remote hosts again (no timer; remote-hosts.md 9).
+            if presentation == .shown { services?.remoteHosts.refresh() }
         }
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         groupFlow.wireEditor()

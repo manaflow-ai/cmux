@@ -19,6 +19,12 @@ extension SessionSettings {
     public nonisolated static let phoneKeepAwakeDefault: PhoneKeepAwakeSetting = .pluggedIn
 }
 
+extension SessionSettings {
+    /// `remoteHosting.enabled`: On: the host listener serves this app's session to the owner's other devices (only the owner's own login is admitted). Off: the listener stops. Unset: the app leaves hosting as the CLI set it.
+    public nonisolated static let remoteHostingEnabledPath = ["remoteHosting", "enabled"]
+    public nonisolated static let remoteHostingEnabledDefault = false
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum SessionSettingsSchema {
     /// Settings > Agents > Sessions: this Mac's behavior while agent sessions run (SessionSettings).
@@ -79,6 +85,23 @@ nonisolated enum SessionSettingsSchema {
                 ]),
                 default: .string(SessionSettings.phoneKeepAwakeDefault.rawValue),
                 keywords: ["sleep", "awake", "iphone", "remote", "battery", "power"]
+            ),
+        ]
+    }
+
+    /// Settings > Accounts > Machines > Remote Hosting: whether this Mac serves the app's own cmux session to your other devices on your private network (RemoteHostingFollower runs `cmux host enable --no-spawn --session <app session>` or `cmux host disable`; plans/cmux-next/remote-hosts.md 9). MDM DisabledFeatures remoteHosts hides it.
+    static var remoteHostingDescriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.remoteHosting", "Remote Hosting")
+        return [
+            SettingDescriptor(
+                SessionSettings.remoteHostingEnabledPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.remoteHosting.enabled", "Let Your Other Devices Use This Mac"),
+                help: SettingsText.keyed("settings.remoteHosting.enabled.help", "Your other computers on your private network can open this Mac's workspaces and terminals while cmux is running. Only devices signed in as you can connect."),
+                kind: .toggle,
+                default: .bool(SessionSettings.remoteHostingEnabledDefault),
+                keywords: ["remote", "host", "hosting", "network", "devices", "share", "server"]
             ),
         ]
     }

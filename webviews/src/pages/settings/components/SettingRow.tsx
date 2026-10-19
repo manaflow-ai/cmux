@@ -1,6 +1,6 @@
 import { memo, useId } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { useRowState, useStore, type RowState } from "../context";
+import { useRowState, useSettingsSelector, useStore, type RowState } from "../context";
 import { Editor } from "../editors/Editor";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
@@ -34,6 +34,9 @@ function rowMenu(key: string, state: RowState, store: SettingsStore): ContextMen
   ];
 }
 
+/** The Remote Hosting toggle (Machines), whose row also shows the host's status line. */
+const REMOTE_HOSTING_KEY = "remoteHosting.enabled";
+
 /** Editable text, whose right-click keeps WebKit's Cut, Copy and Paste. */
 const TEXT_FIELDS =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, [contenteditable]:not([contenteditable="false"])';
@@ -56,7 +59,13 @@ export const SettingRow = memo(function SettingRow({
   const store = useStore();
   const labelId = useId();
   const { managed, customized, diagnostics, error } = state;
-  const disabled = !state.connected || !state.readable || managed !== null;
+  // Remote Hosting's toggle shows the app's live status under it, and is off while the
+  // organization turned remote hosts off. Only that row subscribes to the host status.
+  const remoteHosting = useSettingsSelector((all) =>
+    row.key === REMOTE_HOSTING_KEY ? (all.host?.remote_hosting ?? null) : null,
+  );
+  const disabled =
+    !state.connected || !state.readable || managed !== null || remoteHosting?.disabled_by_policy === true;
   const menu = rowMenu(row.key, state, store);
   return (
     <div
@@ -80,6 +89,11 @@ export const SettingRow = memo(function SettingRow({
           {row.summary && (
             <div className="row-help">
               <Highlight text={text(row.summary)} query={query} />
+            </div>
+          )}
+          {remoteHosting?.status && (
+            <div className="row-help" data-remote-hosting-status="">
+              {remoteHosting.status}
             </div>
           )}
           {query && (

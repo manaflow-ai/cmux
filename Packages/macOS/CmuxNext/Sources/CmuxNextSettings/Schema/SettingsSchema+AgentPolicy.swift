@@ -249,6 +249,8 @@ extension SettingsSchema {
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
         "phone.keepAwake": .userOnly,
+        // Who may reach this Mac's sessions over the private network: only the person turns it on.
+        "remoteHosting.enabled": .network,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

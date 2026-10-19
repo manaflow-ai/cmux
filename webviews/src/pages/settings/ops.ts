@@ -102,6 +102,11 @@ export type HostLists = {
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
   /**
+   * Remote Hosting (Machines): the app's one localized status line of `cmux host status --remote`
+   * (null while unknown); `disabled_by_policy` when the organization turned remote hosts off.
+   */
+  remote_hosting?: { status: string | null; disabled_by_policy?: boolean } | null;
+  /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
    * its localized title. `video: true` marks a moving wallpaper; a macOS still (`apple`) says

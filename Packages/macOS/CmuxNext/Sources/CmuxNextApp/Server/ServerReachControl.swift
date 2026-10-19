@@ -92,6 +92,7 @@ enum ServerReachControl {
             case .ssh(let host): "ssh \(host.destination.description)"
             case .unix(let path): "unix \(path)"
             case .overlay(let socket): "overlay \(socket)"
+            case .tailnet(let host): "tailnet \(host)"
             }
             return .object([
                 "machine": .string(server.machineID), "host": .string(server.reach.hostID), "name": .string(server.name),

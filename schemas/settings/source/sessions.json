@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Sessions and Phone access settings: what this Mac does while agents work and for your phone. gen-settings-sources.py writes the Swift descriptors and parser constants (both lists parse into SessionSettings). Row fields: see schemas/settings/source/updates.json.",
+  "$comment": "HAND-EDITED source of the Sessions, Phone access and Remote hosting settings: what this Mac does while agents work and for your phone. gen-settings-sources.py writes the Swift descriptors and parser constants (every list parses into SessionSettings). Row fields: see schemas/settings/source/updates.json.",
   "lists": [
     {
       "name": "sessions",
@@ -163,6 +163,41 @@
             "remote",
             "battery",
             "power"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "remoteHosting",
+      "section": "machines",
+      "group": {
+        "key": "settings.group.remoteHosting",
+        "text": "Remote Hosting"
+      },
+      "note": "Settings > Accounts > Machines > Remote Hosting: whether this Mac serves the app's own cmux session to your other devices on your private network (RemoteHostingFollower runs `cmux host enable --no-spawn --session <app session>` or `cmux host disable`; plans/cmux-next/remote-hosts.md 9). MDM DisabledFeatures remoteHosts hides it.",
+      "rows": [
+        {
+          "key": "remoteHosting.enabled",
+          "name": "remoteHostingEnabled",
+          "note": "On: the host listener serves this app's session to the owner's other devices (only the owner's own login is admitted). Off: the listener stops. Unset: the app leaves hosting as the CLI set it.",
+          "title": {
+            "key": "settings.remoteHosting.enabled",
+            "text": "Let Your Other Devices Use This Mac"
+          },
+          "help": {
+            "key": "settings.remoteHosting.enabled.help",
+            "text": "Your other computers on your private network can open this Mac's workspaces and terminals while cmux is running. Only devices signed in as you can connect."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "remote",
+            "host",
+            "hosting",
+            "network",
+            "devices",
+            "share",
+            "server"
           ]
         }
       ]
