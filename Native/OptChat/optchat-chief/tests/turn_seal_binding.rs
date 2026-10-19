@@ -28,6 +28,11 @@ fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
             control: None,
             inspector: None,
             chief: Some(chief),
+            turn: Some(optchat_chief::turn_caller::TurnBinding {
+                turn_prefix: "optchat-home-".to_owned(),
+                subagent_prefix: "optchat-sub-home-".to_owned(),
+                agent_parent: std::fs::canonicalize("/bin/sh").ok(),
+            }),
         },
     )
     .unwrap();
@@ -92,4 +97,21 @@ fn a_non_turn_agent_with_the_valid_seal_is_refused() {
         false,
     );
     assert!(refused(&out), "orphan: {out:?}");
+    // The turn session itself, with the seal: past the check (this Chief
+    // has no registry, so the call itself then fails for that reason).
+    let out = chiefs(
+        &socket,
+        &[(TURN_KEY_ENV, &seal), ("ACPMUX_SESSION_NAME", "optchat-home-2079")],
+        true,
+    );
+    assert!(!refused(&out), "turn: {out:?}");
+    // The turn session without the seal, or with a wrong one: refused.
+    for key in ["", &"0".repeat(64)] {
+        let out = chiefs(
+            &socket,
+            &[(TURN_KEY_ENV, key), ("ACPMUX_SESSION_NAME", "optchat-home-2079")],
+            true,
+        );
+        assert!(refused(&out), "turn, key {key:?}: {out:?}");
+    }
 }
