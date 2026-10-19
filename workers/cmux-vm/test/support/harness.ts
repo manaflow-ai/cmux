@@ -9,7 +9,7 @@ import { makeWebHandler } from "../../src/app.ts";
 import { generateApiKey, hashApiKey, makeStackSessionVerifier, makeStackTeamMembership, SessionVerifier, TeamMembership } from "../../src/auth/credentials.ts";
 import { makeMemoryMembershipCache } from "../../src/auth/membership-cache.ts";
 import { signWebhookContent } from "../../src/auth/webhook-signature.ts";
-import { makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
+import { DaytonaWebhookDeliveryStore, makeMemoryWebhookDeliveryStore } from "../../src/db/identity.ts";
 import { ApiKeyStore, AuditStore, OwnershipStore, type ApiKeyRecord, type OwnedResource } from "../../src/db/stores.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
 import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type SnapshotId, type VmId } from "../../src/lib/ids.ts";
@@ -117,6 +117,15 @@ export async function makeHarness(options: HarnessOptions = {}) {
   };
   const membershipCache = makeMemoryMembershipCache();
   const webhookDeliveries = makeMemoryWebhookDeliveryStore();
+  const daytonaWebhookDeliveries = new Map<string, boolean>();
+  const daytonaWebhookDeliveryLayer = Layer.succeed(DaytonaWebhookDeliveryStore, {
+    claim: (messageId: string) => Effect.sync(() => {
+      if (daytonaWebhookDeliveries.has(messageId)) return false;
+      daytonaWebhookDeliveries.set(messageId, true);
+      return true;
+    }),
+    release: (messageId: string) => Effect.sync(() => void daytonaWebhookDeliveries.delete(messageId)),
+  });
 
   const { publicKey, privateKey } = await generateKeyPair("ES256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "test-key", alg: "ES256" };
@@ -231,6 +240,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     ),
     membershipCache.layer,
     webhookDeliveries.layer,
+    daytonaWebhookDeliveryLayer,
     s3a.layer(upstreamFetch),
     mesh.layer(upstreamFetch),
     Layer.succeed(TeamAdmin, {
