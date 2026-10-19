@@ -74,7 +74,9 @@ pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode. cmux_docs se
     notifications, keybindings and the app's actions) and returns each tool's input schema. \
     cmux_exec runs a JavaScript script that calls those tools: `await cmux.call(\"pane_split\", \
     {...})` or `await cmux.pane_split({...})`. Put related steps in one script and return the \
-    value you need. Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, \
+    value you need. Tools of the chat's other cmux servers (cua_* computer use, secrets_*, \
+    sessions_*) come with their server's rules in `servers` of a cmux_docs answer: read and \
+    follow them before you call those tools. Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, \
     win_…) that the *_list tools report; a unique prefix works, and <session>:<id> reaches \
     another session. A change takes idempotency_key: when a call fails with state \
     in_progress, retry it with the key from the error so it cannot apply twice. Tools never \

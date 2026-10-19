@@ -324,6 +324,35 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
     assert!(!tool(&info["tools"], "mcp:github").3, "{info}");
 
+    // cmux's computer use server runs behind the cmux server (code mode):
+    // turned off, it leaves that server's CMUX_MCP_UPSTREAMS too, since
+    // `--disallowedTools mcp__cmux-cua` names no tool there. Then back on.
+    let upstreams = |args: &[String]| -> Vec<String> {
+        let at = args.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+        let config: Value =
+            serde_json::from_str(&std::fs::read_to_string(&args[at + 1]).unwrap()).unwrap();
+        let list = config["mcpServers"]["cmux"]["env"]["CMUX_MCP_UPSTREAMS"].as_str().unwrap();
+        let list: Value = serde_json::from_str(list).unwrap();
+        list.as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_owned()).collect()
+    };
+    assert_eq!(upstreams(&args), ["cmux-cua"], "{args:?}");
+    for enabled in [false, true] {
+        let set = local
+            .call(
+                "_acpmux/set_tools",
+                json!({"sessionId": claude, "id": "mcp:cmux-cua", "enabled": enabled}),
+            )
+            .await
+            .expect("set_tools");
+        assert_eq!(set["applied"], json!("now"), "{set}");
+        while tool(&watcher.changed(&claude, "tools").await["session"]["tools"], "mcp:cmux-cua").3
+            != enabled
+        {}
+        let args = argv(&local.ask(&claude, "hi").await);
+        let want: &[&str] = if enabled { &["cmux-cua"] } else { &[] };
+        assert_eq!(upstreams(&args), want, "{args:?}");
+    }
+
     // A skill, or a server the user's own config turned off, cannot be
     // changed here, and an unknown id is not found.
     for id in ["skill:cmux:cmux-browser", "mcp:linear"] {

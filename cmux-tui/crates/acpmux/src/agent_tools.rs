@@ -706,18 +706,24 @@ impl AgentTools {
         };
         let mut cmux = self.servers.remove(at);
         cmux.env.retain(|(k, _)| k != UPSTREAMS_ENV);
-        if !self.servers.is_empty() {
-            let upstreams: Vec<Value> = self
-                .servers
-                .iter()
-                .map(|s| {
-                    let env: Map<String, Value> =
-                        s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
-                    json!({"name": s.name, "command": s.command, "args": s.args, "env": env})
-                })
-                .collect();
-            cmux.env.push((UPSTREAMS_ENV.to_owned(), Value::Array(upstreams).to_string()));
-        }
+        // Always set, `[]` too: a value a harness passes on from its own env
+        // (a preset's) must never name the servers.
+        let upstreams: Vec<Value> = self
+            .servers
+            .iter()
+            .map(|s| {
+                let env: Map<String, Value> =
+                    s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+                let mut spec =
+                    json!({"name": s.name, "command": s.command, "args": s.args, "env": env});
+                // The secret card waits for the person, not for a timer.
+                if s.name == crate::secret_mcp::SERVER_NAME {
+                    spec["callTimeoutSecs"] = json!(3600);
+                }
+                spec
+            })
+            .collect();
+        cmux.env.push((UPSTREAMS_ENV.to_owned(), Value::Array(upstreams).to_string()));
         self.servers = vec![cmux];
         self
     }

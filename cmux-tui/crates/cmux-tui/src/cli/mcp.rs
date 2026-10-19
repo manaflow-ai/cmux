@@ -587,20 +587,7 @@ impl<B: Backend> Server<B> {
             let tools = self.list();
             return Ok(match code_mode::docs(&tools, &arguments) {
                 Ok(mut value) => {
-                    // The index carries the other servers' own instructions
-                    // (the computer use consent rules among them).
-                    if value.get("families").is_some() {
-                        let servers = self
-                            .upstreams
-                            .iter()
-                            .filter_map(|u| {
-                                Some((u.name().to_owned(), json!(u.instructions.clone()?)))
-                            })
-                            .collect::<Map<_, _>>();
-                        if !servers.is_empty() {
-                            value["servers"] = Value::Object(servers);
-                        }
-                    }
+                    self.add_server_rules(&mut value);
                     success(value, false)
                 }
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
@@ -801,9 +788,40 @@ impl<B: Backend> Server<B> {
                 };
                 let mut arguments = Map::new();
                 arguments.insert("query".into(), Value::String(query));
-                code_mode::docs(tools, &arguments)
-                    .unwrap_or_else(|message| json!({"error": message}))
+                let mut value = code_mode::docs(tools, &arguments)
+                    .unwrap_or_else(|message| json!({"error": message}));
+                self.add_server_rules(&mut value);
+                value
             }
+        }
+    }
+
+    /// A docs answer that shows another server's tools carries that
+    /// server's own instructions as `servers.<name>` (the computer use
+    /// consent rules among them), since its `initialize` no longer reaches
+    /// the model.
+    fn add_server_rules(&self, value: &mut Value) {
+        let mut names = Vec::new();
+        for tool in value["tools"].as_array().into_iter().flatten() {
+            names.extend(tool["name"].as_str().map(str::to_owned));
+        }
+        for name in value["more"].as_array().into_iter().flatten() {
+            names.extend(name.as_str().map(str::to_owned));
+        }
+        for family in value["families"].as_object().into_iter().flat_map(|f| f.keys()) {
+            names.push(format!("{family}_"));
+        }
+        let servers = self
+            .upstreams
+            .iter()
+            .filter(|u| {
+                let prefix = format!("{}_", u.prefix);
+                names.iter().any(|name| name.starts_with(&prefix))
+            })
+            .filter_map(|u| Some((u.name().to_owned(), json!(u.instructions.clone()?))))
+            .collect::<Map<_, _>>();
+        if !servers.is_empty() {
+            value["servers"] = Value::Object(servers);
         }
     }
 

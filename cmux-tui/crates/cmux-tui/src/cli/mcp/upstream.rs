@@ -21,8 +21,14 @@ use serde_json::{Value, json};
 /// `{name, command, args, env}`.
 pub(super) const ENV: &str = "CMUX_MCP_UPSTREAMS";
 
-const START_TIMEOUT: Duration = Duration::from_secs(20);
-/// One call; a computer use action or a secret card can take a while.
+/// Each start step (`initialize`, a `tools/list` page). Short: a harness
+/// waits for this server's own first `tools/list` (Codex about 10 s).
+const START_TIMEOUT: Duration = Duration::from_secs(5);
+/// After a failed start, the tools stay out this long before a new try,
+/// so a slow or broken server does not slow every list.
+const START_BACKOFF: Duration = Duration::from_secs(60);
+/// One call, unless the spec says (`callTimeoutSecs`: acpmux gives the
+/// secret card, which waits for the person, an hour).
 const CALL_TIMEOUT: Duration = Duration::from_secs(300);
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
@@ -32,6 +38,7 @@ pub(super) struct Spec {
     pub command: PathBuf,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    pub call_timeout: Duration,
 }
 
 /// The servers in `value` (the env's JSON). A bad entry is left out and
@@ -60,7 +67,10 @@ pub(super) fn specs(value: Option<std::ffi::OsString>) -> Vec<Spec> {
                         .collect()
                 })
                 .unwrap_or_default();
-            Some(Spec { name, command, args, env })
+            let call_timeout = item["callTimeoutSecs"]
+                .as_u64()
+                .map_or(CALL_TIMEOUT, |secs| Duration::from_secs(secs.clamp(1, 24 * 3600)));
+            Some(Spec { name, command, args, env, call_timeout })
         })
         .collect()
 }
@@ -81,8 +91,26 @@ pub(super) struct Upstream {
     /// Its tools as the server lists them (original names).
     tools: Option<Vec<Value>>,
     pub instructions: Option<String>,
-    /// Why the last start failed, said once.
-    failed: Option<String>,
+    /// Why and when the last start failed: said once, retried after
+    /// `START_BACKOFF`.
+    failed: Option<(String, Instant)>,
+}
+
+/// Why a request has no result.
+enum Failure {
+    /// The server answered with a JSON-RPC error: the call did not run and
+    /// the connection is fine.
+    Refused(String),
+    /// No answer (timeout, exit, closed pipe): the call may have run.
+    Lost(String),
+}
+
+impl Failure {
+    fn message(self) -> String {
+        match self {
+            Failure::Refused(message) | Failure::Lost(message) => message,
+        }
+    }
 }
 
 struct Conn {
@@ -112,14 +140,17 @@ impl Upstream {
     /// The tools under their cmux names, starting the server if needed.
     /// `taken` holds names already in use; a clash is left out.
     pub(super) fn descriptors(&mut self, taken: &BTreeSet<String>) -> Vec<Value> {
-        if self.tools.is_none()
-            && let Err(error) = self.start()
-        {
-            if self.failed.as_deref() != Some(error.as_str()) {
-                eprintln!("cmux mcp: the {} server is unavailable: {error}", self.spec.name);
-                self.failed = Some(error);
+        if self.tools.is_none() {
+            if self.failed.as_ref().is_some_and(|(_, at)| at.elapsed() < START_BACKOFF) {
+                return Vec::new();
             }
-            return Vec::new();
+            if let Err(error) = self.start() {
+                if self.failed.as_ref().is_none_or(|(said, _)| *said != error) {
+                    eprintln!("cmux mcp: the {} server is unavailable: {error}", self.spec.name);
+                }
+                self.failed = Some((error, Instant::now()));
+                return Vec::new();
+            }
         }
         let server = self.spec.name.clone();
         self.tools
@@ -156,9 +187,10 @@ impl Upstream {
             self.start().map_err(|error| (error, "not_run"))?;
         }
         let params = json!({"name": tool, "arguments": arguments});
-        match self.request("tools/call", params, CALL_TIMEOUT) {
+        match self.request("tools/call", params, self.spec.call_timeout) {
             Ok(result) => Ok(result),
-            Err(error) => {
+            Err(Failure::Refused(error)) => Err((error, "not_run")),
+            Err(Failure::Lost(error)) => {
                 // A dead or late server starts again on the next call; the
                 // call itself may have run.
                 self.conn = None;
@@ -167,10 +199,21 @@ impl Upstream {
         }
     }
 
+    /// Starts the server: a connection only when it initialized and listed.
     fn start(&mut self) -> Result<(), String> {
+        let started = self.try_start();
+        if started.is_err() {
+            self.conn = None;
+        }
+        started
+    }
+
+    fn try_start(&mut self) -> Result<(), String> {
         self.conn = None;
         let mut child = Command::new(&self.spec.command)
             .args(&self.spec.args)
+            // This server's own folding and allowlist stay with it.
+            .env_remove(ENV)
             .envs(self.spec.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -192,22 +235,25 @@ impl Upstream {
             })
             .map_err(|error| error.to_string())?;
         self.conn = Some(Conn { child, stdin, lines, next_id: 1 });
-        let init = self.request(
-            "initialize",
-            json!({
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {"name": "cmux", "version": env!("CARGO_PKG_VERSION")},
-            }),
-            START_TIMEOUT,
-        )?;
+        let init = self
+            .request(
+                "initialize",
+                json!({
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "cmux", "version": env!("CARGO_PKG_VERSION")},
+                }),
+                START_TIMEOUT,
+            )
+            .map_err(Failure::message)?;
         self.instructions = init["instructions"].as_str().map(str::to_owned);
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
         let mut cursor = None::<String>;
         loop {
             let params = cursor.as_ref().map_or_else(|| json!({}), |c| json!({"cursor": c}));
-            let page = self.request("tools/list", params, START_TIMEOUT)?;
+            let page =
+                self.request("tools/list", params, START_TIMEOUT).map_err(Failure::message)?;
             tools.extend(page["tools"].as_array().cloned().unwrap_or_default());
             match page["nextCursor"].as_str() {
                 Some(next) if !next.is_empty() && tools.len() < 1000 => cursor = Some(next.into()),
@@ -228,24 +274,30 @@ impl Upstream {
 
     /// One request; answers the server's own requests with method not found
     /// and skips its notifications.
-    fn request(&mut self, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
-        let conn = self.conn.as_mut().ok_or("not started")?;
+    fn request(
+        &mut self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, Failure> {
+        let conn = self.conn.as_mut().ok_or_else(|| Failure::Lost("not started".into()))?;
         let id = conn.next_id;
         conn.next_id += 1;
         let message = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
         writeln!(conn.stdin, "{message}")
             .and_then(|()| conn.stdin.flush())
-            .map_err(|error| format!("the server closed its input: {error}"))?;
+            .map_err(|error| Failure::Lost(format!("the server closed its input: {error}")))?;
         let deadline = Instant::now() + timeout;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             let line = match conn.lines.recv_timeout(left) {
                 Ok(line) => line,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    return Err(format!("no answer to {method} in {} s", timeout.as_secs()));
+                    let secs = timeout.as_secs();
+                    return Err(Failure::Lost(format!("no answer to {method} in {secs} s")));
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(format!("the server exited during {method}"));
+                    return Err(Failure::Lost(format!("the server exited during {method}")));
                 }
             };
             let Ok(reply) = serde_json::from_str::<Value>(&line) else { continue };
@@ -261,7 +313,9 @@ impl Upstream {
                 continue;
             }
             if let Some(error) = reply.get("error") {
-                return Err(error["message"].as_str().unwrap_or("error").to_owned());
+                return Err(Failure::Refused(
+                    error["message"].as_str().unwrap_or("error").to_owned(),
+                ));
             }
             return Ok(reply["result"].clone());
         }
