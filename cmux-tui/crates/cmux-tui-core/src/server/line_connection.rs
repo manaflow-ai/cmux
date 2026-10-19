@@ -74,6 +74,50 @@ pub(super) fn serve_line_connection(
     let mut reader = BufReader::new(stream);
     let mut drain_accepted = true;
     loop {
+        // A binary input frame (`terminal-binary-frames-v1`) starts with a
+        // NUL, which never starts a JSON line. Only a local client that
+        // negotiated the capability may send one; anything else ends the
+        // connection, as an unreadable line does.
+        if matches!(transport, ClientTransport::Unix) {
+            let buffered = loop {
+                match reader.fill_buf() {
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    other => break other.map(|buffered| buffered.first().copied()),
+                }
+            };
+            match buffered {
+                Ok(Some(crate::binary_frames::MARKER)) => {
+                    let keep_open = mux.control_clients.binary_frames(client)
+                        && hello.admits_binary_input()
+                        && match crate::binary_frames::read_frame(&mut reader, MAX_JSON_LINE_BYTES)
+                        {
+                            Ok(mut frame) if frame.kind == crate::binary_frames::KIND_INPUT => {
+                                let keep_open = handle_input_frame(
+                                    &mux,
+                                    client,
+                                    &mut frame,
+                                    &writer,
+                                    &surface_scheduler,
+                                );
+                                // Typed bytes, cleared as a dispatched line is.
+                                frame.payload.zeroize();
+                                keep_open
+                            }
+                            Ok(_) | Err(_) => false,
+                        };
+                    if !keep_open {
+                        drain_accepted = false;
+                        break;
+                    }
+                    continue;
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    drain_accepted = false;
+                    break;
+                }
+            }
+        }
         let mut line = String::new();
         // read_line includes the trailing LF. Read one byte beyond the largest
         // valid payload plus its delimiter so an oversized payload is visible.

@@ -103,7 +103,8 @@ fn attach_replays_carry_the_pending_sequence_after_their_colors() {
         colors: Box::new(TerminalColors::default()),
         pending_sequence: Arc::from(&b"\xce"[..]),
     };
-    let shape = AttachWireShape { color_overrides: true, pending_sequence: true };
+    let shape =
+        AttachWireShape { color_overrides: true, pending_sequence: true, binary_frames: false };
     let serialized = RenderService::new().serialize_attach_frame(7, &resized, shape).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(decoded["event"], "resized");
@@ -112,7 +113,8 @@ fn attach_replays_carry_the_pending_sequence_after_their_colors() {
 
     // Viewers that did not advertise the capability keep the legacy
     // shape: the pending bytes end the replay itself.
-    let legacy = AttachWireShape { color_overrides: true, pending_sequence: false };
+    let legacy =
+        AttachWireShape { color_overrides: true, pending_sequence: false, binary_frames: false };
     let serialized = RenderService::new().serialize_attach_frame(7, &resized, legacy).unwrap();
     let decoded: Value = serde_json::from_str(&serialized).unwrap();
     assert_eq!(decoded["replay"], base64.encode(b"screen\xce"));
@@ -554,6 +556,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
                 text: Some("input".to_string()),
                 bytes: None,
                 paste: false,
+                raw: None,
             },
         ),
         (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),

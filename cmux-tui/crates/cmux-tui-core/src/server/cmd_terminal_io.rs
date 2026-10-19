@@ -74,6 +74,7 @@ pub(super) fn send(
     terminal_id: Option<String>,
     text: Option<String>,
     bytes: Option<String>,
+    raw: Option<Vec<u8>>,
     paste: bool,
 ) -> anyhow::Result<Value> {
     let surface = match (surface, terminal_id) {
@@ -95,19 +96,25 @@ pub(super) fn send(
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
+    // A binary input frame carries its bytes as they are (and no `bytes`).
+    let decode = |b64: Option<String>| -> anyhow::Result<Option<Vec<u8>>> {
+        match b64 {
+            Some(b64) => Ok(Some(base64::engine::general_purpose::STANDARD.decode(b64)?)),
+            None => Ok(raw),
+        }
+    };
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
-        if let Some(b64) = bytes {
-            payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
+        if let Some(decoded) = decode(bytes)? {
+            payload.extend(decoded);
         }
         surface.write_paste(&payload)?;
     } else {
         if let Some(text) = text {
             surface.write_bytes(text.as_bytes())?;
         }
-        if let Some(b64) = bytes {
-            let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-            surface.write_bytes(&raw)?;
+        if let Some(decoded) = decode(bytes)? {
+            surface.write_bytes(&decoded)?;
         }
     }
     mux.note_terminal_input(surface.id, client);

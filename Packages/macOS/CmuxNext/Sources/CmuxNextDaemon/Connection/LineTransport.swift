@@ -25,6 +25,9 @@ final class LineTransport: Sendable {
     /// `index` counts events on this transport from 1, in wire order.
     typealias EventHandler = @Sendable (_ name: String, _ line: Data, _ index: UInt64) -> Void
     typealias CloseHandler = @Sendable (TransportCloseReason) -> Void
+    /// A binary frame (`terminal-binary-frames-v1`); `index` counts it with
+    /// the events, in wire order.
+    typealias FrameHandler = @Sendable (_ frame: BinaryFrame, _ index: UInt64) -> Void
 
     /// Inbound limit: the server may send up to 32 MiB (VT replay).
     static let maxLineBytes = 64 << 20
@@ -156,11 +159,13 @@ final class LineTransport: Sendable {
         }
     }
 
-    /// Starts the reader thread. Call once.
-    func start(onEvent: @escaping EventHandler, onClose: @escaping CloseHandler) {
+    /// Starts the reader thread. Call once. With `onFrame` the connection
+    /// reads binary frames between its lines (`terminal-binary-frames-v1`);
+    /// without it a NUL is line content, as before frames existed.
+    func start(onEvent: @escaping EventHandler, onClose: @escaping CloseHandler, onFrame: FrameHandler? = nil) {
         let fd = socket.withLock { $0.fd }
         let thread = Thread { [self] in
-            readLoop(fd: fd, onEvent: onEvent, onClose: onClose)
+            readLoop(fd: fd, onEvent: onEvent, onClose: onClose, onFrame: onFrame)
         }
         thread.name = "cmux-tui reader \(path)"
         thread.qualityOfService = .userInteractive
@@ -168,6 +173,18 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+
+    /// The pid of the process at the other end of the socket (`LOCAL_PEERPID`),
+    /// or nil when the socket is closed or the call fails.
+    var peerPID: Int32? {
+        socket.withLock { socket -> Int32? in
+            guard socket.fd >= 0 else { return nil }
+            var pid: pid_t = 0
+            var length = socklen_t(MemoryLayout<pid_t>.size)
+            guard getsockopt(socket.fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0, pid > 0 else { return nil }
+            return pid
+        }
+    }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Sends one command and returns the raw `ok:true` response line.
@@ -221,6 +238,13 @@ final class LineTransport: Sendable {
         if case .failure(let error) = submit(.discard(cmd: cmd, onError: onError), body) { throw error }
     }
 
+    /// ``sendNoReply(cmd:onError:_:)`` for a request written as one binary
+    /// frame: `body` returns the whole frame for the allocated id. Its JSON
+    /// reply is matched by id like any other.
+    func sendFrameNoReply(cmd: String, onError: (@Sendable (DaemonError) -> Void)? = nil, _ body: (UInt64) throws -> Data) throws {
+        if case .failure(let error) = submit(.discard(cmd: cmd, onError: onError), framed: true, body) { throw error }
+    }
+
     /// Writes one line that has no `id` and gets no reply (`loopback-data`
     /// and the other stream lines of `loopback-forward-v1`). Ordered with
     /// every other write. False once the socket failed or closed.
@@ -238,7 +262,7 @@ final class LineTransport: Sendable {
     /// registration the waiter is resumed here; after it, `failAll` owns it.
     /// Returns the request id once the waiter is registered.
     @discardableResult
-    func submit(_ waiter: Waiter, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
+    func submit(_ waiter: Waiter, framed: Bool = false, _ body: (UInt64) throws -> Data) -> Result<UInt64, any Error> {
         var writeFailure: String?
         var submittedID: UInt64 = 0
         let early: (any Error)? = socket.withLock { socket -> (any Error)? in
@@ -259,7 +283,7 @@ final class LineTransport: Sendable {
             }
             submittedID = id
             var line = payload
-            line.append(0x0A)
+            if !framed { line.append(0x0A) }
             writeFailure = socket.fd >= 0 ? writer.write(line)?.description : "socket closed"
             return nil
         }
@@ -310,7 +334,7 @@ final class LineTransport: Sendable {
         }
     }
 
-    private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
+    private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler, onFrame: FrameHandler?) {
         let decoder = JSONDecoder()
         var lines = LineSplitter()
         var chunk = [UInt8](repeating: 0, count: 256 * 1024)
@@ -324,8 +348,20 @@ final class LineTransport: Sendable {
                 closeDetail = "read: \(String(cString: strerror(errno)))"
                 break
             }
-            lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
-            if lines.pending.count > Self.maxLineBytes {
+            lines.append(chunk.prefix(count), maxFrameBytes: onFrame == nil ? nil : Self.maxLineBytes,
+                         line: { route($0, decoder: decoder, onEvent: onEvent) },
+                         frame: { frame in
+                             let index = state.withLock { state -> UInt64 in
+                                 state.eventCount += 1
+                                 return state.eventCount
+                             }
+                             onFrame?(frame, index)
+                         })
+            if lines.oversizedFrame {
+                closeDetail = "binary frame exceeds \(Self.maxLineBytes) bytes"
+                break reading
+            }
+            if lines.pending.count > Self.maxLineBytes + (onFrame == nil ? 0 : BinaryFrame.headerBytes) {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
             }

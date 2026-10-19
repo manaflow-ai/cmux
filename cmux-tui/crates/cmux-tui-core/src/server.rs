@@ -891,6 +891,10 @@ enum Command {
         bytes: Option<String>,
         #[serde(default)]
         paste: bool,
+        /// The bytes of a binary input frame (`terminal-binary-frames-v1`),
+        /// written as `bytes` would be; never read from JSON.
+        #[serde(skip)]
+        raw: Option<Vec<u8>>,
     },
     ReadScreen {
         surface: SurfaceId,
@@ -2587,7 +2591,7 @@ mod connection_frame;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, constant_time_eq, handle_connection_frame, handle_request,
+    auth_token, constant_time_eq, handle_connection_frame, handle_input_frame, handle_request,
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
 

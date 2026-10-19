@@ -68,6 +68,9 @@ public actor TerminalAttachment: TerminalByteChannel {
         var detached = false
         /// The daemon takes `set-size-counts` for this lease (`shared-sizing-v1`).
         var hidesInPlace = false
+        /// Input goes as binary frames (`terminal-binary-frames-v1` on the
+        /// daemon's own socket; a bridge carries JSON lines only).
+        var binaryInput = false
     }
 
     private nonisolated let control = Mutex(Control())
@@ -103,7 +106,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
-                                      images: images, clientName: clientName)
+                                      images: images, clientName: clientName, local: endpoint.bridge == nil)
         } catch {
             transport.close()
             throw error
@@ -119,14 +122,37 @@ public actor TerminalAttachment: TerminalByteChannel {
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
+    /// This machine's name as the daemon's `identify.machine_name` reports
+    /// it (the host name without control characters, trimmed).
+    static let localMachineName: String = {
+        var buffer = [CChar](repeating: 0, count: 256)
+        guard gethostname(&buffer, buffer.count) == 0 else { return "localhost" }
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        let name = String(decoding: bytes, as: UTF8.self).unicodeScalars
+            .filter { !CharacterSet.controlCharacters.contains($0) }
+            .reduce(into: "") { $0.unicodeScalars.append($1) }
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "localhost" : name
+    }()
+
     /// Output bytes waiting for the consumer (diagnostics, tests).
     public nonisolated var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
-                      localHistory: Bool, images: Bool, clientName: String) async throws {
+                      localHistory: Bool, images: Bool, clientName: String, local: Bool) async throws {
         let queue = queue
         let resolvedSurface = resolvedSurface
         let sequencer = SequencerBox()
+        // One path for a JSON line and a binary frame, in stream order.
+        let deliver: @Sendable (DecodedAttachLine?) -> Void = { decoded in
+            guard let decoded, let event = sequencer.value.withLock({ $0.admit(decoded) }) else { return }
+            if case .closed = event {
+                queue.finish(event)
+            } else {
+                if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded) }
+                queue.push(event)
+            }
+        }
         transport.start(
             onEvent: { name, line, _ in
                 var surface = resolvedSurface.value.withLock { $0 }
@@ -134,15 +160,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                     resolvedSurface.value.withLock { $0 = named }
                     surface = named
                 }
-                guard let decoded = Self.decodeAttachLine(name: name, line: line, surface: surface),
-                      let event = sequencer.value.withLock({ $0.admit(decoded) })
-                else { return }
-                if case .closed = event {
-                    queue.finish(event)
-                } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded) }
-                    queue.push(event)
-                }
+                deliver(Self.decodeAttachLine(name: name, line: line, surface: surface))
             },
             onClose: { reason in
                 switch reason {
@@ -150,15 +168,26 @@ public actor TerminalAttachment: TerminalByteChannel {
                 case .daemonShutdown: queue.finish(.closed(.connectionLost("daemon shut down")))
                 case .lost(let detail): queue.finish(.closed(.connectionLost(detail)))
                 }
+            },
+            onFrame: { frame, _ in
+                var surface = resolvedSurface.value.withLock { $0 }
+                if surface == Self.unresolvedSurface, let named = Self.initialSurface(frame: frame) {
+                    resolvedSurface.value.withLock { $0 = named }
+                    surface = named
+                }
+                deliver(Self.decodeAttachFrame(frame, surface: surface))
             }
         )
-        // Both in one round trip; the attach below needs the identity.
-        let replies = await transport.pipeline([
-            PipelinedLine(IdentifyRequest()),
-            PipelinedLine(SetClientInfoRequest(name: clientName, kind: "frontend", capabilities: DaemonCapabilities.shared.advertised)),
-        ], timeout: DaemonConnection.defaultRequestTimeout)
-        let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
-        _ = try replies[1].get()
+        let identity = try await DaemonConnection.perform(IdentifyRequest(), on: transport)
+        // Binary frames only when the socket's other end is the daemon
+        // itself: a bridge, `cmux-tui remote` socket or SSH relay carries
+        // lines, has another pid, and a remote daemon is another machine.
+        let binaryFrames = local && identity.supports(DaemonCapabilities.shared.terminalBinaryFrames)
+            && transport.peerPID == identity.pid && identity.machineName == Self.localMachineName
+        let capabilities = DaemonCapabilities.shared.advertised
+            + (binaryFrames ? [DaemonCapabilities.shared.terminalBinaryFrames] : [])
+        _ = try await DaemonConnection.perform(
+            SetClientInfoRequest(name: clientName, kind: "frontend", capabilities: capabilities), on: transport)
         let useIdentity = identity.supports("attach-identity-v1") && target.terminalResourceID != nil
             && target.generation == identity.generation
         if target.surface == Self.unresolvedSurface, !useIdentity {
@@ -183,6 +212,7 @@ public actor TerminalAttachment: TerminalByteChannel {
             $0.lease = response.lease
             $0.lastReported = size
             $0.hidesInPlace = identity.supports(DaemonCapabilities.shared.sharedSizing)
+            $0.binaryInput = binaryFrames
         }
         if claimGeometry {
             _ = try await DaemonConnection.perform(
@@ -207,11 +237,19 @@ public actor TerminalAttachment: TerminalByteChannel {
         guard !data.isEmpty else { return }
         let surface = surface
         let logger = logger
+        let onError: @Sendable (DaemonError) -> Void = { error in
+            logger.error("send failed: \(error.description, privacy: .public)")
+        }
         do {
-            try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
-                logger.error("send failed: \(error.description, privacy: .public)")
-            }) { id in
-                try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data), id: id)
+            if control.withLock({ $0.binaryInput }) {
+                // The bytes as they are: no base64, no JSON encoder.
+                try transport.sendFrameNoReply(cmd: SendInputRequest.command, onError: onError) { id in
+                    BinaryFrame.inputFrame(id: id, surface: surface.rawValue, bytes: data)
+                }
+            } else {
+                try transport.sendNoReply(cmd: SendInputRequest.command, onError: onError) { id in
+                    try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data), id: id)
+                }
             }
             TypingLatencyProbe.shared.mark(.socketSubmit)
         } catch {

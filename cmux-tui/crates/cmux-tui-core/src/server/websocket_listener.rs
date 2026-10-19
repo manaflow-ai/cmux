@@ -323,6 +323,11 @@ fn handle_websocket_connection_with_permit(
             let mut writer_stream = writer_stream;
             while let Some(item) = writer_outbound.recv() {
                 let result = match item {
+                    // Binary frames are negotiated only on the local socket.
+                    OutboundItem::Text(text) if text.frame.is_some() => Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "binary frame on a WebSocket connection",
+                    )),
                     OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
                     OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
                         let _ = flushed.send(());

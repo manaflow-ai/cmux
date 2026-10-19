@@ -43,23 +43,29 @@ pub(super) fn reject_message_during_pending_handoff(message: &str, writer: &Mess
         };
     }
     match serde_json::from_str::<Request>(message) {
-        Ok(request) => {
-            let is_clear_history = request.cmd.is_clear_history();
-            // The stable code lets a client wait for the shutdown notice
-            // that follows instead of treating the refusal as a failure.
-            send_response(
-                writer,
-                Response {
-                    id: request.id,
-                    ok: false,
-                    data: None,
-                    error: Some(PENDING_HANDOFF_ERROR.to_string()),
-                    error_code: Some(DAEMON_SHUTDOWN_PENDING_CODE.to_string()),
-                    error_delivery: is_clear_history
-                        .then_some(ResponseErrorDelivery::KnownNotDelivered),
-                },
-            )
-        }
+        Ok(request) => reject_request_during_pending_handoff(request, writer),
         Err(error) => send_bad_request(writer, message, &error),
     }
+}
+
+/// The refusal of one parsed request (a JSON line or a binary input frame)
+/// while a handoff is pending.
+pub(super) fn reject_request_during_pending_handoff(
+    request: Request,
+    writer: &MessageWriter,
+) -> bool {
+    let is_clear_history = request.cmd.is_clear_history();
+    // The stable code lets a client wait for the shutdown notice
+    // that follows instead of treating the refusal as a failure.
+    send_response(
+        writer,
+        Response {
+            id: request.id,
+            ok: false,
+            data: None,
+            error: Some(PENDING_HANDOFF_ERROR.to_string()),
+            error_code: Some(DAEMON_SHUTDOWN_PENDING_CODE.to_string()),
+            error_delivery: is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+        },
+    )
 }

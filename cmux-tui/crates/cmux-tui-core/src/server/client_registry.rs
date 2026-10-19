@@ -647,6 +647,7 @@ impl ClientRegistry {
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
+                    || capability == crate::binary_frames::BINARY_FRAMES_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
@@ -866,6 +867,17 @@ impl ClientRegistry {
             record.origin.role != crate::request_origin::HelloRole::PageRelay
                 && record.origin.page.is_none()
                 && record.capabilities.contains(capability)
+        })
+    }
+
+    /// The client negotiated `terminal-binary-frames-v1` on a local Unix
+    /// socket: its byte attaches send `output` and snapshot data as binary
+    /// frames, and it may send binary input frames. Any other transport
+    /// keeps JSON lines.
+    pub(super) fn binary_frames(&self, client: u64) -> bool {
+        self.state.lock().unwrap().clients.get(&client).is_some_and(|record| {
+            matches!(record.transport, ClientTransport::Unix)
+                && record.capabilities.contains(crate::binary_frames::BINARY_FRAMES_CAPABILITY)
         })
     }
 

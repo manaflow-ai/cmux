@@ -36,6 +36,8 @@ pub(super) struct VtStateMessage {
 pub(super) struct AttachWireShape {
     pub(super) color_overrides: bool,
     pub(super) pending_sequence: bool,
+    /// `output` goes out as a binary frame (`terminal-binary-frames-v1`).
+    pub(super) binary_frames: bool,
 }
 
 /// Appends the optional `pending` field: the incomplete sequence a replay's

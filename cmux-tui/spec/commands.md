@@ -1423,6 +1423,8 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 
 Writes input to a PTY surface. `text`, when present, is UTF-8 encoded and written as bytes. `bytes`, when present, is standard base64 decoded and written as raw bytes. If both are present, v5 writes `text` first and `bytes` second. If neither is present, v5 returns success and writes nothing.
 
+With `terminal-binary-frames-v1` negotiated on the local Unix socket, a client may send this request as an input frame (`id`, `surface`, the bytes, and the paste flag) instead of a JSON line; the daemon handles it as the line with those `bytes` and answers with the same JSON response ([transports.md](transports.md#binary-frames)).
+
 Protocol v7 adds `paste`. The payload is the concatenation of encoded `text` followed by decoded `bytes`. With `paste:true` and a non-empty payload, the server checks the target terminal's current DEC private mode 2004 while holding the terminal/input lock. If enabled, it writes `ESC [ 200 ~`, the payload, then `ESC [ 201 ~`; if disabled, it writes the payload unchanged. `paste:false` is the exact v5/v6 path. The server does not inspect or remove caller-supplied bracketed-paste markers.
 
 Params:
@@ -7947,6 +7949,8 @@ colors-changed | digest)* -> detached` instead of the replay stream:
 Snapshot format version 1 carries no Kitty images (`terminal-snapshot-images-v1`
 sends them after the history). Another `snapshot_version`
 gets the replay stream above (capability fallback).
+
+A client that negotiated `terminal-binary-frames-v1` in `set-client-info` on the local Unix socket receives the `output` events of a byte attach, and the `snapshot` events of a snapshot attach, as binary frames with raw bytes instead of JSON lines with base64 ([transports.md](transports.md#binary-frames)); every other rule of the stream is unchanged.
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 

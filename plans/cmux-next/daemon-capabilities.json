@@ -100,6 +100,7 @@
     "tab-split-keep-focus-v1",
     "tab-split-respawn-v1",
     "tab-workspace-name-v1",
+    "terminal-binary-frames-v1",
     "terminal-clipboard-read-v1",
     "terminal-color-overrides-v1",
     "terminal-command-history-v1",

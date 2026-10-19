@@ -184,6 +184,20 @@ fn main() {
     // The slow-viewer run only proves the resync path if it was taken.
     let resync_ok = !slow || snapshots >= 2;
     let ok = screen_ok && (replay_ok || replay_rt_ok) && resync_ok;
+    // MUX2_VERIFY_DUMP=DIR writes every replay, so a mismatch can be diffed.
+    if let Some(dir) = std::env::var_os("MUX2_VERIFY_DUMP") {
+        let dir = std::path::PathBuf::from(dir);
+        let _ = std::fs::create_dir_all(&dir);
+        for (name, bytes) in [
+            ("server.vt", &server_replay),
+            ("client.vt", &client_replay),
+            ("ref.vt", &ref_replay),
+            ("server-rt.vt", &server_rt),
+            ("client-rt.vt", &client_rt),
+        ] {
+            let _ = std::fs::write(dir.join(name), bytes);
+        }
+    }
     println!(
         "{{\"verify\":\"{file}\",\"ok\":{ok},\"screen_match\":{screen_ok},\"replay_exact\":{replay_ok},\"replay_roundtrip\":{replay_rt_ok},\"bytes\":{},\"stream_bytes\":{stream_bytes},\"snapshots\":{snapshots},\"midway\":{midway},\"slow\":{slow},\"resize\":{resize},\"resync_ok\":{resync_ok}}}",
         data.len()
