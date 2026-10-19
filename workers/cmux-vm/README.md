@@ -75,6 +75,15 @@ creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
 | `migrations/` | SQL for schema `cmux_vm`: `resources`, `api_keys`, `audit_log` (additive) |
 | `upstream/` | pinned provider OpenAPI document and SDK type surface (`PINNED.json`) |
 
+## Daytona provider adapter
+
+The Daytona adapter lives under `src/providers/daytona/` and uses Daytona's REST API for
+sandbox lifecycle and the per-sandbox Toolbox API for command and file operations. It uses
+the default container sandbox class: `pause` is a native stop because container pause does
+not preserve memory, and forks use a filesystem snapshot followed by create. Daytona's
+signed lifecycle webhooks are verified in `webhook.ts` and recorded as metering events;
+the wave-2 provider router owns the eventual route.
+
 ## Checks
 
 `bun run check` runs typecheck, Oxlint, the OpenAPI drift check, the workerd
