@@ -116,6 +116,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         case .resize(let size): resize(size)
         case .visibility(let visible): setVisible(visible)
         case .focused: focused()
+        case .takeOver(let setLatest): takeOver(setLatest: setLatest)
         case .gridAnnounced(let link, let size): gridAnnounced(link, size: size)
         case .ended(let link, let reason): ended(link, reason: reason)
         case .reconnect: reconnect()
@@ -226,6 +227,16 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private mutating func focused() -> [Effect] {
         if liveLink == nil { return reconnect() }
         return reclaim()
+    }
+
+    /// Take over always sends: under `priority` a claim that did not win changes no grid, so
+    /// `claimed` stays set and `reclaim` would send nothing on the next click.
+    private mutating func takeOver(setLatest: Bool) -> [Effect] {
+        if liveLink == nil { return reconnect() }
+        guard let link = liveLink, visible, let size = desiredSize else { return [] }
+        // The bookkeeping of a claim (claimed, reported size, echo due); the effect also claims.
+        _ = claim(link, size)
+        return [.takeOver(link, size, setLatest: setLatest)]
     }
 
     /// Key press or focus: a visible view that lost geometry takes it back.

@@ -22,6 +22,20 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
 };
 
+/// A compaction of the chat's context (acpmux `compaction`): running, then how it ended. `reason`
+/// is a wrapper's ("account_switch": subrouter compacted before moving the chat to another account).
+export type AcpmuxCompaction = {
+  state: "running" | "completed" | "failed";
+  /// Failed because its turn ended while it ran, not because it said so; a later end replaces it.
+  inferred?: boolean;
+  reason?: string;
+  preTokens?: number;
+  postTokens?: number;
+};
+
+/// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
+export type AcpmuxFailover = { from: string; to: string };
+
 export type QueuedPrompt = { id: string; prompt: string; next?: boolean };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
@@ -42,6 +56,10 @@ export type AcpmuxRow = {
   plan?: AcpmuxPlanEntry[];
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
+  /// A compaction row's compaction, noted where it happened.
+  compaction?: AcpmuxCompaction;
+  /// A failover row's harnesses.
+  failover?: AcpmuxFailover;
   /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
   /// order the agent made them, or one offer made without a group.
   offers?: AcpmuxSessionOffer[];
@@ -481,6 +499,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     row.kind === "turnSummary" ||
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
+    row.kind === "compaction" ||
+    row.kind === "failover" ||
     row.kind === "plan" ||
     row.kind === "typing"
   )
