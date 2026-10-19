@@ -8,13 +8,16 @@
 //! public ids, idempotency keys, read barriers and deadlines. Off by default:
 //! `serve` refuses unless cmux.json sets `"mcp": {"enabled": true}`, it
 //! speaks only on stdin and stdout, and nothing listens on the network
-//! (plans/cmux-next/mcp.md).
+//! (plans/cmux-next/mcp.md). `serve` speaks code mode (`code_mode`): two
+//! tools that search this tool list and run scripts against it;
+//! `serve --all-tools` lists every tool instead.
 
 mod action_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
+mod code_mode;
 mod config;
 mod keybinding_tools;
 mod messages;
@@ -230,7 +233,8 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
             println!("{usage}");
             0
         }
-        [command] if command == "serve" => serve(global),
+        [command] if command == "serve" => serve(global, true),
+        [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
         _ => {
             eprintln!("cmux: {usage}");
@@ -264,7 +268,7 @@ fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
     }
 }
 
-fn serve(global: GlobalArgs) -> i32 {
+fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     let path = config::path();
     if let Some(message) = refusal(&path) {
         eprintln!("cmux: {message}");
@@ -277,6 +281,7 @@ fn serve(global: GlobalArgs) -> i32 {
     watch::spawn(global.clone(), output.clone());
     let mut server = Server::new(LiveBackend { global }, Some(path));
     server.list_changed = true;
+    server.code_mode = code_mode;
     server.run(io::stdin().lock(), &output)
 }
 
@@ -341,6 +346,8 @@ pub(super) struct Server<B> {
     list_changed: bool,
     /// The client sent `notifications/initialized`.
     initialized: bool,
+    /// `tools/list` offers only `cmux_docs` and `cmux_exec` (`code_mode`).
+    code_mode: bool,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
 }
@@ -355,6 +362,7 @@ impl<B: Backend> Server<B> {
             actions_loaded: false,
             list_changed: false,
             initialized: false,
+            code_mode: false,
             notes: None,
         }
     }
@@ -416,8 +424,12 @@ impl<B: Backend> Server<B> {
         let id = id?;
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
-            "initialize" => Ok(initialize(&params, self.list_changed)),
+            "initialize" => Ok(initialize(&params, self.list_changed, self.code_mode)),
             "ping" => Ok(json!({})),
+            "tools/list" if self.code_mode => {
+                let tools = self.list();
+                Ok(json!({ "tools": code_mode::descriptors(&tools) }))
+            }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => self.call(&params),
             _ => Err((-32601, format!("method not found: {method}"))),
@@ -483,6 +495,19 @@ impl<B: Backend> Server<B> {
                 "retryable": false,
             });
             return Ok(tool_error(envelope(error, "not_run", None)));
+        }
+        if name == code_mode::DOCS {
+            let tools = self.list();
+            return Ok(match code_mode::docs(&tools, &arguments) {
+                Ok(value) => success(value, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
+        }
+        if name == code_mode::EXEC {
+            let answered = code_mode::exec(&arguments, &mut |request| self.script_request(request));
+            return Ok(answered.unwrap_or_else(|message| {
+                tool_error(envelope(v2_tools::invalid(message), "not_run", None))
+            }));
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -615,6 +640,29 @@ impl<B: Backend> Server<B> {
         Ok(self.call_action(tool, &arguments))
     }
 
+    /// One request from a running `cmux_exec` script: a tool call through
+    /// `call`, so a script has the rights of a direct call, or a docs search.
+    fn script_request(&mut self, request: code_mode::Request) -> Value {
+        match request {
+            code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
+                code_mode::script_answer(Err((
+                    -32602,
+                    "a script cannot start another script".into(),
+                )))
+            }
+            code_mode::Request::Call { name, arguments } => {
+                code_mode::script_answer(self.call(&json!({"name": name, "arguments": arguments})))
+            }
+            code_mode::Request::Docs { query } => {
+                let tools = self.list();
+                let mut arguments = Map::new();
+                arguments.insert("query".into(), Value::String(query));
+                code_mode::docs(&tools, &arguments)
+                    .unwrap_or_else(|message| json!({"error": message}))
+            }
+        }
+    }
+
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
         let call = match tool.plan(arguments) {
             Ok(call) => call,
@@ -660,7 +708,7 @@ impl<B: Backend> Server<B> {
     }
 }
 
-fn initialize(params: &Value, list_changed: bool) -> Value {
+fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
     let requested = params["protocolVersion"].as_str();
     let version = PROTOCOL_VERSIONS
         .iter()
@@ -670,7 +718,7 @@ fn initialize(params: &Value, list_changed: bool) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": INSTRUCTIONS,
+        "instructions": if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
     })
 }
 
