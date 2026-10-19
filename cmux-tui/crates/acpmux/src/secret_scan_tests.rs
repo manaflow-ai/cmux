@@ -362,9 +362,15 @@ fn unmask_puts_the_originals_secrets_back_where_their_masks_stand() {
     let original = format!("deploy with {token} now");
     let label = "[GitHub Personal Access Token]";
     assert_eq!(mask(&original), format!("deploy with {label} now"));
-    assert_eq!(unmask(&format!("please deploy with {label} today"), &original), format!("please deploy with {token} today"));
+    assert_eq!(
+        unmask(&format!("please deploy with {label} today"), &original),
+        format!("please deploy with {token} today")
+    );
     // A mask the edit deleted stays deleted.
     assert_eq!(unmask("deploy now", &original), "deploy now");
     // A label in a text with no secret behind it stays as written.
-    assert_eq!(unmask(&format!("write {label} in the docs"), "write it in the docs"), format!("write {label} in the docs"));
+    assert_eq!(
+        unmask(&format!("write {label} in the docs"), "write it in the docs"),
+        format!("write {label} in the docs")
+    );
 }

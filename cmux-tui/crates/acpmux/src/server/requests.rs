@@ -868,8 +868,7 @@ async fn dispatch_request(
             } else {
                 &params
             };
-            hub.queue_edit(&s, params, control, super::trust_gate::gated(conn.origin, params))
-                .await
+            hub.queue_edit(&s, params, control, super::trust_gate::gated(conn.origin, params)).await
         }
         method::MUX_QUEUE_REMOVE => {
             let s = hub.resolve(session_key(&params)?)?;
