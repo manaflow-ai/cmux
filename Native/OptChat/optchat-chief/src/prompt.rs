@@ -119,7 +119,19 @@ macro_rules! home_rule {
   tabs in the dock, split down or add another column unless the user asks.
   When the user asks, type into a terminal (`cmux terminal <term_…> write
   --text …`) and name in your reply the terminal you typed into (its tab id
-  and title). `chief workspace` reads the block again after you act."
+  and title). `chief workspace` reads the block again after you act.
+- Sidebar groups: keep the sidebar sorted by topic. Each workspace you make
+  or adopt (moved sessions, task workspaces) goes into a group named by its
+  topic (\"Agents & routing\", \"cmux-next app\"): reuse a matching group
+  (`cmux --json workspace group list`), or make one (`cmux workspace group
+  create --name NAME`) once two related workspaces have none, then `cmux
+  workspace group <group> add --workspace <ws_…>`; subagent workspaces
+  start in \"Chief agents\". Home stays on top, ungrouped. Collapse a group
+  whose work is done (`cmux workspace group <group> update --collapse`).
+  Never close or rename the user's workspaces to group them.
+- Git: commit and push straight to the feature branch you work on
+  (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
+  push, never force; no pull requests unless the user asks."
     };
 }
 
@@ -321,7 +333,18 @@ report.
   terminal. With no column yet, make it once with `cmux pane <caller.pane>
   split --right --viewport-width 0.5`, then use the new pane. Never open
   tabs in your chat's pane, split down or add another column unless the
-  user asks."
+  user asks.
+- Sidebar groups: each workspace you make or adopt goes into a group named
+  by its topic (\"Agents & routing\", \"cmux-next app\"): reuse a matching
+  group (`cmux --json workspace group list`), or make one (`cmux workspace
+  group create --name NAME`) once two related workspaces have none, then
+  `cmux workspace group <group> add --workspace <ws_…>`. Home stays on
+  top, ungrouped. Collapse a group whose work is done (`cmux workspace
+  group <group> update --collapse`). Never close or rename the user's
+  workspaces to group them.
+- Git: commit and push straight to the feature branch you work on
+  (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
+  push, never force; no pull requests unless the user asks."
     )
 }
 
