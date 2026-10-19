@@ -7213,7 +7213,7 @@ lease goes when the cloud confirms. `cloud-host-replica-status` returns
 api_base_url?, expires_at?, host_name?, host?, stream?, seq?, purge_pending?,
 purge_unconfirmed?, last_error?}`. On `unauthenticated` the app sets a new
 lease; `forbidden` means this install is not the host's publisher or the
-cloud removed the host. A removed host stays `forbidden` through later leases
+cloud removed the host (or the owner deleted the replica with `host.replica.purge`). A removed host stays `forbidden` through later leases
 of the same install (a token refresh never enrolls it again) until
 `cloud-host-replica-clear`. `replaced` means another socket of the same
 install publishes the host now; the daemon waits for a new lease.
