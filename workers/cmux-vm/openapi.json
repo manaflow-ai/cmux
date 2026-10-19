@@ -3200,6 +3200,408 @@
         "summary": "Revoke an API key; it stops working at once"
       }
     },
+    "/v1/access-tokens": {
+      "post": {
+        "tags": [
+          "accessTokens"
+        ],
+        "operationId": "accessTokens.createAccessToken",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "CreatedAccessToken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedAccessToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Mint an end-user access token. Requires the access-token:create scope or a signed-in team session.",
+        "summary": "Mint an end-user access token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccessTokenRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "get": {
+        "tags": [
+          "accessTokens"
+        ],
+        "operationId": "accessTokens.listAccessTokens",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "AccessTokenList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessTokenList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List access tokens without their secrets. Requires the access-token:create scope or a signed-in team session.",
+        "summary": "List access tokens without their secrets"
+      }
+    },
+    "/v1/access-tokens/{tokenId}": {
+      "delete": {
+        "tags": [
+          "accessTokens"
+        ],
+        "operationId": "accessTokens.revokeAccessToken",
+        "parameters": [
+          {
+            "name": "tokenId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke an access token. Requires the access-token:create scope or a signed-in team session.",
+        "summary": "Revoke an access token"
+      }
+    },
+    "/v1/access-tokens/{tokenId}/ssh": {
+      "post": {
+        "tags": [
+          "accessTokens"
+        ],
+        "operationId": "accessTokens.mintAccessTokenSsh",
+        "parameters": [
+          {
+            "name": "tokenId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SshAccess",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SshAccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Mint a delegated SSH credential. Requires the access-token:create scope or a signed-in team session.",
+        "summary": "Mint a delegated SSH credential"
+      }
+    },
     "/v1/meshes": {
       "post": {
         "tags": [
@@ -6075,7 +6477,8 @@
               "mesh:join",
               "acl:read",
               "acl:write",
-              "admin"
+              "admin",
+              "access-token:create"
             ]
           },
           "_tag": {
@@ -6819,7 +7222,8 @@
                 "mesh:join",
                 "acl:read",
                 "acl:write",
-                "admin"
+                "admin",
+                "access-token:create"
               ]
             },
             "description": "an array of at most 32 item(s)",
@@ -6899,7 +7303,8 @@
                 "mesh:join",
                 "acl:read",
                 "acl:write",
-                "admin"
+                "admin",
+                "access-token:create"
               ]
             }
           },
@@ -6992,7 +7397,8 @@
                 "mesh:join",
                 "acl:read",
                 "acl:write",
-                "admin"
+                "admin",
+                "access-token:create"
               ]
             }
           },
@@ -7034,6 +7440,206 @@
                 "type": "null"
               }
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateAccessTokenRequest": {
+        "type": "object",
+        "required": [
+          "principal",
+          "vmIds",
+          "scopes"
+        ],
+        "properties": {
+          "principal": {
+            "type": "string",
+            "description": "The tenant's own end-user or agent id.",
+            "title": "maxLength(128)",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "vmIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+              "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+            },
+            "description": "an array of at most 50 item(s)",
+            "title": "maxItems(50)",
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "exec",
+                "pty",
+                "files:read",
+                "files:write",
+                "ports",
+                "ssh"
+              ]
+            },
+            "description": "an array of at most 6 item(s)",
+            "title": "maxItems(6)",
+            "minItems": 1,
+            "maxItems": 6
+          },
+          "ttlSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 1 and 86400",
+            "title": "between(1, 86400)",
+            "minimum": 1,
+            "maximum": 86400
+          },
+          "linuxUser": {
+            "type": "string",
+            "description": "a string matching the pattern ^[a-z_][a-z0-9_-]{0,63}$",
+            "pattern": "^[a-z_][a-z0-9_-]{0,63}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreatedAccessToken": {
+        "type": "object",
+        "required": [
+          "id",
+          "token",
+          "expiresAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^at_[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^at_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "token": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessTokenList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccessToken"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessToken": {
+        "type": "object",
+        "required": [
+          "id",
+          "principal",
+          "vmIds",
+          "scopes",
+          "linuxUser",
+          "createdBy",
+          "createdAt",
+          "expiresAt",
+          "revokedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^at_[0-9A-HJKMNP-TV-Z]{26}$",
+            "pattern": "^at_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "principal": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9_-]+$",
+            "title": "maxLength(128)",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "vmIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+              "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+            },
+            "description": "an array of at most 50 item(s)",
+            "title": "maxItems(50)",
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "exec",
+                "pty",
+                "files:read",
+                "files:write",
+                "ports",
+                "ssh"
+              ]
+            },
+            "description": "an array of at most 6 item(s)",
+            "title": "maxItems(6)",
+            "minItems": 1,
+            "maxItems": 6
+          },
+          "linuxUser": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SshAccess": {
+        "type": "object",
+        "required": [
+          "host",
+          "user",
+          "password"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -7801,7 +8407,7 @@
     },
     "securitySchemes": {
       "bearer": {
-        "description": "A cmux VM API key (cmuxvm_sk_...), or a cmux session token together with the X-Cmux-Team-Id header.",
+        "description": "A cmux VM API key (cmuxvm_sk_...), a cmux session token together with the X-Cmux-Team-Id header, or a short-lived cmux_at_... end-user token.",
         "type": "http",
         "scheme": "bearer"
       }
@@ -7829,6 +8435,9 @@
     },
     {
       "name": "apiKeys"
+    },
+    {
+      "name": "accessTokens"
     },
     {
       "name": "mesh"

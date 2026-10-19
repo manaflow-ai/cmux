@@ -87,6 +87,5 @@ export class AccessTokensGroupDefinition extends HttpApiGroup.make("accessTokens
       .addError(Forbidden)
       .addError(NotFound)
       .addError(ServiceUnavailable)
-      .annotateContext(describe("Mint a delegated Freestyle SSH credential")),
+      .annotateContext(describe("Mint a delegated SSH credential")),
   ) {}
-
