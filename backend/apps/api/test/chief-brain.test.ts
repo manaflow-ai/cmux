@@ -171,6 +171,12 @@ describe("Chief brain on Durable Objects", { timeout: 120_000 }, () => {
       expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true })).status).toBe(200)
       expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "sk-1", parts: [{ type: "text", text: "first" }] }, "sk-1")).ok).toBe(true)
       await chiefReplies(token, chief.main_conversation, chief.id, 1)
+      // The first turn is over (its own typing off is sent before this), so a later off is the skip's.
+      const brains = (env as unknown as { CHIEF_BRAIN_DO: DurableObjectNamespace }).CHIEF_BRAIN_DO
+      const brain = brains.get(brains.idFromName(`${chief.id}/${chief.main_conversation}`))
+      const rows = (sql: string) => runInDurableObject(brain, async (_i, state) => state.storage.sql.exec(sql).toArray())
+      for (let i = 0; i < 100 && (await rows(`SELECT id FROM cb_turn WHERE status NOT IN ('done', 'failed')`)).length > 0; i++) await new Promise((r) => setTimeout(r, 20))
+      expect(await rows(`SELECT id FROM cb_turn WHERE status NOT IN ('done', 'failed')`)).toHaveLength(0)
 
       // Over the daily limit: no turn and no reply, but the socket sees the chief's typing go off.
       const socket = await connect(chief.main_conversation, token)
@@ -184,6 +190,8 @@ describe("Chief brain on Durable Objects", { timeout: 120_000 }, () => {
       expect(socket.frames.findIndex(off), JSON.stringify(socket.frames.map((f) => [f.t, f.on]))).toBeGreaterThanOrEqual(0)
       expect(socket.frames.some((f) => f.t === "conversation-typing" && f.participant === chief.id && f.on === true)).toBe(false)
       expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)).toHaveLength(1)
+      // The turn was refused for the limit (the env reached the brain), not answered late.
+      expect(await rows(`SELECT state FROM cb_inbox WHERE seq = (SELECT MAX(seq) FROM cb_inbox)`)).toEqual([{ state: "skipped" }])
       socket.ws.close()
     } finally {
       saved === undefined ? delete limits.CHIEF_BRAIN_DAILY_TURNS : (limits.CHIEF_BRAIN_DAILY_TURNS = saved)

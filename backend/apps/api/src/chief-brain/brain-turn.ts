@@ -72,8 +72,10 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
  * server-placed Chief's brain is off here) or the object serves another Chief.
  */
 const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
-const skip = async (b: ChiefBrainDO, w: { agent: string; conversation: string }, reason: string): Promise<{ skipped: string }> => {
-  if (!OTHER_BRAIN.has(reason)) await typing(b.doEnv, w.conversation, w.agent, false)
+const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string }, reason: string): { skipped: string } => {
+  // A turn that runs or messages that wait for one in this conversation keep their indicator.
+  const busy = (b.turnLive && b.turnConversation === w.conversation) || b.sql.exec(`SELECT 1 FROM cb_inbox WHERE conversation = ? AND state IN ('queued', 'running') LIMIT 1`, w.conversation).toArray().length > 0
+  if (!OTHER_BRAIN.has(reason) && !busy) b.doCtx.waitUntil(typing(b.doEnv, w.conversation, w.agent, false))
   return { skipped: reason }
 }
 
