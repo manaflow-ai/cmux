@@ -41,8 +41,9 @@ freeze.
   GitHub couldn't be read, which counts as frozen.
 - `.github/workflows/merge-freeze.yml` shows a `merge freeze` check on each pull request into
   `main` and `feat-cmux-next`. Every hour it also closes lapsed freeze issues with a comment.
-- At merge time, gh-merge-green should run the same check. Until it does, it still reads the old
-  `WINDOW` file.
+- At merge time, `scripts/gh-merge-green` runs the same check on every base branch and refuses
+  on exit 1 (frozen) or any other failure (freeze state unknown). `--override` doesn't lift a
+  freeze. The old `--freeze-token` and `--window-token` flags print a warning and are ignored.
 
 `python3 scripts/ci/merge_freeze.py list --repo manaflow-ai/cmux` prints every open freeze and
 whether it's active, lapsed or malformed.

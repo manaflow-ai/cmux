@@ -60,6 +60,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var defaultIndex: Int
         var generation: String?
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
+        /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
+        /// shows no close button.
+        var keepsFirstTab = false
+        /// False in a pinned column that takes no other tab: no new-tab button.
+        var takesNewTabs = true
     }
 
     /// `workspace` is set before the first apply, so the first frame is the settled one.
@@ -131,6 +136,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private func compose(_ structure: Snapshot, refresh: Bool = false) -> Snapshot {
         var result = structure
         result.items = tabItems.items(for: structure.tabs, id: \TabModel.id, refresh: refresh).map { $0.0 } + structure.items
+        if structure.keepsFirstTab, !structure.tabs.isEmpty { result.items[0].isClosable = false }
         return result
     }
 
@@ -161,10 +167,16 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let groups = pane.tabGroups.map { group in
             TabItemMapping.shared.groupItem(group, isSaved: group.isSaved, asset: groupAsset)
         }
-        return Snapshot(tabs: pane.tabs.filter { !hidden.contains($0.id) }, items: local, groups: groups,
+        // The column kind decides (`pinned-dock-v1`), never the tab's title or page.
+        let dock = ownWorkspace?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(pane.handle) }?.dock
+        let pinned = dock?.isPinned == true
+        let tabs = pane.tabs.filter { !hidden.contains($0.id) }
+        return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                         hidesStrip: hidesTabBar || ownWorkspace?.app != nil)
+                         hidesStrip: hidesTabBar || ownWorkspace?.app != nil,
+                         keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
+                         takesNewTabs: !pinned || dock?.allowsTabs == true)
     }
 
     /// Daemon tab `tab`'s strip item; observed one tab at a time (`tabItems`).
@@ -233,6 +245,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
+        if stripModel.showsNewTabButton != snapshot.takesNewTabs { stripModel.showsNewTabButton = snapshot.takesNewTabs }
         if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
@@ -249,7 +262,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
         let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
-                                                defaultIndex: snapshot.defaultIndex, hidden: hidden)
+                                                defaultIndex: snapshot.defaultIndex, hidden: hidden) { services.cache.pageRequests.openers.relations(among: pane.tabs) }
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         if selectNew {

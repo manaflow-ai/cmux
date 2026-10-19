@@ -157,6 +157,8 @@ must work with no page.
 - The screen's create row (cx-ag5.7): New terminal and New browser tab ask the host's `tab.open`
   with no text (a blank terminal in the tab's folder; a browser tab on `browser.newTabPage`); New
   chat is Return's chat with nothing to send. Ctrl-` is New Terminal Tab everywhere (#18133).
+  The same three also end the suggestion list under the field (Leo, 2026-10-18), after the agent,
+  search and workspace rows and outside their cap, so ArrowDown reaches them from a prompt.
 - `check-action-surfaces.sh` gets the new action with every surface.
 
 ## 6. Ownership
@@ -216,6 +218,10 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
 
 ### Status (2026-10-04)
 
+- The project picker's start (Leo, 2026-10-18): a New Tab with no project of its own (no folder,
+  the home folder or a private agent-home folder) and no host start folder starts on the project of
+  the newest local chat; a tab with a project keeps it. The folder menu also offers "Do not work in
+  a project", which starts the chat with `noProject` in the host's private folder.
 - Landed: plan, N1 (shared intent table), N2 (variant B page), N3 (host side: search, type-only `!`,
   type-ahead, choice memory, `newTab.layout`).
 - N4: one spare per window (`NewTabSparePool`), adopted by `newTabPage()`; spares exist while the

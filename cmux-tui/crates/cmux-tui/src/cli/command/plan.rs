@@ -20,17 +20,46 @@ pub(in crate::cli) struct RequestPlan {
 /// The part of a result a command prints. `TerminalProgramStatus` is
 /// `terminal <selector> status`: the `extra.program_status` records of the
 /// `terminal.get` result (OSC 7501), `[]` when the terminal has none.
+/// `AgentRoster` is `agent list`: the `agent.list` rows ranked, limited and
+/// counted on the client (wire/agent_roster.rs).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) enum ResponseView {
     #[default]
     Full,
     TerminalProgramStatus,
+    AgentRoster(AgentRosterView),
+}
+
+/// How `agent list` orders and trims its rows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::cli) struct AgentRosterView {
+    pub sort: AgentSort,
+    /// At most this many rows; the counts still cover every listed agent.
+    pub limit: Option<usize>,
+    /// `--counts`: `--json` prints `{"agents","counts"}` instead of the
+    /// bare agent array.
+    pub counts: bool,
+}
+
+/// `agent list --sort`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::cli) enum AgentSort {
+    /// Blocked first, then working, then idle and done, then unknown; the
+    /// most recently updated first within each group.
+    #[default]
+    NeedsMe,
+    /// The most recently updated first.
+    Recent,
+    /// The daemon's order.
+    None,
 }
 
 impl ResponseView {
     pub(in crate::cli) fn project(self, result: Value) -> Value {
         match self {
-            Self::Full => result,
+            // wire/agent_roster.rs shapes the roster once it has the
+            // terminals' titles and folders.
+            Self::Full | Self::AgentRoster(_) => result,
             Self::TerminalProgramStatus => match result.pointer("/extra/program_status") {
                 Some(Value::Array(records)) => Value::Array(records.clone()),
                 _ => Value::Array(Vec::new()),
@@ -99,6 +128,17 @@ impl super::CommandPlan {
         match self {
             Self::Protocol(mut plan) => {
                 plan.view = ResponseView::TerminalProgramStatus;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+
+    /// `agent list`: the `agent.list` request printed as a ranked roster.
+    pub(super) fn agent_roster(self, view: AgentRosterView) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::AgentRoster(view);
                 Self::Protocol(plan)
             }
             other => other,

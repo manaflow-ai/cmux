@@ -12,6 +12,17 @@
 //! `/proc/self/exe` (no path in their argv, and a running binary cannot be
 //! written), so this module only returns that there.
 //!
+//! The slim host: when the daemon called [`use_sibling_host`] and a regular
+//! file `cmux-tui-host` sits beside its (canonical) executable, the copy is
+//! of that small binary instead, as `<sha256>/cmux-tui-host`: an idle host
+//! re-exec'd from the monolith mapped ~390 dylib images and cost ~3.7 MB.
+//! The sibling is never looked up on `PATH`. After it is copied and verified,
+//! the copy runs once with `--version` and must print `cmux-tui-host
+//! <identity>`, the daemon's own build identity; a missing sibling, a failed
+//! copy or another answer leaves this daemon on the copy of its own
+//! executable as before. Both binaries take the same arguments
+//! (`__terminal-host --bootstrap-stdio ...`).
+//!
 //! Safety of the copy: the root and each `<sha256>` directory are `0700` and
 //! owned by the user, or the copy is not used; the copy is written to a
 //! temporary file (an APFS `clonefile`, else a plain copy, never a hard
@@ -48,6 +59,14 @@ pub fn prepare_in_background() {
     imp::prepare_in_background();
 }
 
+/// Let terminal hosts run from the slim `cmux-tui-host` beside this
+/// executable when that binary reports `identity` (macOS; elsewhere it does
+/// nothing). The cmux-tui daemon calls it once at start with its build
+/// identity, before any terminal starts.
+pub fn use_sibling_host(identity: &'static str) {
+    imp::use_sibling_host(identity);
+}
+
 /// Hold the shared in-use lock of the copy this process runs from, if it
 /// runs from one. A terminal host calls it once at start.
 pub fn hold_in_use_lock() {
@@ -56,7 +75,7 @@ pub fn hold_in_use_lock() {
 
 /// Spawn a terminal host from [`terminal_host_executable`]. Its command line
 /// is `cmux-tui __terminal-host ...` with no path, also when the daemon's own
-/// executable is used. A spawn that fails from the copy is retried once from
+/// executable or the slim host is used. A spawn that fails from the copy is retried once from
 /// the daemon's own executable, and the copy is not used again.
 pub fn spawn_host(
     configure: impl Fn(&mut std::process::Command),
@@ -89,6 +108,8 @@ mod imp {
     }
 
     pub(super) fn hold_in_use_lock() {}
+
+    pub(super) fn use_sibling_host(_identity: &'static str) {}
 
     pub(super) fn prepare_in_background() {}
 

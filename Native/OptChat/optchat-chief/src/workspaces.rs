@@ -205,15 +205,17 @@ pub fn link_subagents(
                 }
             }
             b'a' if i == 0
+                || emphasis_before(b, i)
                 || !(word(b[i - 1])
                     || matches!(b[i - 1], b'/' | b'.' | b'-' | b':' | b'#' | b'@')) =>
             {
                 let end = i + 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
                 let id = &text[i..end];
                 let bounded = end > i + 1
-                    && !(end < b.len()
-                        && (word(b[end])
-                            || (b[end] == b'.' && b.get(end + 1).is_some_and(|c| word(*c)))));
+                    && (emphasis_after(b, end)
+                        || !(end < b.len()
+                            && (word(b[end])
+                                || (b[end] == b'.' && b.get(end + 1).is_some_and(|c| word(*c))))));
                 if bounded
                     && is_id(id)
                     && let Some(link) = link_of(id)
@@ -229,6 +231,19 @@ pub fn link_subagents(
     }
     out.push_str(&text[copied..]);
     out
+}
+
+/// Whether `b[..i]` ends with a `_`/`__` emphasis opener (`_a1_`, `__a1__`), not snake_case
+/// (`foo_a1`): the underscores follow the start, a space or punctuation.
+fn emphasis_before(b: &[u8], i: usize) -> bool {
+    let run = b[..i].iter().rev().take_while(|c| **c == b'_').count();
+    (1..=3).contains(&run) && (run == i || !b[i - run - 1].is_ascii_alphanumeric())
+}
+
+/// Whether `b[end..]` starts with a `_`/`__` emphasis closer (`_a1_`), not snake_case (`a1_x`).
+fn emphasis_after(b: &[u8], end: usize) -> bool {
+    let run = b[end..].iter().take_while(|c| **c == b'_').count();
+    (1..=3).contains(&run) && b.get(end + run).is_none_or(|c| !c.is_ascii_alphanumeric())
 }
 
 /// A subagent id: `a` and 1 to 6 digits, no leading zero.
@@ -443,7 +458,7 @@ impl Workspaces for DaemonWorkspaces {
                 .workspace;
             if groups {
                 // Best effort: a sidebar group never fails the subagent's start.
-                if let Err(e) = group_workspace(&mut client, workspace.clone(), &key) {
+                if let Err(e) = group_workspace(&mut client, workspace, &key) {
                     eprintln!("optchat: subagent workspace {key} stays ungrouped: {e}");
                 }
             }

@@ -40,6 +40,13 @@ pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
 #[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
+
+/// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
+/// hosting, every platform), on the `cmux` surface only, like the other
+/// `host` verbs.
+pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
+    Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
+}
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
@@ -932,7 +939,8 @@ USAGE
   cmux agent message release <message-id> --recipient <agent> --approve|--decline
   cmux agent message unsend <message-id> [--recipient <agent>]
   cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
-  cmux agent list [OPTIONS]
+  cmux agent list [--needs-me] [--state <state>] [--terminal <id>]
+                  [--sort needs-me|recent|none] [--limit <n>] [--counts]
   cmux agent <agent> focus
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]

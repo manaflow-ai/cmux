@@ -330,6 +330,47 @@ fn tab_update_stores_zoom_and_rejects_history_on_a_terminal_tab() {
     );
 }
 
+/// tab-mark-unread-v1: Mark Tab Unread sets a manual mark on any tab, with
+/// no notification; every client sees it as `extra.marked_unread`, and
+/// `false` clears it without touching the tab's other state.
+#[test]
+fn tab_update_marks_a_tab_unread_and_clears_it() {
+    let mux = Mux::new_for_test("state-tab-mark-unread", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let tab = tab_id(&mux, tabs[0]);
+    let before = revision(&mux);
+    let marked = mutate(&mux, "tab.update", json!({"tab": tab, "marked_unread": true}), "unread-1");
+    assert_eq!(marked["extra"]["marked_unread"], true);
+    assert!(
+        changes_after(&mux, before)
+            .iter()
+            .any(|change| change["id"] == tab && change["value"]["extra"]["marked_unread"] == true)
+    );
+    let listed = snapshot(&mux)["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|listed| listed["id"] == tab)
+        .cloned()
+        .unwrap();
+    assert_eq!(listed["extra"]["marked_unread"], true);
+    let zoomed = mutate(&mux, "tab.update", json!({"tab": tab, "zoom": 1.5}), "unread-2");
+    assert_eq!(zoomed["extra"]["marked_unread"], true, "another field keeps the mark");
+    let cleared =
+        mutate(&mux, "tab.update", json!({"tab": tab, "marked_unread": false}), "unread-3");
+    assert!(cleared["extra"].get("marked_unread").is_none());
+    assert_eq!(cleared["extra"]["zoom"], 1.5, "clearing the mark keeps the zoom");
+    assert_eq!(
+        error_code(send(
+            &mux,
+            "tab.update",
+            json!({"tab": tab, "marked_unread": "yes"}),
+            Some("unread-4")
+        )),
+        "validation.invalid"
+    );
+}
+
 /// ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS: a tab carries a user icon (one
 /// emoji or an SF Symbol name, the shared icon wire string) on its record,
 /// listed in the snapshot so every client shows it; null clears it.
