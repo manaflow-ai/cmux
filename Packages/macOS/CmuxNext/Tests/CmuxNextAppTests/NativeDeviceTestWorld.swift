@@ -20,6 +20,7 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     private var oldDevice = false
     private var beforePolicy: (@Sendable () async -> Void)?
     private var beforeTarget: (@Sendable () async -> Void)?
+    private var beforeCloud: (@Sendable () async -> Void)?
     private var badTarget: String?
     private var targetStatus = 200
     private(set) var requests: [Data] = []
@@ -29,6 +30,7 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     private(set) var bindKeys: [String] = []
     private(set) var proofNonces: [String] = []
     private(set) var signedReadsWithCredentials = 0
+    private(set) var cloudMints = 0
     init(scopes: [NativeDeviceScope]) { self.scopes = scopes }
     func loseEnrollmentReply() { loseEnroll = true }
     func loseBindingReply() { loseBind = true }
@@ -37,6 +39,7 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     func includeLegacyDevice() { oldDevice = true }
     func onPolicy(_ action: @escaping @Sendable () async -> Void) { beforePolicy = action }
     func onTarget(_ action: @escaping @Sendable () async -> Void) { beforeTarget = action }
+    func onCloud(_ action: @escaping @Sendable () async -> Void) { beforeCloud = action }
     func setBadTarget(_ field: String) { badTarget = field }
     func refuseTarget(_ status: Int) { targetStatus = status }
     func holdEnrollment() { hold = true }
@@ -61,13 +64,33 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     func post(_ path: String, json: Data, bearer: String?, headers: [String: String]) async throws -> (status: Int, body: Data) {
         requests.append(json)
         let body = try JSONSerialization.jsonObject(with: json) as! [String: Any]
-        guard (path == "/v1/ops" || path == "/v1/read"), let op = body["op"] as? String, op.hasPrefix("host.") else {
+        guard (path == "/v1/ops" || path == "/v1/read"), let op = body["op"] as? String,
+              op.hasPrefix("host.") || op.hasPrefix("cloud.machine.") else {
             return try await auth.post(path, json: json, bearer: bearer, headers: headers)
         }
         let token = try claims(bearer ?? "")
         guard let scope = scopes.first(where: { $0.team == token["team"] }), let install = token["inst"], token["sub"] == Self.user,
               let point = await auth.publicKey(install)?.base64EncodedString(), let params = body["params"] as? [String: Any] else { throw Failure.invalid }
         let host = "host_" + String(scope.team.dropFirst(5))
+        if op.hasPrefix("cloud.machine.") {
+            guard body["idempotency_key"] == nil, body["origin"] == nil, params["team"] == nil,
+                  let target = params["host"] as? String else { throw Failure.invalid }
+            if op == "cloud.machine.connect_info" {
+                guard path == "/v1/read", params.count == 1 else { throw Failure.invalid }
+                return (200, try data(["op": op, "value": ["host": target, "state": "paused"]]))
+            }
+            guard op == "cloud.machine.link_token", path == "/v1/ops", params.count == 3,
+                  let services = params["services"] as? [String], services == ["ssh"],
+                  let proof = params["native_proof"] as? [String: Any],
+                  let row = devices.first(where: { $0["meshId"] == scope.mesh && $0["installPublicKey"] == point }),
+                  let device = row["id"] else { throw Failure.invalid }
+            try verify(proof, purpose: "overlay-policy", target: device, point: point)
+            cloudMints += 1
+            let action = beforeCloud; beforeCloud = nil
+            await action?()
+            return (200, try data(["ok": true, "value": ["host": target, "token": "dial-once-\(cloudMints)",
+                "expires_at": 1792430000000 as Int64, "epoch": 1, "services": services]]))
+        }
         if op == "host.network.target" {
             guard path == "/v1/read", body["idempotency_key"] == nil, body["origin"] == nil,
                   params["mesh"] == nil || params["mesh"] as? String == scope.mesh else { throw Failure.invalid }

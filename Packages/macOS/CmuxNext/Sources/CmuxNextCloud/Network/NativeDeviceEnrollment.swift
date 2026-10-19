@@ -35,6 +35,12 @@ public actor NativeDeviceEnrollment {
         return try await task.value
     }
 
+    /// Only the app-owned inherited channel calls this; it is not an app-server credential provider.
+    package func cloudBrokerReply(_ bytes: Data) async throws -> Data {
+        _ = try NativeCloudBrokerRequest(bytes)
+        throw NativeDeviceEnrollmentError.invalidState
+    }
+
     /// Stop admitting enrollments. Sign-out also calls `revoke` while its Stack session is available.
     public func stop() { generation &+= 1; revoked = true }
 
