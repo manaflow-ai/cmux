@@ -270,13 +270,28 @@ export type HarnessesState = {
   /** `unavailable`: no acpmux in this app; `unreachable`: its daemon did not answer. */
   problem: "unavailable" | "unreachable" | null;
   harnesses: HarnessRow[];
+  /** Receipts and terminal observations from the captured update owner. */
+  jobs?: Array<{
+    machine: string;
+    session: string;
+    cli: string;
+    profiles: string[];
+    terminal?: string;
+    intent_key?: string;
+    can_resume?: boolean;
+    state: "created" | "pending" | "exited" | "unknown";
+    exit_code?: number;
+    signal?: number;
+  }>;
 };
 
 /** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
- * (one `id`) and Update all type the harness's own update command into a terminal tab. */
+ * (one `id`) and Update all start owner-bound native terminal jobs. */
 export type HarnessesRun = {
-  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate";
+  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate" | "resumeUpdate";
   id?: string;
+  /** With `resumeUpdate`: the retained intent key, not a new operation id. */
+  intent?: string;
   /** With `autoUpdate`: turn it on or off for `id`. */
   on?: boolean;
   /** With `refresh`: the daemon checks every harness again (after an update). */
