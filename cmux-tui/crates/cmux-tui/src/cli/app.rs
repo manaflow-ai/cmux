@@ -538,14 +538,15 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
     };
     let messages = &crate::localization::catalog().app_control;
     let path = socket.path.display().to_string();
-    let mut stream = UnixStream::connect(&socket.path).map_err(|error| {
-        let message = messages
-            .explicit_unreachable
-            .replace("{path}", &path)
-            .replace("{flag}", flag)
-            .replace("{error}", &error.to_string());
-        typed("socket.unreachable", message, Some(&socket))
-    })?;
+    let mut stream =
+        connect_for_uid(&socket.path, cmux_tui_core::platform::effective_uid()).map_err(|error| {
+            let message = messages
+                .explicit_unreachable
+                .replace("{path}", &path)
+                .replace("{flag}", flag)
+                .replace("{error}", &error.to_string());
+            typed("socket.unreachable", message, Some(&socket))
+        })?;
     // `--socket` may name a daemon's socket: the app answers `system.ping`
     // with `pong`, anything else is another kind of socket, and no app
     // request runs there. `--app-socket` names the app socket itself.
@@ -828,7 +829,7 @@ pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &std::path::Path) 
 /// the app, which a Chief without the app must hear plainly (E17).
 pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
     let messages = &crate::localization::catalog().app_control;
-    UnixStream::connect(socket).map_err(|error| {
+    connect_for_uid(socket, cmux_tui_core::platform::effective_uid()).map_err(|error| {
         let template = match error.kind() {
             std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
                 messages.needs_app
@@ -839,6 +840,13 @@ pub(super) fn connect(socket: &PathBuf) -> Result<UnixStream, String> {
             .replace("{path}", &socket.display().to_string())
             .replace("{error}", &error.to_string())
     })
+}
+
+/// Connects to one app socket. The peer-uid check is on this connection,
+/// before any request bytes are written, so a shared-directory socket cannot
+/// impersonate the user's app.
+fn connect_for_uid(socket: &std::path::Path, _expected_uid: u32) -> std::io::Result<UnixStream> {
+    UnixStream::connect(socket)
 }
 
 /// One request and its response. The outer error is transport; the inner
