@@ -6,10 +6,11 @@ export const authorityClient = async (session: string, user: string, team?: stri
   const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])
   if (!("privateKey" in pair)) throw new Error("missing app key")
   const public_jwk = await crypto.subtle.exportKey("jwk", pair.publicKey)
-  const registered = await call("/v1/ops", session, {
+  const registration = {
     op: "install.register", params: { public_jwk, kind: "mac", name: "Laptop", device_name: "Laptop", platform: "macos" },
     idempotency_key: crypto.randomUUID(), origin: "user"
-  })
+  }
+  const registered = await call("/v1/ops", session, registration)
   expect(registered.json.ok, JSON.stringify(registered.json)).toBe(true)
   const install = registered.json.value.id as string
   const challenge = await call("/v1/auth/challenge", undefined, { user, install, ...(team ? { team } : {}) })
@@ -29,5 +30,5 @@ export const authorityClient = async (session: string, user: string, team?: stri
     expect(Object.keys(r.json.value).sort()).toEqual(["authority_version", "grant", "install", "team", "user"])
     return r.json.value.authority_version as string
   }
-  return { token, install, grant, team: selected, user, principal, stub, read, version }
+  return { token, install, grant, team: selected, user, principal, stub, read, version, registration }
 }

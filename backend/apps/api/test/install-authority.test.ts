@@ -105,4 +105,16 @@ describe("install.authority", { timeout: 60_000 }, () => {
       })
     }
   })
+
+  it("does not revive a revoked install when its registration key ages out of the ledger", async () => {
+    const p = await signedInWithInstall("authority-register-key-reuse"), c = await authorityClient(p.session, p.user)
+    await c.version()
+    const revoked = await call("/v1/ops", p.session, { op: "install.revoke", params: { install: c.install }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(revoked.json.ok, JSON.stringify(revoked.json)).toBe(true)
+    expect((await c.read()).status).toBe(403)
+    await inDO(c.stub, async (instance) => { instance.bind(c.user).pruneLedger(Date.now() + 1) })
+    const repeated = await call("/v1/ops", p.session, c.registration)
+    expect(repeated.json).toMatchObject({ ok: false, error: { code: "idempotency.conflict" } })
+    expect((await c.read()).status).toBe(403)
+  })
 })
