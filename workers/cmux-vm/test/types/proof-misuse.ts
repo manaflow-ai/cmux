@@ -18,7 +18,7 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
     const upstream = yield* UpstreamClient;
 
     // A hand-made object can satisfy the structural controller shape at runtime; the cron check rejects it.
-    const handmadeController = { cron: "*/1 * * * *" } as unknown as ScheduledController;
+    const handmadeController: ScheduledController = { cron: "*/1 * * * *", scheduledTime: 0, noRetry: () => undefined };
     yield* withMeteringMayReadFleet(handmadeController, () => Effect.void).pipe(Effect.catchAll(() => Effect.void));
 
     yield* name(principal, vmA, vmB, (caller, a, b) =>
