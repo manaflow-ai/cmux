@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextSettings
 import ObjectiveC
 
 /// PROBE ONLY (perf-polish cx-8w027.28, never landed): between `debug.frames` start and stop,
