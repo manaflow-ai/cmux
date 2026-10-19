@@ -102,7 +102,8 @@ export const COMPOSER_LABELS = {
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
 
-/// The @ picker's files in a chat whose folder cannot be searched (a remote chat): none.
+/// The @ picker's files in a chat whose folder cannot be searched (a remote chat): none, and no
+/// "type to search" hint.
 const NO_FILES: MentionState = { kind: "done", results: [] };
 
 /// What the pane can do to the composer from outside it.
@@ -538,8 +539,8 @@ export function Composer({
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
   const mentionSearch = useMentionSearch(searchFiles, mentionAt?.query);
-  // A chat whose folder cannot be searched still lists chats; it says no file matches.
-  const mentionState = searchFiles || !mentionAt?.query.trim() ? mentionSearch : NO_FILES;
+  // A chat whose folder cannot be searched still lists chats; it never hints at a file search.
+  const mentionState = searchFiles ? mentionSearch : NO_FILES;
   const mentionFiles = mentionResults(mentionState);
   const chatId = snapshot.summary?.sessionId;
   const mentionWord = mentionAt?.query;
