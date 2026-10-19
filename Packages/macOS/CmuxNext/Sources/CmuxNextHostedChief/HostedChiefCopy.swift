@@ -2,6 +2,12 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
 
+/// A refusal of the API Worker (`code` is the owner's error code) or a reply that does not parse.
+public enum HostedChiefError: Error, Equatable {
+    case owner(code: String, message: String)
+    case badReply
+}
+
 /// The one-time copy of this Mac's Chief into the Hosted Chief (Lawrence
 /// 2026-10-19: Cloud Chief is the default). Copy only: the local Chief home
 /// is read through the memory tool's read-only export and the owner's
@@ -19,7 +25,7 @@ final class HostedChiefCopy {
         func send(_ method: String, _ path: String, query: [URLQueryItem] = [], body: [String: Any]? = nil) async throws -> (status: Int, json: [String: Any]) {
             var components = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)
             if !query.isEmpty { components?.queryItems = query }
-            guard let url = components?.url else { throw FeedServiceError.badReply }
+            guard let url = components?.url else { throw HostedChiefError.badReply }
             var request = URLRequest(url: url)
             request.httpMethod = method
             request.timeoutInterval = 60
@@ -72,7 +78,7 @@ final class HostedChiefCopy {
     /// The brain's `enabled` setting.
     func brainEnabled() async throws -> Bool {
         let reply = try await http.send("GET", "v1/chiefs/\(chief)/brain")
-        guard reply.status == 200 else { throw FeedServiceError.owner(code: HTTP.errorCode(reply.json) ?? "http_\(reply.status)", message: "brain status") }
+        guard reply.status == 200 else { throw HostedChiefError.owner(code: HTTP.errorCode(reply.json) ?? "http_\(reply.status)", message: "brain status") }
         let value = reply.json["value"] as? [String: Any]
         return (value?["config"] as? [String: Any])?["enabled"] as? Bool ?? false
     }
@@ -81,7 +87,7 @@ final class HostedChiefCopy {
         // Only `enabled`: the user's model and effort stay as they are.
         let body: [String: Any] = ["enabled": enabled]
         let reply = try await http.send("PUT", "v1/chiefs/\(chief)/brain", body: body)
-        guard reply.status == 200 else { throw FeedServiceError.owner(code: HTTP.errorCode(reply.json) ?? "http_\(reply.status)", message: "brain update") }
+        guard reply.status == 200 else { throw HostedChiefError.owner(code: HTTP.errorCode(reply.json) ?? "http_\(reply.status)", message: "brain update") }
         if !enabled { brainTurnedOff = true } else { brainTurnedOff = false }
     }
 
@@ -123,7 +129,7 @@ final class HostedChiefCopy {
             guard status.status == 200, let value = status.json["value"] as? [String: Any], let state = value["state"] as? String else {
                 let code = HTTP.errorCode(status.json) ?? "http_\(status.status)"
                 if code == "brain_impl" { return .skipped(code) }
-                throw FeedServiceError.owner(code: code, message: "memory status")
+                throw HostedChiefError.owner(code: code, message: "memory status")
             }
             if state == "done" || state == "live" { return .skipped(state) }
             if state == "importing", !mayContinue { return .skipped("importing_elsewhere") }
@@ -162,12 +168,12 @@ final class HostedChiefCopy {
                     // Another copy got further: start again from the brain's count.
                     orderRetries += 1
                     continue attempt
-                default: throw FeedServiceError.owner(code: code, message: "memory copy")
+                default: throw HostedChiefError.owner(code: code, message: "memory copy")
                 }
             }
             return .copied(count)
         }
-        throw FeedServiceError.owner(code: "memory_retries", message: "memory copy")
+        throw HostedChiefError.owner(code: "memory_retries", message: "memory copy")
     }
 
     /// One line's size in the request body: its JSON string form plus a comma.
@@ -208,7 +214,7 @@ final class HostedChiefCopy {
         var reply: [String: Any]
         do {
             reply = try await begin()
-        } catch let FeedServiceError.owner(code, _) where Self.skipCodes.contains(code) {
+        } catch let HostedChiefError.owner(code, _) where Self.skipCodes.contains(code) {
             // The main conversation has its own messages, or the owner refuses the copy: nothing to resume.
             // Any other error (rate limit, server failure) throws: the next run tries again.
             return .skipped(code)
@@ -221,7 +227,7 @@ final class HostedChiefCopy {
             do {
                 reply = try await op("conversation.import", key: "hosted-chief-import-\(run)-\(last)",
                                      params: ["id": conversation, "after_seq": last, "messages": batch])
-            } catch let FeedServiceError.owner(code, _) {
+            } catch let HostedChiefError.owner(code, _) {
                 if code == "import_out_of_order", starts < 3 {
                     // Another run moved it: read where it stands (the first call replays its last_seq).
                     reply = try await begin()
@@ -231,7 +237,7 @@ final class HostedChiefCopy {
                 }
                 // Only a refusal of the content commits a partial copy; a transient error throws and
                 // the next run resumes from the conversation's last_seq (the first call replays it).
-                guard Self.partialCodes.contains(code) else { throw FeedServiceError.owner(code: code, message: "history import") }
+                guard Self.partialCodes.contains(code) else { throw HostedChiefError.owner(code: code, message: "history import") }
                 return try await commit(last, refused: code)
             }
             let moved = (reply["last_seq"] as? NSNumber)?.uint64Value ?? last + UInt64(batch.count)
@@ -253,7 +259,9 @@ final class HostedChiefCopy {
 
     private func op(_ name: String, key: String, params: [String: Any]) async throws -> [String: Any] {
         let reply = try await ops(["op": name, "origin": "user", "idempotency_key": key, "params": params])
-        return try CloudPairingSource.okValue(reply) as? [String: Any] ?? [:]
+        // The ops envelope: a refusal carries `_tag` and `code`, a success its `value`.
+        if reply["_tag"] != nil, let code = reply["code"] as? String { throw HostedChiefError.owner(code: code, message: reply["message"] as? String ?? code) }
+        return reply["value"] as? [String: Any] ?? [:]
     }
 
     /// Import batches: at most 200 messages and about 700 KB each (the owner allows 500 and 1 MiB).

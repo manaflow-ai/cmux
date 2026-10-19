@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextHostedChief
 import CmuxNextSettings
 import Foundation
 
@@ -28,10 +29,7 @@ enum DebugHomeAPI {
                                 "conversation": result.conversation.map { .string($0.rawValue) } ?? .null])
             case "chief_switch":
                 guard let choice = params["choice"]?.stringValue.flatMap(HomeChiefChoice.init(rawValue:)) else { return failure("choice must be hosted or placed") }
-                return await MainActor.run {
-                    services.home.switchChief(to: choice)
-                    return DebugHome.hosted(services: services)
-                }
+                return await MainActor.run { services.home.hostedChief.pick(choice); return DebugHome.hosted(services.home) }
             case "watch_start":
                 return await MainActor.run { DebugHomeWatch.start(router) }
             case "watch_read":

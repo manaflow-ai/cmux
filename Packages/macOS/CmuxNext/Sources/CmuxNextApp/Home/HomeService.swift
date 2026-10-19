@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import Foundation
 import Observation
 import os
@@ -64,26 +65,13 @@ final class HomeService {
     /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
     /// placed on a paired server), as last read on a connect or sign-in.
     private(set) var cloudChiefs = HomeCloudChiefs()
-    /// The cloud Chief the Chief tab shows (``HomeChiefChoice``, kept on this Mac).
-    var chiefChoice = HomeChiefChoice.load()
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief).
-    var cloudChief: CloudChief? { tabChiefs.shown(choice: chiefChoice) }
+    var cloudChief: CloudChief? { tabChiefs.shown(choice: hostedChief.choice) }
     /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
     /// this Mac's history is still being copied into it (the local Chief stays).
-    var tabChiefs: HomeCloudChiefs { hostedPending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
-    /// This Mac's Chief history is not in the Hosted Chief yet (``HostedChiefLedger``).
-    var hostedPending = false
-    /// The one-time copy of the local Chief into the Hosted Chief (``HostedChiefCopy``),
-    /// for the account `hostedMigrationUser`; `hostedMigrationRun` names the current run.
-    @ObservationIgnored var hostedMigration: Task<Void, Never>?
-    @ObservationIgnored var hostedMigrationUser: String?
-    @ObservationIgnored var hostedMigrationRun: UUID?
-    /// This service runs Cloud Chief brains (nil: not asked yet this launch).
-    @ObservationIgnored var hostedBrains: Bool?
-    /// Shown on the Hosted Chief's conversation while its copy failed or its brain is off.
-    var hostedNotice: String?
-    /// The Hosted Chief's brain is on (nil: not read yet this launch).
-    var hostedBrainOn: Bool?
+    var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
+    /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
+    @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
@@ -132,6 +120,7 @@ final class HomeService {
         // MessagesLab's flight recorder (HomeTunables): DEV on, NIGHTLY opt-in, Release and RC never.
         HomeFlightRecording.install(available: DevTools.isEnabled,
                                     logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
+        wireHostedChief()
     }
 
     /// Observes the Chief owner: each new connection reloads the list and

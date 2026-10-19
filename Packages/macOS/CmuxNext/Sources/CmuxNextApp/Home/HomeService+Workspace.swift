@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import Foundation
 
 /// Home as a workspace (plans/cmux-next/home.md 7): the store owns one home
@@ -97,8 +98,8 @@ extension HomeService {
         guard services.cloud.auth.isSignedIn, case let feed = services.feed else { return HomeCloudChiefs() }
         do {
             // An unknown probe keeps the last read: a Hosted Chief never drops out of the tab on one failed request.
-            guard let brains = await hostedBrainsAvailable() else { return nil }
-            return try await HomeChiefSource.readCloud(call: { path, body in try await feed.call(path, body) }, hostedBrains: brains)
+            guard let brains = await hostedChief.brainsAvailable() else { return nil }
+            return try await HomeCloudChiefs.read(call: { path, body in try await Self.hostedCall(feed, path, body) }, hostedBrains: brains)
         } catch {
             logger.error("cloud chiefs: \(String(describing: error), privacy: .public)")
             return nil
@@ -127,8 +128,8 @@ extension HomeService {
         // Chief has no history to hide (G6, one history).
         if let read = await readCloudChiefs() { setCloudChiefs(read) }
         guard !Task.isCancelled else { return }
-        // The local Chief keeps the tab until its history is in the Hosted Chief (``hostedPending``).
-        startHostedMigration(cloudChiefs.hosted)
+        // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
+        hostedChief.start(cloudChiefs.hosted)
         let cloud = tabChiefs
         let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's
@@ -150,7 +151,7 @@ extension HomeService {
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
         let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
         let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
-        guard let chief = HomeChiefSource.choose(local: localChief, localHasHistory: localHasHistory, cloud: cloud, choice: chiefChoice), HomeDock.classic else { return }
+        guard let chief = cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice), HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
@@ -177,7 +178,7 @@ extension HomeService {
         // The Chief moved to a server: one Chief tab, where the local one was.
         // After closing a dangling tab its pane may be gone: name the workspace.
         let others = [cloudChiefs.hosted?.mainConversation, cloudChiefs.placed?.mainConversation].compactMap { $0 }
-        let move = HomeChiefSource.move(from: [localChief].compactMap { $0 } + others, chief: chief, in: local.store.workspaces)
+        let move = HomeCloudChiefs.move(from: [localChief].compactMap { $0 } + others, chief: chief, in: local.store.workspaces)
         let pane = move.pane ?? (dangling.isEmpty ? workspace.screens.first?.panes.first?.handle : nil)
         guard open || pane != nil || workspace.kind != nil else {
             homeWorkspaceStep = "no chief tab: an empty home on a daemon without Workspace.kind"
@@ -192,7 +193,7 @@ extension HomeService {
         }
         for surface in move.close { try await connection.closeTab(surface) }
         // The other cloud Chief's tab (a switch, or a relaunch put it in the Chief's place) goes.
-        for surface in HomeChiefSource.staleChiefTabs(stale: others, chief: chief, in: local.store.workspaces) {
+        for surface in HomeCloudChiefs.staleChiefTabs(stale: others, chief: chief, in: local.store.workspaces) {
             try await connection.closeTab(surface)
         }
         homeWorkspaceStep = created ? (move.close.isEmpty ? "chief tab requested" : "chief tab moved to its server") : "chief tab present"

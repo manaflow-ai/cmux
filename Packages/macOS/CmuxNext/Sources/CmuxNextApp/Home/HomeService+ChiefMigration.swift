@@ -67,10 +67,9 @@ extension HomeService {
         let isLocalChief = HomeChiefName.select(from: conversations)?.id == id.rawValue
         // The copy notice shows where the user is: on the Hosted Chief, or on the local Chief while it keeps the tab;
         // a brain notice only on the Hosted Chief, the Chief it is about.
-        if let hostedNotice {
+        if let notice = hostedChief.notice {
             let onHosted = cloudChiefs.hosted?.mainConversation == id.rawValue
-            let copyNotice = hostedNotice == HostedChiefLedger.failedNotice
-            if onHosted || (copyNotice && isLocalChief && hostedPending) { return hostedNotice }
+            if onHosted || (hostedChief.isCopyNotice && isLocalChief && hostedChief.pending) { return notice }
         }
         return (isLocalChief ? (HomeBrainHost.agentsDisabledNotice() ?? settleNotice) : nil) ?? migrationNotice
     }

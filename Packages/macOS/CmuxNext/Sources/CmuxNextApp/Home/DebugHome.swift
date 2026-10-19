@@ -71,7 +71,12 @@ enum DebugHome {
         ])
         return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
                         "conversations": .array(conversations), "page": page(services: services), "classic": .bool(home.dock.isClassic),
-                        "dock": dock(services: services), "hosted_chief": hosted(services: services),
+                        "dock": dock(services: services), "hosted_chief": hosted(home),
                         "migration_notice": home.migrationNotice.map { .string($0) } ?? .null])
+    }
+
+    /// `hosted_chief`: the Hosted Chief proof's view (scripts/cmux-next/hosted-chief-proof.py).
+    static func hosted(_ home: HomeService) -> CmuxNextSettings.JSONValue {
+        .init(foundation: home.hostedChief.debugState(cloud: home.cloudChiefs, tab: home.tabChiefs, shown: home.cloudChief?.mainConversation)) ?? .null
     }
 }

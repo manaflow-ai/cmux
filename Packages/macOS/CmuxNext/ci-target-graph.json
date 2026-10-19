@@ -190,6 +190,7 @@
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
+        "CmuxNextHostedChief",
         "CmuxNextIcons",
         "CmuxNextKeepAwake",
         "CmuxNextLayout",
@@ -698,6 +699,16 @@
         "CmuxHomeCore"
       ]
     },
+    "CmuxNextHostedChief": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextHomeEngine"
+      ],
+      "packages": []
+    },
     "CmuxNextIcons": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextIcons",
@@ -836,7 +847,9 @@
         "CmuxNextPalette"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "app/"
+      ]
     },
     "CmuxNextPhoneAccess": {
       "kind": "regular",

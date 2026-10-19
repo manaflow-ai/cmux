@@ -6,6 +6,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import CmuxNextPages
 import CmuxNextWakeups
 
@@ -54,7 +55,8 @@ final class HomeHostView: NSView {
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         sidebar = HomeChiefSidebar(muxHome: control.brainHome, source: control.engineSource())
-        chiefSwitch = HomeChiefSwitch(service: service, conversation: conversation)
+        chiefSwitch = HomeChiefSwitch(conversation: conversation, state: { [weak service] in (service?.tabChiefs ?? HomeCloudChiefs(), service?.cloudChief?.mainConversation) },
+                                      pick: { [weak service] in service?.hostedChief.pick($0) })
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         sidebar.isHidden = true
@@ -256,12 +258,7 @@ final class HomeHostView: NSView {
         message.preferredMaxLayoutWidth = width
         let height = ceil(message.size(forWidth: width).height)
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
-        // Centered under the transcript's header (avatar and name), so it never covers the name in a narrow dock
-        // (this view is not flipped).
-        let size = chiefSwitch.fittingSize
-        let column = transcript.frame
-        chiefSwitch.frame = NSRect(x: max(0, column.midX - size.width / 2), y: column.maxY - transcript.headerHeight - size.height - 6,
-                                   width: size.width, height: size.height)
+        chiefSwitch.place(column: transcript.frame, header: transcript.headerHeight)
     }
 
     /// The header avatar's click: the sidebar slides in from the right
