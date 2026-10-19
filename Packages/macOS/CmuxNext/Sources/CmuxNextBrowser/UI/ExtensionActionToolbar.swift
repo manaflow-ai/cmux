@@ -27,7 +27,7 @@ final class ExtensionActionToolbar {
     private var observation: ObservationLoop?
     private var buttons: [String: ExtensionActionButton] = [:]
     private(set) lazy var puzzle: ChromeIconButton = {
-        let button = ChromeIconButton(icon: .extension, label: Strings.extensions,
+        let button = ChromeIconButton(icon: .browserToolbarExtensions, label: Strings.extensions,
                                       action: #selector(MenuTrampoline.fire), target: trampoline, toolbar: true)
         button.setAccessibilityIdentifier(Identifier.menuButton)
         return button
