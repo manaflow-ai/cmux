@@ -163,6 +163,9 @@ pub struct QueuedStart {
     pub launch: Option<crate::state::QueuedLaunch>,
     /// The engine of now, for a launch that must be rebuilt.
     pub engine: Option<SpawnEngine>,
+    /// Messages the Chief told it while it was queued: they go in after
+    /// its task.
+    pub extra: Option<String>,
 }
 
 /// A queued subagent's launch.
@@ -417,6 +420,7 @@ impl Spawner {
             &prompt_id,
             tx,
         )?;
+        let _ = self.send(Input::SubagentPrompted { id: id.to_owned() });
         self.forward_answer(id, rx);
         self.trace.emit(
             "subagent.start",
@@ -619,7 +623,14 @@ impl Spawner {
             return fail(&e);
         }
         let view = self.chat.render_view().text;
-        match self.start_one(&w.spawn, id, &w.task, &view, w.floor.as_deref(), &w.launch) {
+        let task = match &queued.extra {
+            Some(extra) => format!(
+                "{}\n\nThe Chief sent this while you were queued:\n\n{extra}",
+                w.task
+            ),
+            None => w.task.clone(),
+        };
+        match self.start_one(&w.spawn, id, &task, &view, w.floor.as_deref(), &w.launch) {
             Ok(note) => (self.log)(&format!("subagent {id} started from the queue: {note}")),
             Err(e) => fail(&e),
         }
@@ -932,12 +943,25 @@ impl Orchestrator for Spawner {
     }
 
     fn tell(&self, id: &str, message: &str) -> Result<String, String> {
+        self.tell_keyed(id, message, None)
+    }
+
+    fn tell_keyed(&self, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
         let (reply, answer) = channel();
         self.send(Input::Tell {
             id: id.to_owned(),
             message: message.to_owned(),
+            key: key.map(str::to_owned),
             reply,
         })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::Control { request, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

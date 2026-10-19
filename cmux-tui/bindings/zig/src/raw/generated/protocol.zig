@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb";
+pub const ir_sha256 = "84cd4c3f33af065e3de184ef0e7620f0a5ee2060ef94477fadee1b71ca92da36";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4208,6 +4208,26 @@ pub fn cloudConversationThread(client: anytype, request: CloudConversationThread
             .authority = "local-admin",
             .since = 12,
             .capability = "conversation-thread-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudConversationTypingRequest = struct {
+    conversation: []const u8,
+    on: bool,
+};
+
+pub const CloudConversationTypingResult = JsonValue;
+
+pub fn cloudConversationTyping(client: anytype, request: CloudConversationTypingRequest) !wire.Decoded(CloudConversationTypingResult) {
+    return client.callTyped(
+        CloudConversationTypingResult,
+        .{
+            .name = "cloud-conversation-typing",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-conversation-typing-v1",
         },
         request,
     );
@@ -11143,7 +11163,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 273;
+pub const command_count: usize = 274;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11189,6 +11209,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-conversation-snapshot", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-conversation-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-conversation-thread", .authority = "local-admin", .since = 12, .capability = "conversation-thread-v1", .stream = null },
+    .{ .name = "cloud-conversation-typing", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-typing-v1", .stream = null },
     .{ .name = "cloud-conversation-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-inbox-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-inbox-op", .authority = "local-admin", .since = 12, .capability = "conversation-inbox-state-v1", .stream = null },
