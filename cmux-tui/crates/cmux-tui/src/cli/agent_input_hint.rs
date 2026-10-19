@@ -9,6 +9,7 @@ use serde_json::{Map, Value};
 
 use super::command::{RequestPlan, WireOperation};
 use super::resolve::read;
+use super::wire;
 use super::{GlobalArgs, OutputMode};
 
 type Reader = std::io::BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>;
@@ -19,13 +20,25 @@ const SELECTORS: [&str; 7] =
 /// Longest typed text the hint repeats in its command.
 const MAX_QUOTED_CHARS: usize = 200;
 
-/// The hint for a sent `plan`, or `None` when it typed into no live agent.
-/// Lookup failures give no hint: the input itself already succeeded.
-pub(super) fn after_input(
+/// [`wire::print_result`] for a request's result, then the hint on stderr
+/// when the request typed into a live agent.
+pub(super) fn print_result(
     global: &GlobalArgs,
     plan: &RequestPlan,
     reader: &mut Reader,
-) -> Option<String> {
+    result: Value,
+) -> i32 {
+    let hint = after_input(global, plan, reader);
+    let code = wire::print_result(global, plan, result);
+    if let Some(hint) = hint {
+        eprintln!("cmux: {hint}");
+    }
+    code
+}
+
+/// The hint for a sent `plan`, or `None` when it typed into no live agent.
+/// Lookup failures give no hint: the input itself already succeeded.
+fn after_input(global: &GlobalArgs, plan: &RequestPlan, reader: &mut Reader) -> Option<String> {
     if global.output == OutputMode::Quiet
         || !matches!(
             plan.operation,

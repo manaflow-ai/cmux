@@ -482,13 +482,7 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    // Typed into a live agent: point at `cmux agent message`.
-                    let hint = super::agent_input_hint::after_input(global, plan, reader);
-                    let code = print_result(global, plan, result);
-                    if let Some(hint) = hint {
-                        eprintln!("cmux: {hint}");
-                    }
-                    return code;
+                    return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     eprintln!("protocol error: stream response did not confirm the requested ID");
