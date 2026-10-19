@@ -273,6 +273,30 @@ mod tests {
     }
 
     #[test]
+    fn a_url_counts_only_when_its_call_completes() {
+        let mut calls = std::collections::HashMap::new();
+        let start = json!({"toolCallId": "t1", "kind": "execute", "rawInput": {"command": "gh pr create --fill"}});
+        let printed = json!({"toolCallId": "t1", "status": "in_progress",
+            "rawOutput": {"stdout": "https://github.com/o/r/pull/5\n"}});
+        assert_eq!(track(&mut calls, &start), None);
+        // gh's "already exists: URL" streamed before the call fails records nothing.
+        assert_eq!(track(&mut calls, &printed), None);
+        assert_eq!(track(&mut calls, &json!({"toolCallId": "t1", "status": "failed"})), None);
+        assert!(calls.is_empty());
+        // The URL printed earlier counts once the call completes, though the last update has no output.
+        assert_eq!(track(&mut calls, &start), None);
+        assert_eq!(track(&mut calls, &printed), None);
+        assert_eq!(
+            track(&mut calls, &json!({"toolCallId": "t1", "status": "completed"})).as_deref(),
+            Some("https://github.com/o/r/pull/5")
+        );
+        assert!(calls.is_empty());
+        // Another call's updates are not a gh pr create.
+        assert_eq!(track(&mut calls, &json!({"toolCallId": "t2", "status": "completed",
+            "rawOutput": {"stdout": "https://github.com/o/r/pull/6\n"}})), None);
+    }
+
+    #[test]
     fn printed_url_is_the_last_line_that_is_only_a_pull_url() {
         let out =
             "Creating pull request for b into main in o/r\n\nhttps://github.com/o/r/pull/12\n";
