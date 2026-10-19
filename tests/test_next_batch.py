@@ -682,6 +682,21 @@ class BaseReds(unittest.TestCase):
         # Job-level names stay for gh-merge-green's lanes.
         self.assertEqual(controller.failed_jobs(1), ["cmux-next swift test"])
 
+    def test_a_job_with_nothing_to_compare_is_never_excused_by_its_steps(self):
+        """A timeout or a crash leaves only the failed step; the base failing that step for another reason excuses nothing."""
+        controller = self.controller()
+        steps = [{"name": "Run tests", "conclusion": "failure"}]
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess(
+            [], 0, "2026-10-19T03:02:59.1Z \u2718 Test alpha() recorded an issue at A.swift:1:2: x\n", "")
+        base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z still running\n", "")
+        self.assertEqual(set(controller.failed_jobs(2, detail=True)) - base, {"cmux-next swift test"})
+        crash = "2026-10-19T03:02:59.1Z error: Exited with unexpected signal code 5\n".replace("Exited", "exited")
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crash, "")
+        self.assertIn("cmux-next swift test: crash signal 5", set(controller.failed_jobs(3, detail=True)) - base)
+
     def test_a_probe_stopped_before_its_run_is_found_cancels_it(self):
         controller = self.controller()
         controller.push = lambda sha, ref: None
