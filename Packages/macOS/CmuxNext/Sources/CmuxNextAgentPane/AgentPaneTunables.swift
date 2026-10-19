@@ -150,6 +150,13 @@ public nonisolated struct AgentPaneTunables {
         }
     }
 
+    /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
+    /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
+    public static let sessionStatus = Tunable<Bool>.toggle(
+        "agent.sessionStatus", PageTunables.section, "In-session status (plan card, recap card)",
+        help: "Agent chats show the live plan card and the recap card.",
+        default: false, code: "AgentPaneTunables.sessionStatus")
+
     /// Side sessions: the composer's `/btw <question>` opens a read-only side session about the chat
     /// beside it.
     /// Off by default; the page reads it from the header state (``AgentPaneHeaderState/sideSessions``).
@@ -201,6 +208,14 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.debug.turnActionsPlacement", PageTunables.section, "Turn footer actions",
         help: "Place the answer footer's copy, retry and fork actions on the left or right.",
         default: .right, code: "AgentPaneTunables.turnActionsPlacement")
+
+    /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
+    /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open
+    /// menu. It rides the `composer` page event (`plainFooter`, composerSettings.ts); no cmux.json key.
+    public static let composerPlainFooter = Tunable<Bool>.toggle(
+        "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
+        help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
+        default: true, code: "AgentPaneTunables.composerPlainFooter")
 
     /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
@@ -283,5 +298,5 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
+    public static var all: [TunableDescriptor] { [chatWidth.descriptor, codexToolRuns.descriptor, composerPlainFooter.descriptor, foldLongThoughts.descriptor, liveThoughtViewport.descriptor, pageHost.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sessionStatus.descriptor, sidebarPreviewVariant.descriptor, sideSessions.descriptor, suggestedTasks.descriptor, newTabWidgets.descriptor, terminalButtonAdds.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor] }
 }

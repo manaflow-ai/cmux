@@ -12,6 +12,13 @@ export const MAX_ZOOM = 4;
 export const PICTURE_SIDE = 512;
 /** The largest still the page reads; it is drawn down before it is sent. */
 export const STILL_MAX_BYTES = 20 * 1024 * 1024;
+/** The most pixels a still may have: a small file can still decode to gigabytes. */
+export const STILL_MAX_PIXELS = 50_000_000;
+
+/** Whether a picture of `size` may be shown or drawn at all. */
+export function withinPixels(size: { width: number; height: number }): boolean {
+  return size.width > 0 && size.height > 0 && size.width * size.height <= STILL_MAX_PIXELS;
+}
 
 const clamp = (value: number, low: number, high: number) =>
   Math.min(Math.max(Number.isFinite(value) ? value : 0, low), high);
@@ -42,13 +49,14 @@ export function dragCrop(
 }
 
 export type PreparedPicture = { mediaType: string; data: string };
-export type PictureRefusal = { error: "type" | "size" | "tooBig" | "unreadable" };
-/** Draws the square `rect` of `file` at `side` px and returns it encoded (the browser's canvas;
- * tests pass their own). */
+export type PictureRefusal = { error: "type" | "size" | "tooBig" | "pixels" | "unreadable" };
+/** Draws the square `rect` of a `size` picture `file` at `side` px and returns it encoded (the
+ * browser's canvas; tests pass their own). */
 export type PictureRenderer = (
   file: Blob,
   rect: { x: number; y: number; side: number },
   side: number,
+  size: { width: number; height: number },
 ) => Promise<PreparedPicture | null>;
 
 /** The picture the daemon takes for `file` placed by `crop`, or why not. */
@@ -64,19 +72,32 @@ export async function preparePicture(
     return { mediaType: file.type, data: base64(new Uint8Array(await file.arrayBuffer())) };
   }
   if (file.size > STILL_MAX_BYTES) return { error: "tooBig" };
+  if (!withinPixels(size)) return { error: "pixels" };
   const rect = cropSquare(size.width, size.height, crop);
-  const drawn = await render(file, rect, Math.min(PICTURE_SIDE, Math.round(rect.side)));
+  const drawn = await render(file, rect, Math.min(PICTURE_SIDE, Math.round(rect.side)), size);
   return drawn ?? { error: "unreadable" };
 }
 
-/** The canvas renderer: PNG, or JPEG when a busy photo's PNG would pass 1 MB. */
-async function renderSquare(file: Blob, rect: { x: number; y: number; side: number }, side: number) {
-  const bitmap = await createImageBitmap(file).catch(() => null);
+/** The canvas renderer: decoded already scaled down to what the square needs, then PNG, or JPEG
+ * when a busy photo's PNG would pass 1 MB. */
+async function renderSquare(
+  file: Blob,
+  rect: { x: number; y: number; side: number },
+  side: number,
+  size: { width: number; height: number },
+) {
+  const scale = Math.min(1, side / rect.side);
+  const bitmap = await createImageBitmap(file, {
+    resizeWidth: Math.max(1, Math.round(size.width * scale)),
+    resizeHeight: Math.max(1, Math.round(size.height * scale)),
+    resizeQuality: "high",
+  }).catch(() => null);
   if (!bitmap) return null;
   const canvas = document.createElement("canvas");
   canvas.width = side;
   canvas.height = side;
-  canvas.getContext("2d")?.drawImage(bitmap, rect.x, rect.y, rect.side, rect.side, 0, 0, side, side);
+  const [x, y, s] = [rect.x * scale, rect.y * scale, rect.side * scale];
+  canvas.getContext("2d")?.drawImage(bitmap, x, y, s, s, 0, 0, side, side);
   bitmap.close();
   for (const [type, quality] of [
     ["image/png", undefined],

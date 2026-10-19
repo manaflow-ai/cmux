@@ -5,9 +5,11 @@ import Foundation
 
 /// RECOVERABLE-BY-DEFAULT for workspace groups: Ungroup and Delete Group keep
 /// every workspace and remember what the group was (name, color, collapse,
-/// members, place). A person's gesture gets an undo toast in its window;
-/// Undo and Cmd-Z (TOAST-UNDO-KEY) form the group again. Automation (CLI,
-/// agents) gets no toast. The daemon records the delete in closed history,
+/// members, place). A person's Delete Group gets an undo toast in its
+/// window; Undo and Cmd-Z (TOAST-UNDO-KEY) form the group again. A person's
+/// Ungroup is only an undo step (Edit > Undo, Cmd-Z): it changes placement,
+/// it deletes nothing, so it shows no toast (Lawrence 2026-10-18). Automation
+/// (CLI, agents) gets neither. The daemon records the delete in closed history,
 /// so Reopen Closed and History restore the group also after a restart; the
 /// toast's Undo reopens that record (same group id) when the daemon serves
 /// it, else forms the group again from the client's capture.
@@ -15,8 +17,10 @@ import Foundation
 enum WorkspaceGroupUndo {
     static let toastID = "workspace-group-removed"
 
-    /// Removes the targeted group, keeps its workspaces, offers the undo.
-    static func remove(_ invocation: ActionInvocation, _ context: AppActionContext, message: (String) -> String) throws {
+    /// Removes the targeted group, keeps its workspaces, offers the undo:
+    /// a toast when `toast`, else a step on the window's undo stack only.
+    static func remove(_ invocation: ActionInvocation, _ context: AppActionContext, message: (String) -> String,
+                       toast: Bool = true) throws {
         let group = try context.group(invocation)
         let sidebar = try context.sidebar()
         let id = CmuxNextSidebar.GroupID(group.id.rawValue)
@@ -24,15 +28,20 @@ enum WorkspaceGroupUndo {
         sidebar.handle(.ungroup(id))
         guard invocation.origin == .user, let restore, let window = context.activeWindow?.window else { return }
         let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: toastID, message: message(name), action: .undo()), in: window)
         let services = context.services, groupID = group.id.rawValue
-        handle.onAction = { [weak sidebar] in
+        let undo: @MainActor () -> Void = { [weak sidebar] in
             if let entry = DaemonClosedHistory.groupEntry(groupID, in: services) {
                 DaemonClosedHistory.reopen(entry, services: services)
             } else {
                 sidebar?.handle(restore.intent(newID: .make()))
             }
         }
+        guard toast else {
+            ToastUndoStep.attach(title: message(name), filling: nil, undoManager: window.undoManager, handle: nil, undo)
+            return
+        }
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: toastID, message: message(name), action: .undo()), in: window)
+        handle.onAction = undo
     }
 
     /// The title History gives a deleted group's closed-history item.

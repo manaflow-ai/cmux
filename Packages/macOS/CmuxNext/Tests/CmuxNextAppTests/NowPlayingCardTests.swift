@@ -9,11 +9,11 @@ import Foundation
 import Observation
 import Testing
 
-/// The sidebar's Now Playing card (cx-ouoxo, behind `labs.previewFeatures`), driven by a fake Now
+/// The sidebar's Now Playing card (cx-ouoxo, behind `sidebar.nowPlaying.enabled`), driven by a fake Now
 /// Playing source through the same feed and intent route the app uses: it shows what plays with its
 /// artwork and controls, its controls and scrubber reach the source, a seek the source ignores does
 /// not freeze the scrubber, a tab's artwork that failed to load comes in later, it draws in the
-/// terminal theme, nothing on it moves under Reduce Motion, and it is there only while the preview is on.
+/// terminal theme, nothing on it moves under Reduce Motion, and it is there only while Now Playing is on.
 @MainActor @Suite(.serialized) struct NowPlayingCardTests {
     @Observable final class FakeSource: NowPlayingSource {
         var nowPlaying: SidebarNowPlaying?
@@ -66,11 +66,11 @@ import Testing
         }
     }
 
-    func make(previewOn: Bool = true, scope: ThemeScope? = nil, playing: Bool = true) async -> Harness {
+    func make(enabled: Bool = true, scope: ThemeScope? = nil, playing: Bool = true) async -> Harness {
         _ = NSApplication.shared
         let source = FakeSource()
         source.nowPlaying = Self.track(playing: playing)
-        let flag = Flag(previewOn)
+        let flag = Flag(enabled)
         let model = SidebarModel()
         model.onIntent = { [source] intent in source.handle(intent) }
         let sidebar = SidebarView(model: model, design: DesignSettings())
@@ -84,7 +84,7 @@ import Testing
         window.orderFrontRegardless()
         let feed = model.followNowPlaying(source, enabled: { flag.on })
         let harness = Harness(source: source, flag: flag, model: model, sidebar: sidebar, window: window, feed: feed)
-        await harness.cardShows(previewOn)
+        await harness.cardShows(enabled)
         return harness
     }
 
@@ -225,6 +225,7 @@ import Testing
             return views(card).compactMap(\.layer).flatMap(animated)
         }
         card.scrubber.reduceMotionOverride = true
+        card.levels.reduceMotionOverride = true
         card.configure(Self.track())
         card.isHidden = false
         card.layoutSubtreeIfNeeded()
@@ -237,21 +238,21 @@ import Testing
         #expect(spoken.contains("1:00") && spoken.hasSuffix("8:00"), "VoiceOver hears \(spoken)")
     }
 
-    @Test func theCardIsThereOnlyWhileThePreviewIsOn() async throws {
-        let h = await make(previewOn: false)
+    @Test func theCardIsThereOnlyWhileNowPlayingIsOn() async throws {
+        let h = await make(enabled: false)
         defer { h.close() }
         // Long enough for the feed's first pass (the same feed shows the card within milliseconds when on).
         try await Task.sleep(for: .milliseconds(300))
         h.sidebar.layoutSubtreeIfNeeded()
-        #expect(h.model.nowPlaying == nil, "the feed passed the track on with labs.previewFeatures off")
-        #expect(h.card.isHidden || h.card.frame.isEmpty, "the card shows with labs.previewFeatures off")
-        #expect(CmuxConfigSnapshot.previewFeaturesDefault == false, "the preview is on by default")
+        #expect(h.model.nowPlaying == nil, "the feed passed the track on with Now Playing off")
+        #expect(h.card.isHidden || h.card.frame.isEmpty, "the card shows with Now Playing off")
+        #expect(NowPlayingSettings.enabledDefault, "Now Playing is hidden by default")
         h.flag.on = true
         await h.cardShows()
-        #expect(!h.card.isHidden && !h.card.frame.isEmpty, "turning the preview on shows no card")
+        #expect(!h.card.isHidden && !h.card.frame.isEmpty, "turning Now Playing on shows no card")
         h.flag.on = false
         await h.cardShows(false)
-        #expect(h.card.isHidden || h.card.frame.isEmpty, "turning the preview off leaves the card")
+        #expect(h.card.isHidden || h.card.frame.isEmpty, "turning Now Playing off leaves the card")
         h.flag.on = true
         await h.cardShows()
         h.source.nowPlaying = nil

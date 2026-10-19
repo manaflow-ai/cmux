@@ -13,10 +13,29 @@ const TRANSPORT_TEXT: Record<string, StringKey> = {
   "transport.full_access_off": "transport.fullAccessOff",
 };
 
+// acpmux's own refusals (`data.reason`, which direct.ts copies to `error.reason`) that read the
+// same as the pane host's: start_mode.rs refuses full access with `full_access_off`.
+const DAEMON_REASON_CODE: Record<string, string> = {
+  full_access_off: "transport.full_access_off",
+};
+
+function refusalCode(error: unknown): unknown {
+  if (typeof error !== "object" || error === null) return undefined;
+  const { code, reason } = error as { code?: unknown; reason?: unknown };
+  if (typeof code === "string" && code.startsWith("transport.")) return code;
+  return (typeof reason === "string" ? DAEMON_REASON_CODE[reason] : undefined) ?? code;
+}
+
+/// Whether the pane's host or acpmux refused the request with a reason the user should see.
+export function isHostRefusal(error: unknown): boolean {
+  const code = refusalCode(error);
+  return typeof code === "string" && code.startsWith("transport.");
+}
+
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the
 /// generic refusal, never the host's English message), else the error's message.
 export function errorMessage(error: unknown): string {
-  const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+  const code = refusalCode(error);
   const key =
     typeof code === "string"
       ? (TRANSPORT_TEXT[code] ?? (code.startsWith("transport.") ? "transport.refused" : undefined))

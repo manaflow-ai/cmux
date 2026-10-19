@@ -8,6 +8,7 @@ mod adoption;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
+mod exit_reason;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 mod bookmarks;
@@ -83,8 +84,10 @@ mod questions;
 mod remote_floor;
 mod remote_sandbox;
 mod start_gate;
+pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
+mod transcript;
 mod transfer;
 mod transfer_guard;
 mod transfer_in;
@@ -314,6 +317,8 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
+    /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
+    pub(super) subsessions: subsessions::Index,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -378,6 +383,7 @@ impl Hub {
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             offers: Default::default(),
+            subsessions: Default::default(),
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
@@ -502,6 +508,16 @@ impl Hub {
                 meta.event_count += extra.len() as u64;
                 meta.last_seq = last.seq;
             }
+            // Every child's short name stays taken (`subsessions.rs`).
+            if let Some(link) = &meta.subsession {
+                self.subsessions.note_name(&link.started_by, &link.short_name);
+            }
+            // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
+            if let Some(link) =
+                meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
+            {
+                self.subsessions.set_open(&link.started_by, &meta.id, true);
+            }
             let session = self.make_session(meta);
             sessions.insert(session.id.clone(), session);
         }
@@ -581,14 +597,20 @@ impl Hub {
         if let Some(s) = sessions.get(key) {
             return Ok(s.clone());
         }
+        // Names are read under each session's meta lock, never cloned: a
+        // clone of every meta took ~45 ms with 2,500 sessions, on each Stop
+        // (`acpmux session cancel NAME`) and every other call by name.
+        let named = |s: &Session, pick: &dyn Fn(&str) -> bool| {
+            pick(&s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).name)
+        };
         let mut by_name: Vec<_> =
-            sessions.values().filter(|s| s.meta().name == key).cloned().collect();
+            sessions.values().filter(|s| named(s, &|n| n == key)).cloned().collect();
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
         let by_prefix: Vec<_> = sessions
             .values()
-            .filter(|s| s.id.starts_with(key) || s.meta().name.starts_with(key))
+            .filter(|s| s.id.starts_with(key) || named(s, &|n| n.starts_with(key)))
             .cloned()
             .collect();
         match by_prefix.len() {
@@ -870,14 +892,27 @@ impl Hub {
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
-        let changed = {
+        let (was, link) = {
             let mut m = session.meta.lock().unwrap();
-            let changed = m.status != status;
+            let was = m.status;
             m.status = status;
             m.updated_at = now_ms();
-            changed
+            // The parent's slot follows the status under the same lock, so
+            // concurrent status writes and the index never disagree (the
+            // index is a leaf lock, `subsessions.rs`).
+            if let Some(link) = &m.subsession {
+                self.subsessions.set_open(
+                    &link.started_by,
+                    &session.id,
+                    status != SessionStatus::Closed,
+                );
+            }
+            (was, m.subsession.clone())
         };
-        if changed {
+        if was != status {
+            if let Some(link) = &link {
+                self.subsession_status(&session.id, link, was, status);
+            }
             session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);

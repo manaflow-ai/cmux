@@ -78,7 +78,8 @@ impl Hub {
 /// session's title, else its latest prompt. The lane's error, step and title
 /// are masked (`secret_scan`), so a view that reads only the lane never shows
 /// a pasted secret. The summary's other fields (`turn.prompt`, `lastPrompt`,
-/// `lastMessage`, `preview`, `title`) still carry the raw text.
+/// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
+/// way to a peer daemon (`server/peer_text.rs`).
 ///
 /// `{state, since, error, step, title}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
@@ -107,7 +108,7 @@ pub fn lane(summary: &Value) -> Value {
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
-    let error = error.as_str().map_or(Value::Null, |e| Value::String(crate::secret_scan::mask(e)));
+    let error = error.as_str().map_or(Value::Null, |e| Value::String(masked_error(e)));
     json!({"state": state, "since": since, "error": error, "step": lane_step(summary), "title": lane_title(summary)})
 }
 
@@ -155,6 +156,22 @@ fn masked_line(text: &str) -> String {
     super::session::short_text(&crate::secret_scan::mask(&head), LANE_STEP_CHARS)
 }
 
+/// A turn's error masked, lines kept. An error can be a whole pasted log, so
+/// only its head is scanned, and it is cut well inside that head after
+/// masking, so a secret that straddles the cut is still masked whole.
+fn masked_error(text: &str) -> String {
+    if text.chars().nth(LANE_ERROR_CHARS).is_none() {
+        return crate::secret_scan::mask(text);
+    }
+    let head: String = text.chars().take(LANE_SCAN_CHARS).collect();
+    let mut error: String =
+        crate::secret_scan::mask(&head).chars().take(LANE_ERROR_CHARS).collect();
+    error.push('…');
+    error
+}
+
+/// How long a lane's error may be.
+const LANE_ERROR_CHARS: usize = 3072;
 /// How long a lane's step may be; the row clips it to its width anyway.
 const LANE_STEP_CHARS: usize = 240;
 /// How much of a step or title is scanned: far past the cut, so a secret
@@ -224,12 +241,19 @@ impl Hub {
     /// A child lists under it, never on its own in a chat list. Kept only while that session is
     /// here, listed (not archived) and not a child itself: one level, so a loop of tags or a
     /// parent nobody sees never hides a chat.
+    /// A sub-session (`subsessions.rs`) names its parent the same way, by its proven link.
     pub fn spawned_by(&self, m: &SessionMeta) -> Option<String> {
-        let parent = live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned();
+        let parent = match &m.subsession {
+            Some(link) => link.started_by.clone(),
+            None => live_tags(m).get(SPAWNED_BY_TAG)?.as_str()?.to_owned(),
+        };
         let session =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
-        let tags = live_tags(&session.meta());
-        let listed = tags.get(SPAWNED_BY_TAG).is_none() && tags.get("archived").is_none();
+        let pm = session.meta();
+        let tags = live_tags(&pm);
+        let listed = tags.get(SPAWNED_BY_TAG).is_none()
+            && pm.subsession.is_none()
+            && tags.get("archived").is_none();
         (parent != m.id && listed).then_some(parent)
     }
 
@@ -254,6 +278,10 @@ impl Hub {
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
             spawned_by: self.spawned_by(&m),
+            started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
+            short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
+            depth: m.subsession.as_ref().map_or(0, |l| l.depth),
+            children: self.subsessions.open_count(&m.id),
             title: m.title.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
@@ -349,6 +377,8 @@ impl Hub {
         v["gitHead"] = json!(m.git_head);
         // What the session's turns cost together (`turn_usage.rs`).
         v["totals"] = json!(m.totals);
+        // The sub-session limits in force and where each comes from (`subsessions.rs`).
+        v["subsessionLimits"] = self.subsession_limits_value(&m);
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());

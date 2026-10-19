@@ -474,6 +474,11 @@
 .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):active {
   background: var(--acpmux-row-press);
 }
+/* Opening a picker moves focus into its popup before the browser paints the held frame, which
+   clears :active. Keep that first frame at the same tone as the open chip (popoverTrigger.ts). */
+.acpmux-composer-bar .acpmux-picker-button[data-press-active] {
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
+}
 .acpmux-composer-bar
   :is(.acpmux-model, .acpmux-effort, .acpmux-access)
   .acpmux-picker-button:focus-visible {
@@ -485,7 +490,7 @@
 }
 /* A pill pressed or open stays on that hover step with no edge: a click never flashes a brighter
    press tone or a ring (Leo 2026-10-18). */
-.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"]) {
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"], [data-press-active]) {
   background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
   box-shadow: none;
 }
@@ -528,6 +533,49 @@
 .acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
 .acpmux-composer-bar .acpmux-access .acpmux-picker-button {
   font-size: var(--text-control);
+}
+/* The plain footer (Debug Settings > Pages > "Agent composer: plain footer", composerSettings.ts
+   plainFooter): Claude Code desktop's footer, text at rest. The default model, effort and mode
+   pills draw a resting fill (styles.css --acpmux-pill-fill); the plain look drops it, so a chip
+   draws no fill or ring until it is hovered, keyboard-focused, pressed or open. The model's name
+   (any form of it) is muted like effort and the mode, the model's brand mark and the mode's lock
+   are hidden (chevrons stay), and Plan when on is accent text only. Hover, keyboard focus and an
+   open menu draw the row's wash. Once the row's fit steps (composerRowFit.ts: the composer's
+   container queries, or data-fit-model / data-fit-access when a label is too long for its step)
+   take the model's name or the mode's label away, its mark or lock shows again, so neither chip
+   is ever a bare chevron. The widths are COMPOSER_FIT_STEPS modelMark (370) and
+   accessLabelHidden (420). test/composer-footer-plain.test.ts measures it. */
+.acpmux-composer-bar[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
+@container composer (width > 370px) {
+  .acpmux-composer-bar[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
+    display: none;
+  }
+}
+@container composer (width > 420px) {
+  .acpmux-composer-bar[data-footer-look="plain"]:not([data-fit-access="icon"]) .acpmux-access-trigger > .acpmux-icon:first-child {
+    display: none;
+  }
+}
+.acpmux-composer-bar[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
+.acpmux-composer-bar[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
+  background: var(--acpmux-row-hover);
+}
+.acpmux-composer-bar[data-footer-look="plain"]
+  :is(.acpmux-model, .acpmux-effort, .acpmux-access)
+  .acpmux-picker-button:not(:hover, :focus-visible, :active, [aria-expanded="true"], [data-press-active]) {
+  background: none;
+  box-shadow: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-composer-bar[data-footer-look="plain"]
+    :is(.acpmux-model, .acpmux-effort, .acpmux-access)
+    .acpmux-picker-button:hover:not(:active, [aria-expanded="true"], [data-press-active]) {
+    background: var(--acpmux-row-hover);
+  }
+}
+.acpmux-composer-bar[data-footer-look="plain"] .acpmux-plan[aria-pressed="true"]:not(:hover, :focus-visible, :active) {
+  background: none;
+  box-shadow: none;
 }
 .acpmux-composer-bar .acpmux-effort,
 .acpmux-composer-bar .acpmux-access {
@@ -726,8 +774,8 @@
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
-  background: var(--agent-accent, var(--agent-text));
-  color: var(--agent-on-accent, var(--acpmux-base));
+  background: var(--acpmux-send-fill);
+  color: var(--acpmux-send-ink);
 }
 /* Send and Stop are the bar's 28 px. Stop is a solid disc in the text color with a square in the
    base color, the theme inverted, so a running turn reads as live and never as an empty draft's

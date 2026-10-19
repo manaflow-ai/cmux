@@ -658,6 +658,7 @@ impl ClientRegistry {
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
                     || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
+                    || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY

@@ -63,6 +63,9 @@ public struct ControlTabInfo: Sendable, Hashable {
     public var browserProfileID: String?
     /// An agent chat tab's acpmux session (`agent-session-tabs-v1`); nil for other tabs.
     public var agentSessionID: String?
+    /// The agent's own session id in a terminal tab (Claude Code's or Codex's
+    /// session UUID, from its hooks), when known.
+    public var agentHarnessSessionID: String?
     /// A page tab's internal page (`app-store`, `settings`): a store page
     /// tab (`page-tabs-v1`) the daemon lists as a conversation. `snapshot.get`
     /// reports its kind as `page`. Nil for other tabs.

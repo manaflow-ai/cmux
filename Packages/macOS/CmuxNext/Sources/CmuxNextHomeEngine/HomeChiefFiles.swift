@@ -83,8 +83,9 @@ public nonisolated struct HomeChiefFiles: Sendable {
     static let pictureExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "gif", "webp"]
     /// What Choose Picture… offers.
     static let pictureTypes: [UTType] = [.png, .jpeg, .heic, .gif, .webP]
-    /// The largest GIF kept as it is (a still is drawn down instead).
-    static let maximumGIFBytes = 5 * 1024 * 1024
+    /// The largest GIF kept as it is (a still is drawn down instead): the daemon's own picture cap,
+    /// which the Chief sheet keeps too.
+    static let maximumGIFBytes = 1024 * 1024
     /// The pictures this writes beside profile.json; choosing another replaces them.
     static let pictureFiles = ["avatar.png", "avatar.gif"]
 

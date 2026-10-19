@@ -135,7 +135,7 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
-    /// cmux: a click on a Chief subagent's link in agent text (`URL.isChiefSubagentLink`); the host
+    /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
@@ -178,6 +178,34 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
+
+    /// Whether focusing this view should move the keyboard from `responder`
+    /// to ``primaryInput``.
+    ///
+    /// False only while the keyboard is on a text view or text field (the
+    /// field itself, the thread header's field, a find field) or on the
+    /// transcript while the person makes or holds a text selection there.
+    /// - Parameter responder: The window's first responder now.
+    /// - Returns: True when the host should make ``primaryInput`` first responder.
+    public func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        controller.composeShouldTakeKeyboard(from: responder)
+    }
+
+    /// Whether ``pasteIntoPrimaryInput(_:)`` has something to paste: text, or
+    /// files and pictures Home's attachment intake takes.
+    public var canPasteIntoPrimaryInput: Bool { controller.canPasteIntoCompose() }
+
+    /// Cmd+V from a part of Home that is not a text field: the message box
+    /// takes the keyboard, then the paste (text, files and pictures, as a
+    /// paste in the box or a drop does).
+    /// - Parameter sender: The paste's sender, passed to the box's `paste(_:)`.
+    public func pasteIntoPrimaryInput(_ sender: Any?) { controller.pasteIntoCompose(sender) }
+
+    /// After a drop on Home or the file picker: the message box takes the
+    /// keyboard with the caret at the end of the draft, and its window
+    /// becomes key, so the person can type at once. Call it only for an
+    /// entry point aimed at Home (never for automation).
+    public func focusPrimaryInputForTyping() { controller.focusComposeForTyping() }
 
     /// Puts text in the field (first-run suggestions).
     public func setDraft(_ text: String) {

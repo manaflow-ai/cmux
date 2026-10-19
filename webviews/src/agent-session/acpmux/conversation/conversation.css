@@ -762,6 +762,12 @@ pre.cv-math-source {
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
 }
+/* The spacer is the scroller's extent, which a followed view's offset is set against in the same
+   frame: under Reduce Motion's 0.01ms transitions (shared/desktop.css) it kept its old height for
+   that frame, and the offset clamped short of the end and stayed there. */
+.acpmux-spacer {
+  transition: none;
+}
 .acpmux-row {
   left: var(--cv-inset);
   right: var(--cv-inset);
@@ -1014,6 +1020,35 @@ pre.cv-math-source {
 .cv-worked__chevron {
   margin-top: 3px;
   margin-left: 2px;
+}
+/* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
+   to one line and give way at the line's end, never wrapping it to a second. */
+.cv-worked__count {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+  margin-left: 2px;
+  white-space: nowrap;
+}
+.cv-worked__open {
+  all: unset;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: pointer;
+}
+.cv-worked__open:hover {
+  text-decoration: underline;
+}
+.cv-worked__open:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+}
+.cv-worked__label {
+  flex: none;
 }
 /* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
 @keyframes cv-thinking-sweep {
@@ -1946,6 +1981,10 @@ pre.cv-math-source {
   height: 180px;
   background: var(--agent-page-bg);
 }
+/* A gallery stage's placeholder takes its live frame's height (previewUrl.ts GALLERY_FRAME_HEIGHT). */
+.acpmux-turn-preview-unloaded--live {
+  height: 360px;
+}
 .acpmux-turn-preview-load {
   height: 28px;
   padding: 0 10px;
@@ -2291,8 +2330,9 @@ pre.cv-math-source {
   }
 }
 /* Static status indicators (cx-sya4n): the dots hold still. Reduce Motion gets the same static
-   dots, swapped in without the morph, since both rules above sit under no-preference. */
-:root[data-status-indicators="static"] .acpmux-jump-latest__dots i {
+   dots, swapped in without the morph, since both rules above sit under no-preference. The selector
+   repeats the loop's [data-shown][data-working] so it outranks it. */
+:root[data-status-indicators="static"] .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
   animation: none;
 }
 @keyframes acpmux-jump-latest-dot {
@@ -2428,6 +2468,11 @@ pre.cv-math-source {
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
+  color: var(--agent-danger);
+}
+
+/* ---------- A compaction (CompactionNote.tsx) ---------- */
+.cv-compaction[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
 }
 

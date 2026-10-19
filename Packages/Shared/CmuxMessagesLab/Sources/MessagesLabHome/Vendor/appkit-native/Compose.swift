@@ -11,6 +11,13 @@ final class FieldTextView: NSTextView {
     /// cmux: the host's attachment intake reads the pasteboard first
     /// (files and pictures, Home's type rule); true when it took the paste.
     var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// cmux: whether the host's intake would take the pasteboard (types only).
+    /// A plain-text NSTextView enables Paste only for text types, so a
+    /// picture alone (a copied screenshot) left Cmd+V disabled.
+    var acceptsPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// cmux: a drop on the field that the host's intake takes (the paste's
+    /// type rule). A plain-text NSTextView would type a dropped file's path.
+    var onDropPasteboard: (NSPasteboard) -> Bool = { _ in false }
     /// Marked (IME) text changed. UITextView reports marked text through
     /// `textViewDidChange`, so the draft (and the field height) follows the
     /// composition; NSTextView does not post a text change for it.
@@ -236,6 +243,7 @@ final class FieldTextView: NSTextView {
         if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
     }
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(paste(_:)), acceptsPastePasteboard(pasteboard) { return true }  // cmux
         if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
             (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
             return true
@@ -432,6 +440,23 @@ final class FieldTextView: NSTextView {
         if onPastePasteboard(pb) { return }  // cmux
         if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
         super.paste(sender)
+    }
+
+    // cmux: files and pictures dropped on the field go to the host's intake
+    // (Home's type rule, as paste); text drags keep NSTextView's own handling.
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingEntered(sender)
+    }
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingUpdated(sender)
+    }
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        acceptsPastePasteboard(sender.draggingPasteboard) || super.prepareForDragOperation(sender)
+    }
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let pb = sender.draggingPasteboard
+        if acceptsPastePasteboard(pb) { return onDropPasteboard(pb) }
+        return super.performDragOperation(sender)
     }
 }
 
