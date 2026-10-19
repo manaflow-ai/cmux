@@ -78,18 +78,21 @@ pub trait ControlPlane {
 
     fn session(&mut self) -> Result<SessionStatus, RelayError>;
 
-    /// Real host transports refresh this before every operation and replay. Standalone fakes
-    /// without account state need a session only when their caller supplies a scope.
-    fn request_scope(&mut self, scoped: bool) -> Result<Option<String>, RelayError> {
-        if !scoped {
-            return Ok(None);
-        }
+    /// Every transport refreshes session authority before any operation or replay.
+    /// Older transports without a scope fail closed.
+    fn request_scope(&mut self, _: bool) -> Result<Option<String>, RelayError> {
         let session = self.session()?;
         if !session.signed_in {
             return Err(RelayError::NotSignedIn);
         }
-        session.scope.map(Some).ok_or_else(|| {
-            RelayError::Unavailable("the parent did not report a Cloud scope".into())
-        })
+        session
+            .scope
+            .filter(|s| {
+                s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+            .map(Some)
+            .ok_or_else(|| {
+                RelayError::Unavailable("the parent did not report a valid Cloud scope".into())
+            })
     }
 }

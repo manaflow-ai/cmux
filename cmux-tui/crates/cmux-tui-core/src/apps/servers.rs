@@ -138,6 +138,7 @@ pub(super) struct Server {
     pub spec: ServerSpec,
     /// Calls by wire id; every one waits for its `result` line.
     pub pending: HashMap<String, Responder>,
+    pub expected_scopes: HashMap<String, String>,
     /// Wire ids of pending calls admitted with origin user: while one is in
     /// flight, a relay line may claim origin user (`relay.rs`).
     pub user_ops: HashSet<String>,
@@ -425,6 +426,7 @@ impl Supervisor {
         });
         if let Some(scope) = expected_scope {
             message["expected_scope"] = json!(scope);
+            server.expected_scopes.insert(id.clone(), scope);
         }
         if let Some(token) = open_token {
             message["open_token"] = json!(token);
@@ -502,6 +504,7 @@ impl Supervisor {
                 process: Arc::new(process),
                 spec,
                 pending: HashMap::new(),
+                expected_scopes: HashMap::new(),
                 user_ops: HashSet::new(),
                 queued: Vec::new(),
                 next_id: 0,
@@ -640,7 +643,17 @@ impl Supervisor {
                     let id = value["id"].as_str().unwrap_or_default();
                     server.user_ops.remove(id);
                     let Some(respond) = server.pending.remove(id) else { return };
-                    let result = if value["ok"] == true {
+                    let expected_scope = server.expected_scopes.remove(id);
+                    let result = if value["ok"] == true
+                        && expected_scope
+                            .as_deref()
+                            .is_some_and(|scope| value["expected_scope"].as_str() != Some(scope))
+                    {
+                        Err(ApiError::new(
+                            "apps.scope_unsupported",
+                            "the app server did not acknowledge the request scope",
+                        ))
+                    } else if value["ok"] == true {
                         Ok(json!({ "value": value.get("result").cloned().unwrap_or(Value::Null) }))
                     } else {
                         Err(ApiError::from_body(&value["error"], "command.failed"))
@@ -784,6 +797,11 @@ impl Supervisor {
                 server.next_id = next_id;
                 for (id, message) in queued {
                     if let Some(respond) = pending.remove(&id) {
+                        if let Ok(line) = serde_json::from_slice::<Value>(&message)
+                            && let Some(scope) = line["expected_scope"].as_str()
+                        {
+                            server.expected_scopes.insert(id.clone(), scope.to_owned());
+                        }
                         server.pending.insert(id, respond);
                         server.process.send(message);
                     }

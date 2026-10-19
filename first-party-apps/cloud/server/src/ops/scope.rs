@@ -29,6 +29,28 @@ impl<C: ControlPlane> Server<C> {
         Ok(())
     }
 
+    pub(crate) fn remember_pending_scope(&mut self, id: &serde_json::Value) {
+        if let Some(scope) = &self.session_scope {
+            self.pending_scopes.insert(id.to_string(), scope.clone());
+        }
+    }
+
+    pub(crate) fn finish_pending_scope(
+        &mut self,
+        id: &serde_json::Value,
+        outcome: Result<serde_json::Value, CloudError>,
+    ) -> (Option<String>, Result<serde_json::Value, CloudError>) {
+        let scope = self.pending_scopes.remove(&id.to_string());
+        if outcome.is_ok() && scope.is_some() {
+            let mut request = Request::new("", serde_json::Value::Null);
+            request.expected_scope = scope.clone();
+            if let Err(error) = self.check_scope(&request) {
+                return (scope, Err(error));
+            }
+        }
+        (scope, outcome)
+    }
+
     pub(crate) fn take_scope_answers(
         &mut self,
     ) -> Vec<(serde_json::Value, Result<serde_json::Value, CloudError>)> {

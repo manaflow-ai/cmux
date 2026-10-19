@@ -28,7 +28,7 @@ for line in sys.stdin:
         continue
     sent += 1
     result = {"scope": request.get("expected_scope"), "sent": sent}
-    print(json.dumps({"type": "result", "id": request["id"], "ok": True, "result": result}), flush=True)
+    print(json.dumps({"type": "result", "id": request["id"], "ok": True, "result": result, "expected_scope": request.get("expected_scope")}), flush=True)
 "#,
     );
     let app = apps.dir.join("first-party/scope");
@@ -94,4 +94,20 @@ fn cloud_scope_credential_servers_always_reach_their_own_session_gate() {
             "the server must recheck its parent before replay: {reply}"
         );
     }
+}
+
+#[test]
+fn cloud_scope_an_older_server_cannot_return_an_unscoped_cached_success() {
+    let apps = Apps::new("old-scope-server");
+    write_scope_app(&apps);
+    let path = apps.dir.join("servers/scope-probe");
+    let source = std::fs::read_to_string(&path).unwrap();
+    write_script(
+        &path,
+        &source.replace(", \"expected_scope\": request.get(\"expected_scope\")", ""),
+    );
+    apps.start();
+    let reply = apps.app().rpc(json!({"cmd": "apps-run-scoped", "app": "cmux/scope", "op": "scope.write",
+        "args": {}, "idempotency_key": "old-cached", "origin": "user", "expected_scope": "a".repeat(64)}));
+    assert_eq!(error_code(&reply), "apps.scope_unsupported", "{reply}");
 }
