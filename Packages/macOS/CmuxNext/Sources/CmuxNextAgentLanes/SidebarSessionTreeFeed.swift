@@ -116,7 +116,7 @@ public final class SidebarSessionTreeFeed {
 /// for the sidebar's session tree: read with the chat header's reader (two gh calls at a time, never
 /// prompting), at most once every five minutes per folder or URL: when the tree passes again (a
 /// lane or a workspace changed), and once every five minutes on its own while the tree shows
-/// pull requests not yet merged (an idle session's CI can still fail). A folder is one `gh pr view` there; every stale github.com URL
+/// open pull requests (an idle session's CI can still fail). A folder is one `gh pr view` there; every stale github.com URL
 /// goes in one batched GraphQL read (`read(urls:)`), never one call per pull request; a failed read
 /// keeps the last answers. The
 /// chat header's chip shares those two calls, so the sidebar asks seldom and never stalls it.
@@ -146,7 +146,13 @@ final class SidebarPullRequestStore {
     /// missing or older than `freshness`.
     func refresh(_ asks: Set<String>) {
         shown = asks
-        if freshness > .zero, asks.contains(where: { !isSettled($0) }) {
+        // Drop what the tree no longer shows (closed workspaces, ended sessions).
+        let kept = asks.union(asking)
+        let pruned = answers.filter { kept.contains($0.key) }
+        if pruned.count != answers.count { answers = pruned } // a set always notifies the tree's observation
+        asked = asked.filter { kept.contains($0.key) }
+        failures = failures.filter { kept.contains($0.key) }
+        if freshness > .zero, asks.contains(where: inFlight) {
             recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
                 guard let self else { return }
                 refresh(shown)
@@ -210,6 +216,14 @@ final class SidebarPullRequestStore {
     /// can be reopened; a folder's branch can get a new pull request after one merges, so both are.)
     func isSettled(_ key: String) -> Bool {
         key.hasPrefix("https://") && answers[key]?.state == "merged"
+    }
+
+    /// A shown pull request whose CI or review can still change on its own (open or draft): what
+    /// keeps the five-minute recheck. A folder without one, or a merged or closed one, changes only
+    /// with a lane or a workspace, which passes the tree again anyway.
+    func inFlight(_ key: String) -> Bool {
+        guard let state = answers[key]?.state else { return false }
+        return state != "merged" && state != "closed"
     }
 
     /// How long `key`'s answer stays fresh: `freshness`, doubled for each failed read in a row.

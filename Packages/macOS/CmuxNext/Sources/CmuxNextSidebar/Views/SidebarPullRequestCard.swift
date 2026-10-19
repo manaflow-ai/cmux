@@ -269,7 +269,7 @@ final class SidebarPullRequestCardRow: NSView {
         let label = size(pillLabel), padX = Metrics.space2, padY = Metrics.space1 / 2
         let pillSize = NSSize(width: ceil(label.width) + 2 * padX, height: ceil(label.height) + 2 * padY)
         pill.frame = NSRect(x: trailing - pillSize.width, y: cy - pillSize.height / 2, width: pillSize.width, height: pillSize.height)
-        pill.layer?.cornerRadius = pillSize.height / 2
+        pill.layer?.cornerRadius = Metrics.chipCornerRadius(height: pillSize.height)
         pillLabel.frame = NSRect(x: padX, y: padY, width: ceil(label.width), height: ceil(label.height))
         trailing = pill.frame.minX - gap
         let titleSize = size(title)
