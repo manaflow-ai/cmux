@@ -28,7 +28,7 @@ struct AcpmuxQuitProofTests {
         /// What a crashed daemon leaves: a bound socket file with no listener.
         func leaveStaleSocket() throws {
             let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-            guard fd >= 0 else { throw POSIXError(.EBADF) }
+            guard fd >= 0 else { throw Self.lastError() }
             defer { close(fd) }
             var address = sockaddr_un()
             address.sun_family = sa_family_t(AF_UNIX)
@@ -42,15 +42,24 @@ struct AcpmuxQuitProofTests {
                     bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
                 }
             }
-            guard bound == 0 else { throw POSIXError(.EADDRINUSE) }
+            guard bound == 0 else { throw Self.lastError() }
         }
 
         /// Holds daemon.lock the way a live (or shutting-down) daemon does.
         /// Returns the descriptor; closing it releases the lock.
         func holdDaemonLock() throws -> Int32 {
             let fd = open(url.appendingPathComponent("daemon.lock").path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
-            guard fd >= 0, flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw POSIXError(.EWOULDBLOCK) }
+            guard fd >= 0 else { throw Self.lastError() }
+            guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+                let error = Self.lastError()
+                close(fd)
+                throw error
+            }
             return fd
+        }
+
+        private static func lastError() -> POSIXError {
+            POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
 
