@@ -571,6 +571,21 @@
       "size": 2327
     },
     {
+      "path": "CloudHostReplicaClearRequest.java",
+      "sha256": "79964f759c51e99ef89186f6279b47524183fa3a217a1dbe128a2cec3f9eb76f",
+      "size": 2024
+    },
+    {
+      "path": "CloudHostReplicaSetRequest.java",
+      "sha256": "803d5c83ca507f26058579a491156a32ebae07dea89ecf25e993ec8bf7ad6fbf",
+      "size": 5297
+    },
+    {
+      "path": "CloudHostReplicaStatusRequest.java",
+      "sha256": "892ee66737ec40ba6da87844b1451b781b3e0f2474e8fcdcc5cae9712bbb296b",
+      "size": 1455
+    },
+    {
       "path": "CloudInboxChangedEvent.java",
       "sha256": "3871b374c4ac7c4e794d31d29fbc8f59971e03c0960ffcd6203b2b8a14db2231",
       "size": 4418
@@ -672,8 +687,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "613e2411a92dcf7c148c750d36d0047bf12a3a0f4877e5ef7f8b6a4b4304e546",
-      "size": 75143
+      "sha256": "0d385be103af667c9648b004928bdd3bcb3829e8ee283cfb6dea512b8a375448",
+      "size": 75976
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1322,8 +1337,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "bbd57ec16c0be4424b5897664714ff542cd6a6b68dc9c5d8744a4373da646b5e",
-      "size": 65307
+      "sha256": "25a08709002ca1fa7f8e5d81d51b601a42740593da274e3525c3ac53bb4a2b6d",
+      "size": 65988
     },
     {
       "path": "GetBlobRequest.java",
@@ -2042,7 +2057,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "e1396f9cc2f5186824bcf9b866c2918a8a79d7d0699cf885e8a35aef44c4dcd4",
+      "sha256": "0f4ffaaf96356d89e068732669d5909d79bee3f857dcc83523d0f430be4b203a",
       "size": 7393
     },
     {
@@ -3302,7 +3317,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa",
+  "ir_sha256": "b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

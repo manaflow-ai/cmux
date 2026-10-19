@@ -36,12 +36,9 @@ extension ControlRouter {
                 (request.params["wait"]?.boolValue ?? true)
                     && ((try? Self.resolveAction(request.params, in: snapshot.catalog))?.startsTerminal ?? false)
             }).claimingProgress().withLimit { request, snapshot in
-                // A network action the caller awaits (Connect to CodeRouter).
-                guard request.params["wait"]?.boolValue == true,
-                      let action = try? Self.resolveAction(request.params, in: snapshot.catalog) else { return nil }
-                // A run that waits for a person (an agent's cookie import consent) gets the longest limit.
-                if action.waitsForPerson { return ActionDescriptor.personDeadline }
-                return action.waitsForResult ? ActionDescriptor.resultDeadline : nil
+                // A network action, a run that waits for a person, or a keyed create that asks again.
+                guard let action = try? Self.resolveAction(request.params, in: snapshot.catalog) else { return nil }
+                return ActionRunLimit.limit(for: action, wait: request.params["wait"]?.boolValue)
             },
             // `cmux tab <id> focus` (state-ownership.md 3): runs the
             // `tab.focus` action on the tab, with action.run's contract.

@@ -2562,6 +2562,28 @@ class CloudConversationUnsubscribeRequest:
 
 
 @dataclass(frozen=True)
+class CloudHostReplicaClearRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-host-replica-clear/request'
+    purge: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudHostReplicaSetRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-host-replica-set/request'
+    api_base_url: str
+    expires_at: int
+    host_name: str
+    install_token: str
+    client_version: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CloudHostReplicaStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-host-replica-status/request'
+    pass
+
+
+@dataclass(frozen=True)
 class CloudInboxListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-list/request'
     include_archived: Union[bool, MissingType] = field(default=MISSING)
@@ -6047,6 +6069,9 @@ __all__ = [
     'CloudConversationThreadRequest',
     'CloudConversationTypingRequest',
     'CloudConversationUnsubscribeRequest',
+    'CloudHostReplicaClearRequest',
+    'CloudHostReplicaSetRequest',
+    'CloudHostReplicaStatusRequest',
     'CloudInboxListRequest',
     'CloudInboxOpRequest',
     'CloudInboxSubscribeRequest',

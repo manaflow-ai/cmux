@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa'
+IR_SHA256 = 'b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85'
 
 
 @dataclass(frozen=True)
@@ -661,6 +661,42 @@ COMMANDS = {
         None,
         {
             'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-host-replica-clear': CommandMetadata(
+        'cloud-host-replica-clear',
+        'local-admin',
+        12,
+        'cloud-host-replica-v1',
+        ('local-admin',),
+        None,
+        {
+            'purge': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-host-replica-set': CommandMetadata(
+        'cloud-host-replica-set',
+        'local-admin',
+        12,
+        'cloud-host-replica-v1',
+        ('local-admin',),
+        None,
+        {
+            'api_base_url': CommandFieldMetadata(None, None),
+            'client_version': CommandFieldMetadata(None, None),
+            'expires_at': CommandFieldMetadata(None, None),
+            'host_name': CommandFieldMetadata(None, None),
+            'install_token': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-host-replica-status': CommandMetadata(
+        'cloud-host-replica-status',
+        'local-admin',
+        12,
+        'cloud-host-replica-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'cloud-inbox-list': CommandMetadata(

@@ -24121,6 +24121,55 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.showAgentCursor.help",
+        "text" : "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.showAgentCursor",
+      "keywords" : [
+        "agent",
+        "cursor",
+        "keystrokes",
+        "typing",
+        "automation",
+        "overlay"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "showAgentCursor"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.showAgentCursor",
+        "text" : "Show Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
@@ -29217,7 +29266,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "826edf1de2b0d218fe0b93433040bb6ad6c571d216bbc8c575bfabad861535e8",
+  "schema_hash" : "45487313c9cf1309b38f14e8c2c2b4627f2cd3a9b4903a496b7866052af47b57",
   "sections" : [
     {
       "id" : "general",

@@ -112,15 +112,22 @@ enum PaneHandlers {
         // attaches when the daemon confirms) and takes keys by terminal id at once (cx-wb5.78).
         let window = content == nil ? nil : controller?.view.window
         let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID)
+        // The provisional pane is in the store now, and the window lays it out and mounts it in this
+        // turn, so it draws in the key's frame (instant-new-surfaces), not after a main-actor hop.
+        let intended = provisional.map { provisional in
+            defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
+            return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
+        }
         ctx.registry.track(Task {
             var landed = false
             defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
-                let created = if let provisional {
-                    try await command.sendIntended(on: daemon, provisional: provisional)
+                let created = if let intended {
+                    try await intended()
                 } else {
                     try await command.send(on: daemon)
                 }
+                BenchSpans.mark(provisional == nil ? "split.reply" : "split.reply.optimistic")
                 if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
                 landed = true
                 content?.layoutModel.applySplitSizing(sizing)

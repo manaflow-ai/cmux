@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa";
+inline constexpr std::string_view kProtocolIrSha256 = "b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -278,6 +278,9 @@ struct CloudConversationSubscribeRequest;
 struct CloudConversationThreadRequest;
 struct CloudConversationTypingRequest;
 struct CloudConversationUnsubscribeRequest;
+struct CloudHostReplicaClearRequest;
+struct CloudHostReplicaSetRequest;
+struct CloudHostReplicaStatusRequest;
 struct CloudInboxListRequest;
 struct CloudInboxOpRequest;
 struct CloudInboxSubscribeRequest;
@@ -1722,6 +1725,24 @@ struct CloudConversationTypingRequest {
 struct CloudConversationUnsubscribeRequest {
     std::string conversation{};
     friend bool operator==(const CloudConversationUnsubscribeRequest&, const CloudConversationUnsubscribeRequest&) = default;
+};
+
+struct CloudHostReplicaClearRequest {
+    std::optional<bool> purge{};
+    friend bool operator==(const CloudHostReplicaClearRequest&, const CloudHostReplicaClearRequest&) = default;
+};
+
+struct CloudHostReplicaSetRequest {
+    std::string api_base_url{};
+    Field<std::string> client_version{};
+    std::uint64_t expires_at{};
+    std::string host_name{};
+    std::string install_token{};
+    friend bool operator==(const CloudHostReplicaSetRequest&, const CloudHostReplicaSetRequest&) = default;
+};
+
+struct CloudHostReplicaStatusRequest {
+    friend bool operator==(const CloudHostReplicaStatusRequest&, const CloudHostReplicaStatusRequest&) = default;
 };
 
 struct CloudInboxChangedEvent {
@@ -7384,6 +7405,24 @@ template <>
 struct Codec<CloudConversationUnsubscribeRequest> {
     static Result<Json> encode(const CloudConversationUnsubscribeRequest& value);
     static Result<CloudConversationUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaClearRequest> {
+    static Result<Json> encode(const CloudHostReplicaClearRequest& value);
+    static Result<CloudHostReplicaClearRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaSetRequest> {
+    static Result<Json> encode(const CloudHostReplicaSetRequest& value);
+    static Result<CloudHostReplicaSetRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaStatusRequest> {
+    static Result<Json> encode(const CloudHostReplicaStatusRequest& value);
+    static Result<CloudHostReplicaStatusRequest> decode(const Json& value);
 };
 
 template <>

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa";
+pub const ir_sha256 = "b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4247,6 +4247,69 @@ pub fn cloudConversationUnsubscribe(client: anytype, request: CloudConversationU
             .authority = "local-admin",
             .since = 12,
             .capability = "cloud-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudHostReplicaClearRequest = struct {
+    purge: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "purge",
+    };
+};
+
+pub const CloudHostReplicaClearResult = JsonValue;
+
+pub fn cloudHostReplicaClear(client: anytype, request: CloudHostReplicaClearRequest) !wire.Decoded(CloudHostReplicaClearResult) {
+    return client.callTyped(
+        CloudHostReplicaClearResult,
+        .{
+            .name = "cloud-host-replica-clear",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-host-replica-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudHostReplicaSetRequest = struct {
+    api_base_url: []const u8,
+    client_version: wire.Field([]const u8) = .absent,
+    expires_at: u64,
+    host_name: []const u8,
+    install_token: []const u8,
+};
+
+pub const CloudHostReplicaSetResult = JsonValue;
+
+pub fn cloudHostReplicaSet(client: anytype, request: CloudHostReplicaSetRequest) !wire.Decoded(CloudHostReplicaSetResult) {
+    return client.callTyped(
+        CloudHostReplicaSetResult,
+        .{
+            .name = "cloud-host-replica-set",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-host-replica-v1",
+        },
+        request,
+    );
+}
+
+pub const CloudHostReplicaStatusRequest = struct {};
+
+pub const CloudHostReplicaStatusResult = JsonValue;
+
+pub fn cloudHostReplicaStatus(client: anytype, request: CloudHostReplicaStatusRequest) !wire.Decoded(CloudHostReplicaStatusResult) {
+    return client.callTyped(
+        CloudHostReplicaStatusResult,
+        .{
+            .name = "cloud-host-replica-status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-host-replica-v1",
         },
         request,
     );
@@ -11181,7 +11244,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 274;
+pub const command_count: usize = 277;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11229,6 +11292,9 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-conversation-thread", .authority = "local-admin", .since = 12, .capability = "conversation-thread-v1", .stream = null },
     .{ .name = "cloud-conversation-typing", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-typing-v1", .stream = null },
     .{ .name = "cloud-conversation-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "cloud-host-replica-clear", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
+    .{ .name = "cloud-host-replica-set", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
+    .{ .name = "cloud-host-replica-status", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
     .{ .name = "cloud-inbox-list", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-inbox-op", .authority = "local-admin", .since = 12, .capability = "conversation-inbox-state-v1", .stream = null },
     .{ .name = "cloud-inbox-subscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
