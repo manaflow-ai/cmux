@@ -37,6 +37,11 @@ fn cloud_scope_parent_notice_closes_an_idle_forward_and_its_carrier() {
     let log = host.spawner.log();
     assert_eq!(log.terminated.len(), 1);
     assert_eq!(log.terminated[0].machine, "vm-alpha01");
+    drop(log);
+    assert!(
+        host.exited_within(std::time::Duration::from_secs(2)),
+        "the old scope cannot process later queued events"
+    );
 }
 
 fn link_changed(line: &Value) -> bool {

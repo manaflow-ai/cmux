@@ -22,6 +22,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
+#[cfg(test)]
+#[path = "running_scope_tests.rs"]
+mod scope_tests;
+
 /// Transfers that may run at once.
 pub const MAX_TRANSFERS: usize = 4;
 /// Every transfer slot is taken: retry when one ends.
