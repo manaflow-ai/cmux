@@ -115,14 +115,20 @@ jobs:
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           bun install --frozen-lockfile
           ./node_modules/.bin/playwright install --with-deps --only-shell chromium
-          jq -s '.[0] as $head | $head + [.[1][] | select(.id as $id | any($head[]; .id == $id) | not)]' \
-            "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" > "$RUNNER_TEMP/cases.json"
+          # Each stage renders its own states: a state the PR adds has no base
+          # variant to render (the base reports it not ready), and one it removes
+          # has no head variant.
           for stage in base head; do
             gallery="$RUNNER_TEMP/gallery-$stage"
             out="$evidence/$stage"
             mkdir -p "$out"
+            if [ "$(jq length "$RUNNER_TEMP/$stage.json")" = 0 ]; then
+              # Every sampled state is new: nothing to render before.
+              echo '[]' > "$out/results.json"
+              continue
+            fi
             if [ -d "$gallery" ]; then
-              bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$gallery" \
+              bun runner.ts --manifest "$RUNNER_TEMP/$stage.json" --gallery-dir "$gallery" \
                 --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0
             else
               echo "Missing $stage gallery build; advisory capture failed." >&2
