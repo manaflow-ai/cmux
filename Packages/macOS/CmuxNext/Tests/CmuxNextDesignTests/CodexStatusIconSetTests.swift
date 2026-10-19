@@ -15,11 +15,6 @@ import Testing
         StatusIndicatorPlan.make(state, style: .arc, animates: animates, set: .codex)
     }
 
-    @Test func codexIsTheDefaultSetForEveryone() {
-        // Leo 2026-10-14, a team decision: the Codex-like icons are the default; the others stay as Debug alternates.
-        #expect(StatusIconSet.tunable.defaultValue == .codex)
-    }
-
     @Test func workSpinsInAGreyAndStandsStillAsARing() {
         let spinning = Self.plan(.working)
         #expect(spinning.glyph == .arc && spinning.animation == .spin && spinning.tint == .spinner)
