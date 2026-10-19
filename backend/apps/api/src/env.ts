@@ -55,6 +55,8 @@ export interface Env {
   readonly HOST_DO: DurableObjectNamespace<HostDO>
   /** Chief hands (hand-do.ts): one object per installed hand (`h:<hand>`) and one index per owner (`owner:<user>`). */
   readonly HAND_DO: DurableObjectNamespace<HandDO>
+  /** "1": Chief hands are on (the /hand and /v1/hands routes, and the brain's hands tools). Off by default; production keeps it off until hands are ready (decision 2026-10-19). */
+  readonly HANDS_ENABLED?: string
   /** "1": Cloud requests may reach a `mac` profile hand. Off until the Mac hand trust post (#13742) is confirmed. */
   readonly HANDS_MAC_ENABLED?: string
   /** Comma list of user ids: with HANDS_MAC_ENABLED, only their mac hands take Cloud requests (a scoped test). */
