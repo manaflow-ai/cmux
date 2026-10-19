@@ -148,7 +148,8 @@ enum SessionWire {
             var zoom: Double?
             if case .number(let value)? = extra?["zoom"] { zoom = value }
             return SessionStateMirror.TabRecord(zoom: zoom, back: urls("back"), forward: urls("forward"),
-                                                icon: extra?["icon"]?.stringValue, emulation: extra?["emulation"])
+                                                icon: extra?["icon"]?.stringValue, emulation: extra?["emulation"],
+                                                markedUnread: extra?["marked_unread"] == .bool(true))
         }
 
         var progress: TerminalProgressReport? {

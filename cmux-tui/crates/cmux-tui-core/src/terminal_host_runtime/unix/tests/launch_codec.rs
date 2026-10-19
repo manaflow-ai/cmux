@@ -43,7 +43,7 @@ fn startup_child_cleanup_reports_group_signal_failure() {
 
 #[test]
 fn default_host_cell_metrics_initialize_both_terminal_backends() {
-    let size = pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap();
+    let size = pty_size(80, 24, DEFAULT_CELL_PIXELS);
     assert_eq!((size.cols, size.rows, size.pixel_width, size.pixel_height), (80, 24, 640, 384));
 
     let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
@@ -56,17 +56,17 @@ fn default_host_cell_metrics_initialize_both_terminal_backends() {
 }
 
 #[test]
-fn pty_size_rejects_pixel_dimension_overflow() {
+fn pty_size_saturates_pixel_dimension_overflow() {
     let maximum_cols = u16::MAX / DEFAULT_CELL_PIXELS.0;
-    let boundary = pty_size(maximum_cols, 24, DEFAULT_CELL_PIXELS).unwrap();
+    let boundary = pty_size(maximum_cols, 24, DEFAULT_CELL_PIXELS);
     assert_eq!(boundary.pixel_width, maximum_cols * DEFAULT_CELL_PIXELS.0);
 
-    let width_error = pty_size(maximum_cols + 1, 24, DEFAULT_CELL_PIXELS).unwrap_err();
-    assert!(width_error.to_string().contains("pixel width"));
+    let wide = pty_size(maximum_cols + 1, 24, DEFAULT_CELL_PIXELS);
+    assert_eq!((wide.cols, wide.pixel_width), (maximum_cols + 1, u16::MAX));
 
     let maximum_rows = u16::MAX / DEFAULT_CELL_PIXELS.1;
-    let height_error = pty_size(80, maximum_rows + 1, DEFAULT_CELL_PIXELS).unwrap_err();
-    assert!(height_error.to_string().contains("pixel height"));
+    let tall = pty_size(80, maximum_rows + 1, DEFAULT_CELL_PIXELS);
+    assert_eq!((tall.rows, tall.pixel_height), (maximum_rows + 1, u16::MAX));
 }
 
 #[test]
