@@ -68,7 +68,8 @@ pub fn read(family: &str, file: &Path) -> Vec<PastTurn> {
                     tool_items = tool_items || item;
                     if item || !tool_items {
                         // With the turns that are being read: event messages, else items.
-                        let into = if current || !turns.is_empty() { &mut turns } else { &mut items };
+                        let into =
+                            if current || !turns.is_empty() { &mut turns } else { &mut items };
                         add(into, tool.map_or_else(Step::ToolResult, Step::Tool), at);
                     }
                 } else if let Some(step) = codex_step(&record) {
@@ -153,9 +154,10 @@ fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
     let Some(content) = record.pointer("/message/content") else { return Vec::new() };
     match record.get("type").and_then(Value::as_str) {
         // A tool result is not a prompt, also beside text (as `hub::fork_at::is_prompt`).
-        Some("user") if content.as_array().is_some_and(|blocks| {
-            blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
-        }) =>
+        Some("user")
+            if content.as_array().is_some_and(|blocks| {
+                blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
+            }) =>
         {
             crate::adopt_tools::claude_tool_results(content)
                 .into_iter()

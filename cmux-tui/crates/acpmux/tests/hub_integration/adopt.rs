@@ -328,7 +328,8 @@ fn update_of(e: &acpmux::store::EventRecord) -> &Value {
 #[tokio::test]
 async fn adopt_replays_a_codex_turns_commands_and_file_edits() {
     let (hub, mut c, root, project, chat) = adopt_setup().await;
-    let rollout = root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{chat}.jsonl"));
+    let rollout =
+        root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{chat}.jsonl"));
     let fixture = include_str!("../fixtures/codex-rollout-tool-calls.jsonl")
         .replace("{ID}", &chat)
         .replace("{CWD}", &project.to_string_lossy());
@@ -362,8 +363,10 @@ async fn adopt_replays_a_codex_turns_commands_and_file_edits() {
     assert_eq!(events[1].msg["text"], "Bump the version to 1.3.0 and note it in the changelog");
     let calls: Vec<&Value> =
         events.iter().filter(|e| e.kind == "tool_call").map(update_of).collect();
-    let commands: Vec<&str> =
-        calls.iter().filter_map(|u| u.pointer("/rawInput/command").and_then(Value::as_str)).collect();
+    let commands: Vec<&str> = calls
+        .iter()
+        .filter_map(|u| u.pointer("/rawInput/command").and_then(Value::as_str))
+        .collect();
     assert_eq!(
         commands,
         ["git status --short", "grep -n '^version' Cargo.toml", "sed -n 1,8p CHANGELOG.md"]
@@ -378,7 +381,8 @@ async fn adopt_replays_a_codex_turns_commands_and_file_edits() {
     assert_eq!(grep["status"], "completed");
     assert_eq!(grep["rawOutput"]["exit_code"], 0);
     assert_eq!(grep.pointer("/content/0/content/text"), Some(&json!("3:version = \"1.2.0\"\n")));
-    let started = events.iter().find(|e| e.kind == "tool_call" && update_of(e)["toolCallId"] == "exec-2");
+    let started =
+        events.iter().find(|e| e.kind == "tool_call" && update_of(e)["toolCallId"] == "exec-2");
     assert_eq!(done[1].at - started.unwrap().at, 50, "the call ran 50ms");
 
     // The edit: one call over two files (in path order: Codex records them as a map), each a
@@ -387,14 +391,19 @@ async fn adopt_replays_a_codex_turns_commands_and_file_edits() {
     assert_eq!(edit["kind"], "edit");
     let cargo = project.join("Cargo.toml").to_string_lossy().into_owned();
     let changelog = project.join("CHANGELOG.md").to_string_lossy().into_owned();
-    assert_eq!(edit["locations"], json!([{"path": changelog, "line": 1}, {"path": cargo, "line": 1}]));
+    assert_eq!(
+        edit["locations"],
+        json!([{"path": changelog, "line": 1}, {"path": cargo, "line": 1}])
+    );
     let edit_done = update_of(done[3]);
     assert_eq!(edit_done["status"], "completed");
     let diffs = edit_done["content"].as_array().unwrap();
     assert_eq!(diffs.len(), 2, "{edit_done}");
     assert_eq!(diffs[0]["type"], "diff");
     assert_eq!(diffs[0]["path"], changelog.as_str());
-    assert!(diffs[0]["newText"].as_str().unwrap().contains("## 1.3.0\n- Bump the version to 1.3.0"));
+    assert!(
+        diffs[0]["newText"].as_str().unwrap().contains("## 1.3.0\n- Bump the version to 1.3.0")
+    );
     assert_eq!(diffs[1]["path"], cargo.as_str());
     assert!(diffs[1]["oldText"].as_str().unwrap().contains("version = \"1.2.0\""));
     assert!(diffs[1]["newText"].as_str().unwrap().contains("version = \"1.3.0\""));
@@ -446,7 +455,10 @@ fn write_pane_fixture(events: &[acpmux::store::EventRecord], chat: &str, root: &
         std::fs::write(path, &text).unwrap();
     } else if let Ok(stored) = std::fs::read_to_string(path) {
         // A checkout without the webviews (a crate-only build) has nothing to check.
-        assert_eq!(stored, text, "the pane's fixture is stale: rerun with ACPMUX_UPDATE_FIXTURES=1");
+        assert_eq!(
+            stored, text,
+            "the pane's fixture is stale: rerun with ACPMUX_UPDATE_FIXTURES=1"
+        );
     }
 }
 
@@ -505,7 +517,8 @@ async fn adopt_replays_a_claude_turns_tool_calls() {
     ];
     let transcript = claude.join(format!("projects/p/{chat}.jsonl"));
     std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
-    std::fs::write(&transcript, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+    std::fs::write(&transcript, lines.iter().map(|l| format!("{l}\n")).collect::<String>())
+        .unwrap();
     backdate(&transcript);
     let (hub, mut c) = super::fork_through::claude_setup(&claude, &[]).await;
 
@@ -539,7 +552,10 @@ async fn adopt_replays_a_claude_turns_tool_calls() {
     let done: Vec<&Value> =
         events.iter().filter(|e| e.kind == "tool_call_update").map(update_of).collect();
     assert_eq!(done[0]["status"], "completed");
-    assert_eq!(done[0].pointer("/content/0/content/text"), Some(&json!("src/lib.rs:3:fn old_helper() {}")));
+    assert_eq!(
+        done[0].pointer("/content/0/content/text"),
+        Some(&json!("src/lib.rs:3:fn old_helper() {}"))
+    );
     assert_eq!(
         done[1]["content"],
         json!([{"type": "diff", "path": file, "oldText": "fn old_helper() {}", "newText": "fn new_helper() {}"}])
