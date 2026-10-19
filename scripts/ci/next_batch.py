@@ -130,6 +130,24 @@ SDK_GENERATED = tuple("cmux-tui/bindings/" + glob for glob in (
 # merge key by key, and the SDK output is then regenerated.
 SPEC_JSON = ("cmux-tui/spec/*.json",)
 TUI_PATHS = ("cmux-tui/", "ghostty", "ghostty-next", "scripts/cmux-next/build-layout-reducer-ffi.sh")
+# The cmux-tui tree key's inputs, listed in the stack's own checkout.
+TREE_INPUTS = "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+# The cmux-next job that fails when the stack's cmux-tui tree is not published.
+SAME_TREE_JOB = "same-tree cmux-tui"
+
+
+def touches_tree(changed: list[str], root: Path) -> bool:
+    """Whether the stack changes a cmux-tui tree-key input (so its tree is not the base's)."""
+    inputs = list(TUI_PATHS)
+    try:
+        for line in (root / TREE_INPUTS).read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 2 and not line.startswith("#"):
+                inputs.append(parts[1] + ("/" if parts[0] == "tree" else ""))
+    except OSError:
+        pass
+    return any(path == item or (item.endswith("/") and path.startswith(item)) or path.startswith(TUI_PATHS)
+               for path in changed for item in inputs)
 SECRET_ENV = re.compile(r"(TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL)", re.I)
 
 
@@ -1181,7 +1199,8 @@ class Controller:
         sha = stack.head
         changed = self.git("diff", "--name-only", base_sha, sha).splitlines()
         pin = ""
-        if any(path.startswith(TUI_PATHS) for path in changed):
+        tree = touches_tree(changed, self.worktree)
+        if tree:
             pin = f"cmux-tui-pin-{sha[:12]}"
             self.push(sha, pin)
             if not self.local:  # the job token's push starts no workflow
@@ -1202,6 +1221,12 @@ class Controller:
             time.sleep(30)
             run = self.wait_run(heavy["id"], timeout=120 * 60)
             failed = self.failed_jobs(heavy["id"])
+        if not tree and SAME_TREE_JOB in failed:
+            # The stack's tree is the base's. A push run on the stack branch
+            # that deferred to the base's own publisher reads as "ended without
+            # publishing", which says nothing about the stack.
+            failed = [job for job in failed if job != SAME_TREE_JOB]
+            log(f"{name}: {SAME_TREE_JOB} red, but the stack changes no tree input; not counted")
         inherited = self.failing_on_base(base_sha) if failed else set()
         validation.inherited = sorted(set(failed) & inherited)
         validation.heavy_failed = sorted(set(failed) - inherited)
