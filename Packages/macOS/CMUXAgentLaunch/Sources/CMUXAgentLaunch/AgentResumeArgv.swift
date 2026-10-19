@@ -419,12 +419,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         let normalizedLauncher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if normalizedLauncher == "codex",
            !capturedCodexExecutableMatches(arguments: arguments, executablePath: executablePath),
-           SubrouterCodexResumeRouting().resumeArguments(
-               launcher: launcher,
-               sessionID: sessionId,
-               launchArguments: arguments,
-               environment: environment
-           ) != nil {
+           SubrouterCodexResumeRouting().capturedEnvironment(in: environment).isEmpty == false {
             return .rejected
         }
         let capturedExecutableMatches = normalizedLauncher != "codex" ||

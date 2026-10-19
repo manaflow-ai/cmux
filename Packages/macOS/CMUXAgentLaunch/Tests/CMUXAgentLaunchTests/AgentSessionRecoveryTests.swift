@@ -153,6 +153,22 @@ struct AgentSessionRecoveryPlannerTests {
         #expect(candidates[1].launcherResumeArguments == nil)
     }
 
+    @Test("Codex recovery never bypasses structured cmux restore")
+    func codexRecoveryUsesStructuredRestore() {
+        let candidate = AgentRecoveryCandidate(
+            kind: "codex",
+            sessionId: "codex-session",
+            workspaceId: nil,
+            cwd: "/tmp",
+            launchCommand: AgentLaunchCommand(
+                arguments: ["codex"],
+                launcherPrefix: ["sr", "codex", "resume"]
+            ),
+            lastActivity: now
+        )
+        #expect(candidate.launcherResumeArguments == nil)
+    }
+
     @Test("launcher resume drops stale settings files and defers routed or unsafe launches")
     func launcherResumeSanitizes() throws {
         let prefix = ["sr", "claude", "proxy", "--account", "me@example.com"]

@@ -572,3 +572,32 @@ surface `surface:1000010032`, with the durable tag
 same-machine owner, not a stale message. A future false-positive test must
 use a session ID whose lock has no live owner and verify that the restore path
 can reclaim it without requiring a quit/restart.
+
+## Current landing receipt (2026-10-19)
+
+The older exact-head sections above are historical receipts from earlier
+repair iterations. The current landing worktree is
+`/Volumes/Atelier/Code/cmux-pr21423-update`, branch
+`codex/pr21423-rootcause-update`. The last pushed fork head is
+[`878ffb0c5686c6f22ed42a62e2a9a2d19664d336`](https://github.com/danielraffel/cmux/commit/878ffb0c5686c6f22ed42a62e2a9a2d19664d336); the current working tree adds
+the cross-process helper launch lease and two fail-closed recovery guards and
+has not yet been pushed.
+
+The helper lease is an owner-validated `flock` in the private runtime scope,
+held across helper health checks, replacement, installation, launch, and
+readiness. This closes the race where separate cmux processes shared PID files
+and sockets while launching duplicate `cmux-cua serve` helpers. The focused
+`ComputerUseLaunchLeaseTests` suite passes 1 test.
+
+Codex crash recovery now always uses structured `cmux restore`, preventing a
+captured launcher prefix from bypassing provider routing and writer-lock
+admission. A proven Subrouter marker paired with a mismatched or malformed
+Codex executable now rejects rather than falling through to direct restore.
+The focused CMUXAgentLaunch suites pass 44 tests in 4 suites, including these
+negative controls.
+
+These changes reduce the known duplicate-helper and provider-mismatch paths;
+they do not by themselves prove that WindowServer will never fail. The crash
+evidence still supports bounded restore, workstream history limits, and
+renderer admission as the primary reliability work, with QEMU graphics as an
+additional machine-specific amplifier.

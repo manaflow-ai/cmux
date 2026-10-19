@@ -534,6 +534,17 @@ struct AgentResumeArgvTests {
                 launcher: "codex",
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
+                arguments: ["evil"],
+                environment: boundSubrouterMarker()
+            ) == .rejected,
+            "A proven routed marker must fail closed even when the captured provider argv is malformed"
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
                 arguments: [
                     "/opt/bin/codex",
                     "-c", "model_provider=subrouter",

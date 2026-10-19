@@ -1020,6 +1020,17 @@ public final class ComputerUseRuntimeService {
         guard !isDisabledByPolicy() else { return }
         guard acceptsNewLaunches, !Task.isCancelled,
               helperLaunchRetry.allowsAttempt(at: uptime()) else { return }
+        // The service's actor-level serializer cannot coordinate a second
+        // cmux process using the same runtime scope. Hold a kernel lease before
+        // any PID-file truncation, socket replacement, install, or launch.
+        guard let launchLease = try? ComputerUseLaunchLease(
+                  runtimeDirectory: paths.runtimeDirectoryURL
+              ),
+              (try? launchLease.tryAcquire()) == true,
+              prepareRuntimeForLaunch() else {
+            return
+        }
+        defer { launchLease.release() }
         var ready = false
         defer {
             if !Task.isCancelled, acceptsNewLaunches {
