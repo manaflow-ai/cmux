@@ -120,6 +120,18 @@ def test_ci_group_has_one_authoritative_dag_owner() -> None:
     assert ci["jobs"]["guards"]["permissions"] == {"contents": "read"}
 
 
+def test_a_red_guard_does_not_skip_the_rest_of_its_group() -> None:
+    # A step's default condition is success(): one red guard skipped every
+    # later guard of its group, so a run named one failure and hid the rest
+    # (cmux#22135: one release-notary failure hid 47 of its 65 guards).
+    workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["workflow-guard-tests"]["steps"]
+    grouped = [step for step in steps if "matrix.group" in str(step.get("if", ""))]
+    assert len(grouped) > 100
+    stops = [step["name"] for step in grouped if not str(step["if"]).startswith("${{ !cancelled() && ")]
+    assert stops == [], f"these guard steps stop at the first red guard: {stops[:5]}"
+
+
 if __name__ == "__main__":
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):
