@@ -428,6 +428,10 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// The manual workspace unread mark: `marked_unread` on
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
+/// The manual tab unread mark: `marked_unread` on `tab.update` and the tab
+/// resource's `extra.marked_unread`. It needs no notification; clients clear
+/// it when the person views the tab.
+pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -2732,7 +2736,7 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     workspaces["registry_id"] = json!(registry_id);
     workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
+    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
     Ok(workspaces)
 }
 

@@ -769,8 +769,8 @@
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
-  background: var(--agent-accent, var(--agent-text));
-  color: var(--agent-on-accent, var(--acpmux-base));
+  background: var(--acpmux-send-fill);
+  color: var(--acpmux-send-ink);
 }
 /* Send and Stop are the bar's 28 px. Stop is a solid disc in the text color with a square in the
    base color, the theme inverted, so a running turn reads as live and never as an empty draft's
