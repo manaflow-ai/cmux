@@ -18,18 +18,21 @@ enum CloudAppLinks {
 
     /// Runs Cloud app ops on `local`'s current connection. `beforeConnect`
     /// runs before each `cloud.machine.connect` (it starts this Mac's link).
-    static func runner(local: DaemonService, beforeConnect: (@Sendable () async -> Void)? = nil) -> CloudAppOpRunner {
+    static func runner(local: DaemonService, scope: CloudTeamScope.Snapshot, beforeConnect: (@Sendable () async -> Void)? = nil) -> CloudAppOpRunner {
         let timeout = connectTimeout
         return { op, args, key, origin in
+            try await scope.recheck()
             if op == CloudConnectOpResolver.connectOp { await beforeConnect?() }
             guard let connection = await local.connection else {
                 throw CloudLinkError.disconnected(reason: DaemonError.notConnected.description)
             }
-            let userOriginAllowed = await connection.userOriginAllowed
-            // A pause or a removed machine cancels the connect hop: stop
-            // waiting at once instead of up to `connectTimeout`.
-            return try await run(op: op, args: args, key: key, origin: origin, userOriginAllowed: userOriginAllowed) { request in
-                try await abandoningOnCancel { try await connection.request(request, timeout: timeout).value }
+            let allowed = await connection.userOriginAllowed
+            return try await run(op: op, args: args, key: key, origin: origin, userOriginAllowed: allowed) { request in
+                try await scope.recheck()
+                let scoped = AppsScopedRunRequest(request, expectedScope: scope.id)
+                let result = try await abandoningOnCancel { try await connection.request(scoped, timeout: timeout).value }
+                try await scope.recheck()
+                return result
             }
         }
     }

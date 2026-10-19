@@ -8,14 +8,15 @@ import Foundation
 /// reaches the cmux-next API Worker through the host credential relay.
 extension CloudService {
     /// Every page of `cloud.machine.list` (a read: no key, origin script).
-    func appServerMachines() async throws -> [CloudMachine] {
+    func appServerMachines(scope: CloudTeamScope.Snapshot) async throws -> [CloudMachine] {
+        let ops = appOps(scope)
         var machines: [CloudMachine] = []
         var cursor: String?
         // At most 50 pages of 100: a list that never ends is a server bug.
         for _ in 0..<50 {
             var args: [String: JSONValue] = ["limit": .number(100)]
             if let cursor { args["cursor"] = .string(cursor) }
-            let page = try await appOps("cloud.machine.list", .object(args), nil, .script)
+            let page = try await ops("cloud.machine.list", .object(args), nil, .script)
             machines += (page["machines"]?.arrayValue ?? []).compactMap(CloudMachine.init(next:))
             guard let next = page["next_cursor"]?.stringValue, !next.isEmpty else { return machines }
             cursor = next
@@ -24,10 +25,9 @@ extension CloudService {
     }
 
     /// One `cloud.machine.create` through ``CloudMachineCreateFlow``.
-    func appServerCreate(name: String?, startedByPerson: Bool, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
-        let scope = try await teamScope.snapshot()
+    func appServerCreate(name: String?, startedByPerson: Bool, scope: CloudTeamScope.Snapshot, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
         let approvals = CloudApprovalAnswer(call: scope.call)
-        let ops = appOps
+        let ops = appOps(scope)
         let team = scope.team
         let flow = CloudMachineCreateFlow(
             run: { op, args, key, origin in

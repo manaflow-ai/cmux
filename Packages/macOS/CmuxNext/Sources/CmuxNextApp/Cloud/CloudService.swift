@@ -30,6 +30,7 @@ final class CloudService {
     @ObservationIgnored private let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
+    @ObservationIgnored private var machineScope: String?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
@@ -43,7 +44,7 @@ final class CloudService {
     private(set) var lastError: String?
     private(set) var hasLoadedMachines = false
     /// The Cloud app server's ops on the local daemon (contract 2.1).
-    var appOps: CloudAppOp { CloudAppLinks.ops(local: machines.local) }
+    func appOps(_ scope: CloudTeamScope.Snapshot) -> CloudAppOp { CloudAppLinks.ops(local: machines.local, scope: scope) }
     /// The cmux window a create's native confirmation attaches to (set by AppServices).
     @ObservationIgnored var confirmWindow: (@MainActor () -> NSWindow?)?
     /// Machine creations in flight (sidebar can show a placeholder).
@@ -99,18 +100,7 @@ final class CloudService {
         let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
-        let clientHeaders = identity.requestHeaders
-        credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
-            post: { path, body, bearer in try await transport.post(path, json: body, bearer: bearer, headers: clientHeaders) },
-            token: { try await scope.token() },
-            invalidate: { await identity.invalidate() },
-            session: { [auth] in
-                let snapshot = try? await scope.snapshot()
-                return CloudCredentialRelay.Session(signedIn: await auth.isSignedIn, team: snapshot?.team,
-                    account: snapshot?.account, generation: snapshot?.generation ?? 0)
-            },
-            allowedOps: { await CloudCredentialRelay.bundledServedOps() }
-        ))
+        credentialProvider = CloudCredentialOwner(auth: auth, identity: identity, scope: scope, transport: transport).provider
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
@@ -263,9 +253,13 @@ final class CloudService {
         guard auth.isSignedIn, unavailableReason == nil else { return }
         lastRefresh = .now
         do {
-            let list = configuration.linkSource == .appServer ? try await appServerMachines() : try await api.listMachines()
+            let scope: CloudTeamScope.Snapshot? = configuration.linkSource == .appServer ? try await teamScope.snapshot() : nil
+            let list = if let scope { try await appServerMachines(scope: scope) } else { try await api.listMachines() }
+            if let scope { try await scope.recheck(); try cloudTeam.check(scope) }
+            if machineScope != scope?.id { dropAllMachines() }
+            machineScope = scope?.id
             lastError = nil
-            reconcile(list)
+            reconcile(list, scope: scope)
             hasLoadedMachines = true
         } catch {
             lastError = String(describing: error)
@@ -273,7 +267,7 @@ final class CloudService {
         }
     }
 
-    private func reconcile(_ list: [CloudMachine]) {
+    private func reconcile(_ list: [CloudMachine], scope: CloudTeamScope.Snapshot?) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
@@ -287,7 +281,7 @@ final class CloudService {
                     session.connect()
                 }
             } else {
-                addSession(machine)
+                addSession(machine, scope: scope)
             }
         }
         let ids = Set(visible.map(\.id))
@@ -298,12 +292,13 @@ final class CloudService {
     }
 
     @discardableResult
-    private func addSession(_ machine: CloudMachine) -> CloudMachineSession? {
+    private func addSession(_ machine: CloudMachine, scope: CloudTeamScope.Snapshot?) -> CloudMachineSession? {
         guard !policyDisabled else { return nil }
         let session: CloudMachineSession
         switch configuration.linkSource {
         case .appServer:
-            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local) { [weak self] in
+            guard let scope else { return nil }
+            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local, scope: scope) { [weak self] in
                 await self?.ensureLink()
             })
             let local = machines.local
@@ -339,12 +334,17 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let machine = configuration.linkSource == .appServer
-            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, onSent: onSent)
-            : try await api.createMachine(displayName: name, onSent: onSent)
+        let scope: CloudTeamScope.Snapshot? = configuration.linkSource == .appServer ? try await teamScope.snapshot() : nil
+        let machine: CloudMachine
+        if let scope {
+            machine = try await appServerCreate(name: name, startedByPerson: startedByPerson, scope: scope, onSent: onSent)
+            try await scope.recheck(); try cloudTeam.check(scope)
+        } else { machine = try await api.createMachine(displayName: name, onSent: onSent) }
+        if machineScope != scope?.id { dropAllMachines() }
+        machineScope = scope?.id
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
-        guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
+        guard let session = addSession(machine, scope: scope) else { throw ActionFailure(message: CloudStrings.noClient) }
         return session
     }
 

@@ -156,6 +156,7 @@ fn run_request(
         op: op.into(),
         args: json!({}),
         idempotency_key,
+        expected_scope: None,
         origin,
         gesture: gesture.map(str::to_string),
         caller: None,

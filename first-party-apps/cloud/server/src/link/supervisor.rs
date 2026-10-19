@@ -483,6 +483,12 @@ impl LinkSupervisor {
         }
     }
 
+    /// Scope generations stay monotonic; old events can never name a new scope's carrier.
+    pub(crate) fn forget_scope(&mut self, reason: &str) {
+        self.revoke_all(reason);
+        self.links.clear();
+    }
+
     /// Ends every link for good (the app's interface permission revoked).
     pub fn revoke_all(&mut self, reason: &str) {
         let machines: Vec<String> = self.links.keys().cloned().collect();

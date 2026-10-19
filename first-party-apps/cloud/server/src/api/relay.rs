@@ -158,6 +158,7 @@ pub struct HostRelay<R, W> {
     frame_overflow: bool,
     /// A relay call read a wake and dropped it ([`Self::next_step`]).
     wake_dropped: bool,
+    expected_scope: Option<String>,
 }
 
 /// Team wire events a relay call keeps waiting. They are kept in order and
@@ -191,6 +192,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             frame_lines: 0,
             frame_overflow: false,
             wake_dropped: false,
+            expected_scope: None,
         }
     }
 
@@ -453,6 +455,9 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
     fn call(&mut self, call: &WireCall) -> Result<WireReply, RelayError> {
         let mut request = serde_json::to_value(call).expect("WireCall serializes");
         request["type"] = json!("relay.op");
+        if let Some(scope) = &self.expected_scope {
+            request["expected_scope"] = json!(scope);
+        }
         let answer = self.exchange(request)?;
         match answer["ok"].as_bool() {
             Some(true) => Ok(WireReply::Result(WireResult {
@@ -469,11 +474,30 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
         }
     }
 
+    fn request_scope(&mut self, _: bool) -> Result<Option<String>, RelayError> {
+        self.expected_scope = None;
+        let session = self.session()?;
+        if !session.signed_in {
+            return Err(RelayError::NotSignedIn);
+        }
+        let scope = session
+            .scope
+            .filter(|s| {
+                s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+            .ok_or_else(|| {
+                RelayError::Unavailable("the parent did not report a valid Cloud scope".into())
+            })?;
+        self.expected_scope = Some(scope.clone());
+        Ok(Some(scope))
+    }
+
     fn session(&mut self) -> Result<SessionStatus, RelayError> {
         let answer = self.exchange(json!({ "type": "relay.session" }))?;
         Ok(SessionStatus {
             signed_in: answer["signed_in"].as_bool().unwrap_or(false),
             team: answer["team"].as_str().map(str::to_owned),
+            scope: answer["scope"].as_str().map(str::to_owned),
         })
     }
 }

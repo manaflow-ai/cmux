@@ -19,6 +19,7 @@ pub struct RunRequest {
     pub op: String,
     pub args: Value,
     pub idempotency_key: Option<String>,
+    pub expected_scope: Option<String>,
     pub origin: Origin,
     /// The client's token for a user invocation (palette, keybinding).
     /// Honored only with origin user; the host gets a supervisor-minted token.
@@ -48,7 +49,18 @@ pub(super) enum RunKey {
 
 impl Supervisor {
     pub fn run(&self, request: RunRequest, respond: Responder) {
-        let RunRequest { app, op, args, idempotency_key, origin, gesture, caller } = request;
+        let RunRequest { app, op, args, idempotency_key, expected_scope, origin, gesture, caller } =
+            request;
+        if expected_scope.as_ref().is_some_and(|scope| {
+            scope.len() != 64
+                || !scope.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }) {
+            respond(Err(ApiError::new(
+                "apps.invalid_scope",
+                "expected_scope must be a lowercase SHA-256 identifier",
+            )));
+            return;
+        }
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             // Full names (`cmux.cloud.machine.list`) and short names run the
@@ -58,7 +70,16 @@ impl Supervisor {
                 None => op,
             };
             let (app, op) = (app.as_str(), op.as_str());
-            let run_key = idempotency_key.as_ref().map(|key| format!("{app}\n{op}\n{key}"));
+            // Credential-backed servers must recheck the parent session before any replay.
+            // Their own ledger runs after that gate. Other apps partition replay by explicit context.
+            let session_bound = Self::host_op_allowed(&inner, app, super::relay::RELAY_SCOPE_OP);
+            let run_key = if session_bound {
+                None
+            } else {
+                idempotency_key.as_ref().map(|key| {
+                    format!("{app}\n{op}\n{}\n{key}", expected_scope.as_deref().unwrap_or(""))
+                })
+            };
             let (op_call, respond) =
                 self.track_run_locked(&mut inner, run_key.as_deref(), caller, respond);
             let respond = match run_key {
@@ -86,9 +107,17 @@ impl Supervisor {
                     args,
                     origin,
                     idempotency_key,
+                    expected_scope,
                     op_call,
                     respond,
                 ),
+                Ok(Target::Host(_, _)) if expected_scope.is_some() => vec![Out::Respond(
+                    respond,
+                    Err(ApiError::new(
+                        "apps.scope_unsupported",
+                        "scoped runs require a native app server",
+                    )),
+                )],
                 Ok(Target::Host(key, export)) => {
                     let gesture = gesture.filter(|_| origin == Origin::User).and_then(|token| {
                         inner.gestures.accept_client(app, &token, Instant::now())

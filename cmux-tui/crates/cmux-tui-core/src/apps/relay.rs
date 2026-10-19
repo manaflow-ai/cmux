@@ -115,6 +115,14 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
         }
         Some(_) => return Err(invalid("relay.op origin is not a known origin")),
     }
+    if let Some(scope) = line.get("expected_scope").filter(|v| !v.is_null()) {
+        if !scope.as_str().is_some_and(|s| {
+            s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }) {
+            return Err(invalid("relay.op expected_scope must be a lowercase SHA-256 identifier"));
+        }
+        forwarded["expected_scope"] = scope.clone();
+    }
     Ok(("credential.relay", forwarded))
 }
 
@@ -132,12 +140,14 @@ pub(super) fn relay_reply(id: &Value, session: bool, ending: Ending) -> Value {
         return relay_error(id, "not_signed_in", message);
     }
     match (session, ok) {
-        (true, true) => json!({
-            "type": "relay.session",
-            "id": id,
-            "signed_in": body["signed_in"].as_bool().unwrap_or(false),
-            "team": body["team"].as_str(),
-        }),
+        (true, true) => {
+            let mut reply = json!({"type": "relay.session", "id": id,
+                "signed_in": body["signed_in"].as_bool().unwrap_or(false), "team": body["team"].as_str()});
+            if let Some(scope) = body["scope"].as_str() {
+                reply["scope"] = json!(scope);
+            }
+            reply
+        }
         (true, false) => relay_error(
             id,
             "unavailable",

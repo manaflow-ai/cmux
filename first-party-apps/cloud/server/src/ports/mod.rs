@@ -128,6 +128,16 @@ impl Edge {
         Self::new(tunnel, Box::new(DaemonTransfer::new(Arc::clone(&files)))).with_files(files)
     }
 
+    pub(crate) fn forget_scope(&mut self) {
+        for forward in self.forwards.values_mut().chain(self.proxies.values_mut()) {
+            forward.close("the Cloud session changed");
+        }
+        self.forwards.clear();
+        self.proxies.clear();
+        self.events.clear();
+        self.transfers.forget_scope();
+    }
+
     fn listeners(&self) -> usize {
         self.forwards.values().chain(self.proxies.values()).filter(|f| f.down.is_none()).count()
     }

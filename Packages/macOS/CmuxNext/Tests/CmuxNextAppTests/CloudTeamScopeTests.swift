@@ -123,4 +123,16 @@ import Testing
         await #expect(throws: CloudTeamScope.Failure.invalidRequest) { try await snapshot.call(path, Data()) }
         #expect(await world.operationTeams.isEmpty)
     }
+    @Test func scopeIDsRemainStableUntilTheAccountOrSelectionGenerationChanges() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (world, _, resolver) = try await setup(root)
+        let first = try await resolver.snapshot(), same = try await resolver.snapshot()
+        #expect(first.id == same.id && first.id.count == 64)
+        await world.select("tenant_b"); await world.select("tenant_a")
+        let next = try await resolver.snapshot()
+        #expect(next.team == first.team && next.id != first.id)
+        await #expect(throws: CloudTeamScope.Failure.changed) { try await first.recheck() }
+    }
+
 }

@@ -73,3 +73,25 @@ fn cloud_scope_real_daemon_forwards_context_and_separates_replay() {
         "args": {}, "idempotency_key": "invalid", "origin": "user", "expected_scope": "not-a-scope"}));
     assert_eq!(invalid["ok"], false, "{invalid}");
 }
+
+#[test]
+fn cloud_scope_credential_servers_always_reach_their_own_session_gate() {
+    let apps = Apps::new("credential-scope");
+    write_scope_app(&apps);
+    let path = apps.dir.join("first-party/scope/cmux-app.v2.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    manifest["server"]["scopes"] =
+        json!({"op:cmux.credential.relay": "Use the parent's current session."});
+    std::fs::write(path, manifest.to_string()).unwrap();
+    apps.start();
+    let mut app = apps.app();
+    for sent in 1..=2 {
+        let reply = app.rpc(json!({"cmd": "apps-run", "app": "cmux/scope", "op": "scope.write",
+            "args": {}, "idempotency_key": "same-intent", "origin": "user"}));
+        assert_eq!(
+            ok(&reply)["value"]["sent"],
+            sent,
+            "the server must recheck its parent before replay: {reply}"
+        );
+    }
+}
