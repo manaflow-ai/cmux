@@ -37,7 +37,7 @@ final class SidebarSectionHeaderView: NSView {
     private var didDrag = false
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func configure(title: String, collapsed: Bool) {

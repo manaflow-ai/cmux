@@ -12,6 +12,7 @@ import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
+import CmuxNextPhoneAccess
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -51,8 +52,7 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
-    /// Phone access; started by the account layer once signed in.
-    let mobile = MobileHostService()
+    let mobile = MobileHostService(displayName: { await MacName.computerName() })  // phone access; the account layer starts it
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()

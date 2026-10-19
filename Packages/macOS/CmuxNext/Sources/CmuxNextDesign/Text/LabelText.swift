@@ -34,7 +34,7 @@ enum LabelText {
         var lastBaselineFromBottom: CGFloat
     }
 
-    static let padding: CGFloat = 2
+    nonisolated static let padding: CGFloat = 2
 
     private static let storage = NSTextStorage()
     private static let container: NSTextContainer = {
@@ -125,9 +125,12 @@ enum LabelText {
         var used = CGRect.null
         var baselines: [CGFloat] = []
         manager.enumerateLineFragments(forGlyphRange: range) { rect, usedRect, _, glyphs, stop in
-            used = used.union(usedRect)
             baselines.append(rect.minY + reportedAscent(of: glyphs))
-            if baselines.count >= shownLines { stop.pointee = true }
+            let last = baselines.count >= shownLines
+            // The last line a field shows, when more text follows it, ends at its last visible
+            // glyph: its trailing spaces do not count (they push a full line to the edge).
+            used = used.union(last && NSMaxRange(glyphs) < NSMaxRange(range) ? withoutTrailingSpaces(usedRect, glyphs: glyphs) : usedRect)
+            if last { stop.pointee = true }
         }
         // The extra line after a final line break counts too, as a field's.
         if shownLines == Int.max, !manager.extraLineFragmentUsedRect.isEmpty { used = used.union(manager.extraLineFragmentUsedRect) }
@@ -135,6 +138,23 @@ enum LabelText {
         let textWidth = text.length > 0 ? max(used.maxX - padding * 2, 0) : 0
         let size = NSSize(width: (textWidth * scale).rounded(.up) / scale, height: (used.maxY * scale).rounded(.up) / scale)
         return Metrics(size: size, firstBaseline: baselines.first ?? 0, lastBaselineFromBottom: size.height - (baselines.last ?? 0))
+    }
+
+    /// `usedRect` of the laid-out line `glyphs` without its trailing spaces, tabs and line break:
+    /// its right edge at the right edge of the glyphs before them (a field measures "short   \n"
+    /// as "short"). A line whose kept glyphs reach as far right keeps its rect (right-to-left
+    /// text, where the trailing spaces sit on the left).
+    private static func withoutTrailingSpaces(_ usedRect: CGRect, glyphs: NSRange) -> CGRect {
+        let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        let string = storage.string as NSString
+        var end = NSMaxRange(characters)
+        while end > characters.location, [0x20, 0x09, 0x0A, 0x0D, 0x2028, 0x2029].contains(string.character(at: end - 1)) { end -= 1 }
+        guard end < NSMaxRange(characters), end > characters.location else { return usedRect }
+        let kept = manager.glyphRange(forCharacterRange: NSRange(location: characters.location, length: end - characters.location),
+                                      actualCharacterRange: nil)
+        let right = manager.boundingRect(forGlyphRange: kept, in: container).maxX + padding
+        guard right > usedRect.minX, right < usedRect.maxX else { return usedRect }
+        return CGRect(x: usedRect.minX, y: usedRect.minY, width: right - usedRect.minX, height: usedRect.height)
     }
 
     /// `text` up to the end of its last visible line with an ellipsis in place of the line
@@ -157,11 +177,7 @@ enum LabelText {
     /// The baseline a field reports for a line: its tallest font's ascender, rounded to a whole
     /// point (where the line's glyphs sit).
     private static func reportedAscent(of glyphs: NSRange) -> CGFloat {
-        var ascent: CGFloat = 0
-        storage.enumerateAttribute(.font, in: manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)) { value, _, _ in
-            if let font = value as? NSFont { ascent = max(ascent, font.ascender.rounded()) }
-        }
-        return ascent
+        WholePointLines.metrics(of: lineHeights.fonts ?? storage, in: manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil))?.ascent ?? 0
     }
 
     /// Draws `text` (font and color set) laid out for `shape` in a top-down box of `size` (the
@@ -190,21 +206,31 @@ enum LabelText {
     /// the descender below it rounded up to a whole point (TextKit rounds the raw sum instead: an
     /// 11 pt line is 13 pt, a field's 14 pt).
     nonisolated final class WholePointLines: NSObject, NSLayoutManagerDelegate {
+        /// The text with the fonts it was given: a line is as tall as those fonts, not as the
+        /// fallback fonts the text system puts in for scripts they lack (a field's Hebrew line
+        /// at 13 pt is 16 pt, as a Latin one). nil: the laid-out storage's fonts.
+        var fonts: NSAttributedString?
+
+        /// The rounded ascent and the line height of the fonts of `text` in `range`; nil without a font.
+        static func metrics(of text: NSAttributedString, in range: NSRange) -> (ascent: CGFloat, height: CGFloat)? {
+            var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+            let range = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
+            text.enumerateAttribute(.font, in: range) { value, _, _ in
+                guard let font = value as? NSFont else { return }
+                ascent = max(ascent, font.ascender.rounded())
+                descent = max(descent, (-font.descender).rounded(.up))
+                leading = max(leading, font.leading.rounded(.up))
+            }
+            return ascent > 0 ? (ascent, ascent + descent + leading) : nil
+        }
 
         func layoutManager(_ layoutManager: NSLayoutManager, shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
                            lineFragmentUsedRect: UnsafeMutablePointer<NSRect>, baselineOffset: UnsafeMutablePointer<CGFloat>,
                            in textContainer: NSTextContainer, forGlyphRange glyphRange: NSRange) -> Bool {
             guard let storage = layoutManager.textStorage else { return false }
             let characters = layoutManager.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-            var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
-            storage.enumerateAttribute(.font, in: characters) { value, _, _ in
-                guard let font = value as? NSFont else { return }
-                ascent = max(ascent, font.ascender.rounded())
-                descent = max(descent, (-font.descender).rounded(.up))
-                leading = max(leading, font.leading.rounded(.up))
-            }
-            guard ascent > 0 else { return false }
-            let height = ascent + descent + leading
+            guard let metrics = Self.metrics(of: fonts ?? storage, in: characters) else { return false }
+            let ascent = metrics.ascent, height = metrics.height
             lineFragmentRect.pointee.size.height = height
             lineFragmentUsedRect.pointee.size.height = height
             baselineOffset.pointee = ascent
@@ -217,6 +243,7 @@ enum LabelText {
     private static func lay(_ text: NSAttributedString, shape: Shape, width: CGFloat?, height: CGFloat?) -> NSRange {
         let manager = Self.manager // wires the storage, the manager and the container on first use
         configure(container, shape: shape, width: width, height: height)
+        lineHeights.fonts = text
         storage.setAttributedString(text)
         manager.ensureLayout(for: container)
         return manager.glyphRange(for: container)
@@ -234,9 +261,11 @@ final class LabelSelectionView: NSTextView {
     private var lineHeights: LabelText.WholePointLines?
 
     convenience init(text: NSAttributedString, shape: LabelText.Shape, size: NSSize) {
-        let storage = NSTextStorage(attributedString: LabelText.paragraphed(text, shape: shape))
+        let laid = LabelText.paragraphed(text, shape: shape)
+        let storage = NSTextStorage(attributedString: laid)
         let manager = NSLayoutManager()
         let lineHeights = LabelText.WholePointLines()
+        lineHeights.fonts = laid
         manager.delegate = lineHeights
         let container = NSTextContainer(size: .zero)
         LabelText.configure(container, shape: shape, width: size.width, height: LabelText.layoutHeight(shape, size: size))
