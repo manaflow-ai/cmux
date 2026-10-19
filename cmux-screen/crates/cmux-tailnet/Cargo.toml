@@ -12,9 +12,21 @@ links = "tailscale"
 name = "cmux-tailnet"
 path = "src/bin/cmux-tailnet.rs"
 
+[features]
+default = []
+# The TURN-over-TCP relay that carries WebRTC media over the tailnet (`relay`
+# module, CLI `turn-serve` and `turn-check`). webrtc-rs `turn`: MIT OR Apache-2.0.
+relay = ["dep:turn", "dep:webrtc-util", "dep:tokio", "dep:tokio-util", "dep:async-trait", "dep:getrandom"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
 ureq = "3"
 libc = "0.2"
+turn = { version = "0.17.2", optional = true }
+webrtc-util = { version = "0.17.1", default-features = false, features = ["conn"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"], optional = true }
+tokio-util = { version = "0.7", optional = true }
+async-trait = { version = "0.1", optional = true }
+getrandom = { workspace = true, optional = true }

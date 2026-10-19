@@ -10,7 +10,9 @@
 //! - [`Node`]: start, sign-in state as events ([`Node::watch`], no polling),
 //!   TCP listen and dial on the tailnet, and WhoIs for a peer address;
 //! - [`Access`]: who may connect (default: the node's owner only), checked
-//!   on the WhoIs answer before any application byte is read.
+//!   on the WhoIs answer before any application byte is read;
+//! - `relay` (feature `relay`): a TURN-over-TCP relay on a tailnet port, so
+//!   WebRTC media reaches a host that has no OS tailnet interface.
 //!
 //! The network decides reachability (Tailscale ACLs); [`Access`] decides
 //! which identities this host serves; the application's own gates (for the
@@ -20,6 +22,8 @@ mod access;
 mod ffi;
 mod localapi;
 mod node;
+#[cfg(feature = "relay")]
+pub mod relay;
 mod types;
 
 pub use access::{Access, Decision};

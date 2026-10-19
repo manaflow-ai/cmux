@@ -2,7 +2,8 @@
 //!
 //!   cmux-screen-host [--name NAME] [--backend native|desktop]
 //!                    [--no-tailnet] [--tailnet-hostname NAME] [--tailnet-auth-key-file FILE|-]
-//!                    [--tailnet-port N] [--allow-tailnet-members] [--allow PRINCIPAL]...
+//!                    [--tailnet-port N] [--tailnet-relay-port N] [--no-tailnet-relay]
+//!                    [--allow-tailnet-members] [--allow PRINCIPAL]...
 //!                    [--no-room] [--signal URL] [--new-pairing]
 //!
 //! Viewers arrive two ways:
@@ -10,7 +11,9 @@
 //!   the user's tailnet through embedded Tailscale (no Tailscale app needed).
 //!   The first run prints a sign-in link; the login is kept in
 //!   ~/.config/cmux-screen/tailnet. Only the owner's devices are served unless
-//!   `--allow` or `--allow-tailnet-members` widens it.
+//!   `--allow` or `--allow-tailnet-members` widens it. Media goes over the
+//!   tailnet too, through the host's TURN-over-TCP relay on tailnet port 4181
+//!   (`--no-tailnet-relay` turns it off).
 //! - the Worker room (fallback for viewers with no tailnet). The pairing
 //!   (room and secret) is kept in ~/.config/cmux-vnc-host/pairing.json, the
 //!   same file the Swift host uses, so a phone paired with either keeps working.
@@ -23,6 +26,7 @@ use cmux_screen_host::backend::BackendKind;
 use cmux_screen_host::tailnet_signal::{DEFAULT_PORT, TailnetSignal};
 use cmux_screen_host::{Host, log};
 use cmux_screen_proto::{DEFAULT_SIGNAL, Pairing};
+use cmux_tailnet::relay::DEFAULT_RELAY_PORT;
 use cmux_tailnet::{Access, BackendState, Node, NodeConfig};
 
 struct Options {
@@ -34,11 +38,12 @@ struct Options {
     tailnet_hostname: Option<String>,
     tailnet_auth_key_file: Option<String>,
     tailnet_port: u16,
+    relay_port: Option<u16>,
     access: Access,
     room: bool,
 }
 
-const USAGE: &str = "usage: cmux-screen-host [--name NAME] [--backend native|desktop] [--no-tailnet] [--tailnet-hostname NAME] [--tailnet-auth-key-file FILE|-] [--tailnet-port N] [--allow-tailnet-members] [--allow PRINCIPAL] [--no-room] [--signal URL] [--new-pairing]";
+const USAGE: &str = "usage: cmux-screen-host [--name NAME] [--backend native|desktop] [--no-tailnet] [--tailnet-hostname NAME] [--tailnet-auth-key-file FILE|-] [--tailnet-port N] [--tailnet-relay-port N] [--no-tailnet-relay] [--allow-tailnet-members] [--allow PRINCIPAL] [--no-room] [--signal URL] [--new-pairing]";
 
 fn options() -> Options {
     let mut options = Options {
@@ -50,6 +55,7 @@ fn options() -> Options {
         tailnet_hostname: None,
         tailnet_auth_key_file: None,
         tailnet_port: DEFAULT_PORT,
+        relay_port: Some(DEFAULT_RELAY_PORT),
         access: Access::default(),
         room: true,
     };
@@ -71,6 +77,10 @@ fn options() -> Options {
             "--tailnet-port" => {
                 options.tailnet_port = arguments.next().and_then(|port| port.parse().ok()).unwrap_or(options.tailnet_port)
             }
+            "--tailnet-relay-port" => {
+                options.relay_port = arguments.next().and_then(|port| port.parse().ok()).or(options.relay_port)
+            }
+            "--no-tailnet-relay" => options.relay_port = None,
             "--allow-tailnet-members" => options.access.allow_tailnet_members = true,
             "--allow" => options.access.allow.extend(arguments.next()),
             "--deny" => options.access.deny.extend(arguments.next()),
@@ -158,7 +168,7 @@ fn start_tailnet(options: &Options) -> anyhow::Result<TailnetSignal> {
             }
         }
     })?;
-    Ok(TailnetSignal { node, access: options.access.clone(), port: options.tailnet_port })
+    Ok(TailnetSignal { node, access: options.access.clone(), port: options.tailnet_port, relay_port: options.relay_port })
 }
 
 fn load_pairing(options: &Options) -> anyhow::Result<Pairing> {

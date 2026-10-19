@@ -11,7 +11,11 @@ Viewers reach the host two ways (design: `plans/cmux-next/remote-desktop-v2.md`)
   through embedded Tailscale (`cmux-tailnet`, libtailscale), named
   `cmux-<computer>`; no Tailscale app is needed. The first run prints a
   sign-in link. Each viewer connection is identified with Tailscale WhoIs and
-  served only if it is the owner's device (or on `--allow`).
+  served only if it is the owner's device (or on `--allow`). Media goes over
+  the tailnet too: the host runs a TURN-over-TCP relay on tailnet port 4181
+  and gives each tailnet viewer its own credentials in an `ice` signaling
+  message, so a host with embedded Tailscale only (no OS tailnet interface)
+  still streams over the tailnet. Check: `scripts/tailnet-turn-check.sh`.
 - **Worker room (fallback).** The pairing link and Cloudflare TURN, for
   viewers with no tailnet. `--no-room` turns it off.
 
@@ -25,7 +29,7 @@ unchanged and both share `~/.config/cmux-vnc-host/pairing.json`.
 | --- | --- |
 | `cmux-screen-proto` | Pairing links, room signaling messages, input and host messages, quality presets. Pure Rust, every platform. |
 | `cmux-screen-host` | The host: tailnet and room signaling, WebRTC sessions, quality, reconnect rules, and the platform backends. |
-| `cmux-tailnet` | This install as a tailnet device: libtailscale node, sign-in events, TCP listen and dial, WhoIs, and the owner-only access check. CLI `cmux-tailnet up/serve/dial`. |
+| `cmux-tailnet` | This install as a tailnet device: libtailscale node, sign-in events, TCP listen and dial, WhoIs, the owner-only access check, and (feature `relay`) the media TURN relay. CLI `cmux-tailnet up/serve/dial/forward/turn-serve/turn-check`. |
 
 WebRTC is Google's libwebrtc through LiveKit's `libwebrtc` crate, so
 congestion control, hardware encoders (VideoToolbox, NVENC, VA-API),
@@ -54,6 +58,7 @@ cargo build --release                                        # needs Go 1.27 for
 ./target/release/cmux-screen-host --name "My Mac"            # prints the sign-in link, then the pairing link
 ./target/release/cmux-screen-host --tailnet-auth-key-file -  # headless sign-in with a one-time auth key on stdin
 ./target/release/cmux-screen-host --no-room                  # tailnet only
+./target/release/cmux-screen-host --no-tailnet-relay         # tailnet signaling, no media relay
 ./target/release/cmux-screen-host --backend desktop          # libwebrtc's capturer instead
 ```
 

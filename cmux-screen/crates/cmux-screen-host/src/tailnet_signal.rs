@@ -14,13 +14,22 @@
 //! browser `Origin` header is refused. Other programs of the owner on the
 //! owner's own devices are trusted, as with Rex and Tailscale SSH; the host's
 //! consent prompt (remote-desktop.md 11) is the next gate.
+//!
+//! Media: the host's tsnet node also runs a TURN-over-TCP relay
+//! (`cmux_tailnet::relay`, port 4181 by default). Each admitted link gets its
+//! own credentials, bound to that link's device, in an `ice` message before
+//! `hello`; the viewer's libwebrtc then has a tailnet relay candidate even
+//! when the host has no OS tailnet interface. The credentials (and every
+//! allocation made with them) end when the link and the session it started
+//! have both ended.
 
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use cmux_screen_proto::SignalMessage;
+use cmux_screen_proto::{IceServer, SignalMessage};
+use cmux_tailnet::relay::{Log, TurnGrant, TurnRelay};
 use cmux_tailnet::{Access, Decision, Node};
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
@@ -37,6 +46,9 @@ pub struct TailnetSignal {
     pub node: Arc<Node>,
     pub access: Access,
     pub port: u16,
+    /// The tailnet port of the TURN relay for media; None: no relay (media
+    /// then needs an OS tailnet interface, the LAN, or the room's TURN).
+    pub relay_port: Option<u16>,
 }
 
 /// A message from one signaling source, with where to answer.
@@ -49,8 +61,9 @@ pub(crate) struct Incoming {
 pub(crate) enum Source {
     /// The Worker room (fallback). Answers go to the room's current connection.
     Worker,
-    /// One identified tailnet viewer.
-    Tailnet { id: u64, principal: String, reply: mpsc::UnboundedSender<SignalMessage> },
+    /// One identified tailnet viewer. `turn` is its relay credential: the link
+    /// and the session each hold it, and the relay drops it with the last one.
+    Tailnet { id: u64, principal: String, reply: mpsc::UnboundedSender<SignalMessage>, turn: Option<Arc<TurnGrant>> },
 }
 
 impl Source {
@@ -79,6 +92,19 @@ const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
 pub(crate) fn serve(signal: TailnetSignal, incoming: mpsc::UnboundedSender<Incoming>) -> Result<()> {
     let listener = signal.node.listen_tcp(signal.port).context("tailnet listen")?;
     let runtime = tokio::runtime::Handle::current();
+    let relay = signal.relay_port.and_then(|port| {
+        let relay_log: Log = Arc::new(|line: &str| log(line));
+        match TurnRelay::serve(signal.node.clone(), signal.access.clone(), port, runtime.clone(), relay_log) {
+            Ok(relay) => {
+                log(format!("media relay (TURN over TCP) on tailnet port {port}"));
+                Some(relay)
+            }
+            Err(error) => {
+                log(format!("media relay failed: {error}; tailnet viewers get no relay"));
+                None
+            }
+        }
+    });
     std::thread::Builder::new().name("tailnet-accept".into()).spawn(move || {
         let mut next_id = 1u64;
         loop {
@@ -96,13 +122,13 @@ pub(crate) fn serve(signal: TailnetSignal, incoming: mpsc::UnboundedSender<Incom
             let decision = signal
                 .node
                 .whois(&remote)
-                .and_then(|peer| Ok(signal.access.check(&signal.node.status()?, &peer)));
-            let principal = match decision {
-                Ok(Decision::Allow { principal, why }) => {
+                .and_then(|peer| Ok((signal.access.check(&signal.node.status()?, &peer), peer)));
+            let (principal, peer_node) = match decision {
+                Ok((Decision::Allow { principal, why }, peer)) => {
                     log(format!("tailnet viewer {remote} ({principal}): allowed, {why}"));
-                    principal
+                    (principal, peer.node.map(|node| node.stable_id).filter(|id| !id.is_empty()))
                 }
-                Ok(Decision::Deny { principal, why }) => {
+                Ok((Decision::Deny { principal, why }, _)) => {
                     log(format!("tailnet viewer {remote} ({principal}): refused, {why}"));
                     continue;
                 }
@@ -113,9 +139,21 @@ pub(crate) fn serve(signal: TailnetSignal, incoming: mpsc::UnboundedSender<Incom
             };
             let id = next_id;
             next_id += 1;
+            // Relay credentials only for a device the relay can identify again (its WhoIs node).
+            let turn = match (&relay, peer_node) {
+                (Some(relay), Some(peer_node)) => match (relay.ice_url(&signal.node), relay.grant(Some(peer_node))) {
+                    (Some(url), Ok(grant)) => Some((grant, url)),
+                    (_, Err(error)) => {
+                        log(format!("media relay credentials: {error}"));
+                        None
+                    }
+                    (None, _) => None,
+                },
+                _ => None,
+            };
             let incoming = incoming.clone();
             runtime.spawn(async move {
-                if let Err(error) = viewer(stream, id, principal.clone(), incoming).await {
+                if let Err(error) = viewer(stream, id, principal.clone(), turn, incoming).await {
                     log(format!("tailnet viewer {principal}: {error:#}"));
                 }
             });
@@ -124,7 +162,13 @@ pub(crate) fn serve(signal: TailnetSignal, incoming: mpsc::UnboundedSender<Incom
     Ok(())
 }
 
-async fn viewer(stream: UnixStream, id: u64, principal: String, incoming: mpsc::UnboundedSender<Incoming>) -> Result<()> {
+async fn viewer(
+    stream: UnixStream,
+    id: u64,
+    principal: String,
+    turn: Option<(Arc<TurnGrant>, String)>,
+    incoming: mpsc::UnboundedSender<Incoming>,
+) -> Result<()> {
     stream.set_nonblocking(true)?;
     let stream = tokio::net::UnixStream::from_std(stream)?;
     // tungstenite's handshake callback must return its own (large) ErrorResponse.
@@ -143,8 +187,21 @@ async fn viewer(stream: UnixStream, id: u64, principal: String, incoming: mpsc::
         .context("signaling handshake")?;
     let (mut write, mut read) = socket.split();
     let (reply, mut outgoing) = mpsc::unbounded_channel::<SignalMessage>();
-    let source = Source::Tailnet { id, principal, reply };
+    let ice = turn.as_ref().map(|(grant, url)| SignalMessage {
+        kind: "ice".into(),
+        ice_servers: Some(vec![IceServer {
+            urls: vec![url.clone()],
+            username: Some(grant.username().to_owned()),
+            credential: Some(grant.password().to_owned()),
+        }]),
+        ..SignalMessage::default()
+    });
+    let source = Source::Tailnet { id, principal, reply, turn: turn.map(|(grant, _)| grant) };
     let pumped = async {
+        // Before `hello`: a viewer creates its peer connection (and gathers) on `hello`.
+        if let Some(ice) = &ice {
+            write.send(Message::text(serde_json::to_string(ice)?)).await?;
+        }
         let hello = SignalMessage { kind: "hello".into(), role: Some("viewer".into()), peer: Some(true), ..SignalMessage::default() };
         write.send(Message::text(serde_json::to_string(&hello)?)).await?;
         let mut keepalive = tokio::time::interval(KEEPALIVE);

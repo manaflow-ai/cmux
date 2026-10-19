@@ -53,7 +53,7 @@ the LocalAPI password).
 
 | Piece | Where | State |
 | --- | --- | --- |
-| `cmux-tailnet` | `cmux-screen/crates/cmux-tailnet` | Node (start, status, IPN bus watch, TCP listen/dial, WhoIs), `Access`, CLI `cmux-tailnet up/serve/dial` |
+| `cmux-tailnet` | `cmux-screen/crates/cmux-tailnet` | Node (start, status, IPN bus watch, TCP listen/dial, WhoIs), `Access`, media relay (`relay`, feature), CLI `cmux-tailnet up/serve/dial/forward/turn-serve/turn-check` |
 | Tailnet signaling | `cmux-screen-host/src/tailnet_signal.rs` | Listener, WhoIs + Access before the handshake, same `SignalMessage` as the room |
 | Host | `cmux-screen-host` | Both sources; tailnet on by default; `--no-room` turns off the fallback |
 | Capture and input | `cmux-screen-host/src/backend` | macOS done (ScreenCaptureKit, CGEvent). Linux and Windows: capture builds, input not done |
@@ -68,16 +68,66 @@ and the Go toolchain do not enter the cmux-tui lockfile.
   interface, so ICE host candidates include 100.x / fd7a: addresses and the
   stream runs directly over WireGuard. No TURN.
 - A host with embedded Tailscale only: libwebrtc cannot use tsnet's userspace
-  network stack, so its ICE candidates are LAN and STUN/TURN ones (the room's
-  fallback servers). Signaling and identity still go over the tailnet.
-  Next step (RD2-7, open): carry media through tsnet too, by a small
-  loopback bridge: the viewer gets a TURN-over-TCP server on loopback that
-  forwards over a tsnet TCP stream to a TURN server inside the host. That
-  keeps libwebrtc unchanged. A datagram variant needs a `ListenPacket` export
-  added to libtailscale (tsnet has `ListenPacket`; libtailscale's C API has
-  only stream sockets).
-- MTU: the Tailscale MTU is 1280, so the RTP payload must stay at or under
-  1200 bytes on that path (libwebrtc's default packet size fits).
+  network stack, so its own ICE candidates are LAN and STUN/TURN ones.
+  RD2-7 (built, branch `feat-cmux-next-tailnet-media`) carries the media over
+  the tailnet anyway, with libwebrtc unchanged on both ends:
+
+  ```
+  viewer libwebrtc --TURN/TCP--> 127.0.0.1:P (viewer forward) --tsnet TCP--> host:4181
+      host relay (webrtc-rs turn) --UDP on this machine--> host libwebrtc host candidate
+  ```
+
+  - Host: `cmux_tailnet::relay::TurnRelay` (feature `relay`) listens on
+    tailnet port 4181 (`--tailnet-relay-port`, `--no-tailnet-relay`). Each
+    TCP connection gets WhoIs + `Access` (the signaling rule), then its own
+    TURN server instance (webrtc-rs `turn` 0.17, MIT OR Apache-2.0), so its
+    allocations end with the connection. Relays are IPv4 UDP sockets on this
+    machine.
+  - Credentials: per admitted signaling link, random username (96 bits) and
+    password (192 bits), bound to the link's WhoIs node (stable id): another
+    device with the same credentials is refused. At most 8 connections per
+    credential; a connection that does not authenticate in 10 s is dropped.
+    The link and the WebRTC session each hold the credential; when both
+    end, it is revoked and its connections and allocations close at once.
+  - Relay egress: only to the exact UDP host candidates of the session the
+    host itself gathered (from `on_ice_candidate` and the answer SDP);
+    datagrams from other sources are dropped. So the relay is not an open
+    relay into the host's LAN or its local services.
+  - Protocol: one new tailnet-only `SignalMessage` kind, sent before `hello`
+    (the viewer builds its peer connection on `hello`):
+    `{"type":"ice","iceServers":[{"urls":["turn:100.x.y.z:4181?transport=tcp"],"username":"…","credential":"…"}]}`.
+    A viewer with the Tailscale app uses the URL as is; a viewer with only an
+    embedded node forwards a loopback port to that host:port and puts
+    `turn:127.0.0.1:P?transport=tcp` in its configuration. The room never
+    carries `ice`: the Worker path and the iOS app are unchanged.
+  - Viewer reference: `cmux-tailnet forward --state DIR --local 127.0.0.1:P HOST:PORT`
+    (loopback only) reaches 4180 and 4181 through the viewer's own node. The
+    product version is a daemon op.
+  - Check: `cmux-screen/scripts/tailnet-turn-check.sh host` on one node and
+    `... viewer --target HOST:4181 --user U --pass P --peer IP:PORT` on the
+    other: forward, TURN Allocate over TCP, one datagram to a UDP echo on the
+    host and back (`turn-check ok: ...`).
+
+  Limits:
+  - The tailnet leg is TCP: a lost packet stalls the stream behind it
+    (head-of-line blocking) and congestion control runs twice. Fine on a
+    healthy tailnet path; worse than UDP on a lossy one. ICE still prefers a
+    direct LAN or OS-tailnet pair when one works (relay candidates rank last).
+  - IPv4 relays only; a host with only IPv6 host candidates gets no relay path.
+  - The relay address reported to the viewer is the address of the default
+    route; on a multi-homed host the host's libwebrtc may first see the
+    relay as a peer-reflexive candidate (ICE still connects).
+  - A viewer's other local programs can use its loopback forward, the same
+    trust as signaling ("WhoIs names the device, not the program"), but they
+    still need the per-link credential, which only the signaling link gets.
+  - A datagram variant (lower latency on loss) needs a `ListenPacket` export
+    added to libtailscale (tsnet has `ListenPacket`; libtailscale's C API has
+    only stream sockets).
+- MTU: the Tailscale MTU is 1280. On the relay path the tailnet leg is TCP,
+  so TCP segments the TURN frames and the MTU never limits RTP; the host leg
+  is UDP on one machine. libwebrtc's default RTP packet size (about 1200
+  bytes) also fits a future datagram path (1280 - 40 IPv6 - 8 UDP - 4
+  ChannelData = 1228 bytes).
 
 ## 4. Onboarding
 
@@ -105,10 +155,15 @@ LOCK turn.
 - `cmux-screen-host` on a Mac, viewer on the tailnet: offer and answer over
   the tailnet, log line `tailnet user:<login> viewer offered`.
 - Room fallback: the iOS app with the pairing link, unchanged behavior.
+- Media relay: `cmux-screen/scripts/tailnet-turn-check.sh` on two signed-in
+  nodes (section 3); with the screen host, the log line
+  `media relay (TURN over TCP) on tailnet port 4181`.
 
 ## 7. Open
 
-- RD2-7: media through tsnet for embedded-only hosts (section 3).
+- RD2-7: built (section 3). Open: a tailnet viewer (Swift or CmuxNext) that
+  reads `ice` and runs the forward; a libwebrtc-to-libwebrtc run over the
+  relay with measured latency against the room's TURN.
 - Swift viewer on the tailnet path (TailscaleKit from libtailscale, or the
   system Tailscale).
 - Linux and Windows input backends.

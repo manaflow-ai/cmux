@@ -215,6 +215,10 @@ impl Host {
                 password: server.credential.unwrap_or_default(),
             })
             .collect();
+        // The relay may reach only this session's candidates, not a previous session's ports.
+        if let Source::Tailnet { turn: Some(grant), .. } = &source {
+            grant.clear_peers();
+        }
         let peer = self.factory.create_peer_connection(configuration).context("peer connection")?;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
@@ -303,6 +307,12 @@ impl Host {
         session.peer.set_local_description(answer.clone()).await.map_err(|e| anyhow::anyhow!("answer: {e:?}"))?;
         let answer = answer.to_string();
         log(format!("answer: {}", describe_video(&answer)));
+        // Candidates already in the answer count as the session's host candidates too.
+        if let Source::Tailnet { turn: Some(grant), .. } = &source {
+            for addr in answer.lines().filter_map(|line| line.strip_prefix("a=")).filter_map(udp_host_candidate) {
+                grant.allow_peer(addr);
+            }
+        }
         self.send(&source, SignalMessage::with_sdp("answer", answer));
         self.session = Some(session);
         log(format!("{} viewer offered; streaming answer sent", source.describe()));
@@ -314,6 +324,12 @@ impl Host {
             Event::Candidate(id, message) => {
                 // A previous session's late candidates must not reach the next viewer.
                 let Some(session) = self.current(id) else { return };
+                // The tailnet relay may send to this session's own host candidates, and nowhere else.
+                if let Source::Tailnet { turn: Some(grant), .. } = &session.source
+                    && let Some(addr) = message.candidate.as_deref().and_then(udp_host_candidate)
+                {
+                    grant.allow_peer(addr);
+                }
                 self.send(&session.source, message);
             }
             Event::Channel(id, channel) => match self.current(id) {
@@ -400,6 +416,15 @@ impl Host {
         tokio::task::spawn_blocking(move || backend.stop());
         log("session ended");
     }
+}
+
+/// The address of a UDP host candidate (`candidate:1 1 udp 2122260223 192.168.1.5 50000 typ host ...`).
+fn udp_host_candidate(candidate: &str) -> Option<std::net::SocketAddr> {
+    let fields: Vec<&str> = candidate.strip_prefix("candidate:").unwrap_or(candidate).split_whitespace().collect();
+    if fields.len() < 8 || !fields[2].eq_ignore_ascii_case("udp") || fields[6] != "typ" || fields[7] != "host" {
+        return None;
+    }
+    Some(std::net::SocketAddr::new(fields[4].parse().ok()?, fields[5].parse().ok()?))
 }
 
 fn clear_handlers(channel: &DataChannel) {

@@ -25,11 +25,20 @@ pub const POINTER_CHANNEL: &str = "pointer";
 /// Stream id and track id of the screen video track.
 pub const SCREEN_TRACK: &str = "screen";
 
-/// One message relayed by the room between host and viewer.
+/// One message relayed by the room between host and viewer, or sent on the
+/// tailnet signaling link.
+///
+/// `ice` (tailnet link only, host to viewer, sent before `hello`):
+/// `{"type":"ice","iceServers":[{"urls":["turn:100.x.y.z:4181?transport=tcp"],"username":"…","credential":"…"}]}`.
+/// The host's TURN relay on the tailnet, valid while this link (or the session
+/// it started) lives. A viewer with an OS tailnet interface uses the URL as
+/// is; a viewer with only an embedded node forwards a loopback port to that
+/// host:port and puts the loopback address in the URL. The Worker room never
+/// carries `ice`, so room viewers (the iOS app) see no change.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SignalMessage {
-    /// hello, peer-joined, peer-left, offer, answer, candidate.
+    /// hello, peer-joined, peer-left, offer, answer, candidate, ice.
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -45,6 +54,9 @@ pub struct SignalMessage {
     /// In `hello`: whether the other role is already in the room.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer: Option<bool>,
+    /// In `ice`: ICE servers for the viewer's peer connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ice_servers: Option<Vec<IceServer>>,
 }
 
 impl SignalMessage {
