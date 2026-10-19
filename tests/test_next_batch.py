@@ -1308,98 +1308,44 @@ class StickyBody(unittest.TestCase):
         self.assertNotIn("batch 7", body)
 
 
-class LandingRetry(unittest.TestCase):
-    def test_red_heavy_check_lands_with_an_override_naming_the_batch(self):
+class Landing(unittest.TestCase):
+    """The batch lands through GitHub's merge API pinned to the head it validated; no gh-merge-green."""
+
+    def controller(self, api):
         controller = nb.Controller.__new__(nb.Controller)
         controller.args = Namespace(repo="o/r")
-        controller.run_url = "https://example.test/run/1"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
-                                   heavy_passed=["cmux-next swift test"])
+        controller.run_url = "u"
+        controller.writer = mock.Mock()
+        controller.writer.api = api
+        return controller
+
+    def validation(self):
+        return nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
+
+    def test_merges_the_validated_head_with_a_squash(self):
+        calls = []
+        controller = self.controller(lambda path, **kw: calls.append((path, kw)) or {"sha": "m" * 40, "merged": True})
+        self.assertEqual(controller.merge_one(pr(7), self.validation()), "landed")
+        path, kw = calls[0]
+        self.assertEqual(path, "repos/o/r/pulls/7/merge")
+        self.assertEqual(kw["method"], "PUT")
+        self.assertEqual(kw["body"]["sha"], pr(7).sha)
+        self.assertEqual(kw["body"]["merge_method"], "squash")
+        self.assertIn("u", kw["body"]["commit_message"])
+
+    def test_a_refusal_is_reported_not_retried(self):
         calls = []
 
-        def fake_run(command, **_):
-            calls.append(command)
-            if "--override" not in command:
-                return subprocess.CompletedProcess(command, 1, "", "not green: 'cmux-next swift test' on abc1234, not excused by feat-cmux-next (x)\n")
-            return subprocess.CompletedProcess(command, 0, "", "")
+        def refuse(path, **kw):
+            calls.append(path)
+            raise RuntimeError("HTTP 409: Head branch was modified. Review and try the merge again.")
+        outcome = self.controller(refuse).merge_one(pr(7), self.validation())
+        self.assertTrue(outcome.startswith("not landed: GitHub refused to merge"), outcome)
+        self.assertEqual(len(calls), 1)
 
-        with mock.patch.object(nb.subprocess, "run", fake_run):
-            outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
-        self.assertTrue(outcome.startswith("landed"))
-        self.assertIn("https://example.test/run/1", calls[-1][calls[-1].index("--override") + 1])
-        self.assertEqual(calls[-1][calls[-1].index("--match-head-commit") + 1], pr(7).sha)
-
-    def test_each_override_is_checked_against_its_own_refusal(self):
-        """A lane that turns red while landing waits must be judged again, not waived."""
-        controller = nb.Controller.__new__(nb.Controller)
-        controller.args = Namespace(repo="o/r")
-        controller.run_url = "u"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
-                                   heavy_passed=["cmux-next swift test"])
-        tail = " on abc1234, not excused by feat-cmux-next (x)\n"
-        replies = iter([
-            "not green: 'cmux-next swift test'" + tail,  # waivable: retry with --override
-            "not green: 'web / Web status' is queued/" + tail,  # pending under the override
-            "not green: 'cmux app scheme compile (Debug)'" + tail,  # a new red: not waivable
-        ])
-        calls = []
-
-        def fake_run(command, **_):
-            calls.append(command)
-            return subprocess.CompletedProcess(command, 1, "", next(replies))
-
-        with mock.patch.object(nb.subprocess, "run", fake_run), mock.patch.object(nb.time, "sleep"):
-            outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
-        self.assertTrue(outcome.startswith("not landed"))
-        self.assertEqual(["--override" in call for call in calls], [False, True, False])
-
-    def test_waives_only_lanes_the_stack_passed(self):
-        controller = nb.Controller.__new__(nb.Controller)
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
-                                   heavy_passed=["cmux-next swift test", "cmux app scheme compile (Debug)"])
-        controller.failed_jobs = lambda run_id: {1: ["cmux-next swift test"], 2: ["cmux-next daemon tests"]}[run_id]
-        tail = " on abc1234, not excused by feat-cmux-next (no match)"
-        cases = {
-            "'cmux-next swift test'; 'cmux app scheme compile (Debug)'": True,
-            "cmux-next run 1 attempt 1 (pull_request) is failure; 'cmux-next swift test'": True,
-            "cmux-next run 2 attempt 1 (pull_request) is failure; 'cmux-next swift test'": False,
-            "'cmux-next swift test'; 'ci-status'": False,
-            "'cmux-next Release compile (Xcode 26)'": False,
-        }
-        for lanes, expected in cases.items():
-            with self.subTest(lanes=lanes):
-                self.assertEqual(controller.waivable("not green: " + lanes + tail, validation), expected)
-        self.assertFalse(controller.waivable("not green: cmux-next run still pending on abc1234", validation))
-        controller.failed_jobs = mock.Mock(side_effect=RuntimeError("HTTP 502"))
-        self.assertFalse(controller.waivable(
-            "not green: cmux-next run 1 attempt 1 (pull_request) is failure" + tail, validation))
-
-    def test_no_override_for_a_heavy_check_the_stack_did_not_pass(self):
-        controller = nb.Controller.__new__(nb.Controller)
-        controller.args = Namespace(repo="o/r")
-        controller.run_url = "u"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
-                                   heavy_passed=["cmux-next swift test"])
-        red = subprocess.CompletedProcess([], 1, "", "not green: 'cmux app scheme compile (Debug)' on abc1234, not excused by feat-cmux-next (x)\n")
-        with mock.patch.object(nb.subprocess, "run", return_value=red) as run:
-            outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
-        self.assertTrue(outcome.startswith("not landed"))
-        self.assertTrue(all("--override" not in call.args[0] for call in run.call_args_list))
-
-    def test_github_refusal_is_reported_not_retried(self):
-        controller = nb.Controller.__new__(nb.Controller)
-        controller.args = Namespace(repo="o/r")
-        controller.run_url = "u"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
-        refusal = subprocess.CompletedProcess([], 1, "", "not green: GitHub refused to merge o/r#7\n")
-        with mock.patch.object(nb.subprocess, "run", return_value=refusal):
-            self.assertEqual(controller.merge_one(Path("/bin/true"), pr(7), validation),
-                             "not landed: not green: GitHub refused to merge o/r#7")
-
+    def test_gh_merge_green_is_gone_from_the_queue(self):
+        source = (ROOT / "scripts/ci/next_batch.py").read_text()
+        self.assertNotIn("gh-merge-green", source)
 
 class WorkflowShape(unittest.TestCase):
     def setUp(self):
