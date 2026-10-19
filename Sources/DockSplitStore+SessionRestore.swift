@@ -361,8 +361,7 @@ extension DockSplitStore {
         }()
         let shouldAutoResumeAgent =
             (autoResumeAgentSessions &&
-                (agentWasRunning || shouldAutoResumeNormallyEndedClaude || legacySubrouterBinding) ||
-             legacySubrouterBinding) &&
+                (agentWasRunning || shouldAutoResumeNormallyEndedClaude || legacySubrouterBinding)) &&
             !suppressesResumeForBackgroundSession
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
@@ -548,7 +547,6 @@ extension DockSplitStore {
         let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
         let initialCommand = tmuxLauncher
         let initialInput = deferredAgentResumeStartupInput ??
-            legacySubrouterResumeInput ??
             bindingLaunch?.initialInput ??
             agentLaunch?.initialInput ??
             claudeBackgroundAttach?.startupInput

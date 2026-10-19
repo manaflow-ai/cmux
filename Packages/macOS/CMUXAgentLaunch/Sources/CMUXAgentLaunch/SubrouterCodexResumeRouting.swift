@@ -289,15 +289,22 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
                 break
             }
             if (argument == "-c" || argument == "--config"),
-               index + 1 < arguments.count,
-               let provider = modelProviderAssignment(in: arguments[index + 1]) {
-                observedProviders.insert(provider)
+               index + 1 < arguments.count {
+                let value = arguments[index + 1]
+                if let provider = modelProviderAssignment(in: value) {
+                    observedProviders.insert(provider)
+                } else if looksLikeModelProviderAssignment(value) {
+                    return .ambiguous
+                }
                 index += 2
                 continue
             }
             for prefix in ["-c=", "--config="] where argument.hasPrefix(prefix) {
-                if let provider = modelProviderAssignment(in: String(argument.dropFirst(prefix.count))) {
+                let value = String(argument.dropFirst(prefix.count))
+                if let provider = modelProviderAssignment(in: value) {
                     observedProviders.insert(provider)
+                } else if looksLikeModelProviderAssignment(value) {
+                    return .ambiguous
                 }
             }
             index += 1
@@ -310,6 +317,12 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             return .ambiguous
         }
         return .provider(provider)
+    }
+
+    private func looksLikeModelProviderAssignment(_ rawValue: String) -> Bool {
+        let parts = rawValue.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        return parts.count == 2 &&
+            parts[0].trimmingCharacters(in: .whitespacesAndNewlines) == "model_provider"
     }
 
     private func modelProviderAssignment(in rawValue: String) -> String? {

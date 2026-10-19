@@ -677,6 +677,9 @@ struct AgentResumeArgvTests {
         #expect(router.providerEvidence(in: [
             "codex", "-c", "model_provider=openai", "-c", "model_provider=subrouter",
         ]) == .ambiguous)
+        #expect(router.providerEvidence(in: [
+            "codex", "-c", "model_provider=\"subrouter",
+        ]) == .ambiguous)
         #expect(router.providerEvidence(in: ["codex", "--help"]) == .absent)
     }
 

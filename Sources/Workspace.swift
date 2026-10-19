@@ -1794,8 +1794,7 @@ extension Workspace {
             }()
             let shouldAutoResumeAgent =
                 (autoResumeAgentSessions &&
-                    (agentWasRunningAtQuit || shouldAutoResumeNormallyEndedClaude || legacySubrouterBinding) ||
-                 legacySubrouterBinding) &&
+                (agentWasRunningAtQuit || shouldAutoResumeNormallyEndedClaude || legacySubrouterBinding)) &&
                 !suppressesResumeForBackgroundSession
             // A persisted agent snapshot can coexist with a non-agent surface
             // binding (for example, a process-detected tmux attach). Keep the
@@ -2096,7 +2095,6 @@ extension Workspace {
                 ?? restoredTmuxStartupScript
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
                 ? (deferredAgentResumeStartupInput ??
-                    legacySubrouterResumeInput ??
                     restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
                     claudeBackgroundAttach?.startupInput)
