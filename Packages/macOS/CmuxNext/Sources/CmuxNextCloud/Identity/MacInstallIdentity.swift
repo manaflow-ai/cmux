@@ -97,6 +97,15 @@ public actor MacInstallIdentity {
     /// The bound account for session-only owner reads, never implicit Cloud operation authority.
     func accountContext() async throws -> NativeInstallContext { try await context(team: nil) }
 
+    /// A snapshot retains one scoped client's in-memory refresh cache under the original signer.
+    func scopedClient(team: String, context: NativeInstallContext) async throws -> InstallAuthClient {
+        try await nativeCheck(context)
+        return InstallAuthClient(transport: transport, signer: store.signer(for: context.account), sessionToken: nil,
+            stackUser: context.account, deviceName: deviceName, clientVersion: clientVersion,
+            record: InstallRecord(user: context.user, install: context.install), profile: .mac,
+            team: team, expectedEnvironment: context.environment)
+    }
+
     private func context(team: String?) async throws -> NativeInstallContext {
         guard let client, let stackUser = user else { throw Failure.signedOut }
         let bound = generation

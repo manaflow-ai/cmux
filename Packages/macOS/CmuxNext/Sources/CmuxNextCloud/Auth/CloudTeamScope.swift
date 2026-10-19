@@ -19,6 +19,7 @@ package actor CloudTeamScope {
         package let account: String
         package let generation: UInt64
         package let recheck: @Sendable () async throws -> Void
+        package let installToken: @Sendable () async throws -> String
         package let sessionToken: @Sendable () async throws -> String
         package let call: @Sendable (_ path: String, _ body: Data) async throws -> Data
     }
@@ -64,27 +65,35 @@ package actor CloudTeamScope {
         guard found.id.hasPrefix("team_"), found.id.utf8.count == 25,
               found.id.dropFirst(5).allSatisfy({ "0123456789abcdef".contains($0) }) else { throw Failure.invalidIdentity }
         guard !found.sso_required else { throw Failure.ssoRequired }
-        let binding = try JSONEncoder().encode(["cmux-cloud-scope-v1", instance, context.account, context.install,
-            context.environment, context.point, String(context.generation), selected.stackTeam ?? "", String(selected.generation), found.id])
+        let scoped = try await identity.scopedClient(team: found.id, context: context)
+        let authority = CloudInstallAuthority(client: scoped, transport: transport, headers: identity.requestHeaders, context: context, team: found.id) { [weak self] in
+            guard let self else { throw Failure.changed }
+            try await self.check(selected, context)
+        }
+        let version = try await authority.version()
+        let binding = try JSONEncoder().encode(["cmux-cloud-scope-v2", instance, context.account, context.install,
+            context.environment, context.point, String(context.generation), selected.stackTeam ?? "", String(selected.generation), found.id, version])
         let id = SHA256.hash(data: binding).map { String(format: "%02x", $0) }.joined()
         return Snapshot(id: id, selection: selected, team: found.id, account: selected.account, generation: selected.generation, recheck: { [weak self] in
             guard let self else { throw Failure.changed }
             try await self.check(selected, context)
+            try await authority.check(version)
+        }, installToken: {
+            try await authority.token(version)
         }, sessionToken: { [weak self] in
             guard let self else { throw Failure.changed }
-            return try await self.credential(selected, context)
+            let token = try await self.credential(selected, context)
+            try await authority.check(version)
+            return token
         }, call: { [weak self] path, body in
             guard let self else { throw Failure.changed }
-            return try await self.call(selected, context, team: found.id, path: path, body: body)
+            return try await self.call(selected, context, team: found.id, authority: authority, version: version, path: path, body: body)
         })
     }
 
     package func token() async throws -> String {
         let scope = try await snapshot()
-        let token = try await identity.installToken(team: scope.team)
-        try await scope.recheck()
-        guard MacInstallIdentity.team(ofToken: token) == scope.team else { throw Failure.invalidIdentity }
-        return token
+        return try await scope.installToken()
     }
 
     private func check(_ selected: Selection, _ context: NativeInstallContext) async throws {
@@ -102,14 +111,16 @@ package actor CloudTeamScope {
     }
 
     /// The snapshot retains its original owner transport and team across every approval step.
-    private func call(_ selected: Selection, _ context: NativeInstallContext, team: String, path: String, body: Data) async throws -> Data {
+    private func call(_ selected: Selection, _ context: NativeInstallContext, team: String, authority: CloudInstallAuthority,
+                      version: String, path: String, body: Data) async throws -> Data {
         let path = path.hasPrefix("/") ? path : "/" + path
         guard ["/v1/read", "/v1/ops"].contains(path), body.count <= 1_048_576 else { throw Failure.invalidRequest }
+        try await authority.check(version)
         let bearer = try await credential(selected, context)
         var headers = identity.requestHeaders
         headers["x-cmux-team"] = team
         let reply = try await transport.post(path, json: body, bearer: bearer, headers: headers)
-        try await check(selected, context)
+        try await authority.check(version)
         return reply.body
     }
 
