@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -29,14 +30,17 @@ final class SettingsHarnesses {
     private(set) var problem: String?
     @ObservationIgnored private let environment: @MainActor () -> AcpmuxEnvironment?
     @ObservationIgnored private let fetch: @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow]
+    @ObservationIgnored private let fetchHealth: @Sendable (AcpmuxEnvironment, Bool) async throws -> Data
     @ObservationIgnored private let openTerminal: @MainActor (String) -> Void
     @ObservationIgnored private var generation = 0
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
          fetch: @escaping @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow] = { try await $0.harnessRows() },
+         fetchHealth: @escaping @Sendable (AcpmuxEnvironment, Bool) async throws -> Data = AcpmuxEnvironment.harnessHealth,
          openTerminal: @escaping @MainActor (String) -> Void) {
         self.environment = environment
         self.fetch = fetch
+        self.fetchHealth = fetchHealth
         self.openTerminal = openTerminal
     }
 
@@ -92,7 +96,7 @@ final class SettingsHarnesses {
         problem = nil
         // The rows show first: a check can take a while. A failed one (an older daemon without
         // the method, a timeout) keeps the health already shown.
-        guard let checked = try? await environment.harness(.health, params: ["refresh": recheck]),
+        guard let checked = try? await fetchHealth(environment, recheck),
               mine == generation, let read = AgentCLIUpdates.rows(checked) else { return }
         health = read
     }
@@ -106,15 +110,16 @@ final class SettingsHarnesses {
     /// One page gesture (`cmux.settings.harnesses.run`): `refresh` (`recheck`: the daemon checks
     /// health again), `signIn` / `check` / `update` with a listed harness `id`, `updateAll`, or
     /// `registry`.
-    func run(_ params: JSONValue) async throws -> JSONValue {
+    func run(_ params: JSONValue, context: PageCallContext?) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
+        // Anything that runs an update (now, or after acpmux's next check) needs the person.
+        let updates = action == "update" || action == "updateAll" || (action == "autoUpdate" && params["on"]?.boolValue == true)
+        guard !updates || context?.userGesture == true || context?.isConfirmedUser == true else { throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) }
         switch action {
         case "refresh":
             await refresh(recheck: params["recheck"]?.boolValue ?? false)
         case "update":
-            guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id }) else {
-                throw PageError.invalidParams("id must be a listed harness")
-            }
+            guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id }) else { throw PageError.invalidParams("id must be a listed harness") }
             try type(health[id].flatMap(AgentCLIUpdates.line))
         case "autoUpdate":
             // acpmux keeps the choice and runs the update after a check finds it outdated.
@@ -125,14 +130,10 @@ final class SettingsHarnesses {
             let answer = try await environment.harness(.health, params: ["autoUpdate": ["id": id, "on": on] as [String: any Sendable]])
             if let read = AgentCLIUpdates.rows(answer) { health = read }
         case "updateAll":
-            guard let line = AgentCLIUpdates.allLine(rows.compactMap { health[$0.id] }) else {
-                throw PageError.invalidParams("no harness can be updated here")
-            }
+            guard let line = AgentCLIUpdates.allLine(rows.compactMap { health[$0.id] }) else { throw PageError.invalidParams("no harness can be updated here") }
             openTerminal(line)
         case "signIn", "check":
-            guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id && $0.kind != "terminal" }) else {
-                throw PageError.invalidParams("id must be a listed harness")
-            }
+            guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id && $0.kind != "terminal" }) else { throw PageError.invalidParams("id must be a listed harness") }
             guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
             // `--`: an id is never taken for a flag.
             try type(environment.shellLine(["harness", "login"] + (action == "check" ? ["--status"] : []) + ["--", id]))

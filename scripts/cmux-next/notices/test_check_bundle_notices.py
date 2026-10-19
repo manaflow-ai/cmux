@@ -194,6 +194,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
     RUST_BINARIES = (
         "Contents/Resources/bin/cmux",
         "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
+        "Contents/Resources/bin/cmux-tui-host",
         "Contents/Resources/bin/cmux-app-host",
         "Contents/Resources/bin/cmux-cloud",
         "Contents/Resources/bin/cmux-diff-sidecar",
@@ -204,6 +205,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
     ZIG_BINARIES = (
         "Contents/MacOS/cmux",  # GhosttyNextKit (static)
         "Contents/Resources/bin/cmux",  # libghostty-vt
+        "Contents/Resources/bin/cmux-tui-host",  # libghostty-vt
         "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
         "Contents/Resources/bin/ghostty",
     )

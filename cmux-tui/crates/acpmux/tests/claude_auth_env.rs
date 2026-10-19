@@ -250,6 +250,68 @@ async fn a_daemon_inside_a_claude_session_gives_agents_the_login_route() {
     }
 }
 
+/// (a3) The daemon's prompt-cache switches never reach an agent; a harness
+/// that sets one on purpose keeps it. Before: an acpmux client run from an
+/// OptChat turn (whose settings env has DISABLE_PROMPT_CACHING=1) started
+/// the NIGHTLY Chief daemon, and every agent it spawned sent no cache marks
+/// (2026-10-19: 277 of 756 sampled requests read and wrote no cache).
+#[tokio::test]
+async fn the_daemons_prompt_cache_switches_never_reach_an_agent() {
+    let dir = scratch("pcache", "export EDITOR=vi\n");
+    let signed_in = json!({"ANTHROPIC_API_KEY": "sk-test"});
+    let on_purpose = json!({"ANTHROPIC_API_KEY": "sk-test", "DISABLE_PROMPT_CACHING": "1"});
+    let harnesses = json!({"claude": claude(signed_in), "marks": claude(on_purpose)});
+    let switches = [
+        ("DISABLE_PROMPT_CACHING", "1"),
+        ("DISABLE_PROMPT_CACHING_OPUS", "1"),
+        ("FORCE_PROMPT_CACHING_5M", "1"),
+        ("ENABLE_PROMPT_CACHING_1H", "1"),
+    ];
+    // Started from inside a Claude Code turn, and with the switches in its
+    // own environment only (the live daemon's state: a scrubbed start keeps
+    // no CLAUDECODE).
+    let inside: Vec<(&str, &str)> =
+        [("CLAUDECODE", "1")].into_iter().chain(switches.iter().copied()).collect();
+    for (case, extra) in [("inside a turn", inside.as_slice()), ("own env", switches.as_slice())] {
+        for (harness, want) in
+            [("claude", json!({})), ("marks", json!({"DISABLE_PROMPT_CACHING": "1"}))]
+        {
+            let d = start(&dir, harnesses.clone(), extra).await;
+            let (reply, _) = ask(&d, harness).await;
+            assert_eq!(found(&reply)["promptCache"], want, "{case}, {harness}: {reply:?}");
+        }
+    }
+}
+
+/// The values of one turn or session of whoever started the daemon (a Chief
+/// turn's subrouter session key and seal, 2026-10-19) never reach an agent
+/// the daemon spawns; a profile that sets one on purpose still passes it.
+#[tokio::test]
+async fn the_daemons_turn_values_never_reach_an_agent() {
+    let dir = scratch("turnenv", "export EDITOR=vi\n");
+    let signed_in = json!({"ANTHROPIC_API_KEY": "sk-test"});
+    let keyed = json!({"ANTHROPIC_API_KEY": "sk-test", "SUBROUTER_SESSION_KEY": "preset-sub"});
+    let harnesses = json!({"claude": claude(signed_in), "keyed": claude(keyed)});
+    let turn = [
+        ("SUBROUTER_SESSION_KEY", "optchat-home-turn"),
+        ("CODEX_PROMPT_CACHE_KEY", "optchat-home-turn"),
+        ("OPTCHAT_TURN_SEAL", "00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff"),
+        ("OPTCHAT_SUBAGENT", "1"),
+        ("AI_AGENT", "claude-code"),
+    ];
+    let inside: Vec<(&str, &str)> =
+        [("CLAUDECODE", "1")].into_iter().chain(turn.iter().copied()).collect();
+    for (case, extra) in [("inside a turn", inside.as_slice()), ("own env", turn.as_slice())] {
+        for (harness, want) in
+            [("claude", json!({})), ("keyed", json!({"SUBROUTER_SESSION_KEY": "preset-sub"}))]
+        {
+            let d = start(&dir, harnesses.clone(), extra).await;
+            let (reply, _) = ask(&d, harness).await;
+            assert_eq!(found(&reply)["turnScoped"], want, "{case}, {harness}: {reply:?}");
+        }
+    }
+}
+
 /// (b) `apiKeyHelper` in ~/.claude/settings.json whose command is only on
 /// the login shell's PATH.
 #[tokio::test]

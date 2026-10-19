@@ -9,6 +9,7 @@ nonisolated enum BrowserSettingsSchema {
         let bookmarks = SettingsText.keyed("settings.group.bookmarks", "Bookmarks")
         let toolbar = SettingsText.keyed("settings.group.toolbar", "Toolbar")
         let extensions = SettingsText.keyed("settings.group.extensions", "Extensions")
+        let agentInput = SettingsText.keyed("settings.group.agentInput", "Agent Input")
         return [
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
@@ -32,6 +33,16 @@ nonisolated enum BrowserSettingsSchema {
                 title: SettingsText.keyed("settings.browser.showBookmarksBar", "Show Bookmarks Bar"),
                 help: SettingsText.keyed("settings.browser.showBookmarksBar.help", "A row of bookmarks under each browser toolbar."),
                 kind: .toggle, default: .bool(false), keywords: ["bookmarks", "favorites", "bar"]
+            ),
+            SettingDescriptor(
+                AgentCursorSetting().configPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.showAgentCursor", "Show Agent Cursor"),
+                help: SettingsText.keyed(
+                    "settings.browser.showAgentCursor.help",
+                    "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+                ),
+                kind: .toggle, default: .bool(AgentCursorSetting().fallback),
+                keywords: ["agent", "cursor", "keystrokes", "typing", "automation", "overlay"]
             ),
             SettingDescriptor(
                 BuiltInAdBlockerSetting().configPath, section: .browser, group: extensions,
