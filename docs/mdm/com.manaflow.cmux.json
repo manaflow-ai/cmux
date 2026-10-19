@@ -1134,6 +1134,12 @@
       "title" : "Computer Use",
       "type" : "boolean"
     },
+    "deviceHub.url" : {
+      "default" : "",
+      "description" : "The device hub this build signs its devices in to, for Mac Screen sharing between your devices. Empty turns it off.",
+      "title" : "Device Hub Address",
+      "type" : "string"
+    },
     "diff.colors" : {
       "default" : "theme",
       "description" : "diff.colors",

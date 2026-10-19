@@ -940,6 +940,16 @@
               "key" : "settings.group.macScreen",
               "text" : "Mac Screen"
             }
+          },
+          {
+            "key" : "settings.group.deviceHub",
+            "rows" : [
+              "deviceHub.url"
+            ],
+            "title" : {
+              "key" : "settings.group.deviceHub",
+              "text" : "Device Hub"
+            }
           }
         ],
         "id" : "development",
@@ -22069,6 +22079,62 @@
     },
     {
       "accepts" : [
+        "",
+        "https://cmux.com",
+        "example.com/path",
+        "about:blank",
+        "file:///tmp/a.html"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.deviceHub",
+        "text" : "Device Hub"
+      },
+      "help" : {
+        "key" : "settings.deviceHub.url.help",
+        "text" : "The device hub this build signs its devices in to, for Mac Screen sharing between your devices. Empty turns it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "deviceHub.url",
+      "keywords" : [
+        "device hub",
+        "devices",
+        "mac screen",
+        "backend",
+        "development",
+        "debug"
+      ],
+      "kind" : "url",
+      "page_hidden" : false,
+      "path" : [
+        "deviceHub",
+        "url"
+      ],
+      "refuses" : [
+        "not a url",
+        "ftp://example.com",
+        "localhost",
+        1
+      ],
+      "section" : "development",
+      "summary" : {
+        "key" : "settings.deviceHub.url.summary",
+        "text" : "Device hub address"
+      },
+      "title" : {
+        "key" : "settings.deviceHub.url",
+        "text" : "Device Hub Address"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -22859,7 +22925,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "4532d284331bdc20886d25a3731fb46368a88bb3d3f926a47da82966c7ea3205",
+  "schema_hash" : "b35001bdbce6684ed2a50379faa5b4d5171d6304d089d390ecf71cb9f955bf1b",
   "sections" : [
     {
       "id" : "general",
