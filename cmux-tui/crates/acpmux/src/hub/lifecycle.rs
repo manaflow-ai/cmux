@@ -718,7 +718,15 @@ impl Hub {
         if saved.agent_session_id.is_some() {
             self.replay_config(session, &child, &saved).await;
         }
-        self.leave_full_access_if_off(session, &child).await;
+        if let Err(e) = self.leave_full_access_if_off(session, &child).await {
+            // It would run in full access: the agent stops, the chat stays open and idle.
+            if let Some(started) = session.child.lock().await.take() {
+                started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+            }
+            self.set_status(session, SessionStatus::Idle);
+            self.append(session, "mux", "full_access_refused", json!({}));
+            return Err(e);
+        }
         self.set_status(session, SessionStatus::Ready);
         self.save_meta(session);
         let meta_now = session.meta();
