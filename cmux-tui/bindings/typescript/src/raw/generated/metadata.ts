@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa. */
+/* cmux-tui mux protocol 12, IR b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa" as const;
+export const SDK_IR_SHA256 = "b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -638,6 +638,36 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-host-replica-clear": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-host-replica-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified cmux app connection only. Drops the lease; with purge the cloud copy is deleted first (the host's off switch). See spec/commands.md."
+    ]
+  },
+  "cloud-host-replica-set": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-host-replica-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified cmux app connection only. Leases the app's install token to the host replica publisher, which enrolls the host and publishes host:<host>/session; never echoes the token. See plans/cmux-next/object-sync/DESIGN.md and spec/commands.md."
+    ]
+  },
+  "cloud-host-replica-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-host-replica-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified cmux app connection only. Returns state off, connecting, online, unauthenticated, forbidden, purging, backoff or replaced, and the host and seq; never the token. See spec/commands.md."
     ]
   },
   "cloud-inbox-list": {
@@ -15571,6 +15601,90 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         }
       },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-host-replica-clear": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "purge": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-host-replica-set": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "api_base_url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "client_version": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expires_at": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "host_name": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "install_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-host-replica-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
       "kind": "object"
     },
     "result": {

@@ -22286,6 +22286,111 @@
     "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "cloud-host-replica-set": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-host-replica-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "api_base_url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "install_token": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expires_at": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "client_version": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "host_name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "The verified cmux app connection only. Leases the app's install token to the host replica publisher, which enrolls the host and publishes host:<host>/session; never echoes the token. See plans/cmux-next/object-sync/DESIGN.md and spec/commands.md."
+   ]
+  },
+  "cloud-host-replica-clear": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-host-replica-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "purge": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "The verified cmux app connection only. Drops the lease; with purge the cloud copy is deleted first (the host's off switch). See spec/commands.md."
+   ]
+  },
+  "cloud-host-replica-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-host-replica-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "The verified cmux app connection only. Returns state off, connecting, online, unauthenticated, forbidden, purging, backoff or replaced, and the host and seq; never the token. See spec/commands.md."
+   ]
+  },
   "cloud-inbox-list": {
    "authority": "local-admin",
    "since": 12,

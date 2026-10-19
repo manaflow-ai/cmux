@@ -112,6 +112,10 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// The run waits for a person's answer (`ActionDescriptor.waitsForPerson`);
     /// `action.run` with `wait` then gets the person deadline.
     public var waitsForPerson = false
+    /// A keyed daemon create that asks again when its reply is late
+    /// (`ActionDescriptor.waitsForKeyedCreate`): `action.run` with `wait`
+    /// gets `ActionRunLimit.keyedCreate`.
+    public var waitsForKeyedCreate = false
     /// The action's purpose is a view change (`ActionDescriptor.focuses`):
     /// it focuses or shows even when run from the CLI without `focus`.
     public var focuses = false

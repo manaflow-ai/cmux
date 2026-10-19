@@ -26,6 +26,8 @@ import { publishable, ReplicaStore } from "./store.ts"
  * - Online means the current publisher's socket is open: the stored publisher id names it, and a
  *   socket that vanished without a close event (eviction, deploy) counts as offline. Frames from
  *   any other publisher socket (one being replaced) are ignored.
+ * - `replica.purge` from the publisher (the host's off switch) forgets every stored stream and
+ *   answers `replica.purged`; readers then see `owner.status` without `cached_seq`.
  * - A cursor ahead of the replica (the reader read the live host further) gets `owner.status`
  *   with the lower `cached_seq` and nothing else: the reader keeps its state, never goes back.
  * - Nothing here is committed by HostDO: the replica stores what the host published, in the
@@ -94,6 +96,8 @@ const parse = (message: string | ArrayBuffer): Frame | undefined => {
 }
 
 /** Printable ASCII only, so 12 names stay far inside the 2 KB socket attachment. */
+/** The host answers keys up to this length (cmux-tui host_replica.rs MAX_KEY_CHARS). */
+const MAX_OP_KEY = 128
 const isStream = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_STREAM_NAME && /^[\x21-\x7e]+$/.test(v)
 const keysOf = (v: unknown): Array<string> => (Array.isArray(v) ? v.filter((k): k is string => typeof k === "string").slice(0, 1000) : [])
 
@@ -174,6 +178,15 @@ export class ReplicaWire {
     const f = parse(message)
     if (!f) return
     if (f.t === "publish") return this.publish(f)
+    // The host's owner turned the replica off on the host (DESIGN.md L4): forget every stream now.
+    if (f.t === "replica.purge") {
+      // An op forwarded before the purge gets no answer from the host now: refuse it first.
+      this.failInFlight("the host turned the replica off")
+      this.store.purge()
+      this.asked.clear()
+      send(this.publisher(), { t: "replica.purged" })
+      return this.broadcastPresence()
+    }
     // An answer to a forwarded frame goes to the reader it names, without the routing field.
     if (typeof f.to === "string") {
       const { to, ...frame } = f
@@ -256,7 +269,7 @@ export class ReplicaWire {
       case "unsubscribe":
         return isStream(stream) ? { ...a, streams: a.streams.filter((s) => s !== stream) } : a
       case "snapshot.request": {
-        if (!isStream(stream)) break
+        if (!isStream(stream) || !publishable(this.env.host, stream)) break
         const pending = keysOf(f.pending)
         if (pending.length > 0 && this.publisher()) return (this.forward(a, { t: "snapshot.request", stream, pending }), a)
         this.sendSnapshot(ws, stream)
@@ -264,7 +277,7 @@ export class ReplicaWire {
       }
       case "op": {
         const key = typeof f.idempotency_key === "string" ? f.idempotency_key : ""
-        if (!isStream(stream) || !key) break
+        if (!isStream(stream) || !key || key.length > MAX_OP_KEY) break
         if (!this.publisher()) {
           this.refuse(ws, stream, key, "the host is offline")
           return a

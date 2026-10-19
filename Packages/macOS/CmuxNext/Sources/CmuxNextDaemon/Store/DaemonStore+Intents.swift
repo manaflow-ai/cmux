@@ -111,6 +111,7 @@ extension DaemonStore {
             intentSettlements.append((intent.transaction, .applied))
         }
         releaseSettledProvisionalPanes()
+        releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
         overlayLifted = false
@@ -144,6 +145,26 @@ extension DaemonStore {
         guard let model = provisionalPanes.removeValue(forKey: PaneModel.identity(snapshot)) else { return PaneModel(snapshot) }
         model.update(snapshot)
         return model
+    }
+
+    /// The record of a workspace the daemon reports: the provisional workspace's own model when a
+    /// pending create shows it under the same key, updated in place (as ``confirmedPane(_:)``);
+    /// else a new model.
+    func confirmedWorkspace(_ snapshot: WorkspaceSnapshot) -> WorkspaceModel {
+        guard let model = provisionalWorkspaces.workspaces[WorkspaceModel.identity(snapshot)] else { return WorkspaceModel(snapshot) }
+        model.update(snapshot)
+        return model
+    }
+
+    /// The models of a workspace create that left the log (settled or refused) are no longer provisional.
+    private func releaseSettledProvisionalWorkspaces() {
+        guard !provisionalWorkspaces.workspaces.isEmpty || !provisionalWorkspaces.screens.isEmpty else { return }
+        let pending = Set(intentLog.entries.compactMap { entry -> String? in
+            if case .createWorkspace(let provisional, _) = entry.kind { return provisional.key.rawValue }
+            return nil
+        })
+        provisionalWorkspaces.workspaces = provisionalWorkspaces.workspaces.filter { pending.contains($0.key) }
+        provisionalWorkspaces.screens = provisionalWorkspaces.screens.filter { pending.contains($0.key) }
     }
 
     /// A new connection replaces the last one (`run(connection:)`): its

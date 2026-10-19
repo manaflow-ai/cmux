@@ -67,7 +67,7 @@ fn projected_views_share_one_graphics_and_cell_pixel_owner() {
 
 // Shared sizing (docs/shared-terminal-sizing.md) replaced the explicit
 // geometry-authority model: a view that joins is activity, so under the
-// `latest` policy (pinned here; the default is `smallest`) the newest view with a viewport sets the grid,
+// `latest` policy (the default, pinned here) the newest view with a viewport sets the grid,
 // and a claim (focus or input) moves it back.
 #[test]
 fn terminal_views_follow_the_latest_activity() {
