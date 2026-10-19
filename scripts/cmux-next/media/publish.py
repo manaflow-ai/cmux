@@ -42,7 +42,9 @@ VIDEO_SIZE = (1280, 800)
 MAX_FRAMES = 600
 GIF_WIDTHS = (720, 560, 440)
 TOUR_NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
-SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?\.png")
+# A step's main-window shot, or one of its other windows (tour.py: <shot>--w<window number>).
+SHOT_PATH = re.compile(r"shots/[0-9]{2}-[a-z0-9-]{1,40}(?:-failed)?(?:--w[0-9]{1,9})?\.png")
+WINDOW_KIND = re.compile(r"[A-Za-z0-9._-]{1,40}")
 STATUS_TEXT = {"ok": "ok", "failed": "**failed**", "unavailable": "unavailable"}
 
 
@@ -100,6 +102,12 @@ def clean_step(step: dict[str, Any]) -> dict[str, Any]:
         "detail": str(step.get("detail") or "")[:500],
         "command": str(step.get("command") or "")[:500],
         "shot": step["shot"] if isinstance(step.get("shot"), str) else "",
+        # The step's other windows (floating panels, popovers, sheets), each a shot tour.py wrote.
+        "windows": [
+            {"shot": window["shot"], "kind": window["kind"] if WINDOW_KIND.fullmatch(str(window.get("kind"))) else "window"}
+            for window in (step.get("windows") if isinstance(step.get("windows"), list) else [])[:8]
+            if isinstance(window, dict) and isinstance(window.get("shot"), str) and SHOT_PATH.fullmatch(window["shot"])
+        ],
     }
 
 
@@ -163,6 +171,14 @@ def image(url: str, title: str, width: int) -> str:
     return f'<img src="{html.escape(url, quote=True)}" alt="{html.escape(title, quote=True)}" width="{width}">'
 
 
+def step_images(step: dict[str, Any], urls: dict[str, str]) -> str:
+    """The step's main-window shot, then each other window it shot."""
+    parts = [image(urls[step["shot"]], step["title"], 480)]
+    parts += [image(urls[window["shot"]], f"{step['title']} ({window['kind']})", 360)
+              for window in step.get("windows") or [] if urls.get(window["shot"])]
+    return " ".join(parts)
+
+
 def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     steps = manifest.get("steps") or []
     counts = {status: sum(1 for step in steps if step.get("status") == status)
@@ -189,12 +205,12 @@ def tour_section(manifest: dict[str, Any], urls: dict[str, str]) -> str:
     failed = [step for step in steps if step.get("status") == "failed" and urls.get(str(step.get("shot", "")))]
     if failed:
         lines += ["", "Failed steps:", ""]
-        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{image(urls[step['shot']], step['title'], 480)}<br>"
+        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{step_images(step, urls)}<br>"
                   for step in failed]
     rest = [step for step in steps if step not in failed and urls.get(str(step.get("shot", "")))]
     if rest:
         lines += ["", f"<details><summary>Screenshots ({len(rest)})</summary>", ""]
-        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{image(urls[step['shot']], step['title'], 480)}<br>"
+        lines += [f"**{cell(step['index'])}. {cell(step['title'])}**<br>{step_images(step, urls)}<br>"
                   for step in rest]
         lines += ["", "</details>"]
     return "\n".join(lines)
@@ -305,10 +321,11 @@ def publish_tour(directory: Path, manifest: dict[str, Any], args: argparse.Names
     folder = f"{args.pr}/{args.sha[:8]}/next-{name}"
     files: dict[str, Path] = {}
     for step in manifest["steps"]:
-        shot = shot_file(directory, step.get("shot"))
-        if shot and shot.stat().st_size <= pr_media.INLINE_MAX_BYTES \
-                and pr_media.family_of_content(shot) == "png":
-            files[step["shot"]] = shot
+        for key in [step.get("shot")] + [window["shot"] for window in step.get("windows") or []]:
+            shot = shot_file(directory, key)
+            if shot and shot.stat().st_size <= pr_media.INLINE_MAX_BYTES \
+                    and pr_media.family_of_content(shot) == "png":
+                files[key] = shot
     into = scratch / name
     into.mkdir()
     mp4, gif = make_video(directory, manifest, into, pr_media)
