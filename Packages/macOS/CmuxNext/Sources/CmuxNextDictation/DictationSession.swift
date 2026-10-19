@@ -17,6 +17,10 @@ public final class DictationSession {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "dictation")
 
     public private(set) var phase: DictationPhase = .idle
+    /// Keep each session's audio and hand it over with the session's last
+    /// update (``DictationUpdate/audio``): the pane's harness takes voice
+    /// input. Read at each start.
+    public var recordsAudio = false
     /// Called on every change, on the main actor.
     public var onUpdate: ((DictationUpdate) -> Void)?
 
@@ -37,6 +41,8 @@ public final class DictationSession {
     private var level: Float = 0
     private var listening: Task<Void, Never>?
     private var levels: Task<Void, Never>?
+    /// This session's audio, when ``recordsAudio`` was on at its start.
+    private var recording: DictationAudioRecording?
 
     /// - Parameters:
     ///   - makeTranscriber: A fresh single-session engine fed by the meter.
@@ -73,6 +79,7 @@ public final class DictationSession {
         transcript = DictationTranscript()
         committed = ""
         level = 0
+        recording = recordsAudio ? DictationAudioRecording() : nil
         set(.starting)
         // task-owner: stored in listening; cancel() and the next start supersede it by generation
         listening = Task { [weak self] in await self?.listen(session) }
@@ -107,6 +114,7 @@ public final class DictationSession {
         endLevels()
         finishEngine()
         transcriber = nil
+        recording = nil
         phase = .idle
         onUpdate?(DictationUpdate(phase: .idle, cancelled: true))
     }
@@ -114,18 +122,19 @@ public final class DictationSession {
     /// Anything still held for a session: the engine, its tasks, the stop deadline.
     /// False whenever the phase is startable (tests check nothing leaks).
     public var holdsResources: Bool {
-        transcriber != nil || listening != nil || levels != nil || deadline.isScheduled
+        transcriber != nil || listening != nil || levels != nil || recording != nil || deadline.isScheduled
     }
 
     private func listen(_ session: Int) async {
         guard await authorizeMicrophone(), session == generation else {
             if session == generation {
                 listening = nil
+                recording = nil
                 set(.denied(.microphone))
             }
             return
         }
-        let meter = DictationAudioLevelMeter()
+        let meter = DictationAudioLevelMeter(recording: recording)
         let engine = makeTranscriber(meter)
         transcriber = engine
         let stream: AsyncThrowingStream<DictationTranscriptionEvent, any Error>
@@ -179,8 +188,10 @@ public final class DictationSession {
         // sure it let go of the microphone.
         finishEngine()
         transcriber = nil
+        let audio = recording?.wav()
+        recording = nil
         phase = .idle
-        onUpdate?(DictationUpdate(phase: .idle, text: committed))
+        onUpdate?(DictationUpdate(phase: .idle, text: committed, audio: audio))
     }
 
     private func fail(_ session: Int, _ error: any Error) {
@@ -190,6 +201,7 @@ public final class DictationSession {
         endLevels()
         finishEngine()
         transcriber = nil
+        recording = nil
         // Keep the words on screen when it fails mid-phrase.
         if let delta = transcript.commitTrailingVolatileText() { committed += delta }
         let failure = error as? DictationFailure ?? .transcriptionFailed(String(describing: error))

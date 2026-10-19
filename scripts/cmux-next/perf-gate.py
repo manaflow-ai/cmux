@@ -66,12 +66,11 @@ BUDGET = {
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
-    # Per split+close pair (cx-8w027.14, measured 2 / 2 / 2.4-3.4): one apply and one topology each
-    # for the split and the close (the new tab is named by its client-minted id, so the daemon's
-    # confirm sends none); snapshots: the new pane's mount, the daemon's confirm (surface, handle,
-    # terminal state and size change, after the first frame), the shell's titles (0.4-1.4, the
-    # shell's timing).
-    "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 4},
+    # Per split+close pair (cx-8w027.14, measured 2 / 2 / 1.9-2.5): one apply and one topology each
+    # for the split and the close (the new tab is named by its client-minted id; topologies carry no
+    # surfaces, so the daemon's confirm sends none); snapshots: the new pane's mount and the shell's
+    # titles (0-1.5, the shell's timing); the confirm re-runs only that tab's strip item.
+    "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 3},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
     # Per restored pane, from the relaunched app's first answer until the restore settled: one
@@ -82,10 +81,7 @@ BUDGET = {
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
-KNOWN = {
-    # Per restored pane (the relaunch budget scales with the grid's panes).
-    ("relaunch", "pane_snapshots"): (12, "cx-8w027.23: the restore maps each pane several more times as the live tree replaces the launch snapshot"),
-}
+KNOWN = {}
 FRAME_BUDGET_MS = 1000 / 60
 # Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
 TAB_APPLY_BUDGET_MS = 4

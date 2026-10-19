@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDiff
 import CmuxNextPages
 
 /// The diff viewer (diff-host.md S4): the 11 `diffViewer*` navigation

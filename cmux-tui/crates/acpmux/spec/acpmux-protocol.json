@@ -714,6 +714,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/inventory/watch",
+      "params": {
+        "$ref": "#/types/InventoryWatchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/update",
       "params": true,
       "result": true
@@ -884,6 +892,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/harnesses_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/harness_inventory",
       "params": true
     },
     {
@@ -1064,6 +1077,18 @@
         "done"
       ],
       "type": "string"
+    },
+    "InventoryWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
     },
     "Isolation": {
       "description": "acpmux never claims host isolation.",
