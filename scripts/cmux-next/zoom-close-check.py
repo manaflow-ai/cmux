@@ -33,6 +33,21 @@ static    (every scenario) the rects a gesture does not move keep their pixels i
 travel    (trace) the moving pane's travel curve: time to 90 % of it, time until 1 pt is left,
             overshoot past the target, and the largest frame-to-frame change of its per-frame
             step (smoothness), all from the first frame it moved.
+live      (trace, every scenario) each pane whose presented rect moves is laid out at it in every
+            frame: its host frame is the presented rect (`held`: samples where it is not), and its
+            content's size changes in every sample its rect's size does (`frozen`: samples where it
+            did not; `end_jump`: the content's last size change as a share of its whole change, a
+            layout held and then resized once at rest is 1.0).
+header    (trace) the zooming pane's tab strip shows whole in every sample (share 1.0), and every
+            other moving pane's too.
+work      (work.json) main-thread time per display frame: the layout step and the whole tick,
+            p50 / p95 / max ms (`debug.motion` work: `layout` the layout's step, `clock` the tick).
+edges     (trace, split-* scenarios) on every sample the split pane's content edge, its tab
+            strip's edge (`strip_edges`, builds that report it) and the new pane's content edge
+            keep one distance to the divider between them, within 0.5 pt (1 px at 2x): the left
+            (or top) pane lays out at its presented size every frame, edge to edge with the new
+            pane; and the edge moves on every sample the divider does (no frozen frame).
+perf-*    scenarios with a busy terminal: live, header and work only.
 reduce scenarios (OUT dir recorded with --reduce-motion): frames between the
             first changed frame and the final one (one-step: <= 1).
 
@@ -318,6 +333,156 @@ def check_zoom(name, directory, frames, colors, scale, zooming_in):
     return result, failures
 
 
+def moving_panes(directory, zooming):
+    """The panes a scenario moves: the zooming pane, else every pane whose cell differs before and
+    after (a close's or split's) and a pane the change added."""
+    if zooming:
+        return {zooming}
+    before = {p["pane"]: p["cell"] for p in panes_of(load(os.path.join(directory, "before.json")))[0]}
+    after = {p["pane"]: p["cell"] for p in panes_of(load(os.path.join(directory, "after.json")))[0]}
+    return {pane for pane, cell in after.items() if pane not in before or any(abs(a - b) > 0.5 for a, b in zip(cell, before[pane]))}
+
+
+def check_live(directory, colors, focus_pane=None):
+    """The live-layout, header and frame-time checks (module doc: live, header, work). A pane a
+    split adds grows from no height, shorter than its tab strip at first: its header is not checked."""
+    samples = [s for s in trace_samples(directory) if s.get("panes")]
+    moving = moving_panes(directory, focus_pane)
+    before_ids = {p["pane"] for p in panes_of(load(os.path.join(directory, "before.json")))[0]}
+    rows = {}
+    for sample in samples:
+        for row in sample["panes"]:
+            if len(row) >= 14:
+                rows.setdefault(row[0], []).append(row)
+    result, failures = {}, []
+    if samples and not rows:
+        return {"live": "no laid-out fields in the trace (an older build)"}, []
+    live = {}
+    for pane, series in rows.items():
+        if pane not in moving:
+            continue
+        shown = [r[1:5] for r in series]
+        if max((abs(a[k] - b[k]) for a, b in zip(shown, shown[1:]) for k in range(4)), default=0) < 1:
+            continue
+        held = sum(1 for r in series if r[3] > 1 and any(abs(r[1 + k] - r[7 + k]) > 0.5 for k in range(4)))
+        frozen, changes = 0, []
+        for a, b in zip(series, series[1:]):
+            # Under a point is AppKit's pixel rounding of the content frame, not a held layout.
+            size_moved = abs(a[3] - b[3]) > 1 or abs(a[4] - b[4]) > 1
+            content_moved = abs(a[11] - b[11]) > 0.25 or abs(a[12] - b[12]) > 0.25
+            if content_moved:
+                changes.append(abs(a[11] - b[11]) + abs(a[12] - b[12]))
+            if size_moved and not content_moved:
+                frozen += 1
+        total = sum(changes)
+        end_jump = round(changes[-1] / total, 3) if total > 0 else None
+        header = min((r[13] for r in series if r[11] > 1 and r[12] > 1), default=None)
+        live[colors.get(pane, pane[-6:])] = {"samples": len(series), "held": held, "frozen": frozen, "content_steps": len(changes),
+                                              "end_jump": end_jump, "header_min": header}
+        label = colors.get(pane, pane[-6:])
+        if held:
+            failures.append(f"{label}: laid out away from its presented rect in {held} samples (a held frame)")
+        if frozen:
+            failures.append(f"{label}: content did not follow its rect in {frozen} samples")
+        if end_jump is not None and len(changes) > 1 and end_jump > 0.5:
+            failures.append(f"{label}: content jumped at the end ({end_jump * 100:.0f}% of its change in one step)")
+        if header is not None and header < 0.999 and (focus_pane or pane in before_ids):
+            failures.append(f"{label}: its tab strip showed only {header * 100:.0f}% in a frame")
+    result["live"] = live
+    work = (load(os.path.join(directory, "work.json"), {}) or {}).get("work") or {}
+    budget = {name: work[name] for name in ("layout", "clock") if isinstance(work.get(name), dict)}
+    result["work"] = budget
+    # Frame pacing while anything moves: a main thread over budget skips display frames.
+    times = [s["t"] for s in samples]
+    gaps = sorted(b - a for a, b in zip(times, times[1:]))
+    if gaps:
+        result["frame_gap_ms"] = {"samples": len(times), "p50": round(gaps[len(gaps) // 2], 2), "max": round(gaps[-1], 2),
+                                  "over_12_5": sum(1 for g in gaps if g > 12.5), "over_25": sum(1 for g in gaps if g > 25)}
+    return result, failures
+
+
+def content_rect(row):
+    """A pane row's content rect (window points): the content view's window frame where the build
+    reports it, else its host frame less the even pane padding."""
+    if len(row) >= 18:
+        return (row[14], row[15], row[14] + row[16], row[15] + row[17])
+    fx, fy, fw, fh, cw, ch = row[7], row[8], row[9], row[10], row[11], row[12]
+    return (fx + (fw - cw) / 2, fy + (fh - ch) / 2, fx + (fw + cw) / 2, fy + (fh + ch) / 2)
+
+
+def check_split_edges(directory, colors):
+    """The split pane's and the new pane's edges against the divider between them (module doc: edges)."""
+    before = {p["pane"]: p["cell"] for p in panes_of(load(os.path.join(directory, "before.json")))[0]}
+    after = {p["pane"]: p["cell"] for p in panes_of(load(os.path.join(directory, "after.json")))[0]}
+    added = [p for p in after if p not in before]
+    if len(added) != 1:
+        return {"edges": f"{len(added)} panes added"}, ["the split added no pane"] if not added else []
+    new = added[0]
+    n = after[new]
+    def beside(cell):
+        right = abs(n[0] - (cell[0] + cell[2])) < 24 and min(n[1] + n[3], cell[1] + cell[3]) - max(n[1], cell[1]) > 8
+        down = abs(n[1] - (cell[1] + cell[3])) < 24 and min(n[0] + n[2], cell[0] + cell[2]) - max(n[0], cell[0]) > 8
+        return "right" if right else "down" if down else None
+    sources = [(p, beside(c)) for p, c in after.items() if p in before and beside(c) and c[2] * c[3] < before[p][2] * before[p][3] - 1]
+    if not sources:
+        return {"edges": "no split pane beside the new one"}, ["no split pane beside the new pane"]
+    source, axis = sources[0]
+    samples = [s for s in trace_samples(directory) if s.get("panes")]
+    lo, hi = (2, 0) if axis == "right" else (3, 1)  # source's far edge, new pane's near edge in content_rect
+    series, last_div = [], None
+    for sample in samples:
+        rows = {r[0]: r for r in sample["panes"] if len(r) >= 14}
+        if source not in rows or new not in rows or rows[new][9] < 1 or rows[new][10] < 1:
+            continue
+        src, nw = content_rect(rows[source]), content_rect(rows[new])
+        edge, near = src[lo], nw[hi]
+        # The divider between them: its center lies between the two edges.
+        divs = [d for d in sample.get("dividers") or [] if (d[1] + d[3] / 2 if axis == "right" else d[2] + d[4] / 2) > edge - 4
+                and (d[1] + d[3] / 2 if axis == "right" else d[2] + d[4] / 2) < near + 4
+                and ((min(d[2] + d[4], src[3]) - max(d[2], src[1]) > 4) if axis == "right" else (min(d[1] + d[3], src[2]) - max(d[1], src[0]) > 4))]
+        center = (divs[0][1] + divs[0][3] / 2 if axis == "right" else divs[0][2] + divs[0][4] / 2) if divs else None
+        strip = None
+        if axis == "right":
+            for e in sample.get("strip_edges") or []:
+                if abs(e[0] - src[0]) < 2 and abs(e[2] - src[1]) < 40:
+                    strip = e
+        series.append({"t": sample["t"], "edge": edge, "near": near, "div": center, "strip": strip[1] if strip else None,
+                       "pills": strip[3] if strip else None})
+    if len(series) < 3:
+        return {"edges": "fewer than 3 samples with both panes"}, ["too few split samples"]
+    with_div = [x for x in series if x["div"] is not None]
+    def spread(values):
+        return round(max(values) - min(values), 2) if values else None
+    gap_src = spread([x["div"] - x["edge"] for x in with_div])
+    gap_new = spread([x["near"] - x["div"] for x in with_div])
+    gap_strip = spread([x["div"] - x["strip"] for x in with_div if x["strip"] is not None])
+    clipped_pills = sum(1 for x in series if x["pills"] and x["strip"] and x["pills"] > x["strip"] + 0.5)
+    frozen = sum(1 for a, b in zip(with_div, with_div[1:]) if abs(b["div"] - a["div"]) > 0.25 and abs(b["edge"] - a["edge"]) < 0.05)
+    frozen_strip = sum(1 for a, b in zip(with_div, with_div[1:]) if a["strip"] is not None and b["strip"] is not None
+                       and abs(b["div"] - a["div"]) > 0.25 and abs(b["strip"] - a["strip"]) < 0.05)
+    moves = [abs(b["edge"] - a["edge"]) for a, b in zip(series, series[1:])]
+    travel = sum(moves)
+    result = {"edges": {"axis": axis, "samples": len(series), "with_divider": len(with_div), "source_to_divider_spread_pt": gap_src,
+                        "divider_to_new_spread_pt": gap_new, "strip_to_divider_spread_pt": gap_strip, "frozen_samples": frozen,
+                        "frozen_strip_samples": frozen_strip, "edge_steps": sum(1 for m in moves if m > 0.05),
+                        "largest_step_share": round(max(moves) / travel, 3) if travel else None, "pills_past_strip": clipped_pills,
+                        "track": [f"{round(x['t'])}:{round(x['edge'], 1)}|{x['div'] and round(x['div'], 1)}|{round(x['near'], 1)}|{x['strip'] and round(x['strip'], 1)}" for x in series[:40]]}}
+    failures = []
+    label = colors.get(source, source[-6:])
+    if not with_div:
+        failures.append("no divider between the split pane and the new pane in the trace")
+    for value, what in ((gap_src, "the split pane's content edge"), (gap_new, "the new pane's content edge"), (gap_strip, "the split pane's tab strip edge")):
+        if value is not None and value > 0.5:
+            failures.append(f"{what} drifts {value} pt against the divider (1 px is 0.5 pt)")
+    if frozen or frozen_strip:
+        failures.append(f"{label}: frozen while the divider moved in {frozen} samples (tab strip {frozen_strip})")
+    if result["edges"]["largest_step_share"] and result["edges"]["largest_step_share"] > 0.5:
+        failures.append(f"{label}: one step moved {result['edges']['largest_step_share'] * 100:.0f}% of the edge's travel")
+    if clipped_pills:
+        failures.append(f"{label}: tab pills past the strip's edge in {clipped_pills} samples")
+    return result, failures
+
+
 def check_close(name, directory, frames, colors, scale):
     before, _ = panes_of(load(os.path.join(directory, "before.json")))
     after, _ = panes_of(load(os.path.join(directory, "after.json")))
@@ -378,10 +543,15 @@ def check_close(name, directory, frames, colors, scale):
         runs.append((f"{colors.get(key[0], key[0])}.{key[1]}", count))
     spread = 0.0
     if shares:
-        length = min(len(s) for s in shares.values())
-        for index in range(length):
-            values = [s[index][1] for s in shares.values()]
-            spread = max(spread, max(values) - min(values))
+        # Aligned by sample time: a pane a split adds has no samples before it appears.
+        by_time = {}
+        for series in shares.values():
+            for t, share in series:
+                by_time.setdefault(t, []).append(share)
+        count = len(shares)
+        for values in by_time.values():
+            if len(values) == count:
+                spread = max(spread, max(values) - min(values))
     # Hole: samples after the closed pane left in which no remaining pane has moved yet.
     first = {row[0]: row[1:5] for row in (samples[0]["panes"] if samples else [])}
     holes = 0
@@ -393,7 +563,7 @@ def check_close(name, directory, frames, colors, scale):
             break
         holes += 1
     result["hole_samples"] = holes
-    if holes and not opts.reduce:
+    if holes and gone and not opts.reduce:
         failures.append(f"{holes} frame(s) show the closed pane's space empty before its neighbours move")
     result["moving_edges"] = len(shares)
     result["travel"] = max((travel_curve(edges[key]) or {} for key in shares), key=lambda m: abs(m.get("travel_pt") or 0), default=None)
@@ -413,7 +583,15 @@ def main():
     report, failed = {}, False
     for name in sorted(os.listdir(opts.dir)):
         directory = os.path.join(opts.dir, name)
-        if not os.path.isdir(directory) or not os.path.exists(os.path.join(directory, "frames.json")):
+        if not os.path.isdir(directory) or not os.path.exists(os.path.join(directory, "trace.json")):
+            continue
+        if name.startswith("perf"):
+            result, failures = check_live(directory, load(os.path.join(directory, "colors.json"), {}) or colors,
+                                          zoom_pane(trace_samples(directory)) if "zoom" in name else None)
+            result["failures"] = failures
+            report[name] = result
+            failed = failed or bool(failures)
+            print(f"{'FAIL' if failures else 'ok':4} {name}: " + "; ".join(failures or [json.dumps(result.get('work'))[:160]]), flush=True)
             continue
         frames, scale = (None, None) if opts.source == "window" else video_frames(directory)
         source = "video" if frames else "window"
@@ -422,16 +600,33 @@ def main():
             failed = True
             continue
         frames = frames or frames_of(directory)
+        if len(frames) < 3 and name.startswith("split"):
+            result, failures = check_split_edges(directory, load(os.path.join(directory, "colors.json"), {}) or colors)
+            live, live_failures = check_live(directory, load(os.path.join(directory, "colors.json"), {}) or colors)
+            result.update(live)
+            failures = failures + live_failures
+            result["failures"] = failures
+            report[name] = result
+            failed = failed or bool(failures)
+            print(f"{'FAIL' if failures else 'ok':4} {name} [trace]: " + "; ".join(failures or [json.dumps({k: v for k, v in result['edges'].items() if k != 'track'} if isinstance(result.get('edges'), dict) else result.get('edges'))[:300]]), flush=True)
+            continue
         if len(frames) < 3:
             report[name] = {"failures": ["fewer than 3 frames"]}
             failed = True
             continue
         local = load(os.path.join(directory, "colors.json"), {}) or colors
         scale = scale or panes_of(load(os.path.join(directory, "before.json")))[1]
-        if "close" in name:
+        if "close" in name or "split" in name:
             result, failures = check_close(name, directory, frames, local, scale)
         else:
             result, failures = check_zoom(name, directory, frames, local, scale, zooming_in="unzoom" not in name)
+        live, live_failures = check_live(directory, local, zoom_pane(trace_samples(directory)) if "zoom" in name else None)
+        result.update(live)
+        failures = failures + live_failures
+        if name.startswith("split"):
+            edges, edge_failures = check_split_edges(directory, local)
+            result.update(edges)
+            failures = failures + edge_failures
         if opts.reduce:
             steps = result.get("moving_frames", 0)
             result["reduce_steps"] = steps

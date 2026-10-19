@@ -14,7 +14,7 @@ import CmuxNextWakeups
 /// card hides; nothing is sampled while no card is pending or shown.
 final class WorkspaceHoverCardController: HoverCardSource {
     let resources = ResourceCardSampler(source: nil)
-    /// Hover time before a card shows: Chrome's tab hover card delay, or
+    /// Hover time before a card shows: `HoverCardTiming.showDelay`, or
     /// `sidebar.hoverCards.delay` (cx-23e1f), so a sweep down the list shows
     /// none and leaving a row cancels its pending card. Once a card shows,
     /// moving down the list slides it over at once.

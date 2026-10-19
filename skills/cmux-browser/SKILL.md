@@ -40,6 +40,15 @@ below do not:
   `{ restoreIds }`; `page.context().restoreCookies(result)` puts them back.
   The cleared cookies stay in an encrypted backup. You may restore from a
   backup; you never delete one (only the person can, from the app).
+- Sign-ins from the person's own browser: `cmux browser import-cookies --from
+  chrome:Work --domain github.com --reason "Open the PR review page signed in"`
+  copies that browser profile's cookies into a cmux browser profile. You must
+  pass `--reason` with what you will do with them; the person sees your chat
+  (by name), your reason and your latest message in a consent panel and must
+  click Allow before anything is read. Ask only for the sites you need. A Deny
+  or no answer within 3 minutes fails the command; do not ask again unless the
+  person tells you to. Never print cookie values. See
+  [references/authentication.md](references/authentication.md).
 - Remote tabs (a page that runs on another machine) use the same tab ids and
   the same REPL calls once that machine's browser host serves them
   (`plans/cmux-next/remote-tab.md`); never assume a remote tab shares this

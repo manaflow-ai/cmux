@@ -1,5 +1,5 @@
 {
-  "description": "Shared test vectors for the local file scope of a CEF tab: a file: page may load file: subresources and subframes only from its own folder or below, the folder WebKit grants with loadFileURL(_:allowingReadAccessTo:). C++ LocalFileSubresourceAllowed (CEFShim/src/local_file_scope.h, scripts/cmux-next/test-local-file-scope-cpp.sh) passes these. `allowed` is false when the shim cancels the request. A request that is not file: is left to Chromium (true), and so is a file: request from a web document (http, https, extension pages), which Chromium refuses itself. A file: request from a document the shim cannot place (empty, about:, data:, filesystem: or blob:, whose URL names no folder) is refused. `document` is the requesting frame's URL after the shim walks about: frames up to their parent; a frameless request reaches the policy with an empty document.",
+  "description": "Shared test vectors for the local file scope of a CEF tab: a file: page may load file: subresources and subframes only from its own folder or below, the folder WebKit grants with loadFileURL(_:allowingReadAccessTo:). C++ LocalFileSubresourceAllowed (CEFShim/src/local_file_scope.h, scripts/cmux-next/test-local-file-scope-cpp.sh) passes these. `allowed` is false when the shim cancels the request. A request that is not file: is left to Chromium (true), and so is a file: request from a known web document (http, https, chrome-extension, chrome, chrome-untrusted, devtools, cmux-page), which Chromium refuses itself. A file: request from any other document is refused: one the shim cannot place (empty, about:, data:, filesystem:, blob:), an unknown scheme, or a URL that does not start with its scheme. `document` is the requesting frame's URL after the shim walks about: frames up to their parent; a frameless request reaches the policy with an empty document.",
   "cases": [
     {
       "document": "file:///Users/a/site/index.html",
@@ -174,6 +174,41 @@
     {
       "document": "",
       "request": "https://example.com/logo.png",
+      "allowed": true
+    },
+    {
+      "document": " file:///Users/a/site/index.html",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "\thttps://example.com/",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "javascript:void(0)",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "unknown-scheme:thing",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "HTTPS://example.com/",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "cmux-page://settings/index.html",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "devtools://devtools/bundled/inspector.html",
+      "request": "file:///Users/a/site/logo.png",
       "allowed": true
     }
   ]

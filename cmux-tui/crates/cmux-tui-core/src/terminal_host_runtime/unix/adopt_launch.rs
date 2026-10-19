@@ -58,7 +58,6 @@ impl HostLaunchAdopt {
         let launch = &self.launch;
         let (cols, rows) = normalize_terminal_geometry(launch.cols, launch.rows)?;
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         anyhow::ensure!(self.child_pid != 0 && self.session_id != 0, "adopted session is unnamed");
         let mut output = Vec::new();
         put_string(&mut output, &launch.endpoint)?;
@@ -103,7 +102,6 @@ impl HostLaunchAdopt {
         let scrollback = decoder.u32()? as usize;
         let default_colors = decode_default_colors(&mut decoder)?;
         let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
-        pty_size(cols, rows, cell_pixels)?;
         let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
         let child_pid = decoder.u32()?;
         let session_id = decoder.u32()?;
@@ -251,7 +249,7 @@ fn spawn_adopted_runtime(
     let fd = unsafe { OwnedFd::from_raw_fd(spec.fd) };
     let master = cmux_pty::adopt_master(fd)?;
     let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-    master.resize(pty_size(launch.cols, launch.rows, cell_pixels)?)?;
+    master.resize(pty_size(launch.cols, launch.rows, cell_pixels))?;
     crate::debug_spans::mark("host.pty_adopted");
     let child = HostChild::Adopted(child);
     start_host_runtime(launch, bootstrapped, master, child, &spec.seed, spec.program_status)
