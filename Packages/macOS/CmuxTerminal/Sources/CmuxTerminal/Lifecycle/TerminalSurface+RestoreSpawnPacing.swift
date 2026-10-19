@@ -43,7 +43,7 @@ extension TerminalSurface {
             // turn a hidden restore admission into a native Ghostty surface;
             // the next portal/window reveal retries through the visibility
             // hook in TerminalSurface+Renderer.
-            guard (self.rendererPortalVisible || view.window == nil) &&
+            guard self.rendererPortalVisible,
                   !self.isHeadlessStartupWindow(view.window),
                   self.rendererWindowVisible else { return }
             self.createSurface(for: view, source: .scheduledRestore)
