@@ -48,6 +48,7 @@ describe("composer fit steps", () => {
       ...new Set(ROW_FIT_STEPS.map(({ step }) => COMPOSER_FIT_STEPS[step])),
       COMPOSER_FIT_STEPS.rowTight,
       COMPOSER_FIT_STEPS.barTight,
+      COMPOSER_FIT_STEPS.newTabModelMark,
     ];
     expect(rowWidths.filter((width) => !blocks.some((block) => block.width === width))).toEqual([]);
   });

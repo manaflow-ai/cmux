@@ -179,11 +179,13 @@ let package = Package(
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextKeepAwake",
+                "CmuxNextPopups",
                 "CmuxNextWorkspaceRepair",
                 "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextCrashReporting",
+                "CmuxNextDiff",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextDaemonService",
@@ -270,7 +272,7 @@ let package = Package(
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
                            .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -280,7 +282,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -540,6 +542,21 @@ let package = Package(
             dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
+        // Browser popup panels: sized `window.open` popups (OAuth, payment) and
+        // extension popup windows over their opener's window. The App routes page intents.
+        .target(
+            name: "CmuxNextPopups",
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextPopupsTests",
+            dependencies: ["CmuxNextBrowser", "CmuxNextPopups"],
+            swiftSettings: uiSwiftSettings
+        ),
         // The one owner of what happens to a workspace with no pane: a last-tab
         // close closes it, a lost terminal is refilled. The App supplies the
         // daemon's create and close (`EmptyWorkspaceRepair(daemon:)`).
@@ -580,11 +597,16 @@ let package = Package(
         // and the App Store window. The App supplies the operation sink.
         .target(
             name: "CmuxNextApps",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/AppPlatform"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAppsTests",
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
@@ -767,6 +789,20 @@ let package = Package(
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
             ],
             swiftSettings: daemonSwiftSettings
+        ),
+        // The diff viewer engine (the diff page provider, sidecar, grants,
+        // stores and strings). DiffPageService in the App opens and hosts it.
+        .target(
+            name: "CmuxNextDiff",
+            dependencies: [
+                "CmuxNextAgentPane",
+                "CmuxNextCompat",
+                "CmuxNextDaemonService",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextDesign",
@@ -993,7 +1029,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextCompat", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            // ReduceMotionLoopTests builds the vendored Home typing indicators.

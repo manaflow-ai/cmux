@@ -244,7 +244,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
         emptyWorkspaceRepair.createFirstTab(key) { [weak self] surface in
             guard let self else { return }
-            focus.expect(.surface(String(surface.rawValue)))
+            expectFocus(on: surface)
             applyCurrent()
         }
     }
@@ -253,7 +253,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private func repairIfEmpty() {
         emptyWorkspaceRepair.check(workspace) { [weak self] surface in
             guard let self else { return }
-            self.focus.expect(.surface(String(surface.rawValue)))
+            self.expectFocus(on: surface)
             self.applyCurrent()
         }
     }
