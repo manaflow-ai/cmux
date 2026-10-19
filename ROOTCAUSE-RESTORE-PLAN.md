@@ -325,3 +325,12 @@ filesystem-operation or bridge-path stall rather than a full device
 disappearance. No unmount, repair, or reboot has been attempted because active
 worktrees and the rescore job still have open ownership that must be resolved
 first.
+
+OWC's current [Express 1M2 troubleshooting guide](https://eshop.macsales.com/manuals/OWC-Express-1M2-troubleshooting-guide)
+recommends isolating the enclosure on a direct USB-C/Thunderbolt port, removing
+other external drives, and running First Aid from the bottom of the Disk Utility
+hierarchy upward when a listed volume will not mount. M5S already negotiates the
+expected 80 Gb/s USB4 link and remains mounted, so the guide's low-link-speed and
+missing-device cases do not fit. First Aid/verify remains the next storage
+operation, but it must wait until the active Atelier worktree ownership is
+resolved and a safe unmount window exists.
