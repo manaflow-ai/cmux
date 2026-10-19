@@ -484,8 +484,17 @@ pub fn mask(text: &str) -> String {
 /// deleted stays deleted, and the edit can only place a secret of `original`
 /// back into the same text.
 pub fn unmask(edited: &str, original: &str) -> String {
-    let _ = original;
-    edited.to_owned()
+    let mut out = String::with_capacity(edited.len());
+    let mut at = 0;
+    for f in find(original) {
+        let label = format!("[{}]", f.label);
+        let Some(i) = edited[at..].find(&label) else { continue };
+        out.push_str(&edited[at..at + i]);
+        out.push_str(&original[f.range.clone()]);
+        at += i + label.len();
+    }
+    out.push_str(&edited[at..]);
+    out
 }
 
 #[cfg(test)]
