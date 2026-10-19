@@ -1,14 +1,10 @@
 import Foundation
 
-/// Strings of the popup panels (Resources/Popups.xcstrings).
+/// Strings of the popup windows (Resources/Popups.xcstrings).
 nonisolated enum PopupStrings {
-    /// Popup panel title while the page has no title or address yet.
+    /// Popup window title while the page has no title and no address yet
+    /// (Chrome's `IDS_DEFAULT_TAB_TITLE`).
     static var popupUntitled: String {
-        String(localized: "popup.untitled", defaultValue: "Popup", table: "Popups", bundle: .module)
-    }
-
-    /// Tooltip of a popup panel's close button.
-    static var popupCloseHelp: String {
-        String(localized: "popup.closeHelp", defaultValue: "Close Popup (Esc)", table: "Popups", bundle: .module)
+        String(localized: "popup.untitledPage", defaultValue: "Untitled", table: "Popups", bundle: .module)
     }
 }

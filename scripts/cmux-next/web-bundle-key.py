@@ -21,9 +21,10 @@ import subprocess
 import sys
 
 # What the builders read, besides the files outside webviews/ that a webviews
-# source imports (imported_inputs below finds those). webviews/ includes its scripts, lockfile and the
-# generated strings tables; schemas/settings is imported by the settings page;
-# the xcstrings catalogs feed gen-strings.mjs; marked.min.js is inlined into the
+# source imports (imported_inputs below finds those). webviews/ includes its scripts, lockfile and
+# xcstrings catalogs (not the strings tables: build output, ignored since #21946, made from those
+# catalogs and the settings schema); schemas/settings is imported by the settings page and read
+# by gen-strings.mjs; the xcstrings catalogs feed gen-strings.mjs; marked.min.js is inlined into the
 # webviews app's agent-session.html.
 INPUTS = [
     "webviews",

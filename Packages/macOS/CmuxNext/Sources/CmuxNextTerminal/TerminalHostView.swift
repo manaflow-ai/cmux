@@ -176,6 +176,14 @@ public final class TerminalHostView: NSView {
         scroller.update(bar)
     }
 
+    /// The width a surface gets in a host `hostWidth` points wide (less a legacy scroller's strip),
+    /// for working out a terminal's grid before its host exists.
+    public static func surfaceWidth(hostWidth: CGFloat) -> CGFloat {
+        let reserved = NSScroller.preferredScrollerStyle == .legacy
+            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return max(0, hostWidth - reserved)
+    }
+
     /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay).
     private var surfaceFrame: CGRect {
         CGRect(x: bounds.minX, y: bounds.minY, width: max(0, bounds.width - scroller.reservedWidth), height: bounds.height)
