@@ -178,7 +178,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // A new tab page is "New Tab", with the new-tab icon, until it
         // becomes a chat (then the chat's title and icon).
         let isNewTabPage = titles.isNewTabPage(tab)
-        var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage)
+        var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage, restarting: daemon.restartsKeptTab(tab))
         // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
         // content, when the app becomes available after the tree arrived.
         // An app or page tab names and badges itself like the page it shows.
