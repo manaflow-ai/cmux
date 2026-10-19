@@ -161,6 +161,8 @@ import Testing
         try await service.revoke()
         #expect(await world.deletedDevices == [joined.device])
         #expect((try? Data(contentsOf: file)) == remaining)
+        try await service.revoke()
+        #expect(await world.deletedDevices == [joined.device])
         await #expect(throws: NativeDeviceEnrollmentError.revoked) { try await service.enroll() }
     }
 

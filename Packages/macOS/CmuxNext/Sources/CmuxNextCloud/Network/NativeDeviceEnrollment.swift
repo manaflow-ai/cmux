@@ -119,7 +119,7 @@ public actor NativeDeviceEnrollment {
     }
 
     /// Stop admitting enrollments. Sign-out also calls `revoke` while its Stack session is available.
-    public func stop() { generation &+= 1; revoked = true; binding = nil }
+    public func stop() { generation &+= 1; revoked = true }
 
     /// Drain an enrollment already on the wire, then delete the Native device as its original user.
     public func revoke() async throws {
@@ -128,13 +128,26 @@ public actor NativeDeviceEnrollment {
         guard let saved else { return }
         let lock = try saved.store.lock()
         defer { withExtendedLifetime(lock) {} }
-        var record = try saved.store.loadOrCreate()
-        guard let device = record.device else { return }
+        let record: NativeDeviceRecord?
+        do { record = try saved.store.loadOrCreate(create: false) }
+        catch {
+            // A confirmed locator remains useful for authenticated cleanup after local state is lost.
+            guard binding != nil else { throw error }
+            record = nil
+        }
+        guard let device = binding?.device ?? record?.device else { self.saved = nil; return }
         let bearer = try await sessionBearer(saved.context)
         let response = try await native.send(method: "DELETE", path: "/v1/devices/\(device)", body: nil, bearer: bearer, tenant: scope.tenant)
         guard (200..<300).contains(response.status) || response.status == 404 else { throw NativeDeviceEnrollmentError.refused(response.status) }
-        record.device = nil
-        try saved.store.save(record)
+        if var record, record.device == device {
+            let publicKey = try record.key.publicKey.rawRepresentation.base64EncodedString()
+            if binding == nil || publicKey == binding?.wgPublicKey {
+                record.device = nil
+                try saved.store.save(record)
+            }
+        }
+        binding = nil
+        self.saved = nil
     }
 
     private func perform(epoch: UInt64) async throws -> NativeDeviceBinding {
