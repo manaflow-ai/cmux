@@ -755,9 +755,18 @@ pre.cv-math-source {
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
+  /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
+     each streamed token compete with that correction and produces the one-pixel shake at rest. */
+  overflow-anchor: none;
 }
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
+}
+/* The spacer is the scroller's extent, which a followed view's offset is set against in the same
+   frame: under Reduce Motion's 0.01ms transitions (shared/desktop.css) it kept its old height for
+   that frame, and the offset clamped short of the end and stayed there. */
+.acpmux-spacer {
+  transition: none;
 }
 .acpmux-row {
   left: var(--cv-inset);
@@ -773,6 +782,11 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 8px;
+}
+/* A pointer click can focus an article without asking for keyboard focus. Keep that path quiet;
+   the active row above is the only transcript outline, and it is intentionally :focus-visible. */
+.acpmux-row:focus:not(:focus-visible) {
+  outline: none;
 }
 /* Scoped to the row so it outranks .cv-iconbtn's `all: unset`, which comes later in this file and
    otherwise put the button back in the flow, shown at rest. */
@@ -1007,6 +1021,35 @@ pre.cv-math-source {
   margin-top: 3px;
   margin-left: 2px;
 }
+/* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
+   to one line and give way at the line's end, never wrapping it to a second. */
+.cv-worked__count {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+  margin-left: 2px;
+  white-space: nowrap;
+}
+.cv-worked__open {
+  all: unset;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: pointer;
+}
+.cv-worked__open:hover {
+  text-decoration: underline;
+}
+.cv-worked__open:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+}
+.cv-worked__label {
+  flex: none;
+}
 /* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
 @keyframes cv-thinking-sweep {
   from {
@@ -1030,6 +1073,14 @@ pre.cv-math-source {
     background-clip: text;
     animation: cv-thinking-sweep 2s linear infinite;
   }
+}
+/* Static status indicators (cx-sya4n): no sweep; the word stays muted. */
+:root[data-status-indicators="static"] .cv-thinking {
+  color: var(--cv-text-muted);
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  animation: none;
 }
 
 .cv-tools {
@@ -1094,8 +1145,19 @@ pre.cv-math-source {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* A long thought folded (Debug toggle agentPane.debug.foldLongThoughts): "Thought", its first line,
-   a trailing chevron. Opened, the text sits under one left rule at the label's indent plus the
+/* A long thought still streaming (ThoughtRow.tsx THOUGHT_LIVE_PX, Debug toggle
+   agentPane.debug.liveThoughtViewport): a fixed viewport of seven lines, Codex's 8.75rem, that
+   keeps its newest line at the bottom while older lines fade out at its top over 16px. */
+.cv-thought.is-live .cv-thought__text {
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: 140px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 16px);
+  mask-image: linear-gradient(to bottom, transparent, black 16px);
+}
+/* A long thought folded (Debug toggle agentPane.debug.foldLongThoughts): "Thought for 12s", or with
+   agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a trailing chevron. Opened, the text sits under one left rule at the label's indent plus the
    row's gap (AI Elements' Trace nesting); the reader's toggle animates its height (ThoughtRow.tsx). */
 .cv-thought__preview {
   color: var(--cv-text-muted);
@@ -1119,6 +1181,13 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 4px;
+}
+/* Pointer activation should not leave a browser outline on transcript controls. Keyboard focus
+   still takes the shared ring above, including Worked for, expandable tool rows and icon actions. */
+.cv-worked:focus:not(:focus-visible),
+.cv-tool.is-toggle:focus:not(:focus-visible),
+.cv-iconbtn:focus:not(:focus-visible) {
+  outline: none;
 }
 /* One right chevron, turned a quarter when open; a message head's shows on hover. */
 .cv-rotor {
@@ -1623,6 +1692,9 @@ pre.cv-math-source {
     animation: cv-caret-wait 1s ease-in-out infinite;
   }
 }
+:root[data-status-indicators="static"] .cv-md.is-waiting .cv-caret::after {
+  animation: none;
+}
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
    under a rule at the end of the reply, in a smaller, quieter type. */
@@ -1909,6 +1981,10 @@ pre.cv-math-source {
   height: 180px;
   background: var(--agent-page-bg);
 }
+/* A gallery stage's placeholder takes its live frame's height (previewUrl.ts GALLERY_FRAME_HEIGHT). */
+.acpmux-turn-preview-unloaded--live {
+  height: 360px;
+}
 .acpmux-turn-preview-load {
   height: 28px;
   padding: 0 10px;
@@ -2151,16 +2227,15 @@ pre.cv-math-source {
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
    transcript stage's bottom edge, shown while the reader is scrolled up. Glass like the mobile
-   app's: the page reads through a blur, under a thin ring and a soft shadow. Its dots say a reply
-   is streaming below. It fades in and out with the pane's motion tokens. */
+   app's: the page reads through a blur, under a thin ring and a soft shadow. Its accent dots say a
+   reply is streaming below. It fades in and out with the pane's motion tokens. */
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
   bottom: 12px;
   z-index: var(--layer-sticky);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -2198,16 +2273,35 @@ pre.cv-math-source {
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
 }
+/* The arrow and the dots share one cell: while the agent works, the arrow shrinks and fades out as
+   the accent dots grow in (Claude desktop's Code tab), and back when the turn ends. */
+.acpmux-jump-latest__arrow,
 .acpmux-jump-latest__dots {
+  grid-area: 1 / 1;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.acpmux-jump-latest__dots {
   gap: 3px;
+  color: var(--agent-accent);
+  opacity: 0;
+  transform: scale(0.4);
+}
+.acpmux-jump-latest[data-working] .acpmux-jump-latest__arrow {
+  opacity: 0;
+  transform: translateY(3px) scale(0.4);
+}
+.acpmux-jump-latest[data-working] .acpmux-jump-latest__dots {
+  opacity: 1;
+  transform: none;
 }
 .acpmux-jump-latest__dots i {
-  width: 3.5px;
-  height: 3.5px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: currentColor;
-  opacity: 0.45;
+  opacity: 0.55;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-jump-latest {
@@ -2218,24 +2312,39 @@ pre.cv-math-source {
   .acpmux-jump-latest[data-shown] {
     transition-duration: var(--agent-motion-in);
   }
-  .acpmux-jump-latest__dots i {
+  .acpmux-jump-latest__arrow,
+  .acpmux-jump-latest__dots {
+    transition:
+      opacity var(--agent-motion-in) var(--agent-ease-out),
+      transform var(--agent-motion-in) var(--agent-ease-out);
+  }
+  /* Only while shown and working: hidden dots keep no compositor animation running. */
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
     animation: acpmux-jump-latest-dot calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite;
   }
-  .acpmux-jump-latest__dots i:nth-child(2) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(2) {
     animation-delay: calc(var(--agent-motion-in) * 1.5);
   }
-  .acpmux-jump-latest__dots i:nth-child(3) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(3) {
     animation-delay: calc(var(--agent-motion-in) * 3);
   }
+}
+/* Static status indicators (cx-sya4n): the dots hold still. Reduce Motion gets the same static
+   dots, swapped in without the morph, since both rules above sit under no-preference. The selector
+   repeats the loop's [data-shown][data-working] so it outranks it. */
+:root[data-status-indicators="static"] .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
+  animation: none;
 }
 @keyframes acpmux-jump-latest-dot {
   0%,
   60%,
   100% {
-    opacity: 0.45;
+    opacity: 0.55;
+    transform: scale(0.8);
   }
   30% {
     opacity: 1;
+    transform: scale(1.15);
   }
 }
 /* A chat reopening where the reader left it stays unseen while older pages bring that row back
@@ -2362,6 +2471,11 @@ pre.cv-math-source {
   color: var(--agent-danger);
 }
 
+/* ---------- A compaction (CompactionNote.tsx) ---------- */
+.cv-compaction[data-state="failed"] .cv-tool__icon {
+  color: var(--agent-danger);
+}
+
 /* One rhythm for steps (tool calls, thoughts, a background task's end) across transcript rows:
    a step row next to another adds no gap, so they sit 26px apart as inside one row (Leo 2026-10-13). */
 .acpmux-row.acpmux-row--before-step,
@@ -2374,4 +2488,13 @@ pre.cv-math-source {
 }
 .acpmux-row--after-step > .cv-tools {
   margin-top: 0;
+}
+
+/* A steer under its bubble (SteerMark.tsx): "Steering" until the agent reads it, then "Steered". */
+.cv-user__steer-label {
+  color: var(--cv-text);
+  font-weight: 500;
+}
+.cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
+  color: var(--agent-accent);
 }

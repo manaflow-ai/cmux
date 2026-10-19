@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
 // Internal drag reorder: lift, in-place slot (R77), drop, cancel, auto-scroll.
-extension SidebarListView {
+extension SidebarListViewComponents {
     typealias Drag = SidebarListDrag
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
@@ -61,6 +61,7 @@ extension SidebarListView {
             drag.restFrame.size.width += SidebarStyle.groupGutter
         }
         drag.morphs = rows.count == 1
+        if case .group = payload { drag.groupHeadHeight = rows.first?.height }
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
@@ -112,8 +113,8 @@ extension SidebarListView {
             // The list keeps the drop's look until the move lands; the card settles into the slot it shows.
             settling = SidebarSettlingDrop(drag: drag, revision: model.sectionsRevision, blocks: blocks)
             self.drag = nil
-            // A drop never scrolls to reveal (hq-2d, cx-8quut): only the drag's autoscroll moved the view. The reloads
-            // that show it see no focus change and no user move, so they only anchor.
+            // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
+            // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
             revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
             let sentBefore = SidebarDocStore.current?.lastIntentKey
             doc.drop(items, target)
@@ -130,7 +131,8 @@ extension SidebarListView {
         }
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
-        // A drop moves rows, not the list: its reloads anchor on the first visible row and never reveal (cx-fnfj, cx-8quut).
+        // A drop moves rows, not the list: its reloads anchor on the first visible row (cx-fnfj, cx-8quut) and reveal only
+        // a focused row the drop moved or pushed out of view (sidebar-focused-visible).
         revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
@@ -161,8 +163,10 @@ extension SidebarListView {
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
+        // A dragged group is a tall card (its header and every member row): its header decides, where the pointer
+        // holds it, not the card's centre many rows away.
         let displayY = drag.morphs || drag.tileSource != nil ? point.y - drag.grabOffsetY * drag.restFrame.height / max(1, drag.lift.frame.height)
-            + drag.restFrame.height / 2 : drag.probeCard.midY
+            + drag.restFrame.height / 2 : drag.groupHeadHeight.map { drag.lift.frame.minY + $0 / 2 } ?? drag.probeCard.midY
         let y = drag.blockTarget != nil ? baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases)
             : SidebarDragGeometry.baseY(displayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
         guard let hit = geometry.hit(CGPoint(x: point.x, y: y)) else {
@@ -176,6 +180,9 @@ extension SidebarListView {
             return
         }
         drag.probe = SidebarDropProbe(hit, displayY: displayY, baseY: y)
+        // A refused place keeps the last open gap (the drop goes there): the rows do not spring shut and open
+        // again at every row the drop cannot take, and the card dims only while no gap shows.
+        if hit.target == nil, drag.docTarget != nil, drag.target != nil || drag.blockTarget != nil { return }
         drag.docTarget = hit.target
         drag.lift.setRefused(hit.target == nil)
         // A list row shows the list's gap or group fill; a block's item opens a gap among the block's items.

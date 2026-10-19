@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxTheme
 import Testing
 
 /// Tab Overflow (cx-kp9b4) on a real strip in a window: crowded Shrink tabs stop at a minimum that keeps
@@ -44,8 +45,9 @@ import Testing
         #expect(metrics.minInactiveTabWidth == 32 && metrics.minActiveTabWidth == 56, "\(metrics.minInactiveTabWidth) / \(metrics.minActiveTabWidth)")
         #expect(metrics.minActiveTabWidth >= metrics.minInactiveTabWidth)
         #expect(harness.unselectedWidths.allSatisfy { $0 == metrics.minInactiveTabWidth }, "\(Set(harness.unselectedWidths))")
+        // The selected tab is as wide as the others: a selection never moves a tab (2026-10-19).
         let selected = try #require(harness.strip.result.slot(harness.selected))
-        #expect(selected.width == metrics.minActiveTabWidth)
+        #expect(selected.width == metrics.minInactiveTabWidth)
         #expect(harness.strip.result.contentWidth > harness.strip.viewportWidth, "60 tabs at the minimum fit, nothing scrolls")
         let cell = try #require(harness.strip.cells[harness.selected])
         #expect(cell.frame.maxX <= harness.strip.tabsClip.bounds.maxX + 0.5, "the selected last tab is scrolled out of view")
@@ -96,6 +98,14 @@ import Testing
         let hint = try #require(crowded.strip.overflowHint)
         #expect(!hint.isHidden, "a crowded Shrink strip shows no hint")
         #expect(hint.frame.minX >= crowded.strip.tabsClip.frame.maxX, "the hint covers the tabs")
+        // Its button takes the accent of the strip's scope and follows that scope's theme changes.
+        let scope = ThemeScope(level: .room)
+        scope.root(crowded.strip)
+        for foreground: UInt32 in [0xE8D8B0, 0xB0D8E8] {
+            let input = ThemeInput(background: ThemeRGB(hex: 0x101418), foreground: ThemeRGB(hex: foreground))
+            scope.setOverride(try #require(ThemeSpec("Overflow Hint Room")), input: input, animated: false)
+            #expect(hint.useButton.contentTintColor == scope.tokens.focusRing.nsColor, "the hint's button is not in the strip's theme")
+        }
         // Only one strip shows it.
         let second = Harness(count: 40)
         defer { second.window.orderOut(nil) }

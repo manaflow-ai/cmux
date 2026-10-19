@@ -19,6 +19,7 @@ extension ScreenContentView {
     func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
                     showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
+        defer { leadIfPending() }
         let animate = animated && !context.reduceMotion && bounds.width > 0
         let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals)
         guard let strip else {

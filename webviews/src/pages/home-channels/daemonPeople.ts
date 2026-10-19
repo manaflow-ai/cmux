@@ -165,10 +165,19 @@ export class DaemonPeople {
     return chief(changed.value);
   }
 
-  async setChiefAvatar(id: string, mediaType: string, data: string, key: string): Promise<HomeChief> {
+  /** Sets a Chief's picture, or with null clears it (the bundled default shows again). */
+  async setChiefAvatar(
+    id: string,
+    picture: { mediaType: string; data: string } | null,
+    key: string,
+  ): Promise<HomeChief> {
     const changed = await this.local.operation<{ value: Json }>(
       "chief.profile.avatar.set",
-      { ...selectors(), chief: id, media_type: mediaType, data },
+      {
+        ...selectors(),
+        chief: id,
+        ...(picture ? { media_type: picture.mediaType, data: picture.data } : { clear: true }),
+      },
       key,
     );
     return chief(changed.value);

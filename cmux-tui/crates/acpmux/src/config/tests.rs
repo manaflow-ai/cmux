@@ -109,6 +109,14 @@ fn a_coderouter_without_the_configured_route_is_unavailable() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_launcher_failure_does_not_repeat_its_full_argv() {
+    const SENTINEL: &str = "launcher-private-argument";
+    let error = launchers::launcher_ok(&["/usr/bin/false".into(), SENTINEL.into()]).unwrap_err();
+    assert!(!error.contains(SENTINEL), "launcher failure exposed its argv: {error}");
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///

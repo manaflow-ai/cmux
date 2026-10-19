@@ -33,7 +33,7 @@ public struct SidebarTabRowDragHandoff {
     }
 }
 
-extension SidebarListView {
+extension SidebarListViewComponents {
     var onTabRowDrag: ((SidebarTabRowDragHandoff) -> Bool)? {
         get { tabRowDrag.offer }
         set { tabRowDrag.offer = newValue }

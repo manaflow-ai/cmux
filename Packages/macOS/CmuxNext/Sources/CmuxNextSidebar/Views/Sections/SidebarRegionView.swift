@@ -64,6 +64,18 @@ final class SidebarRegionView: NSView {
 
     private(set) var layoutResult = SidebarRegionLayout.empty
     private(set) var content: Content?
+    /// The selected top item (`SidebarModel.selectedItem`), drawn active. Kept out of `Content`:
+    /// a selection change repaints the old and new item only, never lays the region out
+    /// (plans/cmux-next/perf-speed-of-light.md I6).
+    var activeItem: LayoutItemID? {
+        didSet {
+            guard oldValue != activeItem else { return }
+            for id in [oldValue, activeItem].compactMap({ $0 }) {
+                guard let view = itemViews[id] else { continue }
+                view.configure(activeInfo(view.info, id), style: view.style)
+            }
+        }
+    }
     private(set) var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
     private(set) var headerViews: [LayoutSectionID: SidebarSectionHeaderView] = [:]
     /// The drag in progress (R77) and the order the region shows while it
@@ -102,7 +114,7 @@ final class SidebarRegionView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// Height the content needs at `width`.
@@ -242,7 +254,8 @@ final class SidebarRegionView: NSView {
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }
-                view.configure(content.infos[id] ?? .fallback(for: item), style: style)
+                view.configure(activeInfo(content.infos[id] ?? .fallback(for: item), id), style: style)
+                view.activatesOnPress = item.ref.activatesOnPress
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
             }
@@ -350,7 +363,7 @@ final class SidebarRegionView: NSView {
         return view
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {
@@ -373,6 +386,13 @@ final class SidebarRegionView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         contextMenuProvider?(emptySpaceTarget)
+    }
+
+    /// `info` drawn active when `id` is the selected item.
+    private func activeInfo(_ info: SidebarItemInfo, _ id: LayoutItemID) -> SidebarItemInfo {
+        var info = info
+        info.isActive = id == activeItem
+        return info
     }
 
     /// The item view for `id` (tests, hover cards).

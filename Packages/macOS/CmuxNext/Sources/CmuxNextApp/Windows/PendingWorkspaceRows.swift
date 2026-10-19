@@ -25,22 +25,31 @@ final class PendingWorkspaceRows {
     }
 
     private(set) var rows: [Row] = []
-    /// The names `add` reserved for creates in flight, by key, until the create replies or fails (not when the row goes).
+    /// The names `add` reserved, by key, until a store lists the workspace (its name counts there from then) or its create
+    /// ends without one (`remove`). Not at the reply: the store can list the workspace a moment later, and a press in that
+    /// gap would take the same name (the terminal path: remote, or a create with a command).
     @ObservationIgnored private var names: [String: (machine: MachineID, name: String)] = [:]
+    /// Each window's sidebar, redrawn in the turn a row comes or goes: the row draws over the rows the
+    /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
+    let redraws = SidebarRedraws()
 
     func add(_ row: Row, name: String) {
         rows.append(row)
         names[row.id] = (row.machine, name)
+        redraws.run()
     }
 
-    func remove(_ id: String) { rows.removeAll { $0.id == id } }
+    /// The create `id` failed or a close took it: its row and its name go.
+    func remove(_ id: String) {
+        rows.removeAll { $0.id == id }
+        names[id] = nil
+        redraws.run()
+    }
 
-    /// The create `id` replied or failed: its name is the daemon's to count now.
-    func release(_ id: String) { names[id] = nil }
-
-    /// The names given to `machine`'s creates in flight.
-    func reservedNames(on machine: MachineID) -> [String] {
-        names.values.filter { $0.machine == machine }.map(\.name)
+    /// The names given to `machine`'s creates that no store lists yet (`listed`); the listed ones are released here.
+    func reservedNames(on machine: MachineID, listed: (String) -> Bool) -> [String] {
+        names = names.filter { !listed($0.key) }
+        return names.values.filter { $0.machine == machine }.map(\.name)
     }
 
     /// Forgets the rows of `window` that it lists now (`listed`: its own row
@@ -50,9 +59,43 @@ final class PendingWorkspaceRows {
     /// before its room shows it (the pin can come after the workspace), and
     /// a row forgotten then left a gap.
     func forget(in window: String, listed: Set<String>, elsewhere: (String) -> Bool) {
+        if !names.isEmpty { names = names.filter { !listed.contains($0.key) } } // listed: its name counts in the store now
         func done(_ row: Row) -> Bool { row.window == window && (listed.contains(row.id) || elsewhere(row.id)) }
         guard rows.contains(where: done) else { return }
         rows.removeAll(where: done)
+        redraws.run()
+    }
+
+    /// `listed` without the workspaces Cmd-N shows before the daemon has them: their pending rows list instead, at their
+    /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
+    func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
+        Self.removing(ids(in: window) { machines.workspace(id: $0)?.0.isProvisional == true }, from: listed)
+    }
+
+    /// The pending rows of `window` whose workspace the store shows only as a stand-in
+    /// (`provisional`: Cmd-N's optimistic workspace): the sidebar lists the pending row for them.
+    func ids(in window: String, provisional: (String) -> Bool) -> Set<String> {
+        Set(rows.filter { $0.window == window && provisional($0.id) }.map(\.id))
+    }
+
+    /// `sections` without the workspace rows `ids` (their pending rows list instead, at their slot).
+    static func removing(_ ids: Set<String>, from sections: [SidebarRowSection]) -> [SidebarRowSection] {
+        guard !ids.isEmpty else { return sections }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.compactMap { node in
+                switch node {
+                case let .workspace(workspace):
+                    return ids.contains(workspace.id.rawValue) ? nil : node
+                case var .group(group):
+                    group.workspaces.removeAll { ids.contains($0.id.rawValue) }
+                    return .group(group)
+                case .item:
+                    return node
+                }
+            }
+            return section
+        }
     }
 
     func rows(in window: String) -> [Row] {

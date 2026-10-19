@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// (Open, with "Always allow" for the site).
 final class PromptBarView: NSView {
     private(set) var prompt: BrowserPrompt?
-    private let messageLabel = NSTextField(wrappingLabelWithString: "")
+    private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     private let inputField = ChromeTextField()
     /// HTTP authentication fields.
     let userField = ChromeTextField()

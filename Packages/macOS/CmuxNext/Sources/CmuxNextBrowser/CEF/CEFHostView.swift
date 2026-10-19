@@ -68,7 +68,7 @@ final class CEFHostView: NSView {
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? {
-        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self))
+        CEFClipShape.path(bounds: bounds, clips: CEFClipShape.clips(around: self), cutouts: CEFClipShape.cutouts(around: self))
     }
 
     /// The chrome's rects plus the window's interactive overlays over this
@@ -170,7 +170,7 @@ final class CEFTabContentView: NSView {
     /// The pane shows this parked tab again: it takes the host view.
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        guard let tab, window != nil else { return }
+        guard let tab, window != nil, !isHiddenOrHasHiddenAncestor else { return }
         tab.pageThemeDidChange()
         tab.contentDidAppear(in: self)
     }

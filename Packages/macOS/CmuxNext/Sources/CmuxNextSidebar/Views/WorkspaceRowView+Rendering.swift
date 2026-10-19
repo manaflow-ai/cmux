@@ -25,8 +25,17 @@ extension WorkspaceRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
+        // The x, the more button and the chevron show or hide only in
+        // `layout()`, so every hover change asks for one; AppKit coalesces it
+        // into the next pass. Skipping it during a scroll or a list apply left
+        // a row's controls up after hover cleared (no pointer event follows).
         needsLayout = true
-        guard isHovered, !renaming, !isPlaceholderRow else {
+        // During a scroll the pointer is stationary while rows pass under it.
+        // A synchronous layout and a marquee for every crossing turn
+        // realization into a main-thread hitch, so those wait for real hover.
+        let list = superview as? SidebarListView
+        let suppressEffects = list?.hoverFollowsScroll == true || list?.suppressHoverEffects == true
+        guard isHovered, !renaming, !isPlaceholderRow, !suppressEffects else {
             title.stopMarquee()
             return
         }
@@ -65,7 +74,9 @@ extension WorkspaceRowView {
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let fades = fadesNextHover
+        // Entering a row should reveal its controls immediately. Keep the
+        // short fade only for clearing them as the pointer leaves.
+        let fades = fadesNextHover && !isHovered
         defer { fadesNextHover = false; CATransaction.commit() }
 
         // Members indent under their group header; the members' line is
