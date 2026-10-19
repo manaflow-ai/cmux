@@ -175,6 +175,12 @@ impl HostSource for MuxHostSource {
 /// marks every tree change for publishing. A second install is refused.
 pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     let source = Arc::new(MuxHostSource { mux: Arc::downgrade(mux) });
+    let weak = Arc::downgrade(mux);
+    replica.set_sink(Arc::new(move |event| {
+        if let Some(mux) = weak.upgrade() {
+            mux.emit(crate::MuxEvent::CloudConversation(Arc::new(event)));
+        }
+    }));
     if mux.set_host_replica(replica).is_err() {
         return false;
     }

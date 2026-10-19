@@ -7185,7 +7185,11 @@ with `reason` `forbidden`.
 
 `cloud-host-replica-set {api_base_url, install_token, expires_at,
 client_version?, host_name}` leases the app's install token. The daemon keeps
-it in memory only and never returns it; a chief token (`agt`) is refused. The
+it in memory only and never returns it; a chief token (`agt`) is refused. A
+lease for the same user, install and origin is a renewal: the token is swapped
+in place and the open socket stays. The daemon asks for a renewal with the
+`cloud-host-replica-needed` event (spec/events.md): `expiring` within two
+minutes of `expires_at`, `unauthenticated` when the cloud refused the token. The
 daemon enrolls the host (`host.enroll`, idempotent per install), opens
 `/v1/wire/host/<host>` and publishes `host:<host>/session` (the workspace
 tree that `list-workspaces` returns): a snapshot after each connect, then one

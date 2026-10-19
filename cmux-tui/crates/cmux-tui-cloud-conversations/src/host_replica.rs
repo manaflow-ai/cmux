@@ -39,8 +39,9 @@ use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
 use super::CloudError;
-use super::service::{CloudBackend, CloudWire, ConnectError, WireRecv};
+use super::service::{CloudBackend, CloudWire, ConnectError, EventSink, WireRecv};
 use super::session::{token_account, token_agent, token_claim, validate_api_base_url};
+use super::stream::CloudEvent;
 
 mod ops;
 use ops::Decided;
@@ -122,6 +123,9 @@ pub struct HostReplicaOptions {
     pub max_delay: Duration,
     /// How long `replica.purge` waits for `replica.purged`.
     pub purge_timeout: Duration,
+    /// How long before the lease ends the daemon asks for a new one
+    /// (`cloud-host-replica-needed` with `expiring`).
+    pub refresh_lead: Duration,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
     /// Platform reported at enrollment.
@@ -137,6 +141,7 @@ impl Default for HostReplicaOptions {
             settle: Duration::from_millis(250),
             max_delay: Duration::from_secs(2),
             purge_timeout: Duration::from_secs(10),
+            refresh_lead: Duration::from_secs(120),
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -270,6 +275,8 @@ struct State {
     purge_unconfirmed: bool,
     /// The driver thread runs (the capability is advertised only then).
     running: bool,
+    /// The renewal already asked for this lease: (`expires_at`, reason).
+    asked: Option<(u64, &'static str)>,
 }
 
 struct Inner {
@@ -282,6 +289,8 @@ struct Inner {
     changed: AtomicBool,
     shutdown: AtomicBool,
     next_tx: AtomicU64,
+    /// Where `cloud-host-replica-needed` goes (the mux's event bus).
+    sink: Mutex<Option<EventSink>>,
 }
 
 /// The daemon's host replica publisher.
@@ -312,12 +321,14 @@ impl HostReplica {
                     removed_install: None,
                     purge_unconfirmed: false,
                     running: false,
+                    asked: None,
                 }),
                 wake: Condvar::new(),
                 signal: AtomicU64::new(0),
                 changed: AtomicBool::new(false),
                 shutdown: AtomicBool::new(false),
                 next_tx: AtomicU64::new(1),
+                sink: Mutex::new(None),
             }),
             driver: Mutex::new(None),
         }
@@ -346,6 +357,11 @@ impl HostReplica {
         Ok(())
     }
 
+    /// Where the publisher asks for a new lease (`cloud-host-replica-needed`).
+    pub fn set_sink(&self, sink: EventSink) {
+        *self.inner.sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(sink);
+    }
+
     /// The driver thread runs.
     pub fn running(&self) -> bool {
         self.inner.lock().running
@@ -355,8 +371,19 @@ impl HostReplica {
     pub fn set_lease(&self, params: HostReplicaParams) -> Result<Value, CloudError> {
         {
             let mut state = self.inner.lock();
-            let generation = state.lease.as_ref().map_or(1, |lease| lease.generation + 1);
-            let lease = Lease::new(params, generation)?;
+            let lease = Lease::new(params, 0)?;
+            // A renewal (same user, install and origin) swaps the token in place: the
+            // open socket stays (HostDO closes it at its own token's expiry, and the
+            // next connect uses the new token). Anything else is a new lease.
+            let renewal = state.lease.as_ref().is_some_and(|old| {
+                old.user == lease.user && old.install == lease.install && old.origin == lease.origin
+            });
+            let generation = match state.lease.as_ref() {
+                Some(old) if renewal => old.generation,
+                Some(old) => old.generation + 1,
+                None => state.blocked.map_or(1, |g| g + 1),
+            };
+            let lease = Lease { generation, ..lease };
             // Another user or install is another publisher: enroll again (the
             // seq stays, it never goes back).
             if state
@@ -367,7 +394,7 @@ impl HostReplica {
                 state.host = None;
             }
             let removed = state.removed_install.as_deref() == Some(lease.install.as_str());
-            let generation = lease.generation;
+            state.asked = None;
             state.lease = Some(lease);
             state.purge = false;
             state.purge_unconfirmed = false;
@@ -487,6 +514,33 @@ impl Inner {
         }
     }
 
+    /// Asks the app for a new lease once per lease and reason.
+    fn need(&self, reason: &'static str) {
+        let expires_at = {
+            let mut state = self.lock();
+            let Some(expires_at) = state.lease.as_ref().map(|lease| lease.expires_at) else {
+                return;
+            };
+            if state.asked == Some((expires_at, reason)) {
+                return;
+            }
+            state.asked = Some((expires_at, reason));
+            expires_at
+        };
+        let sink = self.sink.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(sink) = sink {
+            sink(CloudEvent::HostReplicaNeeded { reason, expires_at: Some(expires_at) });
+        }
+    }
+
+    /// Asks for a new lease when this one ends within `refresh_lead`.
+    fn need_if_expiring(&self, expires_at: u64) {
+        let lead = u64::try_from(self.options.refresh_lead.as_millis()).unwrap_or(u64::MAX);
+        if (self.options.now_ms)().saturating_add(lead) >= expires_at {
+            self.need("expiring");
+        }
+    }
+
     fn tx(&self) -> String {
         format!(
             "tx-host-{}-{}",
@@ -528,6 +582,7 @@ struct Driver {
 /// The lease fields one connection uses (the token stays zeroizing).
 struct Use {
     generation: u64,
+    expires_at: u64,
     token: Zeroizing<String>,
     client_version: Option<String>,
     host_name: String,
@@ -577,6 +632,19 @@ impl Driver {
                     backoff = (backoff * 2).min(self.inner.options.backoff_max);
                 }
                 Ok(Ended::Blocked(blocked)) | Err(blocked) => {
+                    // The old token expired (HostDO closes 4401), but the app already
+                    // renewed it in place: connect again with the new one.
+                    let renewed = blocked == Phase::Unauthenticated
+                        && self.inner.lock().lease.as_ref().is_some_and(|l| {
+                            l.generation == lease.generation && *l.token != *lease.token
+                        });
+                    if renewed {
+                        backoff = self.inner.options.backoff_min;
+                        continue;
+                    }
+                    if blocked == Phase::Unauthenticated {
+                        self.inner.need("unauthenticated");
+                    }
                     // Wait for a new lease (or a clear) before trying again. A purge
                     // of a host this install may no longer reach has nothing to keep:
                     // a refused or removed host's replica is the backend's to drop.
@@ -611,6 +679,7 @@ impl Driver {
         let ws_origin = lease.url("", true);
         Some(Use {
             generation: lease.generation,
+            expires_at: lease.expires_at,
             token: lease.token.clone(),
             client_version: lease.client_version.clone(),
             host_name: lease.host_name.clone(),
@@ -633,6 +702,7 @@ impl Driver {
     /// connection. `Err` is a phase that waits for a new lease.
     fn connect_once(&mut self, lease: &Use) -> Result<Ended, Phase> {
         self.inner.set_phase(Phase::Connecting, None);
+        self.inner.need_if_expiring(lease.expires_at);
         let host = match self.host(lease) {
             Ok(host) => host,
             Err(Err(phase)) => return Err(phase),
@@ -752,6 +822,8 @@ impl Driver {
             if self.lease_changed(lease.generation) {
                 return Ended::LeaseChanged;
             }
+            let expires_at = self.inner.lock().lease.as_ref().map_or(0, |l| l.expires_at);
+            self.inner.need_if_expiring(expires_at);
             if self.inner.changed.swap(false, Ordering::AcqRel) {
                 last_change = Instant::now();
                 first_change.get_or_insert(last_change);
