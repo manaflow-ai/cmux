@@ -50,7 +50,7 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     public func backdrop(in window: NSWindow) -> WindowBackdrop {
         WindowBackdrop(window.themeScope.tokens, reduceTransparency: reduceTransparency(), art: window.themeScope.backdropArt,
                        selection: window.themeScope.backdropSelection, tuning: window.themeScope.appearanceTuning,
-                       tintOpacity: window.themeScope.backdropTintOpacity)
+                       tintOpacity: window.themeScope.backdropTintOpacity, legibility: window.themeScope.artLegibility)
     }
 
     public func paintWindowSurface(of window: NSWindow) {

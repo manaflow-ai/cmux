@@ -105,6 +105,18 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["transparency", "translucent", "background-opacity", "blur", "glass"]
             ),
             SettingDescriptor(
+                GlassLegibilitySetting.configPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.glassLegibility", "Glass Over Art"),
+                help: SettingsText.keyed("settings.appearance.glassLegibility.help",
+                                        "Main Text keeps primary text readable over any art and lets much more of the art through, like iOS. All Text also keeps secondary and dim text at full contrast, with denser glass."),
+                kind: .choice([
+                    SettingChoice(ArtLegibility.primary.rawValue, SettingsText.keyed("settings.choice.glassLegibility.primary", "Main Text")),
+                    SettingChoice(ArtLegibility.all.rawValue, SettingsText.keyed("settings.choice.glassLegibility.all", "All Text")),
+                ]),
+                default: .string(GlassLegibilitySetting.fallback.rawValue),
+                keywords: ["glass", "legibility", "contrast", "readable", "art", "wallpaper", "transparency", "ios"]
+            ),
+            SettingDescriptor(
                 WindowBackgroundSetting.materialPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.backgroundBlur", "Material"),
                 help: SettingsText.keyed("settings.appearance.backgroundBlur.help",

@@ -45,6 +45,10 @@ public final class ThemeScope {
     /// Plain glass here even when an ancestor has art (``pinBackdrop(_:)``).
     private var pinsNoBackdrop = false
     private var selectedAppearanceTuning: AppearanceTuning?
+    /// The text the glass keeps readable over art (`appearance.glassLegibility`), inherited like
+    /// art: the settings set it on ``app``.
+    public var artLegibility: ArtLegibility { selectedArtLegibility ?? parent?.artLegibility ?? .primary }
+    private var selectedArtLegibility: ArtLegibility?
     /// The user's per-surface backgrounds (`appearance.surfaces`), inherited
     /// like art: one app-wide setting, read by every surface's owner through
     /// `Palette.fill(for:)`.
@@ -106,6 +110,16 @@ public final class ThemeScope {
         }
     }
 
+    /// Changes which text the glass keeps readable over art (``ArtLegibility``) here and in the
+    /// descendants that inherit it, and repaints them: the tint floor over art moves with it.
+    public func setArtLegibility(_ legibility: ArtLegibility) {
+        ThemeRepaint.batch {
+            guard selectedArtLegibility != legibility else { return }
+            selectedArtLegibility = legibility
+            repaintBackdropArt()
+        }
+    }
+
     /// Changes live tuning without changing theme colors or persisted settings.
     public func setAppearanceTuning(_ tuning: AppearanceTuning) {
         ThemeRepaint.batch {
@@ -133,6 +147,7 @@ public final class ThemeScope {
         var tint: Double?
         var surfaces: SurfaceBackgrounds
         var tuning: AppearanceTuning
+        var legibility: ArtLegibility
     }
     private var displayedBackdrop: BackdropKey?
 
@@ -140,7 +155,7 @@ public final class ThemeScope {
     /// background changed with it (a child with its own pick keeps its views as they are).
     private func repaintBackdropArt(force: Bool = true) {
         let key = BackdropKey(selection: backdropSelection, tint: backdropTintOpacity,
-                              surfaces: surfaceBackgrounds, tuning: appearanceTuning)
+                              surfaces: surfaceBackgrounds, tuning: appearanceTuning, legibility: artLegibility)
         guard force || key != displayedBackdrop else { return }
         displayedBackdrop = key
         // Art Color: another work is another accent.
