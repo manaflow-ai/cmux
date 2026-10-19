@@ -1,6 +1,6 @@
 // Leo 2026-10-18: the model chip opens a short Claude Code style menu (the Debug Settings choice
-// `agent.modelMenu`, compact by default in the app): numbered models, Effort and Account beside
-// their rows, and More models for the full picker. Account lists the acpmux routes that serve the
+// `agent.modelMenu`, compact by default in the app): a rail of harnesses (Starred, Claude, Codex,
+// others) beside numbered models, then Effort, More models and Account beside their rows. Account lists the acpmux routes that serve the
 // chat and switches the chat's route. The real composer, catalog and menu, in JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -104,6 +104,7 @@ async function mount(listed: unknown, options: { fast?: boolean; refuse?: boolea
   })) as Snapshot["catalog"];
   const sent: Sent[] = [];
   const asked: string[] = [];
+  const added: string[] = [];
   const accounts = {
     list: async (sessionId: string) => {
       asked.push(sessionId);
@@ -170,6 +171,7 @@ async function mount(listed: unknown, options: { fast?: boolean; refuse?: boolea
           setState((current) => (id === "fast-mode" ? { ...current, fast: value } : { ...current, effort: value }));
         }}
         showPlan={false}
+        onAddAgent={() => added.push("add")}
       />
     );
   }
@@ -183,13 +185,22 @@ async function mount(listed: unknown, options: { fast?: boolean; refuse?: boolea
       </QueryClientProvider>,
     );
   });
-  return { sent, asked };
+  return { sent, asked, added };
 }
 
 const doc = () => dom.window.document;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
 const chipButton = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const menu = () => doc().querySelector<HTMLElement>(".acpmux-quick-menu");
+/// The model rows (the rail's tabs are radio items too).
+const modelRows = (popup: HTMLElement) => [...popup.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')];
+const modelNames = (popup: HTMLElement) =>
+  modelRows(popup).map((row) => row.querySelector(".acpmux-menu-label")?.textContent ?? "");
+const railTabs = () => [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")];
+const key = (value: string) =>
+  act(async () => {
+    menu()!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true }));
+  });
 const menus = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
 const itemsOf = (popup: HTMLElement | undefined) =>
   [...(popup?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])].map((item) =>
@@ -223,13 +234,18 @@ test("the compact chip names the model and its effort, and a click opens the sho
   const rows = itemsOf(menu()!);
   expect(rows.some((row) => row?.startsWith("Effort") && row.includes("Medium"))).toBe(true);
   expect(rows.some((row) => row?.startsWith("Account"))).toBe(true);
-  expect(rows.at(-1)).toBe("More models");
+  // Claude Code's order: the models, Effort, More models, then Account last.
+  expect(rows.filter((row) => /^(Effort|More models|Account)/.test(row ?? "")).map((row) => row?.split(/\s/)[0])).toEqual([
+    "Effort",
+    "More",
+    "Account",
+  ]);
 });
 
 test("a number key picks that model in place", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
-  const models = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+  const models = modelRows(menu()!);
   // The running model's row shows its check in place of its number.
   expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓")).toEqual(["1", "✓", "3", "4"]);
   const third = models[2]!;
@@ -287,25 +303,60 @@ test("with no routes, Account offers the CLI login and says how to add one", asy
   expect(itemsOf(account)).toEqual(["CLI login", "Add accounts with cmux route add"]);
 });
 
-test("More models opens the full picker, and typing in the menu searches it", async () => {
+test("the rail lists Starred, then each harness; a harness's tab lists its models in place", async () => {
   await mount({ routes: [] });
   await open();
-  const more = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-    (item) => item.textContent?.trim() === "More models",
-  )!;
-  await act(async () => more.click());
+  const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
+  expect(labels[0]).toBe("Starred");
+  expect(labels).toContain("Claude Code");
+  expect(labels).toContain("Codex");
+  const codex = railTabs().find((tab) => tab.getAttribute("aria-label") === "Codex")!;
+  await act(async () => codex.click());
   await settle();
-  expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
-  expect(menu()).toBeNull();
-  await act(async () => chipButton().click());
-  await settle();
+  // The menu stays open on the other harness's models.
+  expect(menu()).not.toBeNull();
+  const names = modelNames(menu()!);
+  expect(names.length).toBeGreaterThan(0);
+  expect(names.every((name) => !/opus|sonnet|haiku/i.test(name))).toBe(true);
+  // Effort and Account are the chat's: another harness's tab shows neither.
+  expect(itemsOf(menu()!).some((row) => row?.startsWith("Account") || row?.startsWith("Effort"))).toBe(false);
+});
+
+test("More models is a submenu: the harness's other models, then Add harness…", async () => {
+  const { added } = await mount({ routes: [] });
   await open();
-  await act(async () => {
-    menu()!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "g", bubbles: true }));
-  });
+  const top = modelNames(menu()!);
+  const more = await openSub("More models");
+  const rows = itemsOf(more);
+  expect(rows.at(-1)).toBe("Add harness…");
+  expect(rows.length).toBeGreaterThan(1);
+  // Only models the top list does not already show.
+  expect(rows.slice(0, -1).some((row) => top.includes(row ?? ""))).toBe(false);
+  expect(doc().querySelector(".acpmux-mp")).toBeNull();
+  const add = [...more.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent?.trim() === "Add harness…",
+  )!;
+  await act(async () => add.click());
   await settle();
-  const search = doc().querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]');
-  expect(search?.value).toBe("g");
+  expect(added).toEqual(["add"]);
+});
+
+test("typing filters the models in place, across harnesses, with no search field", async () => {
+  await mount({ routes: [] });
+  await open();
+  for (const letter of "hai") await key(letter);
+  await settle();
+  expect(menu()).not.toBeNull();
+  expect(doc().querySelector(".acpmux-mp")).toBeNull();
+  expect(menu()!.querySelector("input")).toBeNull();
+  const names = modelNames(menu()!);
+  expect(names.length).toBeGreaterThan(0);
+  expect(names.every((name) => name.toLowerCase().includes("hai"))).toBe(true);
+  await key("Backspace");
+  await key("Backspace");
+  await key("Backspace");
+  await settle();
+  expect(modelNames(menu()!).some((name) => name.toLowerCase().includes("opus"))).toBe(true);
 });
 
 // Review of #21853: the bolt leaves a narrow row, so fast mode must stay reachable from the menu.
