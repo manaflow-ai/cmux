@@ -149,5 +149,34 @@ class MediaAppCacheTest(unittest.TestCase):
         self.assertIsNotNone(self.fetch(self.tmp / "products"))
 
 
+class WorkflowWiringTest(unittest.TestCase):
+    def setUp(self) -> None:
+        import yaml
+
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-media.yml").read_text())
+        self.job = workflow["jobs"]["tour"]
+        self.steps = {step.get("name"): step for step in self.job["steps"]}
+
+    def test_a_fetched_base_app_is_used_without_building(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        out = tmp / "output"
+        env = dict(os.environ, BASE_APP=str(tmp / "app"), GITHUB_OUTPUT=str(out), RUNNER_TEMP=str(tmp),
+                   GITHUB_WORKSPACE=str(tmp / "no-checkout"), TOUR_TAG="ci-media-slot0", RUNNER_NAME="r")
+        result = subprocess.run(["bash", "-c", self.steps["Build the base app"]["run"]], env=env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(out.read_text(), f"base_app={tmp / 'app'}\n")
+        self.assertNotIn("artifact=", out.read_text(), "a reused app was packed again")
+
+    def test_the_fetch_runs_before_the_base_worktree_and_build_and_can_read_artifacts(self) -> None:
+        names = [step.get("name") for step in self.job["steps"]]
+        fetch = names.index("Reuse the base app another tour built")
+        self.assertLess(fetch, names.index("Download pre-built GhosttyKit.xcframework for both revisions"))
+        self.assertLess(names.index("Build the base app"), names.index("Share the base app with later tours"))
+        self.assertLess(names.index("Share the base app with later tours"), names.index("Build the head app"))
+        self.assertTrue(self.steps["Reuse the base app another tour built"].get("continue-on-error"))
+        self.assertEqual(self.job["permissions"].get("actions"), "read")
+
+
 if __name__ == "__main__":
     unittest.main()
