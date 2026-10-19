@@ -30,21 +30,22 @@ fn machine(name: &str) -> Daemon {
     let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
     let trust = json!({work.to_str().unwrap(): "trusted"});
     fs::write(daemon.dir.join("acpmux/trust.json"), trust.to_string()).unwrap();
-    acpmux_daemon(&daemon, "start");
+    acpmux_daemon(&daemon, &["start"]);
     daemon
 }
 
-/// `cmux acp daemon <action>` for the acpmux the daemon reaches (the app
+/// `cmux acp daemon <action...>` for the acpmux the daemon reaches (the app
 /// starts it at launch).
-fn acpmux_daemon(daemon: &Daemon, action: &str) {
+fn acpmux_daemon(daemon: &Daemon, action: &[&str]) {
     let done = Command::new(bin())
-        .args(["acp", "daemon", action])
+        .args(["acp", "daemon"])
+        .args(action)
         .env("HOME", daemon.dir.join("home"))
         .env("ACPMUX_HOME", daemon.dir.join("acpmux"))
         .env_remove("ACPMUX_SOCKET")
         .output()
         .unwrap();
-    assert!(done.status.success(), "{action}: {}", String::from_utf8_lossy(&done.stderr));
+    assert!(done.status.success(), "{action:?}: {}", String::from_utf8_lossy(&done.stderr));
 }
 
 /// A new workspace of the daemon, in the UUID form the app hands chats.
@@ -546,10 +547,11 @@ fn a_chat_send_that_cannot_reach_its_chat_fails_with_its_receipt() {
     let sender = chat(&daemon, Some(&workspace));
     let doomed = chat_of(&daemon, Some(&workspace), "doomed");
     // acpmux restarts without the chat's harness: the chat stays, but no
-    // prompt can start its agent, so acpmux refuses one.
-    acpmux_daemon(&daemon, "shutdown");
+    // prompt can start its agent, so acpmux refuses one. Its agent ends too:
+    // a hosted agent outlives a plain shutdown, and the next daemon adopts it.
+    acpmux_daemon(&daemon, &["shutdown", "--end-agents"]);
     fs::write(daemon.dir.join("acpmux/config.json"), acpmux_config(false).to_string()).unwrap();
-    acpmux_daemon(&daemon, "start");
+    acpmux_daemon(&daemon, &["start"]);
 
     let (code, receipt) =
         agents_chat(&daemon, Some(&sender), &["send", &doomed, "--", "are you there"]);
