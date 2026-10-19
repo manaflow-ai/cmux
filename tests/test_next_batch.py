@@ -836,6 +836,36 @@ class ReviewGateHoles(NotifyOwners):
             self.assertIsNone(nb.landing_refusal())
 
 
+class LandOnlyTheValidatedTree(NotifyOwners):
+    """Second review of #21925: what lands must be a prefix of the validated stack."""
+
+    def test_nothing_after_a_pr_that_did_not_land(self):
+        controller = self.controller(notify=False)
+        a, b, c = pr(1), pr(2), pr(3)
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {a.sha}\n3 {c.sha}\n")  # b is not reviewed
+        with mock.patch.object(nb, "open_prs", return_value=[a, b, c]), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
+            landed = dict((item.number, text) for item, text in controller.land(self.validation([a, b, c])))
+        self.assertEqual(controller.merged, [1])
+        self.assertIn("earlier PR in this stack", landed[3])
+
+    def test_a_run_that_may_not_land_leaves_no_marker_that_holds_a_pr_out(self):
+        controller = self.controller(notify=False)
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {pr(1).sha}\n")
+        with mock.patch.object(nb, "open_prs", return_value=[pr(1)]), \
+                mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true", "CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
+            os.environ.pop("CMUX_NEXT_BATCH_EXCLUDE", None)
+            controller.land(self.validation([pr(1)]))
+        self.assertEqual(controller.merged, [])
+        self.assertNotIn("receipt", [kind for _, kind, _ in controller.comments])
+
+    def test_the_lanes_configured_login_never_counts(self):
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": "leo-bot", "CMUX_NEXT_BATCH_OVERRIDERS": "leo-bot lawrencecchen"}):
+            self.assertEqual(nb.overriders(), frozenset({"lawrencecchen"}))
+
+
 class CoordinatorAndOverrides(unittest.TestCase):
     def test_prs_coord2_lands_itself_stay_out(self):
         listed = Path(tempfile.mkdtemp()) / "merge-ready.sh"
