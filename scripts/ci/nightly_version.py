@@ -22,6 +22,7 @@ which only grows; Sparkle compares it, never the marketing version.
 """
 
 import argparse
+import http.client
 import os
 import re
 import sys
@@ -73,7 +74,8 @@ def retry_delays():
 def transient(error):
     if isinstance(error, urllib.error.HTTPError):
         return error.code >= 500 or error.code == 429
-    return isinstance(error, OSError)
+    # IncompleteRead (a body cut off mid-transfer) is an HTTPException, not an OSError.
+    return isinstance(error, (OSError, http.client.HTTPException))
 
 
 def fetch(source):
@@ -84,7 +86,7 @@ def fetch(source):
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return response.read()
-        except OSError as error:
+        except (OSError, http.client.HTTPException) as error:
             if not transient(error) or attempt == len(delays):
                 raise
             print(f"nightly_version: {source}: {error}; trying again in {delays[attempt]:g} s", file=sys.stderr)
@@ -106,7 +108,7 @@ def read_feed(source):
         raise Refused(f"cannot read feed {source}: {error}") from error
     except FileNotFoundError as error:
         raise Missing(f"cannot read feed {source}: it does not exist") from error
-    except (OSError, ET.ParseError) as error:
+    except (OSError, http.client.HTTPException, ET.ParseError) as error:
         raise Refused(f"cannot read feed {source}: {error}") from error
 
 

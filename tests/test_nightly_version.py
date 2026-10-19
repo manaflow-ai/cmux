@@ -26,7 +26,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 def run(*args):
     assert SCRIPT.is_file(), f"{SCRIPT} is missing"
     env = {**os.environ, "CMUX_NIGHTLY_FEED_RETRY_DELAYS": "0,0,0"}
-    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, env=env)
+    return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True, env=env, timeout=120)
 
 
 def marketing(track, project="0.64.25", build="3718773117601", next_base="1.0.0"):
@@ -119,20 +119,27 @@ def test_a_feed_that_does_not_exist_yet_is_skipped_only_when_optional():
         assert run("check-build", "--build", "3719000000001", "--feed", classic, "--feed-if-present", broken).returncode != 0
 
 
-def feed_server(body, drops):
-    """A loopback feed server that closes the first `drops` connections
-    without a response (a transit failure), then serves `body`."""
+def feed_server(body, drops, truncate=False):
+    """A loopback feed server that fails the first `drops` requests in transit
+    (closes the connection without a response, or with `truncate` sends half
+    of a declared body), then serves `body`."""
     state = {"left": drops, "requests": 0}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             state["requests"] += 1
+            data = body.encode()
             if state["left"] > 0:
                 state["left"] -= 1
                 self.close_connection = True
+                if truncate:
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data[: len(data) // 2])
+                    self.wfile.flush()
                 self.connection.shutdown(2)
                 return
-            data = body.encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
@@ -156,6 +163,7 @@ def test_a_feed_read_that_fails_in_transit_is_tried_again():
         assert "trying again" in result.stderr
     finally:
         server.shutdown()
+        server.server_close()
     server, url, state = feed_server(appcast("3718900000001"), drops=10)
     try:
         result = run("check-build", "--build", "3719000000001", "--feed", url)
@@ -164,6 +172,15 @@ def test_a_feed_read_that_fails_in_transit_is_tried_again():
         assert "cannot read feed" in result.stderr
     finally:
         server.shutdown()
+        server.server_close()
+    server, url, state = feed_server(appcast("3718900000001"), drops=1, truncate=True)
+    try:
+        result = run("check-build", "--build", "3719000000001", "--feed", url)
+        assert result.returncode == 0, result.stderr
+        assert state["requests"] == 2, state
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def main():
