@@ -207,4 +207,18 @@ describe("access-token review regressions", () => {
     expect((await create(key, vmId, ["exec"])).status).toBe(503);
     expect((await harness.request(`/v1/vms/${vmId}/exec`, bearer(issued.token), { method: "POST", body: { command: "true" } })).status).toBe(200);
   });
+
+  it("rejects non-canonical signature encodings even when the decoded bytes are identical", async () => {
+    const { vmId } = harness.addVm("team_alpha");
+    const key = await harness.addKey("team_alpha", ["access-token:create", "vm:exec"]);
+    const issued = await mint(key, vmId, ["exec"]);
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const last = issued.token.at(-1);
+    if (last === undefined) throw new Error("missing signature");
+    const alias = alphabet[alphabet.indexOf(last) + 1];
+    if (alias === undefined) throw new Error("invalid signature encoding");
+    const nonCanonical = `${issued.token.slice(0, -1)}${alias}`;
+    expect((await harness.request(`/v1/vms/${vmId}/exec`, bearer(nonCanonical), { method: "POST", body: { command: "true" } })).status).toBe(401);
+    expect(harness.upstreamRequests).toHaveLength(0);
+  });
 });
