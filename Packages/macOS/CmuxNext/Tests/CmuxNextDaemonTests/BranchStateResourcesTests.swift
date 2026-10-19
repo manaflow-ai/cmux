@@ -113,4 +113,40 @@ struct BranchStateResourcesTests {
             }
         }
     }
+
+    /// Stash (`stash-v1`) through the Swift client: OneTab groups import as
+    /// stashes (pages that are not http(s) are skipped), list newest first,
+    /// and delete by member or whole.
+    @Test func oneTabImportsListAndDeletesAsStashes() async throws {
+        try await BranchDaemonHarness.with(sessionEvents: true) { h in
+            let store = h.store
+            try await store.waitUntil("state resources served", timeout: .seconds(20)) { store.servesStateResources }
+            #expect(await h.connection.identity?.supports(DaemonCapabilities.shared.stash) == true, "the same-tree daemon serves stash-v1")
+            let state = h.connection.state
+            let older = StateResourceClient.StashImportGroup(name: "reading", pages: [
+                .init(url: "https://example.com/a", title: "A"),
+                .init(url: "file:///etc/hosts", title: nil),
+            ])
+            let newer = StateResourceClient.StashImportGroup(name: "later", pages: [
+                .init(url: "https://example.com/b", title: "B"),
+                .init(url: "https://example.com/c", title: nil),
+            ])
+            let imported = try await state.importOneTab([older, newer], engine: nil)
+            #expect(imported.importedTabs == 3)
+            #expect(imported.skippedTabs == 1, "a page that is not http(s) is never stashed")
+
+            let stashes = try await state.stashes()
+            #expect(stashes.count == 2)
+            let later = try #require(stashes.first { $0.name == "later" })
+            let reading = try #require(stashes.first { $0.name == "reading" })
+            #expect(later.members.map(\.url) == ["https://example.com/b", "https://example.com/c"], "members keep restore order")
+            #expect(reading.members.map(\.url) == ["https://example.com/a"])
+            #expect(later.members.allSatisfy { $0.workspaceID == nil }, "an imported page left no workspace")
+
+            try await state.deleteStash(later.id, members: [later.members[0].id])
+            #expect(try await state.stashes().first { $0.id == later.id }?.members.map(\.url) == ["https://example.com/c"])
+            try await state.deleteStash(reading.id)
+            #expect(try await state.stashes().map(\.id) == [later.id])
+        }
+    }
 }
