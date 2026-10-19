@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextBrowserHistory
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -26,5 +27,27 @@ import Testing
         let entry = try #require(cache.browser(for: tab), "the page and its toolbar exist in the turn the pane shows the tab")
         #expect(entry.tab.id.rawValue == tab.id)
         #expect(entry.tab.state.url?.absoluteString == BrowserNewTabPage.chromiumURL)
+    }
+
+    /// A reopened tab on the New Tab page whose page cannot be made now (Chromium still
+    /// starting) takes the asynchronous path, which must still find the tab's closed history:
+    /// the fast path may claim it only for the page it makes.
+    @Test func aNewTabPageNotMadeNowLeavesItsClosedHistoryForTheLaterPage() throws {
+        let cache = TabContentCache(daemon: DaemonService(), cef: CEFEngine(layout: nil))
+        let make = ChromiumNewTabNow.make
+        ChromiumNewTabNow.make = { _, _ in nil }  // Chromium still starting
+        defer { ChromiumNewTabNow.make = make }
+        let url = try #require(URL(string: BrowserNewTabPage.chromiumURL))
+        let histories = cache.pageRequests.closedHistories
+        histories.save(HibernatedBrowserTab(id: BrowserTabID(rawValue: "closed"), engine: .cef, profile: .default,
+                                            state: BrowserTabState(url: url, title: "New Tab"), favicon: nil,
+                                            restoreState: .chromium("back-forward"), snapshot: { nil }))
+        histories.expect(CmuxNextDaemon.ClosedItem(id: "closed:1", kind: .tab, screens: [.init(tabs: [.init(kind: "browser", url: url.absoluteString)])]))
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 42), kind: .browser, url: BrowserNewTabPage.chromiumURL,
+                                       browserRenderer: "frontend", browserEngine: "cef"))
+        #expect(ChromiumNewTabNow(cache: cache).page(tab, url: url) == nil)
+        let later = histories.restoring(BrowserTabConfiguration(id: BrowserTabID(rawValue: tab.id), profile: .default, initialURL: url),
+                                        url: url, local: true, tab: tab.id)
+        #expect(later.restoreState == .chromium("back-forward"), "the asynchronous path's page restores the closed tab's history")
     }
 }
