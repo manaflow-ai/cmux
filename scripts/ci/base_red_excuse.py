@@ -126,7 +126,7 @@ def printed(job: dict, log: str) -> Counter[str]:
         if CUT_SHORT.match(text):
             raise Refused(f"'{job.get('name')}': step '{step}' printed output cut short ({text}); "
                           "the findings it hid cannot be compared with the base")
-        found[re.sub(r"(?<![A-Za-z_])\d+", "#", RUN_NOISE.sub("…", text.replace("##[error]", "").strip()))] += 1
+        found[re.sub(r"(?<![A-Za-z0-9_])\d+", "#", RUN_NOISE.sub("…", text.replace("##[error]", "").strip()))] += 1
     return found
 
 
