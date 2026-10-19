@@ -134,6 +134,10 @@ export class PermissionGroupClient {
   private authoritative = false;
   private pendingRevoke = false;
   private mutationInFlight = false;
+  /// Each chat's last authoritative groups and grant, shown again at once when it is selected again
+  /// (a tab or workspace switch), until the refresh answers: the panel and the access chip's grant
+  /// keep their place instead of leaving for one read (Leo 2026-10-19). A chat never read starts empty.
+  private readonly lastRead = new Map<string, Pick<PermissionClientState, "groups" | "chatAllowance">>();
 
   constructor(request: Request, changed: () => void, storage: PermissionStorage = defaultStorage) {
     this.request = request;
@@ -159,6 +163,8 @@ export class PermissionGroupClient {
 
   select(sessionId?: string): void {
     if (sessionId === this.sessionId) return;
+    this.remember();
+    const last = sessionId ? this.lastRead.get(sessionId) : undefined;
     this.generation += 1;
     this.refreshSerial += 1;
     this.sessionId = sessionId;
@@ -167,14 +173,22 @@ export class PermissionGroupClient {
     this.state = {
       supported: this.state.supported,
       ready: false,
-      groups: [],
-      chatAllowance: false,
+      groups: this.state.supported ? (last?.groups ?? []) : [],
+      chatAllowance: this.state.supported ? (last?.chatAllowance ?? false) : false,
       loading: false,
       busy: false,
       error: undefined,
       uncertain: undefined,
     };
     this.changed();
+  }
+
+  /// Keeps the selected chat's state for its next selection, while it is acpmux's (authoritative).
+  private remember(): void {
+    if (!this.sessionId || !this.authoritative || !this.state.supported) return;
+    this.lastRead.delete(this.sessionId);
+    this.lastRead.set(this.sessionId, { groups: this.state.groups, chatAllowance: this.state.chatAllowance });
+    if (this.lastRead.size > 64) this.lastRead.delete(this.lastRead.keys().next().value!);
   }
 
   private session(): string {
