@@ -83,7 +83,7 @@ import Testing
         _ = try await client.putRelay(RelayUpdate(id: "r1", name: "Home", urls: ["turn:h:3478"], authMode: .static,
                                                   sealed: ["d2": "b2"], enabled: true, priority: 0))
         try await client.deleteRelay("r1")
-        let audit = try await client.audit(limit: 5, before: Date(timeIntervalSince1970: 1_799_999_999))
+        let audit = try await client.audit(limit: 5, before: Date(timeIntervalSince1970: 1_799_999_999), device: "h1")
         #expect(audit.first?.ts == Date(timeIntervalSince1970: 1_800_000_000) && audit.first?.durationS == 12)
 
         let calls = hub.requests.filter { $0.url.path != "/v1/auth/stack" }
@@ -91,7 +91,7 @@ import Testing
             "GET /v1/devices", "PATCH /v1/devices/d2", "DELETE /v1/devices/d2", "PUT /v1/devices/\(identity.id)/mac-screen",
             "GET /v1/permissions?host=h1", "PUT /v1/permissions/h1/d2", "POST /v1/sessions", "POST /v1/sessions/s1/decision",
             "POST /v1/sessions/s1/end", "POST /v1/sessions/s1/ice", "GET /v1/relays", "PUT /v1/relays/r1", "DELETE /v1/relays/r1",
-            "GET /v1/audit?limit=5&before=1799999999000",
+            "GET /v1/audit?limit=5&before=1799999999000&device=h1",
         ])
         for call in calls { expectSigned(call, by: identity) }
         func body(_ index: Int) -> [String: Any] { calls[index].jsonBody ?? [:] }

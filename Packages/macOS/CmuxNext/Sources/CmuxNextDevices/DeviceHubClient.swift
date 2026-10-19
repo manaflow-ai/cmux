@@ -202,7 +202,7 @@ public actor DeviceHubClient {
     }
 
     /// Audit entries, newest first: at most `limit` (1-200), older than `before` (an entry's `ts`).
-    public func audit(limit: Int? = nil, before: Date? = nil) async throws -> [AuditEntry] {
+    public func audit(limit: Int? = nil, before: Date? = nil, device: String? = nil) async throws -> [AuditEntry] {
         struct Answer: Decodable { var entries: [AuditEntry] }
         var query: [URLQueryItem] = []
         if let limit { query.append(URLQueryItem(name: "limit", value: String(limit))) }
