@@ -89,7 +89,8 @@ def signature(steps, annotations):
 def compare(name, pr_sig, base_run, base_sig, base_sha):
     """The line for one red check, given the base commit's run of it (None: no finished run)."""
     short = base_sha[:10]
-    if base_run is None or base_run.get("status") != "completed":
+    if base_run is None or base_run.get("status") != "completed" or base_run.get("conclusion") not in RED | {"success"}:
+        # Missing, running, cancelled or skipped: no verdict on the base to excuse anything with.
         return f"red: {name}; no finished base run on {short} to compare; {BLOCK}"
     if not is_red(base_run):
         return f"red: {name}; NEW: green on the base {short}; {BLOCK}"
@@ -151,7 +152,11 @@ def base_lines(gh, runs, base_sha):
     red = red_checks(runs)
     if not base_sha or not red:
         return {}
-    base = newest_runs(gh.pages(f"/repos/{gh.repo}/commits/{base_sha}/check-runs?filter=latest", key="check_runs"))
+    try:
+        base = newest_runs(gh.pages(f"/repos/{gh.repo}/commits/{base_sha}/check-runs?filter=latest", key="check_runs"))
+    except (urllib.error.URLError, TimeoutError) as err:
+        print(f"pr-red-checks: base {base_sha[:10]} unreadable ({err}); every red blocks", file=sys.stderr)
+        return {}
     mine = newest_runs(runs)
     lines = {}
     for name in red:
@@ -159,7 +164,7 @@ def base_lines(gh, runs, base_sha):
         try:
             pr_sig = run_signature(gh, mine[name])
             base_sig = run_signature(gh, base_run) if is_red(base_run) else []
-        except urllib.error.URLError as err:
+        except (urllib.error.URLError, TimeoutError) as err:
             print(f"pr-red-checks: {name}: no signature ({err}); it blocks", file=sys.stderr)
             continue
         lines[name] = compare(name, pr_sig, base_run, base_sig, base_sha)

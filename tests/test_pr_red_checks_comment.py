@@ -202,6 +202,12 @@ def test_no_base_run_to_compare_still_blocks():
     assert line == f"red: {RAC}; no finished base run on bbbbbbbbbb to compare; do not merge until green; see lane-rules", line
 
 
+def test_a_cancelled_base_run_cannot_excuse_a_red():
+    line = checks_line(FakeGitHub([run(RAC, "failure", id_=11)], [], base_runs=[run(RAC, "cancelled", id_=21)],
+                                  steps={11: [failed("Test webviews")]}))
+    assert line == f"red: {RAC}; no finished base run on bbbbbbbbbb to compare; {'do not merge until green; see lane-rules'}", line
+
+
 def test_the_cmux_next_checks_job_is_tracked():
     name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
     writes = FakeGitHub([run(name, "failure")], []).run()

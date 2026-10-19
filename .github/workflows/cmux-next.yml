@@ -1389,7 +1389,7 @@ jobs:
           fi
           # One annotation per red check: the red-checks line compares them with the base's run, so a
           # new red check is told from a base one (scripts/ci/pr_red_checks_comment.py).
-          for name in "${failed[@]}"; do echo "::error title=cmux-next check::red check: $name"; done
+          for name in "${failed[@]}"; do echo "::error title=cmux-next check::red check: ${name% (*}"; done
           {
             echo "### ${#failed[@]} cmux-next check(s) failed"
             echo
