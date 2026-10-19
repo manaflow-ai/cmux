@@ -16,6 +16,6 @@ describe("agent tones", () => {
 
   test("ids spread over every tone", () => {
     const tones = new Set(Array.from({ length: 200 }, (_, index) => agentTone(`toolu_${index}`)));
-    expect([...tones].sort()).toEqual(Array.from({ length: AGENT_TONES }, (_, tone) => tone));
+    expect([...tones].sort((a, b) => a - b)).toEqual(Array.from({ length: AGENT_TONES }, (_, tone) => tone));
   });
 });

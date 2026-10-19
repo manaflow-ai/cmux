@@ -3227,22 +3227,26 @@ function AcpmuxPane() {
     snapshot.clockOffsetMs ?? 0,
   );
   // The agents pill (subagents/AgentsPill.tsx) and each subagent's color (agentTones.ts), which
-  // the pill's list and the transcript's subagent rows share. The tones change only as agents
-  // start, so a snapshot that streams text redraws no subagent row.
-  const chatAgents = useMemo(
+  // the pill's list and the transcript's subagent rows share. A streamed chunk makes a new list of
+  // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
+  // streams text redraws neither the pill nor a subagent row.
+  const freshAgents = useMemo(
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
   );
-  const agentIds = chatAgents.map((agent) => agent.id).join(" ");
-  const chatTones = useMemo(
-    () => (shownSessionId && chatAgents.length > 0 ? agentTones(shownSessionId, chatAgents) : undefined),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- new tones only when an agent starts
-    [shownSessionId, agentIds],
-  );
-  const waitingAgents = useMemo(
+  const agentsKey = freshAgents
+    .map((agent) => [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? ""].join("\u0000"))
+    .join("\u0001");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
+  const chatAgents = useMemo(() => freshAgents, [agentsKey]);
+  const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
+  const freshWaiting = useMemo(
     () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
     [chatAgents, askedToolCalls, snapshot.subagentViews],
   );
+  const waitingKey = [...freshWaiting].sort().join(" ");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new set only when its agents change
+  const waitingAgents = useMemo(() => freshWaiting, [waitingKey]);
   /// The summary card's subagents: the shown one, and a row's click shows its view.
   const cardSubagents = useMemo(
     () => ({
@@ -5118,8 +5122,9 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {/* The agents pill (subagents/AgentsPill.tsx): in the bottom stack, right above the composer. */}
-      {!quick && !freshView && chatTones && chatAgents.some(running) && (
+      {/* The agents pill (subagents/AgentsPill.tsx): in the bottom stack, right above the composer,
+          while the turn works; an agent a cancel or a reconnect left "running" shows none. */}
+      {!quick && !freshView && snapshot.isWorking && chatTones && chatAgents.some(running) && (
         <AgentsPill
           key={shownSessionId}
           agents={chatAgents}

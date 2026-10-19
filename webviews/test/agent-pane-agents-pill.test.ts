@@ -143,11 +143,11 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
-  const open = async (session: string) => {
+  const open = async (session: string, shown = "Read src/app.ts") => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
-    await page.getByText("Read src/app.ts").waitFor({ timeout: 25_000 });
+    await page.getByText(shown).waitFor({ timeout: 25_000 });
     return page;
   };
   const pill = (page: Page) => page.locator(".acpmux-agents-pill");
@@ -235,7 +235,8 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     expect(await pill(done).count()).toBe(0);
     await done.close();
     // The turn is over: an agent left "running" by a cancel or a reconnect pins no pill.
-    const stale = await open(STUCK);
+    // Its work folds under Worked for; the prompt shows.
+    const stale = await open(STUCK, "Review the branch with a few agents");
     expect(await pill(stale).count()).toBe(0);
     await stale.close();
   });

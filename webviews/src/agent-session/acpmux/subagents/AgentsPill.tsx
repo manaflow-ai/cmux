@@ -4,7 +4,7 @@
 // its color (agentTones.ts), which its name in the transcript shares. A click on an agent opens
 // it: its pane, or its view in this pane (App.tsx `showSubagent`). The pill is a part of the
 // bottom stack (bottomStack.css), not laid over the transcript, so it never hides the latest row.
-import { useId } from "react";
+import { memo, useId } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -13,7 +13,8 @@ import { STATUS_LABEL, subagentStatus } from "../summary/SubagentStatusList";
 import { elapsed, running, useNow } from "./SubagentGroup";
 import type { Subagent } from "./subagentFold";
 
-export function AgentsPill({
+/// Memoized: App.tsx keeps its props the same while text streams.
+export const AgentsPill = memo(function AgentsPill({
   agents,
   waiting,
   tones,
@@ -100,4 +101,4 @@ export function AgentsPill({
       )}
     </div>
   );
-}
+});

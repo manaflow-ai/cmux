@@ -18,9 +18,13 @@ await requireBrowserLane("agent-tone-contrast.test.ts", async () => {
     describe.skip("agent tone contrast", () => test("chromium", () => {}));
     return;
   }
-  const css = readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/subagents/subagents.css"), "utf8");
+  const css = readFileSync(
+    path.resolve(import.meta.dir, "../src/agent-session/acpmux/subagents/subagents.css"),
+    "utf8",
+  );
   // Apple Terminal's Basic (light) palette: green, magenta, yellow, cyan and bright magenta.
-  const terminal = "--agent-ansi-2:#00a600;--agent-ansi-5:#b200b2;--agent-ansi-3:#999900;--agent-ansi-6:#00a6b2;--agent-ansi-13:#e500e5;";
+  const terminal =
+    "--agent-ansi-2:#00a600;--agent-ansi-5:#b200b2;--agent-ansi-3:#999900;--agent-ansi-6:#00a6b2;--agent-ansi-13:#e500e5;";
   let browser: Browser | undefined;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
@@ -45,7 +49,7 @@ await requireBrowserLane("agent-tone-contrast.test.ts", async () => {
         canvas.clearRect(0, 0, 1, 1);
         canvas.fillStyle = color;
         canvas.fillRect(0, 0, 1, 1);
-        const rgb = [...canvas.getImageData(0, 0, 1, 1).data.slice(0, 3)].map((v) => {
+        const rgb = Array.from(canvas.getImageData(0, 0, 1, 1).data.slice(0, 3)).map((v) => {
           const c = v / 255;
           return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
         });

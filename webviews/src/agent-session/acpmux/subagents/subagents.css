@@ -272,6 +272,11 @@ button.cv-subagent > :last-child {
 [data-agent-tone] {
   --agent-tone-ink: color-mix(in srgb, var(--agent-tone) 72%, var(--agent-text));
 }
+/* On light, the green, yellow and cyan tones are faint on white: more of the text color keeps each
+   name at WCAG AA (agent-tone-contrast.test.ts). */
+:root[data-theme="light"] [data-agent-tone] {
+  --agent-tone-ink: color-mix(in srgb, var(--agent-tone) 58%, var(--agent-text));
+}
 .cv-subagent[data-agent-tone] .cv-subagent__name {
   color: var(--agent-tone-ink);
 }
