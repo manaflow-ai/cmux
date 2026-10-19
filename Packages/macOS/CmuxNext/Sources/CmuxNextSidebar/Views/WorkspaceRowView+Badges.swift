@@ -22,9 +22,12 @@ extension WorkspaceRowView {
         }
         let corner = style == .corner
         // A text-only row (no user icon or favicon, WORKSPACE-ROWS-NO-DEFAULT-ICON) has no icon
-        // corner: its one corner glyph draws as a one-glyph stack in the trailing slot.
+        // corner: its one corner glyph draws bare in the trailing slot. A stack keeps its chips
+        // only when glyphs overlap; a lone glyph there is bare too (no disc behind the spinner
+        // or the unread dot, Lawrence 2026-10-18).
         let onIcon = corner && !icon.isHidden
-        rowBadge.configure(corner ? badges.first.map { [$0] } ?? [] : badges.stacked, look: onIcon ? .corner : .stack)
+        let states = corner ? badges.first.map { [$0] } ?? [] : badges.stacked
+        rowBadge.configure(states, look: onIcon ? .corner : states.count > 1 ? .stack : .plain)
         rowBadge.themedToolTip = Self.badgeSummary(badges, stacked: !corner)
     }
 

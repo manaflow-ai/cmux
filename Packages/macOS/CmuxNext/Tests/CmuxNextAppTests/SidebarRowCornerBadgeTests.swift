@@ -107,6 +107,37 @@ import Testing
         #expect(row.accessibilityLabel()?.contains(Strings.unreadCount(3)) == true)
     }
 
+    /// Lawrence 2026-10-18 (screen recording): the spinner and the blue dot at a text-only row's end
+    /// had "a weird background circle thing". A lone glyph in the trailing slot draws bare: no
+    /// tonal chip and no cutout ring behind it, in either badge style; the badge on the user's icon
+    /// keeps its ring, which cuts it out of the icon.
+    @Test func aLoneTrailingGlyphHasNoDiscBehindIt() throws {
+        var working = SidebarWorkspace(id: Self.terminal, title: "build", kind: .terminal, activity: .working)
+        working.agentWorking = true // agent work shows only on a row whose agent is working
+        let unread = SidebarWorkspace(id: Self.agent, title: "panes", kind: .terminal, unread: .count(1))
+        let iconRow = SidebarWorkspace(id: Self.custom, title: "notes", icon: .emoji("🦊"), kind: .terminal, unread: .count(1))
+        for style in [SidebarRowBadgeStyle.corner, .stack] {
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(working), .workspace(unread), .workspace(iconRow)])])
+            model.rowBadgeStyle = style
+            let sidebar = SidebarView(model: model, design: DesignSettings())
+            sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+            sidebar.layoutSubtreeIfNeeded()
+            sidebar.list.reload(animated: false)
+            sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
+            for id in [Self.terminal, Self.agent] {
+                let badge = try Self.row(sidebar, id).rowBadge
+                #expect(badge.states.count == 1, "\(style) \(id): \(badge.states)")
+                #expect(badge.look == .plain, "\(style) \(id): \(badge.look)")
+                #expect(!badge.drawsBackdrop, "\(style) \(id): a disc draws behind the glyph")
+            }
+            if style == .corner {
+                let badge = try Self.row(sidebar, Self.custom).rowBadge
+                #expect(badge.look == .corner && badge.drawsBackdrop, "the icon badge lost its cutout ring")
+            }
+        }
+    }
+
     /// Leo's alternative (`sidebar.rowBadge` stack): one glyph per pending item in the trailing slot,
     /// the most urgent first, overlapping like an avatar stack, up to the stack size (five by
     /// default, `SidebarRowBadgeStackCapTests`); the tooltip says the count.
