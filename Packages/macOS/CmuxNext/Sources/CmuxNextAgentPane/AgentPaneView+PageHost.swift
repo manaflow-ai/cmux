@@ -15,8 +15,7 @@ extension AgentPaneView {
         }
         page.onNavigate = { [weak self] navigation in
             guard let self else { return .cancel }
-            switch AgentPaneNavigation.decision(for: navigation.url, source: self.source,
-                                                userClicked: navigation.userClicked, mainFrame: navigation.mainFrame) {
+            switch AgentPaneNavigation.decision(for: navigation, source: self.source) {
             case .allow: return .allow
             case .openOutside: return .openExternal
             case .cancel: return .cancel

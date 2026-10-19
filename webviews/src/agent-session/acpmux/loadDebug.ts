@@ -121,11 +121,13 @@ export async function loadRun(
     }
     previous = now;
     if (!streamDone) scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - offset;
-    const blankNow = isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight);
+    late.push(begin - now);
+    // Compare the painted frame with its layout. A glide adds visual overflow to scrollHeight
+    // beyond the last row's placement; neither that nor end padding is a missing row.
+    const blankNow = isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, acpmuxPerf.contentHeight);
+    work.push((await afterRender()) - now);
     if (blankNow) blank += 1;
     acpmuxPerf.markFrame(now, blankNow);
-    late.push(begin - now);
-    work.push((await afterRender()) - now);
     if (streamDone) tail += 1;
   }
   const streamed = await streaming;

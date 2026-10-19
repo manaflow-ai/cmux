@@ -83,7 +83,9 @@ final class AgentChatSplitToggles {
         // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
         opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
         opened.append((id: AgentChatTerminalAdds().logged(id), baseline: Set(tabs.map(\.id))))
-        Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: anchor?.id, actions: actions)
+        // Panels as tabs (`agentChat.panelTabs`): any pane beside the chat takes the new tab, not only one this header opened.
+        let target = AgentChatPanelPlacement().target(id, anchor: anchor, tabs: tabs) { $0.id != chat && Self.beside(chat, $0, in: store) }
+        Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: target?.id, actions: actions)
     }
 
     /// Runs header action `id` on tab `target` (the last panel beside the chat), or on the chat.
@@ -91,6 +93,7 @@ final class AgentChatSplitToggles {
     /// the target's column, or with no target in a new column right of the chat.
     private static func run(_ id: String, cwd: String?, url: String?, chat: String, store: DaemonStore?,
                             on target: String?, actions: AgentChatTabActions) {
+        if AgentChatPanelPlacement().open(id, on: target, terminal: { actions.run("newSurface", cwd: cwd ?? store?.tab(id: chat)?.cwd, on: target) }, browser: { actions.runBeside("openBrowser", arguments: [:], on: target) }) { return }
         switch id {
         case changes:
             // The chat's repository, whichever tab the diff opens beside.

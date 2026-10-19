@@ -23,6 +23,7 @@ mod code_mode;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod render_preview_tool;
 mod render_tool;
 mod schema;
 #[cfg(test)]
@@ -489,6 +490,7 @@ impl<B: Backend> Server<B> {
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
         tools.push(render_tool::descriptor());
+        tools.push(render_preview_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -658,6 +660,10 @@ impl<B: Backend> Server<B> {
         }
         if name == agent_events_tool::NAME {
             return Ok(agent_events_tool::call(&self.backend, &arguments));
+        }
+        if name == render_preview_tool::NAME {
+            let session = std::env::var(AGENT_SESSION_ENV).ok();
+            return Ok(render_preview_tool::call(&self.backend, &arguments, session.as_deref()));
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments) {
