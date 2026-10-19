@@ -505,10 +505,8 @@ impl Hub {
             if bare {
                 let tail: Vec<String> =
                     session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                // The last stderr line that is not a stack frame or a wrapper tag.
-                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
-                    !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
-                }) {
+                // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
+                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
                     let agent = session.meta().harness;
                     e.message = format!("{} ({agent}): {last}", e.message);
                 }
@@ -783,9 +781,9 @@ impl Hub {
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
                         session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
-                        !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
-                    }) {
+                    if let Some(last) =
+                        tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l))
+                    {
                         e.message =
                             format!("agent process closed ({}): {last}", session.meta().harness);
                     }
@@ -1017,5 +1015,48 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             self.set_status(session, SessionStatus::Idle);
         }
+    }
+}
+
+/// Whether a stderr line can say why an agent process died: not blank, not a
+/// stack frame, not a wrapper tag, and not a wrapper's own exit line such as
+/// `subrouter: exit status 1` (the `sr claude proxy` harness prints that after
+/// Claude's real error, e.g. "No conversation found with session ID: ...").
+fn explains_exit(line: &str) -> bool {
+    if line.is_empty() || line.starts_with("at ") || line.starts_with("[SYSTEM_ERROR]") {
+        return false;
+    }
+    !is_wrapper_exit_line(line)
+}
+
+/// `<program>: exit status <n>`, as Go's `exec.ExitError` prints it.
+fn is_wrapper_exit_line(line: &str) -> bool {
+    let Some((program, rest)) = line.split_once(": exit status ") else {
+        return false;
+    };
+    !program.is_empty()
+        && !program.contains(char::is_whitespace)
+        && !rest.is_empty()
+        && rest.trim_start_matches('-').chars().all(|c| c.is_ascii_digit())
+}
+
+#[cfg(test)]
+mod explains_exit_tests {
+    use super::explains_exit;
+
+    #[test]
+    fn a_wrapper_exit_line_does_not_hide_the_real_error() {
+        let tail = ["No conversation found with session ID: e140627e", "subrouter: exit status 1"];
+        let last = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l));
+        assert_eq!(last, Some("No conversation found with session ID: e140627e"));
+    }
+
+    #[test]
+    fn ordinary_lines_still_explain_the_exit() {
+        assert!(explains_exit("Error: exit status unknown to me"));
+        assert!(explains_exit("panic: index out of range"));
+        assert!(!explains_exit("at Object.<anonymous> (cli.js:1:1)"));
+        assert!(!explains_exit("[SYSTEM_ERROR] boom"));
+        assert!(!explains_exit(""));
     }
 }
