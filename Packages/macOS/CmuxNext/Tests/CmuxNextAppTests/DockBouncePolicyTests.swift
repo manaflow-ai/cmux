@@ -39,6 +39,12 @@ struct DockBouncePolicyTests {
         #expect(Self.decide(desktop: .never).bounce == nil)
     }
 
+    @Test func aPosterAskingForNoBannerGetsNoBounce() {
+        var arrival = NotificationPolicy.Arrival(source: .cli)
+        arrival.bannerAllowed = false
+        #expect(NotificationPolicy(prefs: NotificationPreferences()).decide(arrival).bounce == nil)
+    }
+
     @Test func quietHoursDoNotBounce() {
         var prefs = NotificationPreferences()
         prefs.dockBounce = .untilActive
