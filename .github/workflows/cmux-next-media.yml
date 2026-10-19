@@ -205,6 +205,15 @@ jobs:
         with:
           node-version: "24.11.1"
 
+      # Tours run side by side on a Mac's session runners, each capturing only
+      # its own app's window. One tag's DerivedData, sockets and daemon session
+      # take one tour at a time: a cancelled run still stopping, a dispatch, or
+      # a merge tour beside a dispatch could otherwise build into the same
+      # DerivedData at once. Other tags never wait.
+      - name: Hold this tour's tag
+        if: steps.scope.outputs.is_ui == 'true'
+        run: python3 scripts/ci/media_tag_lock.py hold --tag "$TOUR_TAG" --wait 3600
+
       # Each tag's DerivedData is about 9 GiB and nothing else removes it: a
       # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).
       # Keep this run's pair and the most recently used other pair; a dir

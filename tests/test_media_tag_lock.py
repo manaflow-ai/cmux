@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""scripts/ci/media_tag_lock.py: a tour holds its tag after `hold` returns, a second
+tour of that tag waits until the holder's job ends, and other tags never wait."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/media_tag_lock.py"
+
+
+class MediaTagLockTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory(prefix="tag-lock.")
+        self.locks = Path(self.temp.name)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def hold(self, tag: str, wait: float, max_hold: float = 30) -> subprocess.CompletedProcess[str]:
+        return subprocess.run([sys.executable, str(SCRIPT), "hold", "--tag", tag, "--lock-dir", str(self.locks),
+                               "--wait", str(wait), "--max-hold", str(max_hold)],
+                              capture_output=True, text=True, timeout=60)
+
+    def test_the_tag_stays_held_after_hold_returns(self) -> None:
+        first = self.hold("ci-media-pr-1", wait=1)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        second = self.hold("ci-media-pr-1", wait=1)
+        self.assertEqual(second.returncode, 1, second.stdout)
+        self.assertIn("still held", second.stdout)
+
+    def test_another_tag_never_waits(self) -> None:
+        self.assertEqual(self.hold("ci-media-pr-1", wait=1).returncode, 0)
+        other = self.hold("ci-media-pr-2", wait=0)
+        self.assertEqual(other.returncode, 0, other.stdout)
+
+    def test_a_waiting_tour_gets_the_tag_when_the_holder_lets_go(self) -> None:
+        # No Runner.Worker above the test, so the holder lets go after --max-hold.
+        self.assertEqual(self.hold("ci-media-feat-cmux-next", wait=1, max_hold=3).returncode, 0)
+        started = time.monotonic()
+        later = self.hold("ci-media-feat-cmux-next", wait=30)
+        self.assertEqual(later.returncode, 0, later.stdout)
+        self.assertIn("waiting for", later.stdout)
+        self.assertLess(time.monotonic() - started, 25)
+
+    def test_a_tag_that_is_not_a_name_is_refused(self) -> None:
+        self.assertEqual(self.hold("../x", wait=0).returncode, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
