@@ -65,6 +65,9 @@ fn hide_harness_contents(reply: &mut Value) {
             profile.insert("hasModelsCommand".into(), Value::Bool(has_models_command));
             let has_sessions = profile.remove("sessions").is_some_and(|value| !value.is_null());
             profile.insert("hasSessions".into(), Value::Bool(has_sessions));
+            let has_description =
+                profile.remove("description").is_some_and(|value| !value.is_null());
+            profile.insert("hasDescription".into(), Value::Bool(has_description));
             if profile.remove("unavailable").is_some() {
                 profile.insert("unavailable".into(), Value::String("unavailable".into()));
             }
