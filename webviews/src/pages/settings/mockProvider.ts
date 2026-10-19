@@ -195,6 +195,12 @@ export class MockSettingsProvider {
         return { bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000 };
       },
       "cmux.settings.backdrop.image.reveal": () => ({}),
+      "cmux.settings.backdrop.image.adjust": () => {
+        const current = String(this.values.get("appearance.background") ?? "none");
+        if (current === "none" || current === "desktop")
+          throw new ProtocolError("cmux.settings.backdrop.not_adjustable", "no picture to place");
+        return {};
+      },
       "cmux.settings.backdrop.image.usage": () => ({
         bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000,
       }),
@@ -284,6 +290,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.image.remove",
       "cmux.settings.backdrop.image.reveal",
       "cmux.settings.backdrop.image.usage",
+      "cmux.settings.backdrop.image.adjust",
       "cmux.settings.backdrop.workspace",
       "cmux.settings.backdrop.workspace.set",
       "cmux.settings.backdrop.workspace.preview",

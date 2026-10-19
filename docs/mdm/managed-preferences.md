@@ -128,6 +128,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.backgroundVideo` | string | `"play"` | `play`, `whenActive`, `still` | Video Background. A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion. |
+| `appearance.backgroundVideoOnBattery` | string | `"play"` | `play`, `pause` | On Battery. Whether a video background keeps playing on battery. Low Power Mode always pauses it. |
+| `appearance.backgroundAvoidPanes` | boolean | `true` |  | Keep Paintings Clear of Panes. Frames a painting so its subject shows beside the sidebar and the agent chat, not under them. |
 | `appearance.surfaces.sidebar.color` | string |  |  | Sidebar Color |
 | `appearance.surfaces.sidebar.opacity` | real |  | 0 to 1 | Sidebar Opacity |
 | `appearance.surfaces.tabBar.color` | string |  |  | Tab Bar Color |
@@ -321,6 +324,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.passwords.allowExport` | boolean | `false` |  | Allow Password Export. Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password. |
 | `home.attachments.keepLocation` | boolean | `false` |  | Keep Location in Photos and Videos. When off, location data is removed from photos and videos before they are attached. |
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. You can also turn it on or off from the command palette. |
+| `home.chiefPictureMotion` | string | `"hover"` | `always`, `hover`, `never` | Animated Pictures. Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame. |
 | `notifications.dismissal` | string | `"keystroke"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
 | `notifications.timeoutSeconds` | real | `30` | 1 to 86400 | Timeout. Used when a source clears after a timeout. |
 | `notifications.sources.agent.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Agents |

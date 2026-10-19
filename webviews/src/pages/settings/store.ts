@@ -309,6 +309,12 @@ export class SettingsStore {
     void this.request("cmux.settings.backdrop.image.reveal", id ? { id } : {});
   }
 
+  /** Places the background picture by hand in its window; false when no window shows one. */
+  async adjustBackdrop(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.backdrop.image.adjust", {});
+    return reply.ok;
+  }
+
   /** The bytes the person's own images take; null when the host cannot say. */
   async backdropUsage(): Promise<number | null> {
     const reply = await this.request("cmux.settings.backdrop.image.usage", {});

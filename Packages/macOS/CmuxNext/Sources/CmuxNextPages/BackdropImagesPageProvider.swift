@@ -13,6 +13,8 @@ public import Foundation
 ///   the background in use (`cmux.settings.backdrop.in_use`); `{bytes}`.
 /// - `cmux.settings.backdrop.image.reveal {id?}`: shows the image, or the folder, in Finder.
 /// - `cmux.settings.backdrop.image.usage`: `{bytes}` the folder's own images take.
+/// - `cmux.settings.backdrop.image.adjust`: places the picture a window shows by hand
+///   (``BackdropAdjustOverlay``); `cmux.settings.backdrop.not_adjustable` when none shows one.
 ///
 /// Errors carry ``BackdropUserImages/ImportError`` codes, which the page words.
 @MainActor
@@ -24,13 +26,16 @@ public final class BackdropImagesPageProvider: PageProvider {
     private let use: @MainActor (URL) async throws -> String
     private let reveal: @MainActor ([URL]) -> Void
     private let inUse: @MainActor () -> BackdropSelection?
+    private let adjust: @MainActor () -> Bool
 
     /// `use` copies a file into the folder and makes it the background, returning its id (the
     /// picker's own path, so a link is checked and written as a picked file is).
     /// `inUse` is the background the app shows now, which remove refuses.
     public init(images: BackdropUserImages, use: @escaping @MainActor (URL) async throws -> String,
                 inUse: @escaping @MainActor () -> BackdropSelection? = { nil },
-                reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) }) {
+                reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) },
+                adjust: @escaping @MainActor () -> Bool = { false }) {
+        self.adjust = adjust
         self.images = images
         self.use = use
         self.inUse = inUse
@@ -60,6 +65,8 @@ public final class BackdropImagesPageProvider: PageProvider {
             }
             let images = images
             try await Task.detached { try images.remove(selection) }.value
+            // Its hand placement goes with it.
+            BackdropPlacementStore.shared.set(nil, for: selection.id)
             return try await usage()
         case Self.prefix + "reveal":
             if params["id"] != nil, case .file(let path) = try own(params) {
@@ -70,6 +77,11 @@ public final class BackdropImagesPageProvider: PageProvider {
             return .object([:])
         case Self.prefix + "usage":
             return try await usage()
+        case Self.prefix + "adjust":
+            guard adjust() else {
+                throw PageError(code: "cmux.settings.backdrop.not_adjustable", message: "no window shows a picture to place")
+            }
+            return .object([:])
         default:
             throw PageError.unknownOp(op)
         }

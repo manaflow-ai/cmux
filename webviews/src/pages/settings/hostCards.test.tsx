@@ -353,7 +353,9 @@ test("Add from a Link downloads an image and sets it; a refused link says why; y
   expect(runs(page, "cmux.settings.backdrop.image.remove").at(-1)).toMatchObject({ id: "file:/backgrounds/sea.jpg" });
   expect(picker().querySelector('[aria-label="sea.jpg"]')).toBeNull();
   // Show in Finder reveals the folder.
-  await act(async () => picker().querySelector<HTMLElement>(".backdrop-own-bar button")!.click());
+  await act(async () =>
+    picker().querySelector<HTMLElement>(".backdrop-own-bar:not(.backdrop-adjust-bar) button")!.click(),
+  );
   expect(runs(page, "cmux.settings.backdrop.image.reveal").length).toBe(1);
   page.unmount();
 });
@@ -374,4 +376,29 @@ test("A wallpaper tile whose thumbnail fails shows an empty frame, not a broken 
   await settle();
   expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "starryNight" });
   page.unmount();
+});
+
+test("Adjust Placement… places a still picture by hand, and says so when no window shows one", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance",
+    mock: { values: { "appearance.background": "starryNight" } },
+  });
+  const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const adjust = () =>
+    [...picker().querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Adjust Placement…");
+  expect(adjust()).toBeDefined();
+  await act(async () => adjust()!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.image.adjust").length).toBe(1);
+  expect(picker().textContent).not.toContain("No window shows a still picture");
+  page.unmount();
+
+  // Plain glass has no picture: the button is not offered.
+  const none = await renderPage({
+    path: "/settings/appearance",
+    mock: { values: { "appearance.background": "none" } },
+  });
+  const card = none.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  expect([...card.querySelectorAll("button")].some((b) => b.textContent === "Adjust Placement…")).toBe(false);
+  none.unmount();
 });
