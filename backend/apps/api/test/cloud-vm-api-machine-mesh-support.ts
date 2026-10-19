@@ -68,7 +68,8 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
       if (options.lostAttach && attaches === 1) throw new Error("test lost attachment answer test-machine-mesh-key")
       return Response.json({ meshId: MESH, vmId: VM, ipv4: "10.128.0.5", attachedAt: mesh().createdAt, ...options.member })
     }
-    if (url.pathname === "/v1/vms" && r.method === "GET") return Response.json({ items: vm ? [vm] : [], nextCursor: null })
+    const lookup = () => vm && options.badVmLookup ? { ...vm, labels: { ...vm.labels, cmux_next_machine: "other-machine" } } : vm
+    if (url.pathname === "/v1/vms" && r.method === "GET") return Response.json({ items: vm ? [lookup()] : [], nextCursor: null })
     if (url.pathname === "/v1/vms" && r.method === "POST") {
       const body = await r.json() as { displayName: string; labels: Record<string, string> }
       creates++
@@ -78,7 +79,7 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
     }
     if (r.method === "DELETE") { vm = undefined; return new Response(null, { status: 204 }) }
     if (r.method === "PUT") { bind = JSON.parse(await r.text()); return new Response(null, { status: 204 }) }
-    return vm ? Response.json(options.badVmLookup ? { ...vm, labels: { ...vm.labels, cmux_next_machine: "other-machine" } } : vm) : new Response(null, { status: 404 })
+    return vm ? Response.json(lookup()) : new Response(null, { status: 404 })
   })
   try {
     const key = await vmKey()
