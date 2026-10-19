@@ -18,13 +18,13 @@ extension DaemonService {
     let daemon: DaemonService
 
     func cancel(_ body: (DaemonCreations) -> Bool) -> Bool {
-        let store = daemon.store
-        if store.onCloseCancelledCreation == nil {
-            store.onCloseCancelledCreation = { [weak daemon] transaction, surface in
+        let creations = daemon.store.creations
+        if !creations.closes {
+            creations.onClose { [weak daemon] transaction, surface in
                 if let daemon { CancelledCreationClose(daemon: daemon).close(transaction, surface) }
             }
         }
-        return body(store.creations)
+        return body(creations)
     }
 
     private func close(_ transaction: ClientTransactionID, _ surface: SurfaceID) {

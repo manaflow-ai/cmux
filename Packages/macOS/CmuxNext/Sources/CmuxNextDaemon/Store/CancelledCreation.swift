@@ -4,7 +4,7 @@ import Foundation
 /// .cmux-scratch/motion-redesign/DESIGN.md 2026-10-18). A close always wins, at once: its create
 /// or split intent stays in the log marked `closeWhenCreated` and from then on shows nothing. The
 /// daemon's tab or pane, when it arrives, is hidden by the same intent (never shown, in no window
-/// and no sidebar), its surface is handed to ``DaemonStore/onCloseCancelledCreation`` once known
+/// and no sidebar), its surface is handed to ``DaemonCreations/onClose(_:)`` once known
 /// (the reply, the echo, or the record), and the intent leaves the log only when the confirmed
 /// records no longer hold it (that close committed) or the creation failed.
 @MainActor enum CancelledCreation {

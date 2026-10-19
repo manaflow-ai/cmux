@@ -21,6 +21,13 @@ import Foundation
         return true
     }
 
+    /// Whether a close of the daemon's surface of a cancelled creation is wired (`onClose`).
+    public var closes: Bool { store.intentLog.closeCancelled != nil }
+
+    /// `close` gets each cancelled creation's daemon surface once it is known (the service sends
+    /// `close-tabs`; a failure rejects the intent, so the records show what the daemon kept).
+    public func onClose(_ close: @escaping (ClientTransactionID, SurfaceID) -> Void) { store.intentLog.closeCancelled = close }
+
     /// Whether tab `id` is still a pending creation's provisional tab (a close cancels it).
     public func isPending(tab id: String) -> Bool { CancelledCreation.transaction(showingTab: id, in: store) != nil }
 
@@ -53,7 +60,7 @@ extension CancelledCreation {
         for entry in store.intentLog.entries where entry.closeWhenCreated && !entry.closeRequested {
             guard let surface = closeSurface(entry) else { continue }
             store.intentLog.noteCloseRequested(entry.transaction)
-            store.onCloseCancelledCreation?(entry.transaction, surface)
+            store.intentLog.closeCancelled?(entry.transaction, surface)
         }
     }
 }

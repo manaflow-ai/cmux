@@ -48,7 +48,7 @@ struct PendingIntent {
     /// The person closed what it creates before the daemon made it (``CancelledCreation``): it
     /// shows nothing, hides the daemon's tab or pane, and leaves once the records drop it.
     var closeWhenCreated = false
-    /// The daemon's surface was handed to the close (``DaemonStore/onCloseCancelledCreation``).
+    /// The daemon's surface was handed to the close (``DaemonCreations/onClose(_:)``).
     var closeRequested = false
     /// The surface the creation's reply named (a split's; a create's is `createdSurface`).
     var replySurface: SurfaceID?
@@ -58,6 +58,8 @@ struct PendingIntent {
 /// and lifts the overlay (`DaemonStore+Intents.swift`).
 struct IntentLog {
     private(set) var entries: [PendingIntent] = []
+    /// Closes the daemon's surface of a creation the person closed first (``DaemonCreations/onClose(_:)``).
+    var closeCancelled: ((ClientTransactionID, SurfaceID) -> Void)?
     /// Recently settled transactions (bounded), so a late echo, reply or
     /// rejection for one never settles it again.
     private var settled: [ClientTransactionID] = []

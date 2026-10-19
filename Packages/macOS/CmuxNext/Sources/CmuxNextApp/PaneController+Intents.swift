@@ -165,9 +165,6 @@ extension PaneController {
                 continue
             }
             if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
-            // A tab still being created: cancelled, never raced (CancelledCreation). It leaves the
-            // strip in this apply, the selection moves as for any close, the keys held for it go
-            // with it, and the daemon's tab never shows.
             if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); services.keyRouter.newTabInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
