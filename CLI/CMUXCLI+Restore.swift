@@ -126,12 +126,7 @@ extension CMUXCLI {
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             requestedWorkingDirectory
         )
-        let effectiveWorkingDirectory: String? =
-            if requestedWorkingDirectory?.isEmpty == false {
-                appliedWorkingDirectory ?? FileManager.default.currentDirectoryPath
-            } else {
-                nil
-            }
+        let effectiveWorkingDirectory = appliedWorkingDirectory
         let legacyOnly = record.launchCommand == nil && record.preparedArguments == nil && record.legacyCommand != nil
         let invocation: AgentRestoreInvocation?
         if legacyOnly {
@@ -192,6 +187,25 @@ extension CMUXCLI {
         if let invocation {
             execution = .invocation(invocation)
         } else {
+            if mode == .resumeAgent,
+               let launch = record.launchCommand,
+               let checkpointID = record.checkpointID,
+               case .rejected = AgentResumeArgv().launcherResolution(
+                   launcher: launch.launcher,
+                   sessionId: checkpointID,
+                   executablePath: launch.executablePath,
+                   arguments: launch.arguments,
+                   environment: launch.environment
+               ) {
+                throw loggedRestoreError(
+                    stage: "record.rejected-capture",
+                    detail: checkpointID,
+                    message: String(
+                        localized: "cli.restore.error.incompleteData",
+                        defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
+                    )
+                )
+            }
             execution = try legacyRestoreExecution(
                 record: record, processEnvironment: processEnvironment,
                 workingDirectory: effectiveWorkingDirectory

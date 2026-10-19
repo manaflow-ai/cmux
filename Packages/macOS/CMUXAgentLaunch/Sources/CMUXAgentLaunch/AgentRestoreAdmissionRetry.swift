@@ -24,9 +24,9 @@ public struct AgentRestoreAdmissionRetry: Sendable {
     public func response<Response>(
         delays: [Duration]? = nil,
         clock: any Clock<Duration> = ContinuousClock(),
-        onRetry: @Sendable (Int) -> Void = { _ in },
-        isRetryable: @Sendable (Error) -> Bool,
-        sending send: @Sendable () async throws -> Response
+        onRetry: (Int) -> Void = { _ in },
+        isRetryable: (Error) -> Bool,
+        sending send: () async throws -> Response
     ) async throws -> Response {
         let delays = delays ?? self.delays
         var attempt = 0

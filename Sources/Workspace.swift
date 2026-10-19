@@ -1999,7 +1999,8 @@ extension Workspace {
             // Binding-only legacy snapshots remain available for manual restore
             // instead of typing an unleased Subrouter command at startup.
             let legacySubrouterResumeInput: String? = nil
-            let legacySubrouterRestoreBlocked = legacySubrouterBinding &&
+            let legacySubrouterRestoreBlocked = restorableAgent == nil &&
+                legacySubrouterBinding &&
                 shouldAutoResumeAgent &&
                 legacySubrouterResumeInput == nil
             let restoredBindingLaunch = legacySubrouterRestoreBlocked

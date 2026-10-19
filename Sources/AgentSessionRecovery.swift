@@ -215,8 +215,13 @@ extension AgentSessionRecovery {
         var restored: [String] = []
         let ordered = plan.startNow.map { ($0, true) } + plan.startOnVisit.map { ($0, false) }
         for (candidate, startsNow) in ordered {
+            if let cwd = candidate.cwd,
+               (!FileManager.default.fileExists(atPath: cwd) ||
+                !FileManager.default.isDirectory(atPath: cwd)) {
+                continue
+            }
             guard let launch = launch(for: candidate) else { continue }
-            let directory = candidate.cwd.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
+            let directory = candidate.cwd
             let startupAgent: SessionRestorableAgentSnapshot?
             switch launch {
             case .restoreVerb(_, let agent):

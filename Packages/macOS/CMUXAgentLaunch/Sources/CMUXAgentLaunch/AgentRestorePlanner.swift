@@ -186,6 +186,17 @@ public struct AgentRestorePlanner: Sendable {
                 environment: &environment
             )
         }
+        // Preserve a validated outer Codex launcher (for example a scheduler
+        // or account wrapper) while still using this structured restore plan.
+        // Replayability rejects prefixes that carry an old session or secret.
+        if request.mode == .resumeAgent,
+           kind == "codex",
+           let prefix = request.launchCommand?.launcherPrefix,
+           AgentLauncherPrefix.isReplayable(prefix),
+           !routedArguments.starts(with: prefix),
+           let first = routedArguments.first {
+            routedArguments = prefix + [first] + routedArguments.dropFirst()
+        }
         guard !routedArguments.isEmpty else { return nil }
 
         var preflights = hermesPreflights(

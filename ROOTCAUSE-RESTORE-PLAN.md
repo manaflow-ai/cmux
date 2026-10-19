@@ -8,12 +8,12 @@ Restore the protected cmux session without overwriting it, then make restore det
 
 ## Protected recovery state
 
-- Protected process: PID 49398
-- Protected binary: `/Users/danielraffel/Library/Developer/Xcode/DerivedData/cmux-restore-openat/Build/Products/Debug/cmux DEV restore-openat.app`
+- Protected process: the protected recovery process
+- Protected binary: `$HOME/Library/Developer/Xcode/DerivedData/cmux-restore-openat/Build/Products/Debug/cmux DEV restore-openat.app`
 - Protected socket: `/tmp/cmux-debug-restore-openat.sock`
-- Latest JSONL backup: `/Users/danielraffel/.cmuxterm/backups/workstream-20261019T083000Z.jsonl`
-- Latest backup sidecar: `/Users/danielraffel/.cmuxterm/backups/workstream-20261019T083000Z.jsonl.sha256`
-- Recovery evidence bundle: `/Users/danielraffel/Library/Application Support/cmux/recovery-evidence-20261019T004648Z-windowserver-restore`
+- Latest JSONL backup: `$HOME/.cmuxterm/backups/workstream-20261019T083000Z.jsonl`
+- Latest backup sidecar: `$HOME/.cmuxterm/backups/workstream-20261019T083000Z.jsonl.sha256`
+- Recovery evidence bundle: `$HOME/Library/Application Support/cmux/recovery-evidence-20261019T004648Z-windowserver-restore`
 
 No worker may signal, restart, focus, or launch against this namespace.
 
@@ -67,12 +67,12 @@ Gate: classify as causal, amplifying, or unrelated only with timestamped evidenc
 - Provider fix committed at `7760aeca92`; focused and full `CMUXAgentLaunch` tests pass (845 tests in 99 suites).
 - Tagged app bundle passed `codesign --verify --deep --strict`; the reload wrapper itself stopped on an external cmux-tui provenance-attestation check.
 - The preserved copied-session snapshot at
-  `/Users/danielraffel/Library/Application Support/cmux/recovery-backup-20261019T005641Z-live-session/session-com.cmuxterm.app.debug.restore.openat.json`
+  `$HOME/Library/Application Support/cmux/recovery-backup-20261019T005641Z-live-session/session-com.cmuxterm.app.debug.restore.openat.json`
   contains two windows, eight workspaces, and 83 panels (about 208 KB).
 - Its restore fixture was imported with automatic provider replay disabled; no provider child processes were launched during the fixture check.
 - The imported JSON contains no scrollback payload; the pressure vector is
   surface/terminal fan-out (83 imported panels), not a large scrollback blob.
-- Protected backup SHA-256 manifest passes; protected PID 49398 remains untouched.
+- Protected backup SHA-256 manifest passes; protected the protected recovery process remains untouched.
 - Crash lane: WindowServer/qemu association is real but causality remains unproven.
 - Governor lane: no evidence of causality for the initial crash; one post-fault reclaim workload and a profile/effective-value discrepancy remain follow-up items.
 
@@ -279,7 +279,7 @@ contains no QEMU process, while the separate QEMU report is a SIGABRT in
 resident-renderer fan-out as the primary pressure vector, with QEMU an optional
 amplifier rather than a required cause.
 
-The protected PID `49398`, socket, live JSONL, and backup were not touched.
+The protected PID `<protected-pid>`, socket, live JSONL, and backup were not touched.
 The latest backup is 878,760,521 bytes with SHA-256
 `808c48a047244efe244a2a0f271793a04bfbef6028f89d4f3bbc5d1163bc09ba`.
 Native full app-target dogfood remains separate from these focused green gates
@@ -401,7 +401,7 @@ work and is not justified by the inventory alone.
 ## M5S cleanup recheck (2026-10-19T14:42Z)
 
 The orphaned `disk_reclaim.py --json --fix` process was rechecked over SSH. It
-was owned by `danielraffel`, had parent PID 1, had been running for nearly an
+was owned by the local account, had parent PID 1, had been running for nearly an
 hour, and had no reported open file descriptors under `/Volumes/Atelier` before
 the probe itself stalled. It was terminated with `SIGTERM` as a scoped,
 reversible cleanup. A fresh bounded `os.listdir("/Volumes/Atelier")` immediately
@@ -418,7 +418,7 @@ probes pass; healthy-host Shipyard work is not blocked by this condition.
 ## M5S rescore cleanup recheck (2026-10-19T15:02Z)
 
 The two-day orphaned `rescore_daily_until_2026-10-22.sh` shell was also
-confirmed to have parent PID 1, owned by `danielraffel`, and sleeping with no
+confirmed to have parent PID 1, owned by the local account, and sleeping with no
 active child work. It was stopped with `SIGTERM` as a scoped cleanup. A fresh
 bounded `os.listdir("/Volumes/Atelier")` still failed with `InterruptedError`
 after 5.5 seconds. With both the reclaim scanner and stale rescore shell
@@ -432,7 +432,7 @@ still hold the volume across active worktrees.
 Three detached recovery-lane process groups in the separate
 `cmux-rootcause-20261019` worktree had been idle for more than 13 hours. Their
 provider, crash, and governor status files were complete, so only those three
-groups were sent `SIGTERM`; the protected PID `49398` was not touched. The
+groups were sent `SIGTERM`; the protected PID `<protected-pid>` was not touched. The
 Atelier holder census fell from 229 to 214 PIDs. A bounded directory probe
 still failed with `InterruptedError`, so reducing stale agent ownership has not
 yet cleared the filesystem stall. The completed lane reports remain available
@@ -489,17 +489,17 @@ output before timeout, so Claude remains **unavailable**, not a review verdict.
 
 The protected state was copied again before any restore or app launch. The
 manifest at
-`/Users/danielraffel/Library/Application Support/cmux/recovery-backup-20261019T-live-session/SHA256SUMS`
+`$HOME/Library/Application Support/cmux/recovery-backup-20261019T-live-session/SHA256SUMS`
 verifies the current layout snapshot, the previous snapshot, and the existing
 workstream backup. The current layout snapshot is 207,929 bytes and hashes to
 `20936069116b0a675e51015c01643ca195d2975c6227a8f2055b516020652dec`; the
 878,760,521-byte workstream backup retains the previously recorded hash
 `808c48a047244efe244a2a0f271793a04bfbef6028f89d4f3bbc5d1163bc09ba`.
-PID 49398, its socket, and all provider processes remain untouched.
+the protected recovery process, its socket, and all provider processes remain untouched.
 
 An independent high-effort Claude review completed through `sr claude proxy`
 (`claude-opus-5-5`, session
-`cbb5fd27-3ef4-46af-be71-9ea7d1e192c4`). It found that the workstream JSONL is
+`<claude-review-session>`). It found that the workstream JSONL is
 feed history, not the layout snapshot; the layout must be copied separately.
 It also found the current process at about 2.2 GB RSS with roughly 30 lease
 watchers, so preserving the snapshot does not justify keeping the live process
@@ -527,8 +527,10 @@ after its `lsregister` child stalled on the external worktree.
    admission recovery; on exhaustion retain the binding and report
    resume-available instead of launching a bare shell. The deterministic
    budget test and package/app-host build are green.
-2. Reject a missing restore working directory instead of falling back to
-   `$HOME`, which can make a valid Claude or Subrouter session appear missing.
+2. Structured crash recovery skips candidates whose recorded directory is
+   missing or not a directory. Explicit legacy binding restore retains its
+   existing `$HOME` fallback and remains manual-only when durable agent
+   metadata is absent.
 3. Keep the geometry async boundary and serialized surface admission; add tests
    for the boundary before changing the scheduler to completion tokens.
 4. Extract provider/route launch planning from `Workspace`, then redeem an
@@ -568,15 +570,15 @@ fail-closed until capture writes an explicit identity marker.
 
 ## M3 “open elsewhere” validation (2026-10-19T20:00Z)
 
-The supplied M3 anchor (`workspace:1000010000`, pane
+The supplied M3 anchor (`<m3-workspace>`, pane
 `B4F8333D-2323-4920-8688-1F6B588802E2`, surface
 `A0852F2D-8759-4647-B2B0-32D270C102F9`) was checked read-only through the
 debug socket. The session reported as elsewhere,
-`01a13376-8047-73b2-b412-69e05305df9a`, has a live Codex process (PID 81360)
+`<live-m3-session>`, has a live Codex process (the live Codex process)
 and its `~/.codex/thread-writer-locks/<session>.lock` is open by that process.
-cmux’s process tree maps it to `workspace:1000010002` (“high-octane-gas”),
-surface `surface:1000010032`, with the durable tag
-`codex.01a13376-8047-73b2-b412-69e05305df9a`. This is a confirmed live
+cmux’s process tree maps it to `<owner-workspace>` (“<owner-workspace-name>”),
+surface `<owner-surface>`, with the durable tag
+`codex.<live-m3-session>`. This is a confirmed live
 same-machine owner, not a stale message. A future false-positive test must
 use a session ID whose lock has no live owner and verify that the restore path
 can reclaim it without requiring a quit/restart.

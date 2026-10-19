@@ -513,7 +513,8 @@ extension DockSplitStore {
         let legacySubrouterResumeInput: String? = nil
         // A legacy direct binding can contain a stale per-session Subrouter
         // URL. Let the live `sr codex resume` route rebuild provider config.
-        let legacySubrouterRestoreBlocked = legacySubrouterBinding &&
+        let legacySubrouterRestoreBlocked = restorableAgent == nil &&
+            legacySubrouterBinding &&
             shouldAutoResumeAgent &&
             legacySubrouterResumeInput == nil
         let bindingLaunch = legacySubrouterRestoreBlocked
