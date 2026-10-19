@@ -68,7 +68,7 @@ struct TabSpamRaceTests {
         run.expectSettled()
     }
 
-    static let seeds: [UInt64] = Array(1...24)
+    nonisolated static let seeds: [UInt64] = Array(1...24)
 }
 
 // MARK: - The run
@@ -76,8 +76,8 @@ struct TabSpamRaceTests {
 /// One spam run: the store, the simulated daemon and what the person expects to see.
 @MainActor
 private struct SpamRun {
-    static let pane = PaneID(rawValue: 3)
-    static let baseSurface = SurfaceID(rawValue: 4)
+    nonisolated static let pane = PaneID(rawValue: 3)
+    nonisolated static let baseSurface = SurfaceID(rawValue: 4)
 
     let store: DaemonStore
     let daemon: SimulatedDaemon
