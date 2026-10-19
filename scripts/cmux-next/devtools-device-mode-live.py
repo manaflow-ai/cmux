@@ -22,6 +22,8 @@ failed. A known gap that passes fails the run, so the fix removes it from the li
          and every emulation change waited 5 s on Emulation.setEmitTouchEventsForMouse).
   D*     DevTools device mode: presets, rotate, responsive size, zoom, media features,
          geolocation, CPU and network throttling, the screenshot buttons, the toolbar.
+  T*     agent clicks (browser host REPL, CDP Input) on a link and a button with device mode's iPhone
+         preset on (it turns touch on; Chromium then never answers mouse input, cx-3ny35) and after it ends.
   F*     cmux's "Fit as 16:9" and DevTools device mode on the same tab.
   --widevine: EME for com.widevine.alpha, codec support, Shaka playback of two Widevine test
          streams (report only; --require-widevine makes them checks).
@@ -29,7 +31,7 @@ failed. A known gap that passes fails the run, so the fix removes it from the li
 Writes results.json, window snapshots and the pages' screenshots to $NX_ARTIFACTS (or --out).
 Ends with debug.quit and $NX_APP_STOP; quits the Chrome it started. Exits 1 when a check fails.
 """
-import argparse, base64, http.server, json, os, random, socket, struct, subprocess, sys, tempfile, threading, time, urllib.request
+import argparse, base64, hashlib, http.server, json, os, random, socket, struct, subprocess, sys, tempfile, threading, time, urllib.request
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="devtools-device-mode-"))
@@ -336,6 +338,79 @@ def rpc(method, params=None, timeout=30):
     return out
 
 
+def find(value, key):
+    if isinstance(value, dict):
+        if key in value:
+            return value[key]
+        value = list(value.values())
+    for child in value if isinstance(value, list) else []:
+        hit = find(child, key)
+        if hit is not None:
+            return hit
+    return None
+
+
+HOST = {}
+
+
+def host_socket():
+    """The browser host of the tagged app's own daemon: bh-<sha256(daemon socket)[:12]>/browser-host.sock
+    beside that socket (another app's host on this Mac does not know the tab)."""
+    if HOST.get("sock") and os.path.exists(HOST["sock"]):
+        return HOST["sock"]
+    p = subprocess.run([HOST["cli"], "--json", "daemon", "status"], capture_output=True, text=True, timeout=60)
+    try:
+        status = json.loads(p.stdout)
+    except ValueError:
+        status = {}
+    for daemon in [v for v in (find(status, k) for k in ("socket", "socket_path", "path")) if isinstance(v, str)]:
+        leaf = "bh-" + hashlib.sha256(daemon.encode()).hexdigest()[:12]
+        for candidate in (os.path.join(os.path.dirname(daemon), leaf, "browser-host.sock"),
+                          os.path.join("/tmp/cmux-tui-%d" % os.getuid(), leaf, "browser-host.sock")):
+            if os.path.exists(candidate):
+                HOST["sock"] = candidate
+                log(daemon_socket=daemon, host_socket=candidate)
+                return candidate
+    log(host_socket=None, daemon_status=status)
+    return None
+
+
+def host(method, params, timeout=90):
+    sock = host_socket()
+    try:
+        c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); c.settimeout(timeout); c.connect(sock)
+        c.sendall((json.dumps({"id": 1, "method": method, "params": params, "origin": "mcp"}) + "\n").encode()); buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = c.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+        c.close(); out = json.loads(buf)
+    except (OSError, TypeError, ValueError) as e:
+        out = {"error": str(e)}
+    log(host=method, params=params, reply=out)
+    return out
+
+
+def agent_clicks(page, cmux, tab, label):
+    """An agent clicks a link and a button through the browser host's REPL (CDP Input), as an MCP agent does."""
+    cmux.cdp.eval("""(()=>{for(const id of ['TL','TB'])document.getElementById(id)?.remove();window.__agentClicks=[];
+      const a=document.createElement('a');a.id='TL';a.href='#tl';a.textContent='agent link';
+      const b=document.createElement('button');b.id='TB';b.textContent='agent button';
+      for(const [e,t] of [[a,40],[b,120]]){Object.assign(e.style,{position:'fixed',left:'20px',top:t+'px',width:'160px',height:'48px',zIndex:2147483647});document.body.appendChild(e)}
+      document.addEventListener('click',e=>{const t=e.target.closest('#TL,#TB');if(t){e.preventDefault();window.__agentClicks.push(t.id)}},true);return 1})()""", page, 10)
+    session = "touch-%s-%d" % (label, os.getpid())
+    opened = wait_for(lambda: (lambda o: o if "result" in o else None)(host("browser.repl.open", {"session": session, "engine": "cef"})), 30) or {}
+    for target in ("TL", "TB"):
+        t0 = time.time()
+        code = 'const p = await tabs.use("%s"); await p.locator("#%s").click({timeout: 20000}); "clicked"' % (tab, target)
+        reply = host("browser.repl.eval", {"session": session, "code": code, "timeoutMs": 40000}, 60)
+        got = wait_for(lambda: (lambda v: v if v and target in v else None)(cmux.cdp.eval("window.__agentClicks", page, 10)), 5) or []
+        check("T_%s_%s" % (label, "link" if target == "TL" else "button"), target in got, seconds=round(time.time() - t0, 2),
+              clicks=got, reply=json.dumps(reply)[:300], opened=bool(opened))
+    host("browser.repl.close", {"session": session})
+
+
 def cli(path, *args):
     p = subprocess.run([path, "--json", *args], capture_output=True, text=True, timeout=60)
     log(cli=args, rc=p.returncode, out=p.stdout[-3000:], err=p.stderr[-1000:])
@@ -438,7 +513,12 @@ def main():
             state = fe("state") or {}
             check("D_page_in_device_area", bool(frame and devtools_frame) and abs(frame[2] - state.get("w", 0) * state.get("scale", 0)) <= 2
                   and frame[2] < devtools_frame[2], page_frame=frame, devtools_frame=devtools_frame, frontend=state)
+            # T (cx-3ny35): device mode turned touch on (the frontend's call, not cmux's): an agent's click
+            # through the browser host (CDP Input) lands on a link and a button; before, it timed out at 30 s.
+            HOST["cli"] = app_cli
+            agent_clicks(page, cmux, tab, "devtools_iphone")
             fe("toggle")
+            agent_clicks(page, cmux, tab, "after_device_mode")
 
             # F: the 16:9 fit and DevTools device mode on one tab.
             rpc("debug.window_frame", {"frame": [40, 60, 900, 1000]}); wait_for(lambda: (size() or {}).get("w", 9999) < 600, 10)

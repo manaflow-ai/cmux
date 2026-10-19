@@ -441,6 +441,32 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(marks.branchClipped).toBe(false);
   });
 
+  test("focusing a footer control lifts the strip rim without changing its geometry", async () => {
+    const page = await open("agent-pane.composer-strip", "project", 420);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.waitForTimeout(20);
+    const before = await page.evaluate(() => {
+      const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
+      const rect = strip.getBoundingClientRect();
+      return {
+        edge: getComputedStyle(strip).getPropertyValue("--acpmux-strip-edge"),
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      };
+    });
+    await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-composer-strip button")!.focus());
+    const after = await page.evaluate(() => {
+      const strip = document.querySelector<HTMLElement>(".acpmux-composer-strip")!;
+      const rect = strip.getBoundingClientRect();
+      return {
+        edge: getComputedStyle(strip).getPropertyValue("--acpmux-strip-edge"),
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      };
+    });
+    await page.close();
+    expect(after.edge).not.toBe(before.edge);
+    expect(after.rect).toEqual(before.rect);
+  });
+
   // Inside the card's corner: one column just inside the strip's side, from the strip down into the
   // card. The card's corner has dropped there, and a gap would show the page between the two.
   test("the chat composer: no gap where the strip stands inside the card's corner", async () => {

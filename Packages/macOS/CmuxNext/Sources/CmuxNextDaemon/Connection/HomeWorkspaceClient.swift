@@ -58,6 +58,9 @@ public struct NewConversationTabRequest: DaemonRequest {
     /// Echoed on the event that adds the tab (`conversation-tab-transaction-v1`), so a create
     /// intent settles on whichever arrives first, that event or the reply.
     public var transaction: ClientTransactionID?
+    /// With `pane`: the tab opens in a new pane split from it, in one daemon commit and one
+    /// `pane-added` delta (`conversation-tab-split-v1`); `pane` never lists it.
+    public var split: ConversationTabSplit?
 
     public init(conversation: String, owner: String = "local", pane: PaneID? = nil, workspace: WorkspaceHandle? = nil,
                 origin: String? = nil, mutationID: String? = nil) {
@@ -107,9 +110,32 @@ public struct NewConversationTabRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case conversation, owner, page, route, pane, workspace, origin, transaction
+        case conversation, owner, page, route, pane, workspace, origin, transaction, split
         case agentSession = "agent_session"
         case mutationID = "mutation_id"
+    }
+}
+
+/// The new pane of a conversation tab's split (`new-conversation-tab {split}`,
+/// `conversation-tab-split-v1`): its side of the source pane and the client-minted pane id
+/// (`split-client-keys-v1`), so the daemon's pane replaces the provisional one by that id, and
+/// the client-minted split id (`split-client-split-id-v1`), so the daemon's split is the one shown.
+public struct ConversationTabSplit: Encodable, Sendable, Hashable {
+    public var direction: SplitDirection
+    public var paneID: String
+    /// Nil for a daemon without `split-client-split-id-v1`.
+    public var splitID: String?
+
+    public init(direction: SplitDirection, paneID: String, splitID: String?) {
+        self.direction = direction
+        self.paneID = paneID
+        self.splitID = splitID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case direction
+        case paneID = "pane_id"
+        case splitID = "split_id"
     }
 }
 

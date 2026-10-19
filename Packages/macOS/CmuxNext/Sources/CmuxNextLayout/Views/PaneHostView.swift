@@ -16,7 +16,7 @@ import QuartzCore
 /// `OverlayPlane`, not in this view, so they draw above content that is a
 /// child window (Chromium pages); the root keeps them on this view's
 /// displayed frame.
-final class PaneHostView: NSView {
+final class PaneHostView: NSView, RestingPlacement {
     let pane: PaneID
     let content: NSView
     let chrome = PaneOverlayView()
@@ -28,6 +28,7 @@ final class PaneHostView: NSView {
     private(set) var wholeCard = false
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     private var lastWindowFrame: CGRect?
+    private var stripCutouts: [CGRect] = []
 
     init(pane: PaneID, content: NSView) {
         self.pane = pane
@@ -52,13 +53,22 @@ final class PaneHostView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// Whether the pane sits in a docked (docked) column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
     /// What of the host shows while a spring rect reveals it (a split's arriving pane, a zooming
     /// one; superview coordinates); nil, its whole frame. Panes under it are clipped by this.
     var revealRect: CGRect?
+    /// Where the focus ring, border and dim go (superview coordinates) while that is not the host's
+    /// frame: a zooming pane's presented rect (its host keeps the full screen's size). Nil: the frame.
+    var chromeFrame: CGRect?
+    /// Where the host will rest minus where it shows now (`RestingPlacement`): its spring rect's
+    /// target and the strip camera's target, against the presented frame. Zero at rest; coming
+    /// to rest tells the content, whose window-relative chrome held its motion layout.
+    var restOffset: CGVector = .zero {
+        didSet { if restOffset == .zero, oldValue != .zero, window != nil { reporter?.paneFrameInWindowDidChange() } }
+    }
 
     var isDocked = false {
         didSet { if isDocked != oldValue { applyDockFill() } }
@@ -154,25 +164,31 @@ final class PaneHostView: NSView {
     }
 
     /// Clips the host to `rect` (its own coordinates) where a docked docked
-    /// column covers it; nil removes the clip.
+    /// column covers it; nil removes the clip. `cutouts` (its own coordinates)
+    /// are the parts a pane in front covers that `rect` cannot leave out (a
+    /// corner): the mask carries them for a Chromium page, which no view order
+    /// reaches (`StripClipMaskLayer.cutouts`).
     /// Returns true when the clip changed: a Chromium page in this pane then
     /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
     @discardableResult
-    func setStripClip(_ rect: CGRect?, cornerRadius: CGFloat = 0) -> Bool {
+    func setStripClip(_ rect: CGRect?, cornerRadius: CGFloat = 0, cutouts: [CGRect] = []) -> Bool {
         guard let layer else { return false }
         guard let rect else {
             guard layer.mask != nil else { return false }
             layer.mask = nil
+            stripCutouts = []
             return true
         }
         let mask = layer.mask ?? {
-            let mask = CALayer()
+            let mask = StripClipMaskLayer()
             mask.name = CALayer.cmuxStripClipName
             mask.backgroundColor = NSColor.black.cgColor
             layer.mask = mask
             return mask
         }()
-        guard mask.frame != rect || mask.cornerRadius != cornerRadius else { return false }
+        guard mask.frame != rect || mask.cornerRadius != cornerRadius || stripCutouts != cutouts else { return false }
+        stripCutouts = cutouts
+        (mask as? StripClipMaskLayer)?.cutouts = cutouts
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         mask.frame = rect
@@ -206,7 +222,7 @@ final class PaneClipView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func setCornerRadius(_ radius: CGFloat) {
         guard let layer, layer.cornerRadius != radius else { return }

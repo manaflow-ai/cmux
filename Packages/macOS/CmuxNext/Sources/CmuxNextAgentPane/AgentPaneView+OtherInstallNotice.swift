@@ -12,7 +12,7 @@ extension AgentPaneView {
             return
         }
         guard otherInstallNotice == nil else { return }
-        let label = NSTextField(wrappingLabelWithString: Self.otherInstallMessage)
+        let label = ChromeLabel(wrappingLabelWithString: Self.otherInstallMessage)
         label.alignment = .center
         label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         label.textColor = themeTokens.textSecondary.nsColor

@@ -1,0 +1,180 @@
+{
+  "description": "Shared test vectors for the local file scope of a CEF tab: a file: page may load file: subresources and subframes only from its own folder or below, the folder WebKit grants with loadFileURL(_:allowingReadAccessTo:). C++ LocalFileSubresourceAllowed (CEFShim/src/local_file_scope.h, scripts/cmux-next/test-local-file-scope-cpp.sh) passes these. `allowed` is false when the shim cancels the request. A request that is not file: is left to Chromium (true), and so is a file: request from a web document (http, https, extension pages), which Chromium refuses itself. A file: request from a document the shim cannot place (empty, about:, data:, filesystem: or blob:, whose URL names no folder) is refused. `document` is the requesting frame's URL after the shim walks about: frames up to their parent; a frameless request reaches the policy with an empty document.",
+  "cases": [
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site/img/deep/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site/a%20b.png",
+      "allowed": true
+    },
+    {
+      "document": "file:///Users/a/site/index.html?x=1#top",
+      "request": "file:///Users/a/site/style.css?v=2",
+      "allowed": true
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site/./img/../logo.png",
+      "allowed": true
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file://localhost/Users/a/site/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "FILE:///Users/a/site/index.html",
+      "request": "File:///Users/a/site/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/other/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site/../secret.txt",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site/%2e%2e/secret.txt",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site/img/../../secret.txt",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site-evil/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file://otherhost/Users/a/site/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site/..%2fsecret.txt",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "file:///Users/a/site/..%5csecret.txt",
+      "allowed": false
+    },
+    {
+      "document": "file:///Users/a/site/",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "file:///index.html",
+      "request": "file:///Users/a/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "file:///Users/a/site/index.html",
+      "request": "https://example.com/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "https://example.com/",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": true
+    },
+    {
+      "document": "",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "file:",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "about:blank",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "about:srcdoc",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "blob:null/0d2c7c1e-1111-2222-3333-444455556666",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "blob:file:///0d2c7c1e-1111-2222-3333-444455556666",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "blob:file:///Users/a/site/0d2c7c1e",
+      "request": "file:///Users/a/site/logo.png",
+      "allowed": false
+    },
+    {
+      "document": "blob:file:///Users/a/site/0d2c7c1e",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "BLOB:https://example.com/0d2c7c1e",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "data:text/html,<img src=x>",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "filesystem:file:///temporary/x.html",
+      "request": "file:///etc/hosts",
+      "allowed": false
+    },
+    {
+      "document": "chrome-extension://abcdefghijklmnop/index.html",
+      "request": "file:///etc/hosts",
+      "allowed": true
+    },
+    {
+      "document": "",
+      "request": "https://example.com/logo.png",
+      "allowed": true
+    }
+  ]
+}

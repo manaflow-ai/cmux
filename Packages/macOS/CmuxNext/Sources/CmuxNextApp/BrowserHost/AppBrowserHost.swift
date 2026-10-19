@@ -155,12 +155,13 @@ final class AppBrowserHost {
     }
 
     /// The content that shows or parks `workspaceID`: its window's shown content first.
-    /// The window that shows `workspaceID`, else one that keeps it parked:
-    /// its window-level cursor slot draws the workspace's agent cursors.
+    /// The window that shows `workspaceID`, else one that keeps it parked or lists it (a parked one
+    /// released under memory pressure): its window-level cursor slot draws the workspace's agent cursors.
     static func window(ofWorkspace workspaceID: String, in services: AppServices) -> WindowController? {
         let controllers = services.windows.controllers
         if let shown = controllers.first(where: { $0.content?.workspace.id == workspaceID }) { return shown }
-        return controllers.first { controller in controller.parked.contains { $0.workspace.id == workspaceID } }
+        return controllers.first { controller in controller.parked[workspaceID] != nil }
+            ?? controllers.first { services.windows.registry.members(of: $0.state.id).contains(workspaceID) }
     }
 
     /// One provider per install: a random id kept in the app's defaults.

@@ -58,7 +58,7 @@ pub(super) fn handle_command_with_cancellation(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify => cmd_server::identify(mux),
+        Command::Identify { machine_metadata } => cmd_server::identify(mux, machine_metadata),
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
             cmd_server::shutdown_daemon(
                 mux,
@@ -394,7 +394,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
         }
-        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, transaction } => {
+        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
                 mux,
                 client,
@@ -405,6 +405,7 @@ pub(super) fn handle_command_with_cancellation(
                 mode,
                 role,
                 permanent,
+                pinned,
                 transaction,
             )
         }
@@ -818,8 +819,8 @@ pub(super) fn handle_command_with_cancellation(
         Command::RenameScreen { screen, name } => {
             cmd_screens::rename_screen(mux, actor, screen, name)
         }
-        Command::RenameWorkspace { workspace, key, name, mutation } => {
-            cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
+        Command::RenameWorkspace { request, mutation } => {
+            cmd_workspaces::rename_workspace(mux, client, request, mutation)
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(

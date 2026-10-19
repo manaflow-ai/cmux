@@ -2,13 +2,17 @@
 :root[data-settings-look="refined"] {
   --polish-ink: var(--cmux-text, var(--agent-text, CanvasText));
   --polish-base: var(--cmux-surface-solid, var(--agent-accent-text, Canvas));
+  /* Surfaces mix from the page's own background: clear over a see-through window
+     (WebTheme --cmux-surface-background), the theme color in an opaque one. The solid base
+     stays for text and marks that must hide what is under them (Lawrence 2026-10-17). */
+  --polish-layer: var(--cmux-surface-background, var(--polish-base));
   --polish-content: light-dark(
-    color-mix(in srgb, var(--polish-base) 35%, white),
-    color-mix(in srgb, var(--polish-ink) 4%, var(--polish-base))
+    color-mix(in srgb, var(--polish-layer) 35%, Canvas),
+    color-mix(in srgb, var(--polish-ink) 4%, var(--polish-layer))
   );
   --polish-raised: light-dark(
-    color-mix(in srgb, var(--polish-base) 15%, white),
-    color-mix(in srgb, var(--polish-ink) 7%, var(--polish-base))
+    color-mix(in srgb, var(--polish-layer) 15%, Canvas),
+    color-mix(in srgb, var(--polish-ink) 7%, var(--polish-layer))
   );
   --polish-edge: light-dark(
     color-mix(in srgb, var(--polish-ink) 10%, transparent),

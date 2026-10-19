@@ -429,7 +429,7 @@ impl RemoteSession {
             Some("layout-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
-                    self.emit(MuxEvent::LayoutChanged(screen));
+                    self.emit(MuxEvent::LayoutChanged(screen, None));
                 } else {
                     self.emit(MuxEvent::TreeChanged);
                 }

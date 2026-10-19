@@ -121,7 +121,7 @@ final class SidebarUpdatedCardHost: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// Shows the card (the page draws its text), or hides the view and
     /// closes its page.
@@ -142,7 +142,7 @@ final class SidebarUpdatedCardHost: NSView {
 }
 
 #if DEBUG
-extension SidebarView {
+extension SidebarViewComponents {
     /// Proofs (`debug.update_surfaces`): opens the staged card's highlights
     /// popover as a hover would; whether it shows.
     public func debugShowUpdateHighlights() -> [String: String] {

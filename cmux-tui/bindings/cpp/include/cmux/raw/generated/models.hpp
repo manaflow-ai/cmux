@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8";
+inline constexpr std::string_view kProtocolIrSha256 = "bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -60,6 +60,7 @@ struct ConversationReactionKind;
 struct ConversationSearchHit;
 struct ConversationSummary;
 struct ConversationTabRecord;
+struct ConversationTabSplit;
 struct ConversationTextRun;
 struct ConversationThreadResolution;
 struct ConversationThreadState;
@@ -104,10 +105,12 @@ struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
 struct MachineListeningTcpResult;
+struct MachinePlatform;
 struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
+enum class NameSource;
 struct NewRowResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
@@ -542,6 +545,8 @@ struct WsListenRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
+struct AgentInventoryChangedEvent;
+struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
@@ -734,6 +739,20 @@ struct AgentChangedEvent {
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
+};
+
+struct AgentInventoryChangedEvent {
+    std::string machine{};
+    std::uint64_t revision{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryChangedEvent&, const AgentInventoryChangedEvent&) = default;
+};
+
+struct AgentInventoryWatchEndedEvent {
+    std::string machine{};
+    std::string reason{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryWatchEndedEvent&, const AgentInventoryWatchEndedEvent&) = default;
 };
 
 enum class AgentPresenceActivity {
@@ -2322,6 +2341,13 @@ struct ConversationSnapshotResult {
     friend bool operator==(const ConversationSnapshotResult&, const ConversationSnapshotResult&) = default;
 };
 
+struct ConversationTabSplit {
+    std::string direction{};
+    Field<std::string> pane_id{};
+    Field<std::string> split_id{};
+    friend bool operator==(const ConversationTabSplit&, const ConversationTabSplit&) = default;
+};
+
 struct ConversationThreadRequest {
     std::optional<std::uint64_t> after_seq{};
     std::string conversation{};
@@ -2666,6 +2692,7 @@ struct LayoutSplit {
     SplitDirection dir{};
     float ratio{};
     std::optional<Id> split{};
+    std::optional<std::string> split_id{};
     friend bool operator==(const LayoutSplit&, const LayoutSplit&) = default;
 };
 
@@ -3061,7 +3088,14 @@ struct IdMapping {
 };
 
 struct IdentifyRequest {
+    std::optional<bool> machine_metadata{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
+};
+
+struct MachinePlatform {
+    std::string arch{};
+    std::string os{};
+    friend bool operator==(const MachinePlatform&, const MachinePlatform&) = default;
 };
 
 struct IdentifyResult {
@@ -3073,7 +3107,10 @@ struct IdentifyResult {
     Field<std::string> ghostty_commit{};
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
+    std::optional<std::vector<std::string>> machine_capabilities{};
+    std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
+    std::optional<MachinePlatform> machine_platform{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
@@ -3174,7 +3211,12 @@ struct KittyImageAlias {
 };
 
 struct LayoutChangedEvent {
+    std::optional<Id> active_pane{};
+    std::optional<Layout> layout{};
     Id screen{};
+    std::optional<std::string> transaction{};
+    std::optional<Id> workspace{};
+    Field<Id> zoomed_pane{};
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 
@@ -3716,6 +3758,11 @@ struct MoveWorkspaceToGroupRequest {
     friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
 };
 
+enum class NameSource {
+    user,
+    auto_,
+};
+
 struct NewBrowserTabRequest {
     Field<std::uint16_t> cols{};
     Field<Id> pane{};
@@ -3735,6 +3782,7 @@ struct NewConversationTabRequest {
     Field<Id> pane{};
     Field<std::string> route{};
     Field<std::uint16_t> rows{};
+    Field<ConversationTabSplit> split{};
     Field<std::string> transaction{};
     Field<Id> workspace{};
     friend bool operator==(const NewConversationTabRequest&, const NewConversationTabRequest&) = default;
@@ -4254,11 +4302,14 @@ struct RenameSurfaceRequest {
 
 struct RenameWorkspaceRequest {
     Field<std::string> expected_generation{};
+    Field<std::string> expected_name_revision{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     std::string name{};
     Field<std::string> origin{};
+    std::optional<bool> release{};
+    Field<NameSource> source{};
     Field<Id> workspace{};
     friend bool operator==(const RenameWorkspaceRequest&, const RenameWorkspaceRequest&) = default;
 };
@@ -4769,6 +4820,7 @@ struct SetColumnDockRequest {
     Field<std::string> mode{};
     Id pane{};
     Field<bool> permanent{};
+    Field<bool> pinned{};
     Field<std::string> role{};
     Field<std::uint64_t> transaction{};
     friend bool operator==(const SetColumnDockRequest&, const SetColumnDockRequest&) = default;
@@ -5048,6 +5100,7 @@ struct SplitRequest {
     Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> split_id{};
     Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
@@ -5414,6 +5467,8 @@ struct Workspace {
     Id id{};
     std::optional<std::string> key{};
     std::string name{};
+    std::optional<std::string> name_revision{};
+    std::optional<NameSource> name_source{};
     std::vector<Screen> screens{};
     std::optional<std::string> short_id{};
     friend bool operator==(const Workspace&, const Workspace&) = default;
@@ -6008,6 +6063,12 @@ struct Codec<ConversationTabRecord> {
 };
 
 template <>
+struct Codec<ConversationTabSplit> {
+    static Result<Json> encode(const ConversationTabSplit& value);
+    static Result<ConversationTabSplit> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationTextRun> {
     static Result<Json> encode(const ConversationTextRun& value);
     static Result<ConversationTextRun> decode(const Json& value);
@@ -6272,6 +6333,12 @@ struct Codec<MachineListeningTcpResult> {
 };
 
 template <>
+struct Codec<MachinePlatform> {
+    static Result<Json> encode(const MachinePlatform& value);
+    static Result<MachinePlatform> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsage> {
     static Result<Json> encode(const MachineUsage& value);
     static Result<MachineUsage> decode(const Json& value);
@@ -6293,6 +6360,12 @@ template <>
 struct Codec<MoveTerminalResult> {
     static Result<Json> encode(const MoveTerminalResult& value);
     static Result<MoveTerminalResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<NameSource> {
+    static Result<Json> encode(const NameSource& value);
+    static Result<NameSource> decode(const Json& value);
 };
 
 template <>
@@ -8897,6 +8970,18 @@ template <>
 struct Codec<AgentChangedEvent> {
     static Result<Json> encode(const AgentChangedEvent& value);
     static Result<AgentChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryChangedEvent> {
+    static Result<Json> encode(const AgentInventoryChangedEvent& value);
+    static Result<AgentInventoryChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchEndedEvent> {
+    static Result<Json> encode(const AgentInventoryWatchEndedEvent& value);
+    static Result<AgentInventoryWatchEndedEvent> decode(const Json& value);
 };
 
 template <>

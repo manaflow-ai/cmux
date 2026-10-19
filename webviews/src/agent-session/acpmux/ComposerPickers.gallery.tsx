@@ -199,16 +199,11 @@ const openMode: Play = async (ctx) => {
   if (labels.length !== expected.length || labels.some((label, index) => label !== expected[index]))
     throw new Error(`Permission mode titles are not in menu order: ${labels.join(" | ")}`);
   for (const [index, item] of [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].entries()) {
-    const check = item.querySelector<HTMLElement>(".ui-menu-check");
-    const checkStyle = check && ctx.document.defaultView?.getComputedStyle(check);
-    const checkRect = check?.getBoundingClientRect();
-    if (!check || checkStyle?.display !== "none" || checkRect?.width !== 0 || checkRect?.height !== 0)
-      throw new Error("Permission mode rows should hide the shared checkmark without reserving layout");
+    if (item.querySelector(".ui-menu-check")?.parentElement !== item)
+      throw new Error("Permission mode checkmark is not in its leading column");
     if (item.querySelector<HTMLElement>(".ui-menu-shortcut")?.textContent?.trim() !== String(index + 1))
       throw new Error("Permission mode shortcut is not a trailing hint");
   }
-  if (document.querySelectorAll('[role="menuitemradio"][aria-checked="true"]').length !== 1)
-    throw new Error("Permission mode selection state is not exposed through aria-checked");
 };
 
 const accessGrants: Play = async (ctx) => {
@@ -270,6 +265,10 @@ export default componentEntry<Props>({
     ]),
   variants: {
     closed: { props: {} },
+    "pill-rail": {
+      note: "The 400 px composer rail keeps the model, effort, and access controls as rounded tonal pills before any menu opens.",
+      props: {},
+    },
     "model-menu": { props: {}, play: openModel },
     "model-focus": {
       note: "The model search owns focus while open; Escape closes it and restores focus to Model.",

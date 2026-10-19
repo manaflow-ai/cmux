@@ -5,10 +5,9 @@ import Testing
 /// POLISH (no flash): a window dialog and its scrim appeared in one frame, so the whole window
 /// darkened at once. Both fade in with the fade-in token, which Reduce Motion keeps.
 @MainActor @Suite(.serialized) struct DialogFadeTests {
-    /// The close fades need a display: in a window with no screen a change applies at once
-    /// (`Motion.canAnimate`), so these tests run only where one exists.
-    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
-
+    /// The close fades need an awake display with animations enabled: in a window with no screen
+    /// or with motion off a change applies at once (`Motion.canAnimate`), so these tests run only
+    /// where the fade can be observed.
     @Test func aDialogAndItsScrimFadeInInsteadOfAppearingInOneFrame() throws {
         // Synchronous from here to the reset: the override is process-wide.
         Motion.reduceMotionOverride = true
@@ -32,7 +31,7 @@ import Testing
 
     /// Batch 2 (cx-2grmt): the close was still one frame. The dialog and its scrim stay where they
     /// were while they fade out, and the window takes input at once.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() }) func aClosedDialogAndItsScrimFadeOutThenGo() async throws {
+    @Test(.enabled("needs an awake display and animations on, or the dialog snaps anyway") { await GUIAnimationTestSupport.animatesHere() }) func aClosedDialogAndItsScrimFadeOutThenGo() async throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
         // On screen, as a dialog's window is: a change in a window with no screen applies at once.
@@ -52,7 +51,7 @@ import Testing
         #expect(dialog.superview != nil, "the dialog vanished in one frame")
         #expect(scrim.superview != nil, "the scrim vanished in one frame")
 
-        try await Task.sleep(for: .milliseconds(600))
+        #expect(await GUIAnimationTestSupport.settle { host.fadingOut == 0 }, "the fade out never ended")
         #expect(dialog.superview == nil)
         #expect(scrim.superview == nil)
         #expect(dialog.alphaValue == 1, "a dialog shown again starts whole")
@@ -60,7 +59,7 @@ import Testing
 
     /// Review of #19938: a tab's dialog follows its tab to another window (the old window's host
     /// lets it go, the new one shows it). The old host's fade must not take it out of the new window.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() }) func aDialogMovedToAnotherWindowMidFadeStaysThere() async throws {
+    @Test(.enabled("needs an awake display and animations on, or the dialog snaps anyway") { await GUIAnimationTestSupport.animatesHere() }) func aDialogMovedToAnotherWindowMidFadeStaysThere() async throws {
         let first = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
                              backing: .buffered, defer: false)
         let second = NSWindow(contentRect: NSRect(x: 650, y: 400, width: 400, height: 300), styleMask: [.titled],
@@ -74,14 +73,15 @@ import Testing
         let moved = WindowOverlayHost.host(for: second).present(dialog, options: options)
         defer { moved.dismiss() }
 
-        try await Task.sleep(for: .milliseconds(600))
+        let old = WindowOverlayHost.host(for: first)
+        #expect(await GUIAnimationTestSupport.settle { old.fadingOut == 0 }, "the old window's fade never ended")
         #expect(dialog.window === WindowOverlayHost.host(for: second).panel, "the old window's fade took the dialog")
         #expect(dialog.alphaValue == 1)
     }
 
     /// Review of #19938: a closing dialog keeps no keyboard focus while it fades, so a Return in
     /// the fade cannot press its button again.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() }) func aClosingDialogGivesUpTheKeyboard() throws {
+    @Test(.enabled("needs an awake display and animations on, or the dialog snaps anyway") { await GUIAnimationTestSupport.animatesHere() }) func aClosingDialogGivesUpTheKeyboard() throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.orderFrontRegardless()

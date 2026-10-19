@@ -904,8 +904,9 @@ export class DaemonHomeClient implements PageClient {
         return {
           chief: await this.people.setChiefAvatar(
             str(params, "chief", 64),
-            str(params, "mediaType", 32),
-            str(params, "data", 1_500_000),
+            params.clear === true
+              ? null
+              : { mediaType: str(params, "mediaType", 32), data: str(params, "data", 1_500_000) },
             this.key(params, options),
           ),
         };

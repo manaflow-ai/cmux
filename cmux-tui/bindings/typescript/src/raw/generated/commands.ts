@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8. */
+/* cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb. */
 
 
 import type * as T from "./types.js";
@@ -1258,6 +1258,7 @@ export type HomeInboxResult = {
 /** Protocol v5; authority: control. */
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
+  "machine_metadata"?: boolean;
 }
 
 /** Protocol v6; authority: control. */
@@ -1650,6 +1651,8 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "pane"?: (T.Id) | null;
   "route"?: (string) | null;
   "rows"?: (number) | null;
+  /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab and carries transaction. */
+  "split"?: (T.ConversationTabSplit) | null;
   /** Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result. */
   "transaction"?: (string) | null;
   "workspace"?: (T.Id) | null;
@@ -2024,11 +2027,17 @@ export type RenameSurfaceResult = T.EmptyResult;
 export interface RenameWorkspaceRequest extends CmuxRequestBase {
   cmd: "rename-workspace";
   "expected_generation"?: (string) | null;
+  /** The workspace name_revision the caller read; a rename since then fails. */
+  "expected_name_revision"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name": string;
   "origin"?: (string) | null;
+  /** With source auto, hand the current name back to the automatic namer; name must equal the current name and no expected_name_revision is needed. */
+  "release"?: boolean;
+  /** Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision. */
+  "source"?: (T.NameSource) | null;
   "workspace"?: (T.Id) | null;
 }
 export type RenameWorkspaceResult = T.WorkspaceMutationResult;
@@ -2232,6 +2241,7 @@ export interface SetColumnDockRequest extends CmuxRequestBase {
   "mode"?: (string) | null;
   "pane": T.Id;
   "permanent"?: (boolean) | null;
+  "pinned"?: (boolean) | null;
   "role"?: (string) | null;
   "transaction"?: (bigint) | null;
 }
@@ -2468,6 +2478,7 @@ export interface SplitRequest extends CmuxRequestBase {
   "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "split_id"?: (string) | null;
   "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "url"?: (string) | null;

@@ -116,7 +116,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
     }
 
     private func applyRatios(_ node: WorkspaceBlueprint.Node, _ layout: LayoutNode) async throws {
-        guard case .split(_, let ratio, let a, let b) = node, case .split(let id, _, let current, let builtA, let builtB) = layout else { return }
+        guard case .split(_, let ratio, let a, let b) = node, case .split(let id, _, _, let current, let builtA, let builtB) = layout else { return }
         if let id, abs(current - ratio) > 0.001 { try await connection.setSplitRatio(id, ratio: ratio) }
         try await applyRatios(a, builtA)
         try await applyRatios(b, builtB)

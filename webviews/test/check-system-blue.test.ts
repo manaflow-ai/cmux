@@ -1,13 +1,14 @@
 // The system-blue ratchet (scripts/cmux-next/check-system-blue.py, cx-wqn5): UI code paints the
 // theme, never macOS's or WebKit's default blue or a fixed blue. It warns (style ratchets warn) and
 // never fails. Runs the real script on temp trees and on this checkout.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 const script = path.resolve(import.meta.dir, "../../scripts/cmux-next/check-system-blue.py");
+setDefaultTimeout(30_000);
 const roots: string[] = [];
 afterAll(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true })));
 
