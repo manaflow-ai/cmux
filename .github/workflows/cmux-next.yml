@@ -1129,6 +1129,7 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
           python3 tests/test_cmux_next_tree_notify.py
+          python3 tests/test_idea_ledger.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh

@@ -338,6 +338,44 @@ impl Workspaces for AppWorkspaces {
     }
 }
 
+/// The sidebar group every subagent workspace goes into (Lawrence
+/// 2026-10-18: "use groups more aggressively so that you can organize and
+/// the user feels less overwhelmed"). A fixed id makes the create
+/// idempotent: the daemon answers the stored group for the same id and name.
+pub const AGENTS_GROUP_ID: &str = "chief-agents";
+/// The name the group is made with; the user may rename it.
+pub const AGENTS_GROUP_NAME: &str = "Chief agents";
+/// The daemon capability of workspace groups.
+const GROUPS: &str = "workspace-groups-v1";
+
+/// Puts `workspace` in the Chief agents group, making the group first. A
+/// create refused because the user renamed the group still moves the
+/// workspace into it; only a failed move is an error.
+fn group_workspace(
+    client: &mut cmux::raw::Client,
+    workspace: u64,
+    key: &str,
+) -> Result<(), String> {
+    use cmux::raw::{CreateWorkspaceGroupRequest, MoveWorkspaceToGroupRequest, Optional};
+    let _ = client.create_workspace_group(CreateWorkspaceGroupRequest {
+        collapsed: None,
+        color: Optional::Missing,
+        group: Optional::Value(AGENTS_GROUP_ID.to_owned()),
+        index: Optional::Missing,
+        name: AGENTS_GROUP_NAME.to_owned(),
+    });
+    client
+        .move_workspace_to_group(MoveWorkspaceToGroupRequest {
+            workspace: Optional::Value(workspace),
+            group: Optional::Value(AGENTS_GROUP_ID.to_owned()),
+            mutation_id: Optional::Value(format!("optchat-subagent-group-{key}")),
+            origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+            ..Default::default()
+        })
+        .map(|_| ())
+        .map_err(|e| format!("move-workspace-to-group: {e}"))
+}
+
 /// A host without a cmux app (an always-on brain on a server): each
 /// subagent's workspace is made in this host's OWN session daemon. The
 /// subagent runs on this machine, so its workspace belongs to this machine's
@@ -373,12 +411,13 @@ impl Workspaces for DaemonWorkspaces {
         const TABS: &str = "agent-session-tabs-v1";
         let mut client = self.client()?;
         // Refused before any write: a workspace without its chat tab helps no one.
-        let supported = client.identify_server().map(|info| {
-            info.capabilities
-                .unwrap_or_default()
-                .iter()
-                .any(|c| c == TABS)
-        });
+        let capabilities = client
+            .identify_server()
+            .map(|info| info.capabilities.unwrap_or_default());
+        let groups = capabilities
+            .as_ref()
+            .is_ok_and(|caps| caps.iter().any(|c| c == GROUPS));
+        let supported = capabilities.map(|caps| caps.iter().any(|c| c == TABS));
         match supported {
             Ok(true) => {}
             Ok(false) => {
@@ -402,6 +441,12 @@ impl Workspaces for DaemonWorkspaces {
                 })
                 .map_err(|e| format!("create-workspace: {e}"))?
                 .workspace;
+            if groups {
+                // Best effort: a sidebar group never fails the subagent's start.
+                if let Err(e) = group_workspace(&mut client, workspace.clone(), &key) {
+                    eprintln!("optchat: subagent workspace {key} stays ungrouped: {e}");
+                }
+            }
             let placement = client
                 .create_terminal(CreateTerminalRequest {
                     workspace: Optional::Value(workspace),
