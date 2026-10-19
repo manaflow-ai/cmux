@@ -63,7 +63,7 @@ afterAll(() => {
 
 const noop = () => {};
 
-async function render(calls: unknown[][]) {
+async function render(calls: unknown[][], history: { url: string }[] = []) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { omnibarContext } = await import("../src/agent-session/acpmux/omnibar");
@@ -76,7 +76,7 @@ async function render(calls: unknown[][]) {
       { id: "docs", kind: "browser", title: "Reddit docs", detail: "docs.example.com", workspace: "notes" },
     ],
     workspaces: [{ id: "ws-reddit", name: "reddit-scraper", detail: "~/src/reddit-scraper" }],
-    history: [{ url: "about:blank" }],
+    history: [{ url: "about:blank" }, ...history],
   });
   await act(async () =>
     root!.render(
@@ -127,6 +127,69 @@ test('typing "reddit" offers reddit.com first, highlighted, and Return opens it 
 
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   expect(calls).toEqual([["open", "https://reddit.com"]]);
+});
+
+test("Right accepts the inline URL completion without opening it", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddi");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(field.value).toBe("reddit.com");
+  expect(calls).toEqual([]);
+});
+
+test("End accepts the inline URL completion and Tab only advances a keyboard-highlighted row", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddit");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
+  expect(field.value).toBe("reddit.com");
+
+  // A fresh query has multiple rows; once Down highlights one, Tab moves the highlight and never submits.
+  await type("why is the reddit scraper slow");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  const before = rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+  await act(async () => field.dispatchEvent(tab));
+  expect(tab.defaultPrevented).toBe(true);
+  const after = rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  expect(after).toBe((before + 1) % rows().length);
+  expect(calls).toEqual([]);
+});
+
+test("Tab with suggestions showing but no keyboard-highlighted row moves focus on (to Send)", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("why is the reddit scraper slow");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  expect(rows().length).toBeGreaterThan(0);
+  const before = rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+  await act(async () => field.dispatchEvent(tab));
+  // Not prevented: the browser's own focus traversal takes the key.
+  expect(tab.defaultPrevented).toBe(false);
+  expect(rows().findIndex((row) => row.getAttribute("aria-selected") === "true")).toBe(before);
+  expect(calls).toEqual([]);
+});
+
+// A visited page completes inline like Chrome's omnibox: Right fills the field and opens nothing.
+test("Right inline-accepts a visited-page (history) row without opening it", async () => {
+  const calls: unknown[][] = [];
+  await render(calls, [{ url: "https://zulip.example.com/" }]);
+  const field = await type("zuli");
+  expect(rows()[0]?.getAttribute("data-type")).toBe("history");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(field.value).toBe("zulip.example.com");
+  expect(calls).toEqual([]);
 });
 
 test("the rows float in a popover over the page, not in the page's flow", async () => {

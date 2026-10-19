@@ -2679,6 +2679,17 @@ export class AcpmuxDirectClient {
     });
     return Array.isArray(reply?.harnesses) ? reply.harnesses : [];
   }
+  /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
+  /// Account menu. Each route says whether it `serves` the session's harness family.
+  async routes(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/route/list", { sessionId });
+  }
+  /// Binds chat `sessionId` to route `routeId` (null: back to its default) through
+  /// `_acpmux/chat/route.set`. acpmux restarts the harness on it and resumes the same agent
+  /// session, now when idle, else once the running turn ends.
+  async setChatRoute(sessionId: string, routeId: string | null): Promise<unknown> {
+    return this.request("_acpmux/chat/route.set", { sessionId, routeId, when: "after-turn" });
+  }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
