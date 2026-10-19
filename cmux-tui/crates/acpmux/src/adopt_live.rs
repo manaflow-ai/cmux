@@ -157,15 +157,19 @@ fn codex_holder(home: &Path, id: &str) -> Option<LiveUse> {
     let coordination = std::fs::File::open(dir.join(".coordination.lock")).ok();
     if let Some(file) = &coordination {
         // A writer holds it only while it opens its thread lock; wait briefly, never forever.
-        for _ in 0..50 {
-            // SAFETY: flock on an open descriptor this function owns.
-            if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-                break;
+        // Still held after that: a writer is taking the thread lock now, so the chat is busy.
+        let taken = (0..50).any(|attempt| {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            // SAFETY: flock on an open descriptor this function owns.
+            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
+        });
+        if !taken {
+            return Some(LiveUse::WriterLock);
         }
     }
-    // SAFETY: as above.
+    // SAFETY: flock on the thread lock descriptor this function opened.
     let held = unsafe { libc::flock(thread.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0
         && std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK);
     // Closing both descriptors (end of scope) releases what was taken.

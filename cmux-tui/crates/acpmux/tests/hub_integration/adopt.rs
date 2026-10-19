@@ -367,6 +367,12 @@ async fn adopt_opens_a_finished_claude_chat_directly() {
     assert!(refused.contains("open in another process"), "{refused}");
     assert!(refused.contains(&other.id().to_string()), "{refused}");
     assert!(hub.sessions().is_empty());
+    // The same pid with an entry older than the process: a pid reused by a later process (macOS
+    // reads the start time; elsewhere the pid decides alone).
+    if cfg!(target_os = "macos") {
+        register(other.id(), now_ms() - 3_600_000);
+        assert_eq!(acpmux::adopt_live::holder("claude", &chat, &config_dir), None);
+    }
     let _ = std::fs::remove_file(sessions.join(format!("{}.json", other.id())));
 
     // The `claude` that ran it crashed: its entry stays, its pid is gone.
