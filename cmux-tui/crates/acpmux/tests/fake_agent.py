@@ -221,7 +221,11 @@ def run_gh_pr_create(rid, sid):
         ("view-1", "gh pr view 9", {"command": "gh pr view 9 --json url"},
          '{"url":"https://github.com/manaflow-ai/cmux/pull/9"}'),
         ("pr-3", "gh pr create --fill", {"command": "gh pr create --fill"},
-         "a pull request for branch \"b\" already exists:\nhttps://github.com/manaflow-ai/cmux/pull/7"),
+         "https://github.com/manaflow-ai/cmux/pull/7"),
+        # gh exits 1 when the branch has a pull request already, printing its URL: not opened now.
+        ("pr-5", "gh pr create --fill", {"command": "gh pr create --fill"},
+         "a pull request for branch \"c\" into branch \"main\" already exists:\nhttps://github.com/manaflow-ai/cmux/pull/12",
+         "failed"),
         # Mentions gh pr create but runs grep: not counted.
         ("grep-1", "grep -rn 'gh pr create' notes", {"command": "grep -rn 'gh pr create' notes"},
          "https://github.com/manaflow-ai/cmux/pull/10"),
@@ -229,10 +233,10 @@ def run_gh_pr_create(rid, sid):
         ("pr-4", "gh pr create --fill && gh pr view 11", {"command": "gh pr create --fill && gh pr view 11 --json url -q .url"},
          "https://github.com/manaflow-ai/cmux/pull/7\nhttps://github.com/manaflow-ai/cmux/pull/11"),
     ]
-    for tid, title, raw, out in calls:
+    for tid, title, raw, out, *status in calls:
         update(sid, {"sessionUpdate": "tool_call", "toolCallId": tid, "title": title, "kind": "execute",
                      "status": "in_progress", "rawInput": raw})
-        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": tid, "status": "completed",
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": tid, "status": (status or ["completed"])[0],
                      "content": [{"type": "content", "content": {"type": "text", "text": out}}]})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "opened"}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

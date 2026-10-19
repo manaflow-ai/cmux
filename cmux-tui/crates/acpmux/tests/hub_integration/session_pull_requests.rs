@@ -14,7 +14,8 @@ async fn pull_requests_lists_each_url_gh_pr_create_printed_once() {
     c.request(method::SESSION_PROMPT, prompt(&id, "gh-pr-create", None)).await.unwrap();
 
     // `gh pr view` printed pull/9: viewed, not opened. pr-3 printed pull/7 again. A grep that
-    // mentions gh pr create (pull/10) and `gh pr create && gh pr view` (pull/11) do not count.
+    // mentions gh pr create (pull/10), `gh pr create && gh pr view` (pull/11) and a failed
+    // create that named the branch's existing pull request (pull/12) do not count.
     let opened = json!([
         "https://github.com/manaflow-ai/cmux/pull/7",
         "https://github.com/manaflow-ai/cmux-tui/pull/8",
