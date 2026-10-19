@@ -1966,8 +1966,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "Test targets: $SWIFT_TARGETS"
-          filter=()
-          [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
+          # TRIAGE ONLY (swift reds): just the suites under triage, nothing else in parallel.
+          filter=(--filter 'SwitchToColdTabTypeAheadTests|TabCloseWidthChangeTests|GhosttyColorSchemeQueryTests|TooltipSurfaceTests|SidebarRowHoverGapTests|RapidWorkspaceCreateTests|SidebarSpacePagingTests')
           ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests
 
       # Cloud bring-back round trips launch two daemons and mutate shared
@@ -1984,18 +1984,8 @@ jobs:
           set -euo pipefail
           status=0
           for test in \
-            CloudBringBackTests.aCLIBringBackEndsWithTheChatInALocalTabAndTheMachineTabClosed \
             CloudBringBackTests.aRevokeThatFailsIsTriedAgainUntilItIsDone \
-            CloudBringBackTests.aFileAskFromAMovedChatShowsACardAndOnlyThePersonsClickAnswersIt \
-            CloudBringBackTests.aSecretAskTakesWhatThePersonTypesOnStdinOnlyAndNoFileHoldsIt \
-            CloudBringBackTests.aFileDroppedInAMovedChatGoesToItsMachineFromThisMacsPastesFolderOnly \
-            CloudBringBackTests.aSyncConflictKeepsTheMachineTabAndShowsTheConflict \
-            CloudBringBackTests.anOutdatedMachineIsNamedAndTheChatStaysOnIt \
-            CloudBringBackTests.updateMachineUpdatesAnOutdatedMachineThenBringsTheChatBack \
-            CloudBringBackTests.aGuardRefusalKeepsTheMachineTabWithAClearMessage \
-            CloudBringBackTests.aGuardRefusalOffersAskFirstThenBringsTheChatBack \
-            CloudBringBackTests.aCommittedBringBackWhoseTabFailedStillOpensItAfterARelaunch \
-            CloudBringBackTests.aSyncPullThatThrowsKeepsTheBringBackRetryable; do
+            CloudBringBackTests.aCommittedBringBackWhoseTabFailedStillOpensItAfterARelaunch; do
             echo "Running isolated CloudBringBack case: $test"
             if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$test"; then
               :

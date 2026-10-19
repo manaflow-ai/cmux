@@ -46,6 +46,15 @@ struct SwitchToColdTabTypeAheadTests {
         }
     }
 
+
+    /// TRIAGE ONLY: who has the keyboard and whether the hold would let keys go.
+    private static func diag(_ label: String, _ controller: WindowController, _ window: NSWindow, _ pane: PaneController, _ tab: String) {
+        let responder = window.firstResponder
+        let entry = controller.services.cache.terminals[tab]
+        let mine = (responder as? NSView).map { view in entry.map { view === $0.session.surfaceView || view.isDescendant(of: $0.session.view) } ?? false } ?? false
+        print("DIAG \(label): responder=\(responder.map { String(describing: type(of: $0)) } ?? "nil") isTabsSurface=\(mine) hidden=\((responder as? NSView)?.isHiddenOrHasHiddenAncestor ?? false) current=\(pane.currentTabKey ?? "nil") tab=\(tab) selected=\(pane.stripModel.selectedID?.rawValue ?? "nil") focus=\(controller.focus.state.resolved) takesKeys=\(CreationInputCoordinator.responderTakesKeys(controller, window: window)) hasContent=\(controller.services.cache.hasContent(for: tab))")
+    }
+
     @Test func keysTypedRightAfterSelectingAColdTabReachItsTerminal() async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-coldtab-\(UUID().uuidString.prefix(8))")
@@ -104,6 +113,7 @@ struct SwitchToColdTabTypeAheadTests {
         await Self.wait(within: .seconds(15)) { Self.inputBytes(after: seq).values.reduce(0, +) >= 5 }
         try? await Task.sleep(for: .milliseconds(300))  // a stray key would show by now
         let after = Self.inputBytes(after: seq)
+        Self.diag("part1", controller, window, pane, cold)
 
         #expect(pane.currentTabKey == cold)
         #expect(after[shown] == nil, "keys typed after Ctrl-\(number) went to the tab it left: \(after)")
@@ -121,6 +131,8 @@ struct SwitchToColdTabTypeAheadTests {
         await Self.wait(within: .seconds(15)) { Self.inputBytes(after: seq).values.reduce(0, +) >= 3 }
         try? await Task.sleep(for: .milliseconds(300))
         let chorded = Self.inputBytes(after: seq)
+        Self.diag("part2", controller, window, pane, second)
+        print("DIAG part2 bytes=\(chorded) part1 bytes=\(after)")
         #expect(pane.currentTabKey == second)
         #expect(chorded.count == 1 && chorded.values.first == 3, "typing then ^C onto a cold tab reached \(chorded) of 3 bytes")
     }
