@@ -582,6 +582,9 @@ extension TerminalController {
         ) else {
             return .surfaceNotFound(surfaceId)
         }
+        if let message = browserReplTabRefusalMessage(surfaceId) {
+            return .denied(surfaceId, message: message)
+        }
         if let remote = controlRemoteTmuxSurfaceClose(
             workspace: ws,
             tabManager: tabManager,

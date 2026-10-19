@@ -114,6 +114,16 @@
       "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan}-Rechenkontingent aufgebraucht",
+      "computeMessage": "Dein {plan}-Plan hat seine {included} Rechenstunden für diesen Abrechnungszeitraum aufgebraucht. Eine Rechenstunde entspricht 1 vCPU mit 2 GB Arbeitsspeicher für eine Stunde. Deine Maschinen können ab dem {resetDate} wieder starten.",
+      "computeAction": "Pausierte Maschinen behalten ihre Dateien. Wende dich an den Support, wenn du vor dem {resetDate} mehr Rechenleistung brauchst.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan}-Speicherkontingent aufgebraucht",
+      "storageMessage": "Dein {plan}-Plan umfasst insgesamt {included} GB Speicher für alle gespeicherten Maschinen. Gespeicherte Maschinen belegen {used} GB, und diese Anfrage benötigt {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Nicht genug Cloud-VM-Ressourcen",
       "memoryMessage": "Ihre VMs nutzen bereits {used} von {pool} GB RAM. Diese VM benötigt {requested} GB.",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Setze deinen Plan fort, um ihn zu ändern.",
           "granted": "Von cmux gewährt. Es gibt nichts zu ändern.",
+          "grantedNoCancel": "Von cmux gewährt, daher gibt es nichts zu kündigen.",
+          "paymentFailed": "Aktualisiere deine Zahlungsmethode, bevor du den Plan wechselst.",
+          "foundersLifetime": "Founder's Edition enthält Pro auf Lebenszeit.",
           "adminOnly": "Nur Team-Admins können den Plan ändern."
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "Zu {plan} wechseln?",
         "upgradeBody": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Monat.",
+        "upgradeBodyYearly": "{plan} beginnt sofort. Du zahlst heute {amount} für den Rest dieses Abrechnungszeitraums. Ab dem {date} zahlst du {price} pro Jahr.",
         "downgradeBody": "{plan} beginnt sofort. Der ungenutzte Teil deines aktuellen Plans, {credit}, wird deinen nächsten Rechnungen gutgeschrieben. Deine nächste Rechnung am {date} beträgt {amount}.",
         "confirm": "Zu {plan} wechseln",
         "keep": "Aktuellen Plan behalten",
@@ -568,6 +582,8 @@
         "title": "{plan} kündigen?",
         "body": "Du behältst {plan} bis zum {date}. Danach verlierst du:",
         "bodyNoDate": "Du behältst {plan} bis zum Ende dieses Abrechnungszeitraums. Danach verlierst du:",
+        "foundersBody": "Dein {plan}-Abonnement endet am {date}. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
+        "foundersBodyNoDate": "Dein {plan}-Abonnement endet zum Ende dieses Abrechnungszeitraums. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
         "reasonLabel": "Warum kündigst du? (optional)",
         "otherPlaceholder": "Erzähl uns mehr (optional)",
         "confirm": "Plan kündigen",
@@ -2242,6 +2258,7 @@
           "currentLineHighlight": "Hebt die Zeile mit dem Textcursor farbig hervor, solange nichts ausgewählt ist.",
           "tabWidth": "Wie viele Spalten ein Tabstopp umfasst. Die Einrückungshilfslinien verwenden denselben Abstand."
         },
+        "actions": "Wiederverwendbare Aktionen für die Befehlspalette, Tastenkürzel, Schaltflächen der Tableiste und das Menü der Plus-Schaltfläche. Unterstützt builtin, command, agent, workspaceCommand, workspace, setting, settingPreset und text. Textaktionen fügen Text im fokussierten Terminal ein und erhalten Zeilenumbrüche; submit: true drückt Enter. Einstellungsaktionen erfordern eine globale Konfiguration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

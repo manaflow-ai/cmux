@@ -70,6 +70,14 @@
     {
       "path": "/api/cron/apple-notifications",
       "schedule": "17,47 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-usage-analytics",
+      "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/runs",
+      "schedule": "* * * * *"
     }
   ]
 }

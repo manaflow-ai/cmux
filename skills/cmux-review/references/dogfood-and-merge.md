@@ -39,6 +39,16 @@ pushed fix. Merging app, runtime or UI changes requires the user's explicit
 approval after dogfood, or a direct merge directive that names the merge action
 (`merge`, `merge it`, `auto-merge`; `finish`, `lgtm` and `ship it` are not).
 
+**Scope verification to the feature.** Local-backend builds can dogfood desktop
+state, menus, and release-note rendering without a shared Cloud backend. Require
+live authentication or transport only when the assertion depends on it. Record
+the exact head, tag/artifact and exercised states; a build or an empty capture is
+not an interaction result. Agents may perform this verification. Honor existing
+user authorization and explicit delegations without inventing a second manual
+signoff; report an agent verdict as such, never as human approval. A coordinator
+acknowledgement is required only for an actual shared landing resource or freeze,
+not simply for a reviewed fork branch.
+
 **Re-dogfood.** If a fix changes runtime behavior mid-dogfood, rebuild the tag
 and re-notify, since the earlier verdict covers only the build the user tested.
 After a merge directive, re-dogfood (rebuild the tag and re-notify with the

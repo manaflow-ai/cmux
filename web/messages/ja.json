@@ -281,6 +281,16 @@
       "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan} のコンピュート枠を使い切りました",
+      "computeMessage": "{plan} プランは、この請求期間の {included} コンピュート時間を使い切りました。1 コンピュート時間は、1 vCPU と 2 GB メモリを 1 時間実行した量です。マシンは {resetDate} から再び起動できます。",
+      "computeAction": "一時停止中のマシンのファイルは保持されます。{resetDate} より前に追加のコンピュートが必要な場合はサポートにお問い合わせください。",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} のディスク枠を使い切りました",
+      "storageMessage": "{plan} プランでは、保存済みのすべてのマシンで合計 {included} GB のディスクを使用できます。保存済みマシンは {used} GB を使用しており、このリクエストには {requested} GB が必要です。",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Cloud VM のリソースが足りません",
       "memoryMessage": "VM はすでに {pool} GB の RAM のうち {used} GB を使っています。この VM には {requested} GB が必要です。",
@@ -713,7 +723,7 @@
       "banners": {
         "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
         "resumed": "プランは再開され、通常どおり更新されます。",
-        "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
+        "nosub": "このアカウントに有効なWebサブスクリプションは見つかりませんでした。",
         "error": "請求を更新できませんでした。しばらくしてから再試行してください。",
         "pastDue": "最新のお支払いに失敗しました。プランを継続するには支払い方法を更新してください。",
         "team_admin_required": "このチームの請求を管理できるのはチーム管理者のみです。",
@@ -827,6 +837,9 @@
         "unavailable": {
           "cancelScheduled": "変更するには、まずプランを再開してください。",
           "granted": "cmux から付与されたプランです。変更できる項目はありません。",
+          "grantedNoCancel": "cmux から付与されたプランのため、解約するものはありません。",
+          "paymentFailed": "プランを変更する前に、お支払い方法を更新してください。",
+          "foundersLifetime": "Founder's Edition には Pro が永久に含まれます。",
           "adminOnly": "プランを変更できるのはチーム管理者だけです。"
         },
         "names": {
@@ -869,6 +882,7 @@
       "change": {
         "title": "{plan} に切り替えますか？",
         "upgradeBody": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは月額 {price} です。",
+        "upgradeBodyYearly": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは年額 {price} です。",
         "downgradeBody": "{plan} はすぐに開始します。現在のプランの未使用分 {credit} は、次回以降の請求に充当されます。{date} の次回請求額は {amount} です。",
         "confirm": "{plan} に切り替え",
         "keep": "現在のプランを続ける",
@@ -881,6 +895,8 @@
         "title": "{plan} を解約しますか？",
         "body": "{date} まで {plan} を利用できます。その後、次の機能が使えなくなります:",
         "bodyNoDate": "今回の請求期間の終了まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "foundersBody": "{plan} のサブスクリプションは {date} に終了します。その後は Founder's Edition に永久に含まれる Pro をご利用いただけます。",
+        "foundersBodyNoDate": "{plan} のサブスクリプションはこの請求期間の終了時に終了します。その後は Founder's Edition に永久に含まれる Pro をご利用いただけます。",
         "reasonLabel": "解約の理由（任意）",
         "otherPlaceholder": "詳しく教えてください（任意）",
         "confirm": "プランを解約",
@@ -3429,6 +3445,7 @@
           "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
           "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
         },
+        "actions": "コマンドパレット、ショートカット、タブバーのボタン、プラスボタンのメニューで使う再利用可能なアクションです。builtin、command、agent、workspaceCommand、workspace、setting、settingPreset、text に対応しています。text アクションはフォーカス中のターミナルに改行を保持して貼り付け、submit: true を指定すると Enter を押します。設定アクションにはグローバル設定が必要です。",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -4810,11 +4827,11 @@
       "metaDescription": "cmux Cloudマシンの分離方法、認証情報の保管場所、送信ネットワークポリシーでマシンの接続先を制限する方法を説明します。",
       "intro": "このページでは、cmux Cloudマシンのセキュリティモデルを説明します。マシンを分離するもの、認証情報の保管場所、ネットワーク上でマシンが接続できる宛先を制限する方法です。",
       "isolationTitle": "分離",
-      "isolationVm": "各マシンは、専用のLinuxカーネルを持つFreestyleのmicroVMです。共有カーネル上のコンテナではありません。",
+      "isolationVm": "各マシンは、専用のLinuxカーネルを持つmicroVMです。共有カーネル上のコンテナではありません。",
       "isolationRoot": "マシン内では、設計上パスワードなしでrootになれます。セキュリティ境界はVMであり、VM内のユーザーアカウントではありません。エージェントを含め、マシン内のすべてのプロセスはrootと同じ操作ができます。",
       "isolationHome": "マシンを再作成すると、ホームディレクトリがリセットされます。既知の状態に戻すには、マシンを再作成してください。",
       "credentialsTitle": "認証情報",
-      "credentialsModel": "CodeRouterのモデル認証情報がマシンに入ることはありません。リクエストがマシンを出た後に、FreestyleのTLSエッジが認証情報を追加します。プロバイダーはこれらのヘッダー値を書き込み専用で保存するため、cmuxが設定した後は誰も読み出せません。",
+      "credentialsModel": "CodeRouterのモデル認証情報がマシンに入ることはありません。リクエストがマシンを出た後に、cmux CloudのTLSエッジが認証情報を追加します。プロバイダーはこれらのヘッダー値を書き込み専用で保存するため、cmuxが設定した後は誰も読み出せません。",
       "credentialsAttach": "クライアントがマシン上でセッションを開くためのアタッチ認証情報は短時間だけ有効で、1台のマシンと1つのセッションに限定されます。",
       "previewsTitle": "ポートプレビュー",
       "previewsDesc": "ポートプレビューは、あなたのプライベートWireGuardネットワークを通ります。公開URLはありません。プライベートネットワーク上のデバイスだけが開けます。",

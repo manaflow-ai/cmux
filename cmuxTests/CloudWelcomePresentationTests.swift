@@ -1,4 +1,5 @@
 import AppKit
+import CmuxProductAnalytics
 import CmuxSettings
 import Testing
 
@@ -29,13 +30,13 @@ struct CloudWelcomePresentationTests {
         )
         defer { controller.dismiss() }
 
-        controller.present(over: nil, onEnabled: { resumed += 1 })
+        controller.present(over: nil, trigger: .newCloudMachine, onEnabled: { resumed += 1 })
         #expect(isVisible)
         #expect(defaults.string(forKey: CloudWelcomeWindowController.seenVersionDefaultsKey) == "0.65.1")
         #expect(steps.isEmpty)
         #expect(resumed == 0)
         controller.dismiss()
-        controller.present(over: nil, onEnabled: { resumed += 1 })
+        controller.present(over: nil, trigger: .newCloudMachine, onEnabled: { resumed += 1 })
         #expect(!isVisible)
         #expect(steps == [.enable])
         #expect(resumed == 1)
@@ -64,7 +65,7 @@ struct CloudWelcomePresentationTests {
         )
         defer { controller.dismiss() }
         for _ in 0..<2 {
-            controller.present(over: nil, onEnabled: { resumed += 1 })
+            controller.present(over: nil, trigger: .newCloudMachine, onEnabled: { resumed += 1 })
             #expect(!isVisible)
         }
         #expect(steps == [step, step])
@@ -89,11 +90,11 @@ struct CloudWelcomePresentationTests {
         controller.presentForDebug(over: nil)
         #expect(isVisible)
         controller.dismiss()
-        controller.present(over: nil)
+        controller.present(over: nil, trigger: .newCloudMachine)
         #expect(!isVisible)
         controller.resetForDebug()
         #expect(!CloudWelcomeWindowController.hasSeenWelcome(in: defaults))
-        controller.present(over: nil)
+        controller.present(over: nil, trigger: .newCloudMachine)
         #expect(isVisible)
         #expect(CloudWelcomeWindowController.hasSeenWelcome(in: defaults))
         controller.resetForDebug()
