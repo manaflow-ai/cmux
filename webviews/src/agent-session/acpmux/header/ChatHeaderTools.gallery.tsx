@@ -101,7 +101,7 @@ const groupedControls: Play = async (ctx) => {
   const separator = ctx.find({ selector: ".acpmux-header-separator" });
   if (actions.getBoundingClientRect().width <= 0 || meta.getBoundingClientRect().width <= 0)
     throw new Error("header control groups must remain visible");
-  // An <hr> is a separator by its implicit role; an explicit role="separator" is a redundant-role lint.
+  // An <hr> is a separator by its implicit role, so the play checks the element, not an attribute.
   if (separator.tagName !== "HR") throw new Error("header group separator is not semantic");
   if (separator.getAttribute("aria-orientation") !== "vertical")
     throw new Error("header separator orientation changed");
