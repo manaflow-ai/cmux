@@ -637,6 +637,18 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(events.read_text().splitlines(), ["merge"])
             self.assertIn("note: cmux-next fast tier: red on the base too", result.stderr)
 
+    def test_a_red_lint_check_the_base_shares_still_refuses_on_the_fast_gate(self):
+        """Like the full gate: lint fails only on the change itself, so a base red is no excuse."""
+        rollup = list(self.FAST_GREEN) + [(self.LINT, "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     event_log=events, excuse=(0, f"{self.LINT}: red on the base too"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn(self.LINT, result.stderr)
+            self.assertNotIn("red on the base too", result.stderr)
+
     def test_full_keeps_the_wait_for_every_check(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
