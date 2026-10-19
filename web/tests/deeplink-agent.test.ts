@@ -37,7 +37,7 @@ describe("agent deeplink fallback", () => {
     ).toEqual([]);
   });
 
-  test.each([
+  test.each<[string, Record<string, string>]>([
     ["harness", { harness: "Claude", session: "s" }],
     ["harness", { harness: "a".repeat(33), session: "s" }],
     ["harness", { harness: "claude/x", session: "s" }],
