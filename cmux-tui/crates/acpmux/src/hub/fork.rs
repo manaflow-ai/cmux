@@ -175,6 +175,9 @@ impl Hub {
             totals: None,
             pull_requests: vec![],
             harness_cost_usd: if cut.is_none() { parent_meta.harness_cost_usd } else { None },
+            // A fork is the person's new chat, never a sub-session of the parent's parent.
+            subsession: None,
+            subsession_limits: Default::default(),
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {

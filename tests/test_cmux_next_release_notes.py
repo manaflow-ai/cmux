@@ -51,10 +51,19 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(notes["highlights"], [])
         self.assertEqual(notes["changes"], ["sidebar: tidy"])
 
+    def test_a_long_summary_line_without_a_clause_stays_out_of_the_digest(self):
+        since = self.head
+        git(self.repo, "commit", "-q", "--allow-empty", "-m",
+            "feat: Keep favorite destinations within easy reach across all of your open windows")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        notes = self.build(since, build="5")
+        self.assertEqual(notes["whatsNew"]["entries"] if notes.get("whatsNew") else [], [])
+
     def test_summary_only_build_generates_a_valid_digest(self):
         since = self.head
         for subject in (
-            "feat: Keep favorite destinations within easy reach across all of your open windows",
+            # A digest title keeps a whole line of at most 60 characters (#21873).
+            "feat: Keep favorite destinations within easy reach",
             "fix: Preserve the selected tab when another window closes",
             "perf: Make switching between open windows smoother",
         ):

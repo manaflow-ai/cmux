@@ -25,13 +25,16 @@ extension WorkspaceRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
+        // The x, the more button and the chevron show or hide only in
+        // `layout()`, so every hover change asks for one; AppKit coalesces it
+        // into the next pass. Skipping it during a scroll or a list apply left
+        // a row's controls up after hover cleared (no pointer event follows).
+        needsLayout = true
         // During a scroll the pointer is stationary while rows pass under it.
-        // Rebuilding the full row layout and starting a marquee for every
-        // crossing turns realization into a main-thread hitch. The next real
-        // pointer event reconciles the row's controls after scrolling settles.
+        // A synchronous layout and a marquee for every crossing turn
+        // realization into a main-thread hitch, so those wait for real hover.
         let list = superview as? SidebarListView
         let suppressEffects = list?.hoverFollowsScroll == true || list?.suppressHoverEffects == true
-        if !suppressEffects { needsLayout = true }
         guard isHovered, !renaming, !isPlaceholderRow, !suppressEffects else {
             title.stopMarquee()
             return
