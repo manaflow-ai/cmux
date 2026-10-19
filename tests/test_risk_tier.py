@@ -164,6 +164,10 @@ class RecentRevertTests(unittest.TestCase):
             old = {"filename": "App.tsx", "status": "modified", "patch": "@@ -1,4 +1,3 @@\n-one\n two"}
             self.assertEqual(risk.recent_reverts([old], repo, base, own=21194, now=now), {})
             self.assertEqual(risk.recent_reverts([stale], repo, base, own=21369, now=now), {})
+            # Out of time: nothing is checked, and the file is reported as unread rather than clear.
+            unread = []
+            self.assertEqual(risk.recent_reverts([stale], repo, base, own=21194, now=now, unread=unread, budget=0), {})
+            self.assertEqual(unread, ["App.tsx"])
 
 
 class RenderTests(unittest.TestCase):

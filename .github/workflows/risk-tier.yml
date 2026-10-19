@@ -44,12 +44,21 @@ jobs:
       # pull request merged recently (a stale base). Full blobs: a blobless fetch made blame fetch
       # them one by one, past its timeout on busy files (about 55 s and 278 MB this way, then
       # blame takes well under a second).
+      # A fresh repository, not the sparse checkout above: actions/checkout makes a sparse
+      # checkout a blobless partial clone, and a later fetch into it stays blobless.
       - name: Fetch the base's recent history
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          REPO: ${{ github.repository }}
         run: |
-          git fetch --no-tags --shallow-since="9 days ago" origin \
-            "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" || echo "::warning::recent-deletion check skipped: base history unavailable"
+          history="$RUNNER_TEMP/base-history"
+          git init -q "$history"
+          if git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+              "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+            echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
+          else
+            echo "::warning::recent-revert check skipped: base history unavailable"
+          fi
       - name: Grade the pull request
         id: grade
         env:
@@ -57,7 +66,7 @@ jobs:
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" --repo-dir . \
+          python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
             --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       - name: Set the risk label
         env:

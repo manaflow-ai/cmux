@@ -253,6 +253,9 @@ def gh_items(endpoint: str) -> list[dict]:
 # and #21199, all merged in the two days before it).
 RECENT_DAYS = 7
 MAX_BLAME_FILES = 60
+# The whole revert check stops after this many seconds and lists what it didn't get to, so the
+# job always finishes inside its own timeout (a timed-out check is red and can't be waived).
+REVERT_BUDGET_SECONDS = 120
 PR_SUFFIX = re.compile(r"\(#(\d+)\)\s*$")
 
 
@@ -301,7 +304,8 @@ def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = f
 
 
 def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
-                   now: float | None = None, unread: list[str] | None = None) -> dict[int, list[str]]:
+                   now: float | None = None, unread: list[str] | None = None,
+                   budget: float = REVERT_BUDGET_SECONDS) -> dict[int, list[str]]:
     """Pull requests (other than `own`) merged in the last RECENT_DAYS whose change to a file this
     pull request takes back, from `git blame` of the base: {pr number: [paths]}. The base's history
     only needs to reach RECENT_DAYS back; older lines blame to the shallow boundary and are skipped.
@@ -311,8 +315,14 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     cutoff = (now or time.time()) - RECENT_DAYS * 86400
     found: dict[int, list[str]] = {}
     added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
+    deadline = time.monotonic() + budget
     for entry in entries[:MAX_BLAME_FILES]:
         path = entry.get("previous_filename") or entry["filename"]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if unread is not None and deleted_ranges(entry.get("patch") or ""):
+                unread.append(path)
+            continue
         patch = entry.get("patch") or ""
         ranges = deleted_ranges(patch)
         # Generated files follow their sources; a revert shows on the source.
@@ -322,7 +332,8 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
         for start, end in ranges[:50]:
             args += ["-L", f"{start},{end}"]
         try:
-            out = subprocess.run([*args, base_sha, "--", path], capture_output=True, text=True, timeout=30)
+            out = subprocess.run([*args, base_sha, "--", path], capture_output=True, text=True,
+                                 timeout=min(30, max(1, remaining)))
         except subprocess.TimeoutExpired:
             out = None
         if out is None or out.returncode != 0:
@@ -348,7 +359,8 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                 continue
             try:
                 shown = subprocess.run(["git", "-C", repo_dir, "show", "--format=", sha, "--", path],
-                                       capture_output=True, text=True, timeout=30).stdout
+                                       capture_output=True, text=True,
+                                       timeout=max(1, deadline - time.monotonic())).stdout
             except subprocess.TimeoutExpired:
                 if unread is not None:
                     unread.append(path)
@@ -371,7 +383,13 @@ def pr_mode(args: argparse.Namespace) -> int:
     grade = classify(files, lines)
     if args.repo_dir:
         unread: list[str] = []
-        undone = recent_reverts(entries, args.repo_dir, pr["base"]["sha"], int(args.number), unread=unread)
+        # The patches' line numbers are relative to the merge base, not the base branch's tip.
+        try:
+            merge_base = gh_json("api", f"repos/{args.repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
+                                 "--jq", "{sha: .merge_base_commit.sha}")["sha"]
+        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
+            merge_base = pr["base"]["sha"]
+        undone = recent_reverts(entries, args.repo_dir, merge_base, int(args.number), unread=unread)
         for number, paths in sorted(undone.items()):
             grade.reasons.setdefault(f"high: takes back #{number}'s change from the last {RECENT_DAYS} days "
                                      "(a stale base? say so if it's on purpose)", []).extend(paths)

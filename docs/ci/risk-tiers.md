@@ -58,7 +58,9 @@ The check re-runs when the description is edited, so adding the lines turns it g
 
 Until 2026-10-21 00:00 UTC the check is advisory: a missing item is a warning and the check
 passes, so pull requests already in flight have time to add their evidence. After that it blocks
-merge.
+merge. A check that passed while advisory stays green until the pull request's next push,
+description edit or label change re-grades it; at the cutover, re-run `risk evidence` on open pull
+requests, for example with `gh run rerun`.
 
 ## Ship risky behavior dark
 
