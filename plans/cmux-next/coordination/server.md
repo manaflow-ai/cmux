@@ -2,6 +2,7 @@
 
 ## Active streams
 - 2026-10-18 (server install replacement): Reconciliation replaces a paired server session when its install changes, including behind an unchanged Unix, SSH or overlay route. Final close retires captured connect/wake callbacks. Temporary policy disconnect and authenticated offline reconnect remain reversible. No new action, RPC, relay permission or network configuration.
+- 2026-10-18 general server enrollment: Rust `server pair` and read-only `server pair status` use the human-approved backend flow. Server and Chief share signing, check words and pushed-result validation in `cmux-server-core::pairing::enrollment`. Private state keeps a stable key and resumes one pending code; public status distinguishes pending, indeterminate and paired. Enrollment is separate from serving health and execution grants. [Contract](../../../cmux-tui/crates/cmux-server/docs/pairing.md).
 - lane 10 next (after relaygate round 3): bundle the server LaunchAgent plist (`Contents/Library/LaunchAgents/com.cmux.server.plist`) and its `cmux host run` binary into the app bundle, and the privileged helper (`bundle-server-helper.sh`) Team-ID signed, in the build scripts; precondition for the live check in plans/cmux-next/server-live-check.md. ConversationGate connection follows with the pairing-record and recheck drivers (entry serves DenyAllGate until then: UNVERIFIED in production).
 
 ## Landed
