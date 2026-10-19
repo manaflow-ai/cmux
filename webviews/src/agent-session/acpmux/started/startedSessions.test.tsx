@@ -14,6 +14,7 @@ import {
   offerChildren,
   sessionMentions,
   splitMentions,
+  startedCardsShown,
   startedPullRequests,
   startedSessions,
   withStartedSessions,
@@ -241,5 +242,31 @@ describe("StartedSessionCard", () => {
       <StartedSessionCard child={{ sessionId: "s", title: "Done task", state: "idle" }} onOpen={() => undefined} />,
     );
     expect(html).not.toContain("acpmux-started-line");
+  });
+
+  test("a failed chat says so, with its failing pull request; one waiting on the person says it needs input", () => {
+    const failed = renderToStaticMarkup(
+      <StartedSessionCard
+        child={{ sessionId: "s", title: "Broken task", state: "failed", pullRequests: { count: 1, tone: "failing" } }}
+        onOpen={() => undefined}
+      />,
+    );
+    expect(failed).toContain('data-state="failed"');
+    expect(failed).toContain(">Failed<");
+    expect(failed).toContain('data-tone="failing"');
+    expect(failed).toContain("1 Failing");
+    const waiting = renderToStaticMarkup(
+      <StartedSessionCard
+        child={{ sessionId: "s", title: "Asking task", state: "waiting" }}
+        onOpen={() => undefined}
+      />,
+    );
+    expect(waiting).toContain('data-state="waiting"');
+    expect(waiting).toContain(">Needs input<");
+    expect(waiting).not.toContain("acpmux-started-prs");
+  });
+
+  test("started session cards are off by default", () => {
+    expect(startedCardsShown()).toBe(false);
   });
 });

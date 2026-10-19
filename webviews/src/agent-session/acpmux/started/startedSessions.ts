@@ -1,7 +1,7 @@
 // The chats this chat's agent started (acpmux `spawnedBy`, set when its agent runs `acpmux new`),
 // as cards in its transcript (StartedSessionCard.tsx), the way Claude Code desktop draws a
 // session it started: the child's title, what it does now, its pull requests, a status dot and a
-// chevron that opens it. Behind the `started-session-cards` experiment, on by default.
+// chevron that opens it. Behind the `started-session-cards` experiment, off by default.
 //
 // A card sits where its chat was started: before the first row made after the child's
 // `createdAt` (rows and `createdAt` both come from the daemon's clock), and never after the end
