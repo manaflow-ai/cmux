@@ -29,6 +29,11 @@
 .acpmux-summary-card__fold:focus-visible,.acpmux-summary-card__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-card__body{flex:1 1 auto;min-height:0;overflow:auto;padding:0 6px 6px;border-top:.5px solid var(--agent-border)}
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__body{padding:0 0 6px;border-top:0}
+/* Rows past a capped card's edge: that edge fades (scrollEdges.ts), the only sign under hidden scrollbars. */
+.acpmux-summary-card__body[data-fade-top],.acpmux-summary-card__body[data-fade-bottom]{--acpmux-summary-fade-top:0px;--acpmux-summary-fade-bottom:0px;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-summary-fade-top),#000 calc(100% - var(--acpmux-summary-fade-bottom)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-summary-fade-top),#000 calc(100% - var(--acpmux-summary-fade-bottom)),transparent)}
+.acpmux-summary-card__body[data-fade-top]{--acpmux-summary-fade-top:14px}.acpmux-summary-card__body[data-fade-bottom]{--acpmux-summary-fade-bottom:22px}
+@media (prefers-reduced-transparency:reduce){.acpmux-summary-card__body[data-fade-top],.acpmux-summary-card__body[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}}
+:root[data-reduce-transparency] .acpmux-summary-card__body[data-fade-top],:root[data-reduce-transparency] .acpmux-summary-card__body[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}
 .acpmux-summary-agent[aria-current=true]{background:var(--acpmux-menu-hover)}
 .acpmux-summary-agent__name{font-weight:inherit}
 .acpmux-summary-agent__kind{margin-left:6px;color:var(--agent-muted);font-size:var(--text-detail)}
@@ -108,6 +113,9 @@
 :root[data-status-indicators=static] .acpmux-lineage__icon[data-state=waiting]::after{content:"!";color:var(--acpmux-warning,var(--agent-warning))}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
 .acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
+/* Reduce Transparency: the gallery is a solid page, unblurred, as the other blurred acpmux surfaces are. The page background is clear in a translucent window, so the solid color is the opaque surface token the composer uses. */
+@media (prefers-reduced-transparency:reduce){.acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}}
+:root[data-reduce-transparency] .acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}
 .acpmux-chat-gallery-filters{display:flex;gap:2px;margin-right:8px}
 .acpmux-chat-gallery-filter{height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-chat-gallery-filter:hover{background:var(--agent-control-hover)}
