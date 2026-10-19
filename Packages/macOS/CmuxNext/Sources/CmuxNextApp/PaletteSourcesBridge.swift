@@ -8,6 +8,8 @@ import CmuxNextSettings
 enum PaletteSourcesBridge {
     static func make(services: AppServices) -> PaletteSources {
         var sources = makeBase(services: services)
+        // A typed path or web address: Open it, or Ask Agent about it (Cmd-P and Cmd-Shift-P).
+        sources.goTo = AppPaletteGoToSource(services: services)
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
         sources.scopePrefixes = { [weak services] in
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]

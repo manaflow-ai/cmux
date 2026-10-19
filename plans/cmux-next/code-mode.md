@@ -2,6 +2,28 @@
 
 Status: first slice implemented on 2026-10-02 in PR branch `feat-cmux-next-code-mode`, based on `feat-cmux-next`. This proposal is for the coordinator and links to [automations-runtime.md](automations-runtime.md), which should consume the same generated SDK and permission catalog.
 
+## Agent chats: code mode is the default MCP surface (2026-10-19)
+
+`cmux mcp serve`, the server acpmux gives every local agent chat, lists two
+tools: `cmux_docs` and `cmux_exec` (`cmux-tui/crates/cmux-tui/src/cli/mcp/code_mode.rs`).
+Before this, it listed one tool per operation: 638 tools, 459 of them app
+actions, 834 KB of schemas (about 208k tokens in every agent turn). A one-word
+ACP Claude turn read 318k cached tokens, compared with 42k for interactive Claude.
+
+- `cmux_docs` searches the full tool list (daemon operations, browser host,
+  agents, keybindings, render, window list, app actions) and returns schemas.
+- `cmux_exec` runs a JavaScript async function body in an embedded QuickJS
+  engine inside the `cmux` binary. Its only host functions are `cmux.call`,
+  `cmux.docs` and `console`; there is no file system, network, process or
+  timer access. Every call goes through the same `Server::call` path as a
+  direct tool call, so a script has exactly the rights of the tools.
+  Limits: 64 MiB heap, 2,000 calls, 30 s of computation without a call.
+- `cmux mcp serve --all-tools` keeps the old one-tool-per-operation list.
+- The bun runner (`cmux run`, `cmux-code-mode-mcp`) below stays for TypeScript
+  scripts against the typed SDK; agent chats no longer need bun.
+- Not yet in code mode: the separate `cmux-cua`, `cmux-secrets`,
+  `cmux-sessions` and offer MCP servers that acpmux also injects.
+
 ## Inventory
 
 The cmux-tui resource catalog at `cmux-tui/spec/resource-operations-v2.json` is the current wire source of truth. On `feat-cmux-next` it contains 127 operations and is 330,205 bytes, about 73,715 cl100k tokens when serialized as checked in. `sdk-schema.json` is 392,755 bytes, about 108,734 cl100k tokens. The catalog is already used by protocol validation, CLI coverage tests, and generated bindings. The checked-in TypeScript SDK is typed, has a Node transport and a browser transport, and has no runtime dependency in its browser-safe entry.

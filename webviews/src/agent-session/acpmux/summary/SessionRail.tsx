@@ -1,11 +1,11 @@
 // The session side rail (cx-ncc.101, Debug Settings `agent.sessionRail`; Claude Code desktop's right rail): a column
 // beside the chat with where the session runs and its folders (Environment), how much of the
-// context window it used (Context) and the files it created or changed (Outputs), each opening its
-// diff. A header button shows and hides it. It reads only acpmux's common snapshot (the summary and
-// the rows), never one harness's fields. With the flag off the pane has neither the button nor the
-// rail. Connectors wait for acpmux to report each session's MCP servers (cx-ncc.105); Remote Control
-// is Claude-only and stays out (Leo, 2026-10-14).
-import { useMemo, useState, type ReactNode } from "react";
+// context window it used (Context), the MCP servers its harness reported (Connectors, cx-ncc.105)
+// and the files it created or changed (Outputs), each opening its diff. A header button shows and
+// hides it. It reads only acpmux's common snapshot (the summary and the rows), never one harness's
+// fields. With the flag off the pane has neither the button nor the rail. Remote Control is
+// Claude-only and stays out (Leo, 2026-10-14).
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
 import { Counts } from "../changes/Counts";
 import type { TurnFile } from "../diff";
@@ -18,14 +18,19 @@ import { homePath, projectLabel } from "../sessionList";
 import { sessionSummary } from "./sessionSummary";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
-type CardId = "environment" | "context" | "outputs";
+type CardId = "environment" | "context" | "connectors" | "outputs";
 type Cards = Record<CardId, boolean>;
 
 const ROW_ICON = rowIconSize(12);
-/// Environment and Outputs start open, Context folded to its share (as in Claude Code desktop).
-const DEFAULT_CARDS: Cards = { environment: true, context: false, outputs: true };
+/// Environment and Outputs start open, Context and Connectors folded to their counts (as in Claude
+/// Code desktop).
+const DEFAULT_CARDS: Cards = { environment: true, context: false, connectors: false, outputs: true };
 /// The last open or closed, a per-viewer convenience: each pane keeps its own in state.
 const OPEN_KEY = "cmux.agentPane.sessionRail.open";
+/// Where the rail stops sitting beside the chat and covers it (summary.css `.acpmux-rail` overlay).
+const OVERLAY_QUERY = "(max-width:560px)";
+/// How long after an output click a narrowing counts as that diff's split.
+const SPLIT_SETTLE_MS = 2000;
 
 function readOpen(): boolean {
   try {
@@ -63,7 +68,25 @@ export function useSessionRail({
   const shown = enabled && open;
   const rows = snapshot.rows;
   const outputs = useMemo(() => (shown ? sessionSummary(rows).outputs : []), [shown, rows]);
+  // An output's diff opens beside the chat. When that split leaves the pane too narrow for the
+  // rail beside the chat, the rail would cover the chat, so it closes for now (not remembered).
+  const openedOutputAt = useRef(0);
+  useEffect(() => {
+    if (!shown || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(OVERLAY_QUERY);
+    const narrowed = () => {
+      if (query.matches && Date.now() - openedOutputAt.current < SPLIT_SETTLE_MS) setOpen(false);
+    };
+    query.addEventListener("change", narrowed);
+    return () => query.removeEventListener("change", narrowed);
+  }, [shown]);
   if (!enabled) return {};
+  const openOutput = onOpenOutput
+    ? (path: string) => {
+        openedOutputAt.current = Date.now();
+        onOpenOutput(path);
+      }
+    : undefined;
   const toggle = () => {
     saveOpen(!open);
     setOpen(!open);
@@ -88,7 +111,7 @@ export function useSessionRail({
         outputs={outputs}
         cards={cards}
         onCard={(id, next) => setCards((current) => ({ ...current, [id]: next }))}
-        onOpenOutput={onOpenOutput}
+        onOpenOutput={openOutput}
       />
     ) : undefined,
   };
@@ -149,6 +172,22 @@ export function SessionRail({
           </p>
         )}
       </RailCard>
+      {summary?.mcpServers && summary.mcpServers.length > 0 && (
+        <RailCard
+          title={t("rail.connectors")}
+          open={state.connectors}
+          onOpenChange={fold("connectors")}
+          meta={
+            <span className="acpmux-rail-card__value">
+              {t("rail.connected", {
+                count: summary.mcpServers.filter((server) => server.status === "connected").length,
+              })}
+            </span>
+          }
+        >
+          <Connectors servers={summary.mcpServers} />
+        </RailCard>
+      )}
       <RailCard title={t("rail.outputs")} open={state.outputs} onOpenChange={fold("outputs")}>
         {outputs.length > 0 ? (
           <ul className="acpmux-rail-list">
@@ -259,6 +298,27 @@ function Environment({ summary, machineName }: { summary?: Summary; machineName?
           <span className="acpmux-rail-row__name">{summary.branch}</span>
         </li>
       )}
+    </ul>
+  );
+}
+
+/// The MCP servers the harness says it loaded (acpmux `mcpServers`), each with its state when it
+/// is not connected. Only harnesses that report them have the card (Claude Code today).
+function Connectors({ servers }: { servers: NonNullable<Summary["mcpServers"]> }) {
+  const t = useT();
+  return (
+    <ul className="acpmux-rail-list">
+      {servers.map((server) => (
+        <li key={server.name} className="acpmux-rail-row">
+          <Icon name="extension" size={ROW_ICON} row />
+          <span className="acpmux-rail-row__name">{server.name}</span>
+          {server.status !== "connected" && (
+            <span className={`acpmux-rail-row__state is-${server.status}`}>
+              {t(server.status === "failed" ? "rail.connectorFailed" : "rail.connectorPending")}
+            </span>
+          )}
+        </li>
+      ))}
     </ul>
   );
 }

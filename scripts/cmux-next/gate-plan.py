@@ -26,7 +26,9 @@ It runs nothing remote: it reads git, the target graph and the receipt store.
 Usage: scripts/cmux-next/gate-plan.py [--base REF] [--lane NAME] [--out FILE]
 Then:  $HQ_ROOT/.cmux-scratch/nx-worker/gate-run.sh --head $(git rev-parse HEAD) \\
          --out /tmp/gates/<lane>-<sha8>.json --steps FILE
-Commit first: the plan is for HEAD, and gate-run refuses a dirty tree.
+Commit first: the plan is for HEAD, and gate-run refuses a dirty tree. When it
+prints `first:` (a cmux-ci step needs the SHA on origin), run that side push
+before gate-run: a cmux-ci --ref step waits for a commit origin does not have.
 """
 
 from __future__ import annotations
@@ -129,13 +131,15 @@ def suite_filters(graph: dict, target: str, changed: list[str], every: bool = Fa
 
 
 def pushed(head: str) -> bool:
-    """HEAD is in the lane's upstream or in feat-cmux-next (local refs; no network)."""
-    refs = ["origin/feat-cmux-next"]
+    """HEAD is in the lane's upstream, its gate side branch or feat-cmux-next (local refs; no network)."""
+    refs = ["origin/feat-cmux-next", f"origin/cmux-next-gate-{head[:12]}"]
     upstream = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--abbrev-ref", "@{upstream}"],
                               capture_output=True, text=True).stdout.strip()
     if upstream:
         refs.append(upstream)
-    return any(subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", head, ref]).returncode == 0
+    # A ref that does not exist (no gate side branch yet) is not an error.
+    return any(subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", head, ref],
+                              stderr=subprocess.DEVNULL).returncode == 0
                for ref in refs)
 
 
@@ -238,7 +242,7 @@ def main(argv: list[str]) -> int:
 
     if rust_wide:
         steps.append(CMUX_CI + " " + shlex.join(["run", "--class", "isolated", "--script", "scripts/ci/cmux-tui-rust-check.sh",
-                                                 "--ref", head, "--key", f"{args.lane}-rust-{head[:12]}"]))
+                                                 "--ref", head, "--arg", "all", "--key", f"{args.lane}-rust-{head[:12]}"]))
         notes.append("#   Rust workspace file or spec changed: the whole-workspace check (bindings and SDK tests too)")
     else:
         left_out.append("full cmux-tui suite (verify-cmux-tui-hosted.sh --full, cmux-tui-rust-check.sh): no Cargo.toml,"
@@ -297,10 +301,13 @@ def main(argv: list[str]) -> int:
                                  "--", "./scripts/cmux-next/build-web-bundles.sh", "--force"]))
         notes.append("#   web bundles: a bundle input changed (safe-push needs this build in the receipt)")
 
+    side_push = None
     if any("--ref" in s for s in steps) and not pushed(head):
-        # A cmux-ci step checks out the SHA from origin: push it to a side branch first.
-        notes.append(f"SAFE_PUSH_NEW_BRANCH_BASE=feat-cmux-next {shlex.quote(str(nx_worker(hq, 'safe-push.sh')))}"
+        # A cmux-ci step checks out the SHA from origin: push it to a side branch first. A comment, so
+        # gate-run never runs it (as a plain line it would run after the parallel group, too late).
+        side_push = (f"SAFE_PUSH_NEW_BRANCH_BASE=feat-cmux-next {shlex.quote(str(nx_worker(hq, 'safe-push.sh')))}"
                      f" cmux-next-gate-{head[:12]}")
+        notes.append(f"#   push first: {side_push}")
     for test in sorted(p for p in changed if p.startswith("tests/") and Path(p).name.startswith("test_") and p.endswith(".py")
                        and (ROOT / p).is_file()):
         after.append(f"python3 {shlex.quote(test)}")
@@ -329,6 +336,8 @@ def main(argv: list[str]) -> int:
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
         print(f"wrote {args.out}: {len(steps)} parallel steps + {len(after)} after", file=sys.stderr)
+        if side_push:
+            print(f"first: {side_push}", file=sys.stderr)
         print(f"next: {nx_worker(hq, 'gate-run.sh')} --head {head} --out /tmp/gates/{args.lane}-{head[:8]}.json"
               f" --steps {args.out}", file=sys.stderr)
     else:

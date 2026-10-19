@@ -47,6 +47,7 @@
     "frontend-browser-activate-v1",
     "frontend-browser-history-v1",
     "frontend-browser-insert-after-v1",
+    "frontend-browser-tab-keys-v1",
     "frontend-browser-tab-profile-v1",
     "frontend-browser-tabs-v1",
     "history-v1",
