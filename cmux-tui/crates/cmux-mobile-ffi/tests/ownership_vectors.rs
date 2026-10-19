@@ -65,7 +65,10 @@ fn step(m: &OwnershipMirror, input: &Value) -> Vec<Value> {
                 Err(e) => panic!("issue: {e}"),
             }
         }
-        "receive" => m.receive(input["frame"].to_string()).expect("owner frame decodes").send,
+        "receive" => {
+            let at = input["now"].as_i64().unwrap_or(0);
+            m.receive(input["frame"].to_string(), at).expect("owner frame decodes").send
+        }
         "disconnect" => {
             m.disconnect();
             Vec::new()
@@ -128,7 +131,7 @@ fn the_binding_replays_every_trace_of_the_typescript_client() {
 #[test]
 fn bad_json_and_bad_origins_are_refused_not_panics() {
     let m = OwnershipMirror::new("c".into(), "{}".into()).expect("mirror");
-    assert!(matches!(m.receive("{".into()), Err(OwnershipMirrorError::Invalid { .. })));
+    assert!(matches!(m.receive("{".into(), 1), Err(OwnershipMirrorError::Invalid { .. })));
     assert!(matches!(
         m.issue("message.send".into(), "{}".into(), "robot".into(), 1),
         Err(OwnershipMirrorError::Invalid { .. })

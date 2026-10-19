@@ -18,9 +18,15 @@ fn writer() -> MessageWriter {
 }
 
 fn cloud_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
+    cloud_mux_with(|options| options)
+}
+
+fn cloud_mux_with(
+    adjust: impl FnOnce(ServiceOptions) -> ServiceOptions,
+) -> (Arc<Mux>, u64, Arc<FakeBackend>) {
     let mux = Mux::new_for_test("cloud-conversations", crate::SurfaceOptions::default());
     let backend = Arc::new(FakeBackend::default());
-    let options = ServiceOptions {
+    let options = adjust(ServiceOptions {
         linger: Duration::ZERO,
         backoff_min: Duration::from_millis(5),
         backoff_max: Duration::from_millis(20),
@@ -28,7 +34,7 @@ fn cloud_mux() -> (Arc<Mux>, u64, Arc<FakeBackend>) {
         max_concurrent_requests: 1,
         api_origins: vec!["https://api.cmux.test".into()],
         ..ServiceOptions::default()
-    };
+    });
     assert!(
         mux.install_cloud_conversations(CloudConversations::with_options(backend.clone(), options))
     );
@@ -709,4 +715,53 @@ fn a_snapshot_that_does_not_decode_is_asked_for_again_and_the_stream_recovers() 
     let changed = |seq| ("cloud-conversation-changed".to_string(), seq);
     let resynced = |seq| ("cloud-conversation-resynced".to_string(), seq);
     assert_eq!(stream_seqs(&seen), vec![resynced(2), changed(3), changed(4)], "{seen:#?}");
+}
+
+#[test]
+fn a_snapshot_that_never_decodes_is_asked_for_a_bounded_number_of_times_then_the_stream_reconnects()
+{
+    let (mux, client, backend) = cloud_mux_with(|options| ServiceOptions {
+        snapshot_backoff: crate::cloud_conversations::SnapshotBackoff {
+            first_ms: 5,
+            max_ms: 20,
+            attempts: 2,
+        },
+        ..options
+    });
+    sign_in(&mux, client);
+    let events = mux.subscribe();
+    let welcome = json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+        .to_string();
+    let requests = |wire: &crate::cloud_conversations::testing::ScriptedWire| {
+        wire.sent().iter().filter(|frame| frame.contains("snapshot.request")).count()
+    };
+    let first = backend.wire();
+    first.push_text(welcome.clone());
+    first.push_text(undecodable_snapshot());
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    // Each answer is unreadable too: one request per attempt, after its backoff.
+    for attempt in 1..=2 {
+        wait_until("the next snapshot request", || requests(&first) == attempt);
+        first.push_text(undecodable_snapshot());
+    }
+    // The last attempt failed: the socket is given up and a new one resumes.
+    let second = backend.wire();
+    second.push_text(welcome);
+    second.push_text(conversation_snapshot(2));
+    let mut seen = Vec::new();
+    wait_until("the snapshot on the new connection", || {
+        seen.extend(cloud_events(&events));
+        !stream_seqs(&seen).is_empty()
+    });
+    assert_eq!(requests(&first), 2, "bounded: {:?}", first.sent());
+    assert!(
+        second.sent().iter().any(|frame| frame.contains("\"subscribe\"")),
+        "{:?}",
+        second.sent()
+    );
+    assert_eq!(
+        stream_seqs(&seen),
+        vec![("cloud-conversation-resynced".to_string(), 2)],
+        "{seen:#?}"
+    );
 }

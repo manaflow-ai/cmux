@@ -7,11 +7,17 @@
 //! Kotlin hand each owner frame of the stream to [`OwnershipMirror::receive`]
 //! and send every returned frame. The app owns the socket and the clock
 //! (`now_ms`); the mirror does no I/O.
+//!
+//! A frame that does not decode is handled here, not in the app: an event
+//! asks for a snapshot, and a snapshot is asked for again after a backoff
+//! (`snapshot_retry_at_ms`; call [`OwnershipMirror::snapshot_retry_due`]
+//! then). After the last attempt `reconnect` is set: the app closes the
+//! socket and subscribes again on a new one ([`OwnershipMirror::resume`]).
 
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use cmux_mobile_core::wire::{ClientOut, Origin, OwnerFrame, OwnerUnreachable, StreamMirror};
+use cmux_mobile_core::wire::{ClientOut, Origin, OwnerUnreachable, SnapshotRetry, StreamMirror};
 use serde_json::Value;
 
 /// Why the mirror refused a call.
@@ -64,6 +70,10 @@ pub struct OwnershipMirrorView {
     pub connected: bool,
     pub awaiting_snapshot: bool,
     pub desyncs: u64,
+    /// Snapshots in a row that did not decode (0: the last one did).
+    pub snapshot_failures: u32,
+    /// When the next snapshot request is due (ms), after one that did not decode.
+    pub snapshot_retry_at_ms: Option<i64>,
 }
 
 /// What one owner frame did.
@@ -73,6 +83,10 @@ pub struct OwnershipStep {
     pub send: Vec<String>,
     /// Events and snapshots applied (0: the view did not move).
     pub applied: u32,
+    /// A snapshot did not decode: call `snapshot_retry_due` at this time (ms).
+    pub snapshot_retry_at_ms: Option<i64>,
+    /// Every snapshot attempt failed: close the socket and resume on a new one.
+    pub reconnect: bool,
 }
 
 /// A new intent: its key and the frame to send.
@@ -149,19 +163,37 @@ impl OwnershipMirror {
             connected: mirror.is_connected(),
             awaiting_snapshot: mirror.is_awaiting_snapshot(),
             desyncs: mirror.desyncs(),
+            snapshot_failures: mirror.snapshot_failures(),
+            snapshot_retry_at_ms: mirror.snapshot_retry_at(),
         }
     }
 
     /// One owner frame of this stream (route frames by `stream`: one mirror
-    /// per stream). A frame of another kind is ignored. `Invalid` means the
-    /// frame did not apply: for an event, call `resync` and send its frames.
-    pub fn receive(&self, frame_json: String) -> Result<OwnershipStep, OwnershipMirrorError> {
-        let frame = OwnerFrame::from_value(serde_json::from_str(&frame_json)?)?;
-        let received = self.lock().receive_applied(frame);
+    /// per stream). A frame of another kind is ignored; a known frame whose
+    /// fields do not decode is handled (see the module notes). `Invalid`
+    /// means the text is not JSON.
+    pub fn receive(
+        &self,
+        frame_json: String,
+        now_ms: i64,
+    ) -> Result<OwnershipStep, OwnershipMirrorError> {
+        let frame: Value = serde_json::from_str(&frame_json)?;
+        let received = self.lock().receive_value(frame, now_ms);
         Ok(OwnershipStep {
             send: frames(received.send),
             applied: u32::try_from(received.applied.len()).unwrap_or(u32::MAX),
+            snapshot_retry_at_ms: match received.snapshot_retry {
+                Some(SnapshotRetry::At(at)) => Some(at),
+                _ => None,
+            },
+            reconnect: received.snapshot_retry == Some(SnapshotRetry::Exhausted),
         })
+    }
+
+    /// The snapshot request of a snapshot that did not decode, once its
+    /// backoff ended (nothing before that, or after a new snapshot).
+    pub fn snapshot_retry_due(&self, now_ms: i64) -> Vec<String> {
+        frames(self.lock().snapshot_retry_due(now_ms))
     }
 
     /// Issues a typed intent. `origin` is the wire value (`user`, `cli`,

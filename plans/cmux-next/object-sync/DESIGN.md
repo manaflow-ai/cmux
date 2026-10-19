@@ -294,7 +294,9 @@ spec `sync-and-transport.md` section 3. This section lists only what this design
 
 Client: `hello`, `subscribe {stream, after_seq?}`, `unsubscribe`, `op {op, params,
 idempotency_key, origin, expected_revision?}`, `snapshot.request {pending[]}`, `rpc` (at-most-once
-runtime commands such as `terminal.input`), `presence.set`, `channel.open/credit/close`.
+runtime commands such as `terminal.input`), `presence.set`, `channel.open/credit/close`, and the
+ephemeral producer frames `typing {on}`, `run.publish {run, steps}`, `live.publish {frame}`
+(section 10.1).
 Owner: `welcome`, `snapshot {stream, seq, state, decided[], rows?}`, `event {stream, seq, tx, op,
 params, actor, origin, at, effects?}`, `result`, `reject`, `request-settled {stream, sequence,
 ok}`, `owner.status {stream, status, since, cached_seq?}`, `presence`, `rpc.result`.
@@ -313,6 +315,11 @@ Per stream: `confirmed {state, seq}`, loaded rows, `pending` intents (ordered), 
   then), so the UI never flickers back to pre-op state.
 - Snapshot: replace confirmed state and rows when `snap.seq >= confirmed.seq`, drop decided keys
   from `pending` and `expired`, then replay buffered events.
+- A snapshot that does not decode (or that the relay cannot use): stay awaiting, keep the buffered
+  events, and send `snapshot.request` again after a backoff (250 ms, doubling to 30 s, 6 attempts).
+  After the last attempt the connection is dropped and the next one resumes; the failure count
+  carries over until a snapshot decodes, so the transport's reconnect backoff paces later attempts.
+  An event that does not decode asks for a snapshot at once.
 - Reconnect: resend every pending intent with its original key, then request a snapshot. Intents
   older than 24 h expire and are shown, never resent (owners keep decided keys 7 days).
 - Visible state = confirmed + pending intents rendered from their params (a pending bubble, a
@@ -435,6 +442,59 @@ requests routed to it through `HostDO` (`rpc`, `channel.open`) and `HandDO` (`re
 - Hands: the Chief's tools call HandDO (cloud sandboxes, VMs) or the Mac's acpmux hand. With the Mac
   off, a Mac hand answers `offline` and the Chief can choose a cloud hand.
 
+### 10.1 The Mac mini Chief on `cmux.wire/1` (live runs, run steps, typing)
+
+Today a local Chief brain (optchat-chief on a Mac mini, through the daemon proxy) can commit
+messages to a cloud conversation, but it cannot show its work. `CloudPort`
+(`Native/OptChat/optchat-chief/src/cloud/port.rs`) answers `typing_unsupported` and
+`drafts_unsupported`, and inherits `runs_unsupported` (`run_append`) and `live_unsupported`
+(`live_publish`) from the `ConversationPort` defaults. The only producer of run changes and live
+frames in the cloud is the internal Worker RPC `ConversationDO.agentFrame(entity, agent, {typing} |
+{run, steps} | {live})` (`backend/apps/api/src/conversation-do.ts`), which only `ChiefBrainDO`
+can call. Result: on the phone the cloud Chief streams its reply and shows steps; the Mac mini
+Chief is silent until its message commits.
+
+Decision: the agent's needs are frames of `cmux.wire/1` on the conversation socket. There is no
+agent-only path: the frames are the same for every producer, and the owner's authorization rule
+decides who may send them.
+
+| Need | Frame from the producer (conversation socket) | What members receive | Kept |
+| --- | --- | --- | --- |
+| typing | `typing {on}` (exists today for every participant) | `conversation-typing {conversation, participant, on}` | never; gated by `typingGate` |
+| run record and steps of the running turn | `run.publish {run, steps[]}` (`conversation-runs-v1` shapes) | `conversation-run-changed {conversation, run, steps}` | the live buffer only (as today) |
+| live frames of the running turn | `live.publish {frame}` (`chief-live-v1`: `step.delta`, `run.activity`) | the frame (`t` = `type`), and the `run.live` snapshot on join, reconnect and `run.live.get` | the live buffer only |
+| the reply draft | no separate frame: the streaming reply text is the `step.delta` live frame | as above | never |
+
+Rules:
+
+1. Ephemeral. These frames are not ops: no idempotency key, no ledger, no `seq`, never in the
+   outbox or PlanetScale. A member that misses one asks for `run.live.get` or reads the run again.
+   The committed reply is still a `message.send` op under the agent principal.
+2. Admission is the owner's existing rule, applied to the socket principal: the principal is an
+   agent participant of the conversation that has not left (the check `agentFrame` does today),
+   with a per-agent rate limit like `typingGate`. A user principal sending `run.publish` or
+   `live.publish` gets `error auth.forbidden`.
+3. One implementation. `ConversationDO.onFrame` handles `typing`, `run.publish` and
+   `live.publish` with one function; `agentFrame` becomes the in-Worker caller of that same
+   function (ChiefBrainDO keeps its RPC as a transport, not as a second rule set).
+4. The daemon relays, it does not interpret. The daemon proxy already has a per-target outbox for
+   client frames on the conversation socket (`run.live.get`). It adds three commands for trusted
+   local clients, `cloud-conversation-typing`, `cloud-conversation-run-publish` and
+   `cloud-conversation-live-publish`, that put the frame in that outbox while the stream is live
+   (refused with `cloud_unavailable` otherwise, never queued), advertised as
+   `cloud-agent-frames-v1`. The socket's principal is the lease's (an agent lease on the Mac mini
+   Chief host), so the owner's rule 2 applies with no daemon-side policy.
+5. `CloudPort` implements `typing`, `run_append`, `live_publish` and `draft` (as a `step.delta`)
+   over those commands when the daemon advertises `cloud-agent-frames-v1`, and keeps the
+   `*_unsupported` answers otherwise.
+6. The spec frame list (section 6.1 here, `sync-and-transport.md` section 3) gains `run.publish`
+   and `live.publish` as client frames; `conversation-typing`, `conversation-run-changed` and the
+   live frames are owner frames.
+
+Done when: a Mac mini Chief turn shows typing, the streaming reply and run steps on the phone and
+on the Mac exactly as a cloud Chief turn does, with the same frames, and `CloudPort` answers no
+`*_unsupported` for these four needs against a backend that has the frames.
+
 ## 11. Mapping cnx onto this design
 
 | cnx piece | Verdict | Why |
@@ -532,6 +592,20 @@ Phase 1, slice 2 (built 2026-10-19):
   vector through the exported surface.
 - Next slice: the phone's Cloud Chief uses `OwnershipMirror` (phase 2, iOS lane) instead of its
   Swift stream code.
+
+Phase 1, slice 3 (2026-10-19):
+
+- A snapshot that does not decode no longer leaves a stream stuck. `StreamMirror::receive_value`
+  handles a known frame whose fields do not decode: an event resyncs, a snapshot is asked for again
+  after `SnapshotBackoff` (`snapshot_failed`, `snapshot_retry_at`, `snapshot_retry_due`), and after
+  the last attempt it reports `SnapshotRetry::Exhausted`. The daemon proxy waits for the retry time
+  in its receive timeout (no extra timer), drops the socket on exhaustion, and keeps its reconnect
+  backoff while snapshots keep failing. Before, an undecodable snapshot was dropped and the stream
+  waited for a snapshot that never came. Daemon tests
+  `a_snapshot_that_does_not_decode_is_asked_for_again_and_the_stream_recovers` (red before, green
+  after) and `a_snapshot_that_never_decodes_is_asked_for_a_bounded_number_of_times_then_the_stream_reconnects`.
+- `OwnershipMirror::receive` takes `now_ms` and handles the same cases itself; `OwnershipStep`
+  reports `snapshot_retry_at_ms` and `reconnect`, and `snapshot_retry_due` sends the request.
 
 Each phase deletes what it replaces in the same change (no twins). Each phase lands on
 `feat-cmux-next` in small slices as soon as its slice is green (Lawrence, 2026-10-18: "cut our
