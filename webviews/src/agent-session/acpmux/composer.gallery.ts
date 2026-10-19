@@ -944,6 +944,14 @@ export default agentPaneEntry({
       note: "Play: type @coord and press Return; the chat's title and id replace the @word, which an agent looks up with cmux.",
       snapshot: mentionChat(),
       native: { "file.search": { root: CWD, results: [] } },
+      checks: {
+        anchorMovePx: {
+          value: 24,
+          reason:
+            "A chat's title and full id wrap the prompt to a second line; the composer grows one line, as for typed text.",
+        },
+        layoutShiftMax: { value: 0.01, reason: "The same one-line growth of the prompt." },
+      },
       play: async (ctx) => {
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
