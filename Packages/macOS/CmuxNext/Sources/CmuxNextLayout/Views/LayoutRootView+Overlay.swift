@@ -65,7 +65,7 @@ extension LayoutRootView {
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
-                let rect = convert(host.bounds, from: host)
+                let rect = host.chromeFrame.map { convert($0, from: screen) } ?? convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
                 chrome.setExcluded(screen.ringCovers(of: host, docks: docks, above: above).map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
@@ -143,6 +143,19 @@ extension LayoutRootView {
             return (host.pane.rawValue, host.convert(host.bounds, to: nil), chrome.showsRing && !chrome.isHidden,
                     ring, content, Self.ringRectsMatch(ring, content))
         }
+    }
+
+    /// The first shown ring off its pane's content rect (``overlayRings`` filtered), converting only
+    /// the rings that show: the overlay layer reads it after every layout pass of the root.
+    public var laggingRing: (pane: String, ringInWindow: CGRect, contentInWindow: CGRect)? {
+        guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return nil }
+        for host in screen.displayedHosts where host.chrome.showsRing && !host.chrome.isHidden {
+            let chrome = host.chrome
+            let ring = convert(chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY), to: nil)
+            let content = host.convert(host.roundedRect, to: nil)
+            if !Self.ringRectsMatch(ring, content) { return (host.pane.rawValue, ring, content) }
+        }
+        return nil
     }
 
     /// Far below a device pixel (0.5 pt at 2x), far above conversion noise.

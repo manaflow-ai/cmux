@@ -10,11 +10,9 @@ import Testing
 struct DaemonCapabilityExportTests {
     private let capabilities = DaemonCapabilities.shared
 
-    /// Entries allowed in `unservedByBundledDaemon`. The list only shrinks: a
-    /// new feature lands with its daemon half and goes in `optional`.
-    /// workspace-name-source-v1 (2026-10-18): the app half landed first (#21445,
-    /// it falls back when the daemon lacks it); its daemon half is #20710.
-    private static let unservedCeiling: Set<String> = ["remote-terminal-tabs-v1", "detached-terminals-v1", "workspace-name-source-v1"]
+    /// Entries in `unservedByBundledDaemon` on 2026-10-02. The list only
+    /// shrinks: a new feature lands with its daemon half and goes in `optional`.
+    private static let unservedCeiling: Set<String> = ["remote-terminal-tabs-v1", "detached-terminals-v1"]
 
     /// Every capability string `DaemonCapabilities` names is in exactly one
     /// list, so the check cannot miss a capability the app references.

@@ -99,6 +99,15 @@ struct PaneSurfaceStatus {
                 "fit_grid": terminal.fitGrid.map { .string("\($0.columns)x\($0.rows)") } ?? .null,
                 // What Ghostty's last frame drew: the reflow preview at `fit_grid` while `grid` lags.
                 "drawn_grid": terminal.drawnGrid.map { .string("\($0.columns)x\($0.rows)") } ?? .null,
+                // Ghostty's frames, cell rebuilds and theme blend frames (a blend frame changes
+                // only the color table the shaders read).
+                "render_counters": terminal.renderCounters.map { (counters: TerminalRenderCounters) -> JSONValue in
+                    .object(counters.byName.mapValues { .number(Double($0)) })
+                } ?? .null,
+                // Where the terminal is in its window (fractions, top-left origin) for recordings.
+                "window_fraction": terminal.windowFraction.map { (rect: CGRect) -> JSONValue in
+                    .array([rect.minX, rect.minY, rect.width, rect.height].map { JSONValue.number(Double($0)) })
+                } ?? .null,
                 "in_host": .bool(terminal.surfaceInHost),
                 "in_window": .bool(terminal.inWindow),
                 "hidden": .bool(terminal.hidden),

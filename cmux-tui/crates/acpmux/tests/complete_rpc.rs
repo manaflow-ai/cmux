@@ -4,6 +4,11 @@
 //! that is removed afterwards, and the typed errors for an unknown harness,
 //! an unsupported one, a signed-out one and a timeout.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (shell scripts standing in for Claude Code).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, HarnessKind, HarnessProfile, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

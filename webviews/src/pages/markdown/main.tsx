@@ -22,6 +22,7 @@ import { MarkdownPage } from "./MarkdownPage";
 import { LinkOverlays } from "./overlays";
 import { MarkdownStore } from "./store";
 import { bindMarkdownLook, markdownCodeTheme } from "./settings";
+import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
 import { L } from "./strings";
 import { MarkdownEmptyState } from "../../viewer-empty/MarkdownEmptyState";
 import { viewerEmptyStrings } from "../../viewer-empty/strings";
@@ -49,6 +50,7 @@ const LINK_LABELS: Record<LinkLabel, string> = {
   noHeading: L.noHeading,
   checking: L.checking,
   opensBrowser: L.opensBrowser,
+  opensInCmux: L.opensInCmux,
   opensFile: L.opensFile,
   opensMail: L.opensMail,
   linkPlaceholder: L.linkPlaceholder,
@@ -121,9 +123,16 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
       : null,
     () => editor?.refreshLinks(),
   );
+  // Cmd-= / Cmd-- / Cmd-0: this viewer's text size over the `markdown.font.size` default.
+  const zoom = new MarkdownFontZoom(document.documentElement);
+  let zoomSettings: unknown = null;
   store.subscribe(() => {
-    const path = store.getState().config?.path;
-    if (path) resolver.setFrom(path);
+    const { config, look, phase } = store.getState();
+    if (config?.path) resolver.setFrom(config.path);
+    if (phase === "ready" && look.settings !== zoomSettings) {
+      zoomSettings = look.settings;
+      zoom.setSettings(look.settings);
+    }
   });
   const scroller = () => document.querySelector<HTMLElement>(".md-scroll");
   const router = new LinkRouter({
@@ -159,9 +168,11 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   if (client) {
     // Cmd-S is the app key dispatcher's `save` page command; the page never reads the chord.
     void subscribePageStreams(client, {
-      // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-K is `link`.
+      // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-K is `link`,
+      // Cmd-= / Cmd-- / Cmd-0 the text size.
       onCommand: ({ command }) => {
-        if (command === "save") void store.save();
+        if (isMarkdownZoomCommand(command)) zoom.run(command);
+        else if (command === "save") void store.save();
         else if (command === "back") void router.go(-1);
         else if (command === "forward") void router.go(1);
         else if (command === "link") editor?.openLinkPopover();

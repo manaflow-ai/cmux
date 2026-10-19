@@ -208,7 +208,7 @@ final class KeyRouter: BrowserKeyRouting {
         // 1. The input method's keys reach it undecided (menus keep their rule).
         if Self.belongsToInputMethod(event, facts: facts) { return false }
         decided.add(event)
-        let focus = controller.focus.state
+        let focus = controller.focus.currentState()
         let context = keyContext(for: focus, facts: facts)
         // 2. A chord.
         if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
@@ -260,17 +260,17 @@ final class KeyRouter: BrowserKeyRouting {
         lastInterception = (candidate.id, window, ran)
     }
 
-    /// A popup panel (or its Chromium page window) has the keyboard: a key
+    /// A popup window (or its Chromium page window) has the keyboard: a key
     /// whose binding is a close action (Cmd-W) closes the popup, never the
     /// opener's tab. The binding table decides which key that is, with the
     /// popup's own context (no main-window focus).
     private func closesPopup(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let services, let panel = services.popups.panel(containing: window), Self.isChord(event.modifierFlags) else { return false }
+        guard let services, let popup = services.popups.window(containing: window), Self.isChord(event.modifierFlags) else { return false }
         var context = KeyContext(bits: registry.context.subtracting(ActionContext.focusBits))
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.browserPopup)
         guard let winner = resolve(event, context: context) else { return false }
         guard WindowKeyTable.isClose(winner.command) else { return false }
-        services.popups.close(panel.page)
+        services.popups.close(popup.page)
         return true
     }
 

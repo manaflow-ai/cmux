@@ -37,7 +37,7 @@ final class SidebarIconView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// The chip behind a colored emoji: the color, light enough that the emoji reads.
     static let chipAlpha: CGFloat = 0.35

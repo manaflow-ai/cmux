@@ -102,6 +102,7 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
+pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
 #[cfg(unix)]
 mod browser_runtime;
 #[path = "server/image_paste.rs"]
@@ -120,6 +121,8 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[cfg(unix)]
+mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
@@ -295,6 +298,12 @@ pub const LAYOUT_DELTA_CAPABILITY: &str = "layout-delta-v1";
 /// a replacement or a close or move that would remove it answers
 /// `dock-column-permanent`.
 pub const PERMANENT_DOCK_CAPABILITY: &str = "permanent-dock-v1";
+/// A docked column marked pinned (the Home dock) keeps its first tab: no
+/// close, move out or reorder away from the first place, and it takes no
+/// other tab unless its `allow_tabs` is on. `set-column-dock` takes `pinned`;
+/// `column.update` takes `pinned` and `allow_tabs`; refusals answer
+/// `dock-column-pinned`.
+pub const PINNED_DOCK_CAPABILITY: &str = "pinned-dock-v1";
 /// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
@@ -527,19 +536,8 @@ pub(crate) use protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
 };
 
-/// `machine-usage` result and `machine-usage-changed` payload body: `usage`
-/// is the readout object or null when the daemon has none.
-fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
-    json!({
-        "usage": usage.map(|usage| json!({
-            "vm_id": usage.vm_id,
-            "period_days": usage.period_days,
-            "total_tokens": usage.total_tokens,
-            "api_equivalent_usd": usage.api_equivalent_usd,
-            "as_of": usage.as_of,
-        })),
-    })
-}
+mod wire_values;
+use wire_values::{default_renderer_capability_ttl_ms, json_line_payload_len, machine_usage_json};
 
 #[derive(Deserialize)]
 struct Request {
@@ -663,7 +661,10 @@ impl DetachNotice {
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify,
+    Identify {
+        #[serde(default)]
+        machine_metadata: bool,
+    },
     BrowserHostProvider,
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
@@ -1390,6 +1391,10 @@ enum Command {
         /// `permanent-dock-v1`: mark the column permanent (never cleared once set).
         #[serde(default)]
         permanent: Option<bool>,
+        /// `pinned-dock-v1`: mark the column pinned (the Home dock; never
+        /// cleared once set). Its `allow_tabs` changes only with `column.update`.
+        #[serde(default)]
+        pinned: Option<bool>,
         #[serde(default)]
         role: Option<String>,
         #[serde(default)]
@@ -2014,11 +2019,8 @@ enum Command {
         name: String,
     },
     RenameWorkspace {
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        key: Option<String>,
-        name: String,
+        #[serde(flatten)]
+        request: cmd_workspaces::WorkspaceRenameRequest,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2535,13 +2537,9 @@ pub use websocket_listener::{
 };
 
 #[cfg(test)]
-fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    handle_connection_with_permit(mux, stream, Arc::new(RenderService::new()), None);
-}
-
-fn json_line_payload_len(line: &str) -> usize {
-    line.strip_suffix('\n').map_or(line.len(), str::len)
-}
+mod test_dispatch;
+#[cfg(test)]
+use test_dispatch::{handle_connection, handle_message};
 
 mod disconnect;
 pub use disconnect::detach_control_client;
@@ -2551,14 +2549,6 @@ use disconnect::{
     disconnect_client, kick_client, own_view_detach_target, size_state_event_json,
     size_state_for_client,
 };
-
-#[cfg(test)]
-fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
-    match serde_json::from_str::<Request>(message) {
-        Ok(request) => handle_request(mux, client, request, writer),
-        Err(error) => send_bad_request(writer, message, &error),
-    }
-}
 
 mod journal_filter;
 #[cfg(test)]
@@ -2611,17 +2601,30 @@ use connection_frame::{
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
 
-fn node_json(node: &Node, active_pane: PaneId) -> Value {
+/// One layout node. `split_ids`: the public ids of the splits
+/// (`State::resource_indexes`); a split with one carries it as `split_id`
+/// (`split-client-split-id-v1`).
+fn node_json(
+    node: &Node,
+    active_pane: PaneId,
+    split_ids: &HashMap<SplitId, crate::resource::SplitPublicId>,
+) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => json!({
-            "type": "split",
-            "split": id,
-            "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
-            "ratio": ratio,
-            "a": node_json(a, active_pane),
-            "b": node_json(b, active_pane),
-        }),
+        Node::Split { id, dir, ratio, a, b } => {
+            let mut value = json!({
+                "type": "split",
+                "split": id,
+                "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
+                "ratio": ratio,
+                "a": node_json(a, active_pane, split_ids),
+                "b": node_json(b, active_pane, split_ids),
+            });
+            if let Some(public_id) = split_ids.get(id) {
+                value["split_id"] = json!(public_id);
+            }
+            value
+        }
         Node::Stack { panes, expanded } => json!({
             "type": "stack",
             "panes": panes.as_slice(),
@@ -2655,10 +2658,6 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
             Ok(LayoutSpec::Stack { pane_count: panes.len(), expanded_index })
         }
     }
-}
-
-fn default_renderer_capability_ttl_ms() -> u64 {
-    30_000
 }
 
 mod tree_json;
@@ -2751,6 +2750,10 @@ mod loopback_forward_tests;
 mod agent_session_attach_tests;
 
 #[cfg(all(test, unix))]
+#[path = "server/agent_inventory_tests.rs"]
+mod agent_inventory_tests;
+
+#[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
 mod image_paste_tests;
 
@@ -2775,6 +2778,9 @@ mod device_kind_tests;
 #[cfg(test)]
 #[path = "server/dock_columns_tests.rs"]
 mod dock_columns_tests;
+#[cfg(test)]
+#[path = "server/pinned_columns_tests.rs"]
+mod pinned_columns_tests;
 
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]
