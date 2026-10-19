@@ -27,15 +27,25 @@ pub(super) const EXEC: &str = "cmux_exec";
 
 /// The largest script source.
 const MAX_SCRIPT_BYTES: usize = 256 << 10;
-/// The engine's heap.
-const MEMORY_LIMIT: usize = 64 << 20;
 /// The engine's stack, inside a thread stack of `THREAD_STACK`.
 const MAX_STACK: usize = 1 << 20;
 const THREAD_STACK: usize = 8 << 20;
-/// A script that computes this long without a cmux call is stopped (a
-/// loop that never ends). Time inside a call does not count: a call has
-/// its own owner deadline.
-const COMPUTE_LIMIT: Duration = Duration::from_secs(30);
+/// What one script may use.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Limits {
+    /// The engine's heap.
+    pub memory: usize,
+    /// A script that computes this long without a cmux call is stopped (a
+    /// loop that never ends). Time inside a call does not count: a call has
+    /// its own owner deadline.
+    pub compute: Duration,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self { memory: 64 << 20, compute: Duration::from_secs(30) }
+    }
+}
 /// Calls in one script.
 const MAX_CALLS: usize = 2_000;
 /// Console text kept per script; later lines are dropped and counted.
@@ -244,6 +254,7 @@ struct Outcome {
 /// with `answer` on this thread. Returns the tool result.
 pub(super) fn exec(
     arguments: &Map<String, Value>,
+    limits: Limits,
     answer: &mut dyn FnMut(Request) -> Value,
 ) -> Result<Value, String> {
     if let Some(name) = arguments.keys().find(|name| name.as_str() != "script") {
@@ -261,7 +272,7 @@ pub(super) fn exec(
         .name("cmux-mcp-code-mode".into())
         .stack_size(THREAD_STACK)
         .spawn(move || {
-            let outcome = run_script(&script, &to_server);
+            let outcome = run_script(&script, limits, &to_server);
             let _ = to_server.send(ToServer::Done(outcome));
         })
         .map_err(|error| format!("{EXEC} cannot start its engine: {error}"))?;
@@ -378,7 +389,7 @@ const PRELUDE: &str = r#"
 "#;
 
 /// Runs one script on this (the engine) thread.
-fn run_script(script: &str, to_server: &mpsc::Sender<ToServer>) -> Outcome {
+fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) -> Outcome {
     let logs = Rc::new(RefCell::new((Vec::<String>::new(), 0usize, 0usize)));
     let done = Rc::new(RefCell::new(None::<Result<Value, Value>>));
     let failed = |message: String| Outcome {
@@ -390,7 +401,7 @@ fn run_script(script: &str, to_server: &mpsc::Sender<ToServer>) -> Outcome {
         Ok(runtime) => runtime,
         Err(error) => return failed(format!("engine: {error}")),
     };
-    runtime.set_memory_limit(MEMORY_LIMIT);
+    runtime.set_memory_limit(limits.memory);
     runtime.set_max_stack_size(MAX_STACK);
     let progress = Arc::new(Mutex::new(Instant::now()));
     let stopped = Arc::new(Mutex::new(false));
@@ -398,7 +409,7 @@ fn run_script(script: &str, to_server: &mpsc::Sender<ToServer>) -> Outcome {
         let progress = progress.clone();
         let stopped = stopped.clone();
         runtime.set_interrupt_handler(Some(Box::new(move || {
-            let over = progress.lock().map(|at| at.elapsed() > COMPUTE_LIMIT).unwrap_or(true);
+            let over = progress.lock().map(|at| at.elapsed() > limits.compute).unwrap_or(true);
             if over && let Ok(mut stopped) = stopped.lock() {
                 *stopped = true;
             }
@@ -498,7 +509,15 @@ fn run_script(script: &str, to_server: &mpsc::Sender<ToServer>) -> Outcome {
     });
     if let Err(message) = evaluated {
         let mut outcome = take_logs(&logs);
-        outcome.result = Err(json!({"code": "script.error", "message": message}));
+        let interrupted = stopped.lock().map(|stopped| *stopped).unwrap_or(false);
+        let code = if interrupted {
+            "script.timeout"
+        } else if message.contains("out of memory") {
+            "script.memory"
+        } else {
+            "script.error"
+        };
+        outcome.result = Err(json!({"code": code, "message": message}));
         return outcome;
     }
     loop {
@@ -517,16 +536,36 @@ fn run_script(script: &str, to_server: &mpsc::Sender<ToServer>) -> Outcome {
     }
     let mut outcome = take_logs(&logs);
     let interrupted = stopped.lock().map(|stopped| *stopped).unwrap_or(false);
-    outcome.result = match done.borrow_mut().take() {
-        Some(result) => result,
-        None if interrupted => Err(json!({
+    let result = done.borrow_mut().take();
+    outcome.result = if interrupted {
+        // The interrupt also stops the rejection handler, so `done` may hold
+        // the engine's bare "interrupted" or nothing.
+        Err(json!({
             "code": "script.timeout",
-            "message": format!("the script computed for {} s without a cmux call", COMPUTE_LIMIT.as_secs()),
-        })),
-        None => Err(json!({
-            "code": "script.unfinished",
-            "message": "the script ended while it still awaited a promise that nothing resolves",
-        })),
+            "message": format!(
+                "the script computed for {} ms without a cmux call",
+                limits.compute.as_millis()
+            ),
+        }))
+    } else {
+        match result {
+            Some(Err(error))
+                if error["message"].as_str().is_some_and(|m| m.contains("out of memory")) =>
+            {
+                Err(json!({
+                    "code": "script.memory",
+                    "message": format!(
+                        "the script used more than {} MiB",
+                        limits.memory >> 20
+                    ),
+                }))
+            }
+            Some(result) => result,
+            None => Err(json!({
+                "code": "script.unfinished",
+                "message": "the script ended while it still awaited a promise that nothing resolves",
+            })),
+        }
     };
     outcome
 }

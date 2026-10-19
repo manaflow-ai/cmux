@@ -348,6 +348,8 @@ pub(super) struct Server<B> {
     initialized: bool,
     /// `tools/list` offers only `cmux_docs` and `cmux_exec` (`code_mode`).
     code_mode: bool,
+    /// What one `cmux_exec` script may use.
+    script_limits: code_mode::Limits,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
 }
@@ -363,6 +365,7 @@ impl<B: Backend> Server<B> {
             list_changed: false,
             initialized: false,
             code_mode: false,
+            script_limits: code_mode::Limits::default(),
             notes: None,
         }
     }
@@ -504,7 +507,9 @@ impl<B: Backend> Server<B> {
             });
         }
         if name == code_mode::EXEC {
-            let answered = code_mode::exec(&arguments, &mut |request| self.script_request(request));
+            let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
+                self.script_request(request)
+            });
             return Ok(answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             }));

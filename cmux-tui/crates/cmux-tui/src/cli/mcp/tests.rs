@@ -1336,8 +1336,9 @@ fn code_mode_lists_two_tools_and_a_script_reaches_every_tool() {
     assert_eq!(content["logs"], json!(["workspaces 0"]));
     assert_eq!(content["result"]["run"]["ran"], true);
     assert_eq!(content["result"]["found"], "app_new_window");
-    let sent = server.backend.last("app");
-    assert_eq!(sent["method"], "action.run");
+    // `cmux.docs` reads `action.list` after the run, so find the run itself.
+    let runs = sent_of(&server, "app");
+    let sent = runs.iter().rev().find(|sent| sent["method"] == "action.run").expect("a run");
     assert_eq!(sent["params"]["origin"], "mcp");
     assert_eq!(sent["params"]["action"], "workspace rename");
 }
@@ -1385,5 +1386,34 @@ fn code_mode_scripts_see_failed_calls_and_report_partial_runs() {
         "cmux_exec",
         json!({"script": "return [typeof require, typeof fetch, typeof process, typeof setTimeout];"}),
     );
-    assert_eq!(sandboxed["structuredContent"]["result"], json!(["undefined"; 4]));
+    assert_eq!(
+        sandboxed["structuredContent"]["result"],
+        json!(["undefined", "undefined", "undefined", "undefined"])
+    );
+}
+
+#[test]
+fn code_mode_stops_a_script_that_loops_or_allocates_without_end() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.script_limits =
+        code_mode::Limits { memory: 16 << 20, compute: Duration::from_millis(300) };
+    let started = Instant::now();
+    let looped = call(&mut server, "cmux_exec", json!({"script": "while (true) {}"}));
+    assert_eq!(looped["isError"], true);
+    assert_eq!(looped["structuredContent"]["error"]["code"], "script.timeout", "{looped}");
+    assert!(started.elapsed() < Duration::from_secs(10), "the loop was stopped");
+
+    let grew = call(
+        &mut server,
+        "cmux_exec",
+        json!({"script": "const kept = []; while (true) kept.push('x'.repeat(1 << 20) + kept.length);"}),
+    );
+    assert_eq!(grew["isError"], true);
+    let code = grew["structuredContent"]["error"]["code"].as_str().unwrap_or_default().to_owned();
+    assert!(matches!(code.as_str(), "script.memory" | "script.timeout"), "{grew}");
+    assert_eq!(grew["structuredContent"]["state"], "not_run");
+
+    // The server still answers after both.
+    let after = call(&mut server, "cmux_exec", json!({"script": "return 2 + 2;"}));
+    assert_eq!(after["structuredContent"]["result"], 4, "{after}");
 }
