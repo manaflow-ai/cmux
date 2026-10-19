@@ -445,6 +445,12 @@ def splits():
     first_terminal("red")
     focus("red")
     record("split-down", lambda: action("splitDown"))
+    # red | green | blue, split green right: with even split sizing the whole chain evens out.
+    first_terminal("red")
+    split("red", "right", "green")
+    split("green", "right", "blue")
+    focus("green")
+    record("split-chain-right", lambda: action("splitRight"))
 
 
 def type_into(color, text):
