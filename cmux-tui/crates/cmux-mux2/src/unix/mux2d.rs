@@ -53,8 +53,15 @@ const PARSE_BATCH: usize = 256 << 10;
 const INFLIGHT_MAX: usize = 2;
 /// Reads retried after EAGAIN while output is flowing (MUX2_READ_SPINS).
 /// The macOS PTY buffer is small: a writer that refills it within a few
-/// microseconds is read without a kevent round trip and a context switch.
+/// microseconds is read without a kevent round trip and a context switch
+/// (one flood: 422 MB/s spinning, 250 MB/s not).
+#[cfg(target_os = "macos")]
 const READ_SPINS: u32 = 32;
+/// Linux moves PTY output through a kernel worker, and an empty read takes
+/// the locks that worker needs: spinning slows the writer (8 floods:
+/// 108 MB/s spinning, 183 MB/s not).
+#[cfg(not(target_os = "macos"))]
+const READ_SPINS: u32 = 0;
 
 fn tunable(name: &str, default: usize) -> usize {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
