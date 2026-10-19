@@ -346,7 +346,11 @@ final class AgentChatModeUITests: XCTestCase {
         // composer container is visible and tappable. Assert the real hit
         // target and retain a child-field existence check.
         let composer = app.otherElements["MobileAgentComposer"]
-        XCTAssertTrue(reveal(composer, in: app), "The composer should remain reachable in right-to-left layout")
+        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            composer.frame.intersects(app.frame),
+            "The composer should remain visible in right-to-left layout"
+        )
         XCTAssertTrue(composer.textFields.firstMatch.waitForExistence(timeout: 8))
         keepScreenshot(app, named: "agent-codex-arabic")
     }
