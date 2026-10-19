@@ -1056,39 +1056,3 @@ jobs:
           ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
             || security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
-
-  # Each PR in this release gets a "Shipped in" line, in one comment that the
-  # nightly-next workflow also writes (scripts/ci/published_in_comments.py).
-  # The span runs from the previous stable tag below this one, so a backport
-  # tag lists only its own PRs. A comment failure never fails the release.
-  published-in:
-    needs: build-sign-notarize
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: read
-      pull-requests: write
-    runs-on: ${{ contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
-    # A stable release spans a few hundred PRs at one paced write a second.
-    timeout-minutes: 30
-    continue-on-error: true
-    steps:
-      - name: Checkout commit history
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-          fetch-tags: true
-          filter: tree:0
-          sparse-checkout: scripts/ci
-      - name: Comment the release on its PRs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if ! previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${GITHUB_REF_NAME}^" 2>/dev/null)"; then
-            echo "No earlier stable tag below $GITHUB_REF_NAME; nothing to comment."
-            exit 0
-          fi
-          python3 scripts/ci/published_in_comments.py --repo "$GITHUB_REPOSITORY" \
-            --since "$previous" --head "$GITHUB_SHA" --name "$GITHUB_REF_NAME" \
-            --url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
