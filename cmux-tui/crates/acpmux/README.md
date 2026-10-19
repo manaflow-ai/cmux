@@ -96,6 +96,17 @@ per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` add
 a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
 mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
 
+A connection proven a peer (the peer token above) reads this daemon's session summaries with
+their text masked (`src/server/peer_text.rs`): a token pasted into a prompt shows as
+`[GitHub Personal Access Token]` in the title, the prompts (running and queued), the preview, the
+last message and the last turn's error, in an ACP `session/list` entry's title, and in a chat's
+title and preview; a field past 16384 characters is cut. Every peer is masked: the peer token is
+shared by all of them, so none can be told apart to trust. A peer may not rewrite a queued prompt
+that holds a secret (it may still move, send or remove it). The unix socket, the app and the dashboard keep the raw text, and so does a peer
+daemon served as Web (its peer token withheld over plain `ws://`). Only those summary fields are
+masked: a session's updates, events, history, chat transcripts and tool output still reach a peer
+raw.
+
 ## CLI
 
 Five everyday commands, three groups for the rest:

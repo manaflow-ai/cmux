@@ -23,6 +23,7 @@ final class HomeLiveLine {
 
     func show(_ activity: HomeLiveActivity?) {
         if activity != nil { hiding = false }
+        if let activity { steps.record(activity) }
         // The same line again after a hide stopped its clock: the clock runs again.
         guard activity != self.activity || (activity != nil && clock == nil) else { return }
         self.activity = activity
@@ -65,6 +66,9 @@ final class HomeLiveLine {
         guard hiding, hides == ticket else { return }
         hiding = false
         show(nil)
+        // The turn is over: its steps go with its line (and an open details popover).
+        steps = HomeTurnSteps()
+        onClose?()
         closed(fires: controller?.frameTick.fires)
     }
 
@@ -93,10 +97,23 @@ final class HomeLiveLine {
     }
 
     private func tick() {
+        onTick?()
         let text = activity.map { Self.text($0, now: now()) }
         guard text != shown else { return }
         shown = text
         dispatch(text)
+    }
+
+    /// The running turn's steps so far (one per distinct "working on" line), for the details popover.
+    private(set) var steps = HomeTurnSteps()
+    /// Each display-clock second (and each new line): an open details popover counts on.
+    var onTick: (() -> Void)?
+    /// The turn's line closed: an open details popover closes with it.
+    var onClose: (() -> Void)?
+
+    /// The current details (steps, durations, total), as of now.
+    func details() -> HomeTurnDetails? {
+        activity == nil ? nil : steps.details(now: now())
     }
 
     private static let minutes = formatter([.minute, .second])
@@ -111,11 +128,16 @@ final class HomeLiveLine {
     }
 
     static func text(_ activity: HomeLiveActivity, now: Date) -> String {
-        let seconds = now.timeIntervalSince(activity.since).rounded(.down)
-        guard seconds.isFinite, seconds >= 1 else { return activity.line }
-        let formatter = seconds >= 3600 ? hours : minutes
-        guard let elapsed = formatter.string(from: seconds) else { return activity.line }
+        guard let elapsed = elapsed(now.timeIntervalSince(activity.since)) else { return activity.line }
         return "\(activity.line) · \(elapsed)"
+    }
+
+    /// "4s", "1m 5s", "2h 3m"; nil under a second.
+    static func elapsed(_ interval: TimeInterval) -> String? {
+        let seconds = interval.rounded(.down)
+        guard seconds.isFinite, seconds >= 1 else { return nil }
+        let formatter = seconds >= 3600 ? hours : minutes
+        return formatter.string(from: seconds)
     }
 }
 
