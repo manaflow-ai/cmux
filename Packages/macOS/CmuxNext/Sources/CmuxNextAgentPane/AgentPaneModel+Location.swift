@@ -5,5 +5,11 @@ extension AgentPaneModel {
     public static var localMachineName: Task<String, Never>?
     /// What ``localMachineName`` answered, once it has: a New Tab page's context carries it
     /// (`AgentPaneNewTab.host`), so the page's first frame names this Mac with no wait.
-    public static var localMachineDisplayName: String?
+    public private(set) static var localMachineDisplayName: String?
+
+    /// Keeps the name ``localMachineName`` answered (``localMachineDisplayName``) and returns it.
+    public static func rememberLocalMachineName(_ name: String) -> String {
+        localMachineDisplayName = name
+        return name
+    }
 }

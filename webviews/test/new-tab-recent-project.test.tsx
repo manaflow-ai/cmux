@@ -270,6 +270,8 @@ test("a page's heard chats name the next page's recent project before its own li
     recent.rememberRecentFolders({ origin: "local", sessions: noChat(sessions).sessions });
     // The home folder and agent-home are no project; the newest local folder is.
     expect(recent.initialRecentProject([], HOME, [])).toBe("/Users/you/src/atlas");
+    // A page on another machine (the host gives it no home) never starts in this Mac's folder.
+    expect(recent.initialRecentProject([], undefined, [])).toBeUndefined();
     // The host's project list still decides, and the page's own chats come first.
     expect(recent.initialRecentProject([], HOME, ["/Users/you/src/older"])).toBe("/Users/you/src/older");
     const own = [session({ sessionId: "own", cwd: "/Users/you/src/billing", updatedAt: minutesAgo(0) })];

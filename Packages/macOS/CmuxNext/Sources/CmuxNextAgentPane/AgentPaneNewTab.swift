@@ -84,6 +84,16 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     }
 }
 
+extension AgentPaneNewTab {
+    /// The page with this Mac's name as its `host` when it runs on this Mac (`local`) and the
+    /// launch's read has answered, so its machine chip names the Mac on the first frame.
+    @MainActor public func namingThisMac(_ local: Bool = true) -> AgentPaneNewTab {
+        var page = self
+        if local { page.host = AgentPaneModel.localMachineDisplayName }
+        return page
+    }
+}
+
 /// The location bar's suggestions from the app (#16651 follow-up): open tabs and
 /// workspaces to jump to, folders to open a terminal in, recent commands and pages.
 /// The page validates and caps each list before ranking it.

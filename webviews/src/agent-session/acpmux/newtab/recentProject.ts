@@ -22,11 +22,14 @@ function storage(): Storage | undefined {
 }
 
 let lastWritten: string | undefined;
+/// The last list read: a streaming turn emits a snapshot per row with the same `sessions` array.
+let lastSessions: AcpmuxSnapshot["sessions"] | undefined;
 
 /// Keeps the newest chat folders of `snapshot`, a list this Mac's daemon sent (`origin` local).
 /// An empty list keeps the last one: a connection lists nothing before its first answer.
 export function rememberRecentFolders(snapshot: Pick<AcpmuxSnapshot, "origin" | "sessions">): void {
-  if (snapshot.origin !== "local") return;
+  if (snapshot.origin !== "local" || snapshot.sessions === lastSessions) return;
+  lastSessions = snapshot.sessions;
   const folders = recentLocalFolders(snapshot.sessions, KEPT);
   if (folders.length === 0) return;
   const text = JSON.stringify(folders);
@@ -51,18 +54,21 @@ export function rememberedRecentFolders(): string[] {
 
 /// The project a New Tab with no folder of its own starts on, read once as it mounts: the newest
 /// in the chats it already has (another page's list, or a spare page's own), else the newest a page
-/// of this run kept. Undefined when neither knows one yet.
+/// of this run kept. Undefined when neither knows one yet. The kept folders are this Mac's: a page
+/// on another machine (no `home`, NewTabPageMachine) never starts on one of them.
 export function initialRecentProject(
   sessions: AcpmuxSnapshot["sessions"],
   home: string | undefined,
   known: readonly string[] | undefined,
 ): string | undefined {
   return (
-    firstProject(recentLocalFolders(sessions), home, known) ?? firstProject(rememberedRecentFolders(), home, known)
+    firstProject(recentLocalFolders(sessions), home, known) ??
+    (home ? firstProject(rememberedRecentFolders(), home, known) : undefined)
   );
 }
 
 /// A new page's start (tests).
 export function resetRecentProjectForTests(): void {
   lastWritten = undefined;
+  lastSessions = undefined;
 }
