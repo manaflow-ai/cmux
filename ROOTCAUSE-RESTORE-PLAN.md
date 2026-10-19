@@ -100,6 +100,17 @@ Gate: classify as causal, amplifying, or unrelated only with timestamped evidenc
   not a necessary cause.
 - **Low:** Governor/TOML changes caused the initial failures.
 
+The October 18 local WindowServer report is independently hashed as
+`9b728ffedcff4b168330040f5a174b28742c941f956e32bb16db5ed31332b8f5`. It is
+macOS 27.0.1 watchdog bug 409 with a 40-second WindowServer no-check-in;
+that snapshot shows cmux at about 1.06 GB resident and QEMU at about 5.69 GB.
+The paired QEMU report is hashed as
+`83f09a5e5d65ee89bba302ef6f938044f1081a51028b88bd6b73752e3e099ee` and
+aborts in `NSCGLSurface flushRect`/`CGLFlushDrawable` through gfxstream's
+`eglSwapBuffers`. This is strong evidence for a QEMU graphics/WindowServer
+interaction in that incident, but it does not establish that QEMU caused the
+independent M3 watchdog reports where no QEMU process was present.
+
 ## M5S external OWC/NVMe comparison (2026-10-19T08:41Z)
 
 The same 4 TB OWC Express 1M2 80G enclosure/PCIe APFS layout is healthy on
