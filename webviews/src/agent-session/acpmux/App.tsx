@@ -2276,6 +2276,7 @@ function DefaultComposerChips({
   return (
     <ComposerPickers
       snapshot={startsChat ? newTabChipSnapshot(snapshot, picker.catalog) : snapshot}
+      holdsModePick={startsChat || snapshot.switching !== undefined}
       permissionAccess={permissionAccess}
       onModel={(modelId) => {
         start();

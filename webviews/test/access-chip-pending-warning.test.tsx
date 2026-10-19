@@ -300,7 +300,7 @@ test("a pending chat whose pane cannot hold a mode pick keeps the inert chip", a
   await fresh(undefined, false);
   await answer();
   expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
-  expect(host.querySelector(".acpmux-access-trigger:not([disabled])")).toBeNull();
+  expect(host.querySelector("button.acpmux-access-trigger")).toBeNull();
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
 });
 

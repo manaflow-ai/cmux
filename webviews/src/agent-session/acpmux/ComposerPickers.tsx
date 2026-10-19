@@ -142,6 +142,9 @@ type Props = {
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
   pickerCatalog?: PickerCatalog;
+  /** A mode pick before the chat has a session is held (a New Tab's start, a harness switch
+   * running): only then is a pending chat's start mode a live menu, else an inert chip. */
+  holdsModePick?: boolean;
 };
 
 export type ComposerPermissionGrant = {
@@ -178,6 +181,7 @@ export function ComposerPickers({
   showPlan = true,
   catalogRefresh,
   pickerCatalog,
+  holdsModePick = false,
 }: Props) {
   const t = useT();
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts);
@@ -547,13 +551,18 @@ export function ComposerPickers({
         startMode.modeId)
       : undefined;
   // Until the chat reports its modes, the start mode acpmux answered is a live menu (not an inert
-  // chip): the harness's last mode catalog for the rows, checked at the start mode, never at the
-  // mode its last chat showed. A pick routes through the normal mode setter.
+  // chip) where a pick is held (`holdsModePick`): the harness's last mode catalog for the rows,
+  // checked at the start mode, never at the mode its last chat showed, and named as acpmux named
+  // it. A start in Plan keeps the inert chip: Plan is never an access row.
   const pendingAccessModes: Choice[] = (() => {
-    if (!startMode || startMode.borrowed) return [];
+    if (!holdsModePick || !startMode || startMode.borrowed || isPlan(startMode.modeId)) return [];
     const known = (harnessProfiles.get(chipHarness)?.modes?.availableModes ?? [])
       .filter((choice) => !isPlan(choice.id))
-      .map((choice) => ({ id: choice.id, name: choice.name || choice.id, description: choice.description }));
+      .map((choice) => ({
+        id: choice.id,
+        name: (choice.id === startMode.modeId ? startMode.name : undefined) || choice.name || choice.id,
+        description: choice.description,
+      }));
     if (known.some((choice) => choice.id === startMode.modeId)) return known;
     const description = unrestricted(startMode.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
     return [{ id: startMode.modeId, name: startModeName ?? startMode.modeId, description }, ...known];
