@@ -33,7 +33,21 @@ export function focusControl(row: Element): boolean {
 export function revealRow(row: HTMLElement | null): void {
   if (!row) return;
   row.scrollIntoView?.({ block: "center" });
+  keepGroupHeadInView(row);
   if (!focusControl(row)) row.focus();
+}
+
+/** A group's first row opens under what sits above it in the group (its title, the Fonts group's
+ *  live preview). When centering the row scrolled that under the content's top edge, and the head
+ *  and the row fit in view together, scroll back so both show. */
+function keepGroupHeadInView(row: HTMLElement): void {
+  const group = row.closest<HTMLElement>("[data-group]");
+  const scroller = row.closest<HTMLElement>(".content");
+  if (!group || !scroller || group.querySelector("[data-row-key]") !== row) return;
+  const view = scroller.getBoundingClientRect();
+  const head = group.getBoundingClientRect().top;
+  if (head >= view.top || row.getBoundingClientRect().bottom - head > view.height) return;
+  scroller.scrollTop -= view.top - head;
 }
 
 function isTextField(element: Element): boolean {
