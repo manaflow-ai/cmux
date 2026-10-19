@@ -2200,6 +2200,7 @@ async fn run_daemon(
                         DirectWebSocketOptions {
                             allow_insecure_non_loopback: options.allow_insecure_non_loopback,
                             trusted_carrier: options.trusted_carrier_websocket,
+                            ..Default::default()
                         },
                     )
                     .await?,
