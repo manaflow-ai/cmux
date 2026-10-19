@@ -678,10 +678,11 @@ class FormatBeforeLanding(unittest.TestCase):
                 mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             landed = controller.land(validation)
         self.assertEqual(formatted, [1])
-        # The pushed formatting is a new head nobody validated or reviewed.
-        self.assertEqual(merged, [2])
+        # The pushed formatting is a new head nobody validated or reviewed, and the
+        # PR stacked on top of it was validated with it, so neither lands now.
+        self.assertEqual(merged, [])
         self.assertIn("formatted", landed[0][1])
-        self.assertEqual(landed[1][1], "landed")
+        self.assertIn("earlier PR in this stack", landed[1][1])
 
 
 class NotifyOwners(unittest.TestCase):
@@ -768,7 +769,8 @@ class ReviewGate(NotifyOwners):
         controller, landed = self.land([pr(1)])
         self.assertEqual(controller.merged, [])
         self.assertIn("not reviewed at this head", landed[1])
-        self.assertEqual([kind for _, kind, _ in controller.comments], ["receipt"])
+        # A note, not a receipt: a receipt would keep it out of the batch after its review.
+        self.assertEqual([kind for _, kind, _ in controller.comments], ["validated"])
 
     def test_a_review_of_an_older_head_does_not_count(self):
         reviewed = Path(tempfile.mkdtemp()) / "reviewed"

@@ -348,7 +348,7 @@ def batch_authors() -> frozenset[str]:
 
 def overriders() -> frozenset[str]:
     configured = os.environ.get("CMUX_NEXT_BATCH_OVERRIDERS", "").split()
-    return frozenset(configured or DEFAULT_OVERRIDERS) - frozenset(DEFAULT_AUTHORS)  # never the lanes' login
+    return frozenset(configured or DEFAULT_OVERRIDERS) - batch_authors() - frozenset(DEFAULT_AUTHORS)  # never a lane's login
 
 
 def trusted_labels(pr: PullRequest) -> set[str]:
@@ -415,7 +415,7 @@ def reviewed(pr: PullRequest, gh: "GitHub | None" = None) -> bool:
                         return True
         except OSError:
             pass
-    reviewers = set(os.environ.get("CMUX_NEXT_BATCH_REVIEWERS", "").split()) - set(DEFAULT_AUTHORS)
+    reviewers = set(os.environ.get("CMUX_NEXT_BATCH_REVIEWERS", "").split()) - batch_authors() - set(DEFAULT_AUTHORS)
     if reviewers and gh is not None:
         try:
             statuses = gh.api(f"repos/{gh.repo}/commits/{pr.sha}/statuses?per_page=100") or []
@@ -1270,7 +1270,16 @@ class Controller:
         landed = []
         helper = self.merge_green()
         fresh = {pr.number: pr for pr in open_prs(self.gh)}
+        landing = getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
+        stop = 0
         for pr in validation.stack.included:
+            # Only a prefix of the validated stack may land: once one PR doesn't, a
+            # later one would land on a tree that was never validated.
+            if landing and landed and not landed[-1][1].startswith("landed"):
+                stop = stop or landed[-1][0].number
+            if stop:
+                landed.append((pr, f"skipped: an earlier PR in this stack (#{stop}) didn't land; next batch"))
+                continue
             current = fresh.get(pr.number)
             if current is None:
                 landed.append((pr, "closed meanwhile"))
@@ -1302,7 +1311,11 @@ class Controller:
                     landed.append((pr, f"not landed: {error}"))
                     continue
             if not getattr(self.args, "land", True) or landing_refusal() or not reviewed(current, self.gh):
-                self.comment_once(pr, "receipt", self.receipt(validation, pr))
+                # A "receipt" tells later batches the owner lands this head, so only a
+                # receipt-only queue posts one. A batch that may not land, or a head
+                # still waiting for review, leaves a "validated" note that holds nothing out.
+                kind = "receipt" if not getattr(self.args, "land", True) else "validated"
+                self.comment_once(pr, kind, self.receipt(validation, pr))
                 why = ("receipt posted; owner lands" if not getattr(self.args, "land", True) else
                        f"not landed: {landing_refusal()}; receipt posted" if landing_refusal() else
                        "not reviewed at this head; receipt posted")
@@ -1456,7 +1469,8 @@ class Controller:
             write_summary("No eligible pull requests.\n\n" + "\n".join(
                 f"- #{number}: {reason}" for number, reason in sorted(skipped.items())))
             return 0
-        landing = getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
+        landing = (getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
+                   and not landing_refusal())
         eligible, waiting = admit_reviewed(eligible, self.gh, landing)
         skipped.update(waiting)
         if not eligible:
@@ -1468,7 +1482,7 @@ class Controller:
         for pr in eligible:
             if pr not in candidates:
                 skipped[pr.number] = "waiting: a trusted land-alone PR goes first"
-        if len(candidates) == 1 and candidates[0].number not in tried and candidates is not eligible:
+        if landing and len(candidates) == 1 and candidates[0].number not in tried and candidates is not eligible:
             self.comment_once(candidates[0], "alone", "Batch queue: validating this PR on its own (`queue: land alone`).")
         culprits: list[PullRequest] = []
         landed: list[tuple[PullRequest, str]] = []
