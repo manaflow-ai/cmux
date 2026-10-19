@@ -103,6 +103,25 @@ impl Mux {
         )
     }
 
+    /// One durable commit that records a new effect intent as `executing`
+    /// (`WorkspaceRegistry::prepare_resource_effect_executing_for`).
+    pub(crate) fn prepare_resource_effect_executing(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        intent: &Value,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<(ResourceEffectPreparation, bool)> {
+        self.workspace_registry.lock().unwrap().prepare_resource_effect_executing_for(
+            mutation,
+            operation,
+            fingerprint,
+            intent,
+            expected_revision,
+        )
+    }
+
     pub(crate) fn mark_resource_effect_executing(
         &self,
         idempotency_key: &str,

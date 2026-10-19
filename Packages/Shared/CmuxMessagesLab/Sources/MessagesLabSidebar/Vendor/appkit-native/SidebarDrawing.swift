@@ -432,7 +432,7 @@ enum SidebarDraw {
     /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
     static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
         let p = ctx.palette
-        let color = emphasized ? p.selectedText : p.name
+        let color = emphasized ? p.selectedText : p.pinName // cmux: pinName (Home's neutral selection)
         let full = line(tileName(c), pinNameFont, color)
         let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
         let w = max(1, width(l).rounded(.up))

@@ -975,6 +975,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # HEAD^1 is the diff base lint-feature-flags uses to fail an expired
+          # reviewBy only on the change that edits that flag.
+          fetch-depth: 2
 
       - name: Run the contributor static preflight
         # The recipe is read-only and each check owns its temporary state, so

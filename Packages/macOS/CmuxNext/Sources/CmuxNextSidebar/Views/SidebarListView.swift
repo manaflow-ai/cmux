@@ -131,6 +131,8 @@ final class SidebarListView: NSView {
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        // A close's successor is the next row drawn here (FocusAfterClose.workspace).
+        model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.
         // A no-op drop settles the same way (nothing will change the model).
         for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
