@@ -105,7 +105,8 @@ impl Diagnosis {
 #[derive(Debug, PartialEq, Eq)]
 struct DoctorArgs {
     host: String,
-    port: u16,
+    /// `None` keeps the port from the SSH config (22 when unset).
+    port: Option<u16>,
     user: Option<String>,
     timeout: Duration,
     json: bool,
@@ -114,6 +115,7 @@ struct DoctorArgs {
 #[derive(Serialize)]
 struct Report<'a> {
     host: &'a str,
+    hostname: &'a str,
     port: u16,
     tailnet: TailnetProbe,
     tcp: TcpProbe,
@@ -124,25 +126,28 @@ struct Report<'a> {
 
 pub(crate) fn run(args: &[String]) -> anyhow::Result<()> {
     let args = parse_args(args)?;
-    let tailnet = probe_tailnet(&args.host, args.timeout);
-    let tcp = probe_tcp(&args.host, args.port, args.timeout);
-    let ssh = if tcp == TcpProbe::Open { probe_ssh(&args) } else { SshProbe::NotTried };
+    let target = resolve_target(&args);
+    let tailnet = probe_tailnet(&target.hostname, args.timeout);
+    let tcp = probe_tcp(&target.hostname, target.port, args.timeout);
+    let ssh =
+        if tcp == TcpProbe::Open { probe_ssh(&args, target.port) } else { SshProbe::NotTried };
     let diagnosis = Diagnosis::from_probes(tailnet, tcp, ssh);
     let messages = &catalog().remote_doctor;
     let report = Report {
         host: &args.host,
-        port: args.port,
+        hostname: &target.hostname,
+        port: target.port,
         tailnet,
         tcp,
         ssh,
         diagnosis,
-        hint: diagnosis.hint(messages, args.port),
+        hint: diagnosis.hint(messages, target.port),
     };
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         println!("{:<8} {}", "tailnet", kebab(&tailnet));
-        println!("{:<8} {}", format!("tcp/{}", args.port), kebab(&tcp));
+        println!("{:<8} {}", format!("tcp/{}", target.port), kebab(&tcp));
         println!("{:<8} {}", "ssh", kebab(&ssh));
         println!();
         println!("{}", report.hint);
@@ -164,7 +169,7 @@ fn kebab(value: &impl Serialize) -> String {
 fn parse_args(args: &[String]) -> anyhow::Result<DoctorArgs> {
     let messages = &catalog().remote_client;
     let mut host = None;
-    let mut port = DEFAULT_PORT;
+    let mut port = None;
     let mut user = None;
     let mut timeout = DEFAULT_TIMEOUT;
     let mut json = false;
@@ -181,10 +186,11 @@ fn parse_args(args: &[String]) -> anyhow::Result<DoctorArgs> {
         match argument {
             "--json" => json = true,
             "--port" => {
-                port =
+                port = Some(
                     value("--port")?.parse::<u16>().ok().filter(|port| *port > 0).ok_or_else(
                         || anyhow!(messages.invalid_option_value("--port", "1-65535")),
-                    )?;
+                    )?,
+                );
             }
             "--user" => user = Some(safe_word(value("--user")?, "--user")?),
             "--timeout-seconds" => {
@@ -220,6 +226,56 @@ fn safe_word(value: String, option: &str) -> anyhow::Result<String> {
     } else {
         Err(anyhow!(catalog().remote_client.invalid_option_value(option, "a host name or address")))
     }
+}
+
+/// Where the TCP and tailnet probes aim. SSH config aliases, `user@host` and
+/// `Port` lines only exist inside ssh, so ask ssh for the effective config.
+#[derive(Debug, PartialEq, Eq)]
+struct Target {
+    hostname: String,
+    port: u16,
+}
+
+fn resolve_target(args: &DoctorArgs) -> Target {
+    let mut command = Command::new("ssh");
+    command.arg("-G");
+    if let Some(port) = args.port {
+        command.arg("-p").arg(port.to_string());
+    }
+    if let Some(user) = &args.user {
+        command.arg("-l").arg(user);
+    }
+    let output = command
+        .arg(&args.host)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success());
+    let resolved = output.map(|output| parse_ssh_config(&String::from_utf8_lossy(&output.stdout)));
+    let fallback_host = args.host.rsplit('@').next().unwrap_or(&args.host).to_owned();
+    let (hostname, config_port) = resolved.unwrap_or((None, None));
+    Target {
+        hostname: hostname.unwrap_or(fallback_host),
+        port: args.port.or(config_port).unwrap_or(DEFAULT_PORT),
+    }
+}
+
+/// Reads `hostname` and `port` from `ssh -G` output.
+fn parse_ssh_config(config: &str) -> (Option<String>, Option<u16>) {
+    let mut hostname = None;
+    let mut port = None;
+    for line in config.lines() {
+        let mut fields = line.splitn(2, ' ');
+        match (fields.next(), fields.next().map(str::trim)) {
+            (Some("hostname"), Some(value)) if !value.is_empty() => {
+                hostname = Some(value.to_owned());
+            }
+            (Some("port"), Some(value)) => port = value.parse::<u16>().ok().filter(|p| *p > 0),
+            _ => {}
+        }
+    }
+    (hostname, port)
 }
 
 fn probe_tailnet(host: &str, timeout: Duration) -> TailnetProbe {
@@ -269,7 +325,7 @@ fn probe_tcp(host: &str, port: u16, timeout: Duration) -> TcpProbe {
     result
 }
 
-fn probe_ssh(args: &DoctorArgs) -> SshProbe {
+fn probe_ssh(args: &DoctorArgs, port: u16) -> SshProbe {
     let mut command = Command::new("ssh");
     command
         .args(["-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes"])
@@ -277,7 +333,7 @@ fn probe_ssh(args: &DoctorArgs) -> SshProbe {
         .arg("-o")
         .arg(format!("ConnectTimeout={}", args.timeout.as_secs()))
         .arg("-p")
-        .arg(args.port.to_string());
+        .arg(port.to_string());
     if let Some(user) = &args.user {
         command.arg("-l").arg(user);
     }
@@ -382,6 +438,15 @@ mod tests {
     }
 
     #[test]
+    fn ssh_config_hostname_and_port_are_read() {
+        assert_eq!(
+            parse_ssh_config("user leo\nhostname 100.64.0.9\nport 2222\nproxyjump none\n"),
+            (Some("100.64.0.9".to_owned()), Some(2222))
+        );
+        assert_eq!(parse_ssh_config("user leo\n"), (None, None));
+    }
+
+    #[test]
     fn options_parse_with_bounds() {
         let parsed = parse_args(&strings(&[
             "cosmic-gray",
@@ -398,7 +463,7 @@ mod tests {
             parsed,
             DoctorArgs {
                 host: "cosmic-gray".into(),
-                port: 2222,
+                port: Some(2222),
                 user: Some("leoli".into()),
                 timeout: Duration::from_secs(3),
                 json: true,

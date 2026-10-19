@@ -123,7 +123,7 @@ cmux remote doctor cosmic-gray
 cmux remote doctor cosmic-gray --user leoli --port 22 --timeout-seconds 5 --json
 ```
 
-It runs three probes in order: a Tailscale TSMP ping (`tailscale ping --tsmp`), a TCP connect to the SSH port, and, only when TCP connects, `ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes HOST true` with agent, X11 and port forwarding disabled. The combined result is one diagnosis:
+HOST may be an SSH config alias or `user@host`; the probes aim at the `HostName` and `Port` that `ssh -G HOST` reports. It runs three probes in order: a Tailscale TSMP ping (`tailscale ping --tsmp`), a TCP connect to the SSH port, and, only when TCP connects, `ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes HOST true` with agent, X11 and port forwarding disabled. The combined result is one diagnosis:
 
 | `diagnosis` | Probes | Meaning |
 | --- | --- | --- |
