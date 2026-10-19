@@ -124,6 +124,9 @@ impl Hub {
                     m.preview = Some(preview);
                 }
             }
+            "tool_call" | "tool_call_update" => {
+                super::pull_requests::absorb(session, update, &mut m)
+            }
             "usage_update" => m.usage = Some(update.clone()),
             "current_mode_update" => {
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
