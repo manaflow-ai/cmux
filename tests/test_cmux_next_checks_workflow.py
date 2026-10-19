@@ -102,6 +102,20 @@ class ChecksJobStructure(unittest.TestCase):
     def test_aggregate_passes_when_every_check_succeeds(self):
         result = self.run_aggregate("success|Lint\nsuccess|Crash safety\n")
         self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("::error", result.stdout)
+
+    def test_aggregate_names_each_red_check_in_its_own_annotation(self):
+        # The red steps' own annotations all read "Process completed with exit
+        # code 1."; one named ::error per red check is what the PR page shows.
+        result = self.run_aggregate(
+            "failure|Motion tokens\nsuccess|Lint\n|Crash safety\nfailure|100% coverage, really\n")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        errors = [line for line in result.stdout.splitlines() if line.startswith("::error")]
+        self.assertEqual(errors, [
+            "::error title=cmux-next check failed::Motion tokens (failure)",
+            "::error title=cmux-next check failed::Crash safety (not run)",
+            "::error title=cmux-next check failed::100%25 coverage, really (failure)",
+        ])
 
     def test_ratchet_ceilings_are_set_only_on_their_own_steps(self):
         # Job-wide, the warning ceilings reach the script tests in this job, which
