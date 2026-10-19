@@ -14,7 +14,7 @@ pub(super) fn descriptor() -> Value {
         "title": "Check a chat render",
         "description": "Check HTML before showing it with render. Returns a PNG image plus contentHeight, capturedHeight, width, console warnings/errors, uncaught exceptions, missing images and layout warnings. Uses your own running cmux chat's theme, design kit, sandbox and reply column width. Optional width (320 to 1440 CSS px) checks another viewport, e.g. 390 for a phone. Scripts and fonts settle before capture; 8 second limit. Content taller than 1600 CSS px is cropped, with full contentHeight reported. PNGs are at most 1x and 1568px on the long edge, downscaled to stay below 4 MiB of base64. App bridge actions are refused during preview. Requires your local chat pane and its renderPreview and liveRender labs. A preview is diagnostic evidence, not a guarantee about later asynchronous changes.",
         "inputSchema": {"type":"object", "additionalProperties":false, "required":["html"], "properties": {
-            "html":{"type":"string", "minLength":1, "description":"Self-contained HTML, at most 1 MiB of UTF-8. Pass it inline; never write it to a file first."},
+            "html":{"type":"string", "minLength":1, "description":"Self-contained HTML, at most 1 MiB of UTF-8. Pass it inline; no file needed unless the user asked for one."},
             "width":{"type":"integer", "minimum":320, "maximum":1440}
         }},
         "annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}
