@@ -550,6 +550,7 @@ struct Args {
     ws_insecure_bind: bool,
     ws_access: cmux_tui_core::server::WebSocketAccess,
     link_entry: bool,
+    supervised_link_state: Option<PathBuf>,
     remote: bool,
     remote_ws: Option<String>,
     remote_ws_insecure_bind: bool,
@@ -600,6 +601,7 @@ impl Args {
             && ws_token.is_none()
             && !self.ws_insecure_bind
             && !self.link_entry
+            && self.supervised_link_state.is_none()
             && self.ws_access.origins.is_empty()
             && self.ws_access.hosts.is_empty()
             && !self.remote
@@ -661,6 +663,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         ws_insecure_bind: false,
         ws_access: Default::default(),
         link_entry: false,
+        supervised_link_state: None,
         remote: false,
         remote_ws: None,
         remote_ws_insecure_bind: false,
@@ -776,6 +779,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             }
             "--ws-insecure-bind" => out.ws_insecure_bind = true,
             "--link-entry" => out.link_entry = true,
+            "--supervised-link-state" => {
+                out.supervised_link_state =
+                    Some(args.next().ok_or("--supervised-link-state needs a value")?.into());
+            }
             "--ws-allow-origin" => {
                 let origin = args.next().ok_or("--ws-allow-origin needs a value")?;
                 let origin = cmux_tui_core::server::parse_websocket_origin(&origin).ok_or(
@@ -956,6 +963,9 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     #[cfg(not(unix))]
     if out.agent_browser_provider {
         return Err(format!("--agent-browser-provider is unsupported on {}", std::env::consts::OS));
+    }
+    if out.supervised_link_state.is_some() && !out.link_entry {
+        return Err("--supervised-link-state requires --link-entry".into());
     }
     Ok(out)
 }
@@ -1344,6 +1354,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.link_entry {
         conflicts.push("--link-entry");
     }
+    if args.supervised_link_state.is_some() {
+        conflicts.push("--supervised-link-state");
+    }
     if !args.ws_access.origins.is_empty() || !args.ws_access.hosts.is_empty() {
         conflicts.push("--ws-allow-origin/--ws-allow-host");
     }
@@ -1416,6 +1429,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-http",
     "--remote-state-dir",
     "--remote-link-socket",
+    "--supervised-link-state",
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
     "--terminal-reap-grace-seconds",
@@ -2371,8 +2385,13 @@ fn run_server(
     let pending_server = restoring_server.attach(mux.clone());
     // Kept alive until this function returns; dropping it removes the socket.
     #[cfg(unix)]
-    let _link_entry = link::start_link_entry(args.link_entry, &mux, &socket_path)
-        .inspect_err(|_| mux.shutdown())?;
+    let _link_entry = link::start_link_entry(
+        args.link_entry,
+        args.supervised_link_state.as_deref(),
+        &mux,
+        &socket_path,
+    )
+    .inspect_err(|_| mux.shutdown())?;
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
