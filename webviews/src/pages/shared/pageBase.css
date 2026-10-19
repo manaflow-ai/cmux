@@ -19,9 +19,10 @@
 
 /* Over a see-through window (desktop.ts sets data-cmux-see-through when the page background is not
    opaque) the text sits on the window tint over art. The native tint floor
-   (BackdropArtRange.legibleTintOpacity) holds secondary text at 4.5:1 over any art but tertiary
-   only at the 3:1 mark contrast, so tertiary text (labels such as "Add channel") takes the
-   secondary tier here. An opaque window keeps the tertiary tier. */
+   (BackdropArtRange.legibleTintOpacity) holds primary text at 4.5:1 over any art; with
+   appearance.glassLegibility "all" it also holds secondary text at 4.5:1 and tertiary only at the
+   3:1 mark contrast. Either way tertiary text (labels such as "Add channel") takes the secondary
+   tier here, the nearer one to the floor. An opaque window keeps the tertiary tier. */
 :root[data-cmux-see-through] {
   --page-text-3: var(--page-text-2);
 }

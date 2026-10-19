@@ -295,6 +295,7 @@
               "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
+              "appearance.glassLegibility",
               "appearance.backgroundBlur"
             ],
             "title" : {
@@ -9531,6 +9532,73 @@
       "title" : {
         "key" : "settings.appearance.backgroundOpacity",
         "text" : "Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "primary",
+        "all"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glassLegibility.primary",
+            "text" : "Main Text"
+          },
+          "value" : "primary"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.glassLegibility.all",
+            "text" : "All Text"
+          },
+          "value" : "all"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "primary",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.glassLegibility.help",
+        "text" : "Main Text keeps primary text readable over any art and lets much more of the art through, like iOS. All Text also keeps secondary and dim text at full contrast, with denser glass."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.glassLegibility",
+      "keywords" : [
+        "glass",
+        "legibility",
+        "contrast",
+        "readable",
+        "art",
+        "wallpaper",
+        "transparency",
+        "ios"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "glassLegibility"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.glassLegibility",
+        "text" : "Glass Over Art"
       },
       "validation" : "portable"
     },
@@ -25589,7 +25657,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "83792af4a2de800d5ae2c0dbfd6e317b511f10e28f552adfc6a49d5358df4e49",
+  "schema_hash" : "b89badaa3392d165e98b229ad50645b451aa9cdc5a571d43453918810df9b189",
   "sections" : [
     {
       "id" : "general",
