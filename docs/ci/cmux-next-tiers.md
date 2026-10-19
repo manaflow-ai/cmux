@@ -123,7 +123,9 @@ with the Swift sources directly. It recomputes the source stamp
 `schemas/settings-export/settings-schema.sources.sha256` (one `sha256  path`
 entry per `CmuxNextSettings` source and export test, a blank line between
 entries so pull requests that edit different sources merge cleanly) and fails,
-naming the files, when the sources moved without a re-export. `cmux-next generated files` then runs
+naming the files, when the sources moved without a re-export. Two branches
+that edit the same source (often `Localizable.xcstrings`) still conflict on its
+entry: regenerate the stamp after the merge, never hand-merge it. `cmux-next generated files` then runs
 `scripts/cmux-next/regenerate-settings-exports.sh` and
 `defaults_guard.py snapshot` and adds the files to the patch. On
 `feat-cmux-next`, the base autofix's Mac job runs the same script after a

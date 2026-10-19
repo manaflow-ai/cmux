@@ -18,9 +18,10 @@ the sources of truth with no hand list:
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
 
 check-fresh also recomputes the source stamp: SettingsSchemaExportTests writes
-schemas/settings-export/settings-schema.sources.sha256 with the schema, a SHA-256 of
-the CmuxNextSettings sources it exported from (outside schemas/settings, which is
-a web bundle input). The schema and docs/mdm come
+schemas/settings-export/settings-schema.sources.sha256 with the schema, one
+`sha256  path` entry per CmuxNextSettings source it exported from and per export
+test, a blank line apart (outside schemas/settings, which is a web bundle input).
+A stamp that still conflicts after a merge is regenerated, never hand-merged. The schema and docs/mdm come
 from a Swift test, so committed files can agree with each other and still be
 stale against Swift (e190c402850c); a stamp that differs from the sources says so.
   python3 scripts/ci/defaults_guard.py check --base B --head H [--pr N --repo R]
