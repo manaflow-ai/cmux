@@ -15,6 +15,11 @@ use crate::workspace_registry::registry_connection::RegistryConnectionPin;
 
 pub(crate) struct SignaledMutex<T> {
     value: Mutex<T>,
+    /// The workspace registry's group commit barrier (`deferred_sync`): a
+    /// thread that is not inside a creation passes it when it takes the
+    /// lock, since a creation keeps registry memory (the public fold) in
+    /// step with commits that may not be synced yet.
+    barrier: Option<Arc<DeferredSync>>,
     release_epoch: Mutex<u64>,
     released: Condvar,
     /// Contention record with `#[track_caller]` attribution, reported by
@@ -23,8 +28,14 @@ pub(crate) struct SignaledMutex<T> {
 }
 
 impl<T> SignaledMutex<T> {
+    #[cfg(test)]
     pub(super) fn new(value: T) -> Self {
+        Self::with_barrier(value, None)
+    }
+
+    pub(super) fn with_barrier(value: T, barrier: Option<Arc<DeferredSync>>) -> Self {
         Self {
+            barrier,
             value: Mutex::new(value),
             release_epoch: Mutex::new(0),
             released: Condvar::new(),
@@ -60,12 +71,16 @@ impl<T> SignaledMutex<T> {
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
-        match self.value.lock() {
+        let locked = match self.value.lock() {
             Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
             Err(error) => {
                 Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, blocker)))
             }
+        };
+        if let Some(barrier) = self.barrier.as_ref() {
+            barrier.sync_for_reader();
         }
+        locked
     }
 
     #[cfg(test)]

@@ -2868,11 +2868,7 @@ impl WorkspaceRegistry {
                 .query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))
                 .ok()
                 .filter(|mode| mode.eq_ignore_ascii_case("wal"))
-                .map(|_| {
-                    let mut wal = path.clone().into_os_string();
-                    wal.push("-wal");
-                    PathBuf::from(wal)
-                }),
+                .map(|_| deferred_sync::wal_path(path)),
             None => None,
         };
         let connection = RegistryConnection::new(connection);

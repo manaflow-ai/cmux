@@ -543,6 +543,8 @@ impl Mux {
         }
         let state = self.state.lock().unwrap();
         let presentation = self.presentation.lock().unwrap_or_else(|e| e.into_inner());
+        // A creation may have reloaded it from unsynced commits (create_txn).
+        self.registry_connection.deferred_sync().sync_for_reader();
         decorations.presentation = Arc::clone(&presentation);
         let delta = presentation::tab_changed_delta(&state, &decorations, surface);
         drop(state);

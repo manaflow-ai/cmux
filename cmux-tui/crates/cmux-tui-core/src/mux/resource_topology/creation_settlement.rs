@@ -144,7 +144,7 @@ impl Mux {
             }
         };
         crate::debug_spans::mark("creation.projection_committed");
-        txn.finish()?;
+        txn.finish();
         let commit = commit?;
         self.activate_created_terminal_launch(&commit.result)?;
         crate::debug_spans::mark("creation.launch_activated");

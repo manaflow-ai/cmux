@@ -190,7 +190,7 @@ impl Mux {
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
-            workspace_registry: SignaledMutex::new(registry),
+            workspace_registry: SignaledMutex::with_barrier(registry, Some(deferred_sync.clone())),
             session_public_id,
             machine_public_id,
             connection_stats: Arc::default(),

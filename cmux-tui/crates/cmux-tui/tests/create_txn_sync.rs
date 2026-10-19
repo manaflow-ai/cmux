@@ -4,10 +4,13 @@
 //! `workspace.create` committed seven times in a row and each commit waited
 //! for its own sync (`sqlite.commit`): about 22 ms of a 45 ms create on an
 //! M6 Mac mini. Now every commit of a creation skips its own sync
-//! (`sqlite.commit.deferred`) and the creation syncs the WAL once
-//! (`registry.wal_synced`), after its last commit and before its reply.
-//! The created terminals are still there when the daemon is killed right
-//! after the replies and started again.
+//! (`sqlite.commit.deferred`), and the creation is durable
+//! (`create_txn.synced`, after at most one `registry.wal_synced` of its own:
+//! another thread may have synced its commits first) after its last commit
+//! and before its reply. The created terminals are still there when the
+//! daemon is killed right after the replies and started again. (A kill
+//! keeps the page cache, so that part checks recovery, not the sync; the
+//! mark order is the sync's evidence.)
 
 #![cfg(unix)]
 
@@ -126,18 +129,15 @@ fn a_creation_syncs_its_commits_once_and_they_survive_a_daemon_kill() {
         assert_eq!(own_syncs, 0, "{label}: a commit waited for its own sync: {names:?}");
         let deferred = names.iter().filter(|name| *name == "sqlite.commit.deferred").count();
         assert!(deferred >= 2, "{label}: expected its commits on the request thread: {names:?}");
-        let synced: Vec<usize> = names
-            .iter()
-            .enumerate()
-            .filter(|(_, name)| *name == "registry.wal_synced")
-            .map(|(index, _)| index)
-            .collect();
-        assert_eq!(synced.len(), 1, "{label}: one WAL sync per creation: {names:?}");
+        let syncs = names.iter().filter(|name| *name == "registry.wal_synced").count();
+        assert!(syncs <= 1, "{label}: at most one WAL sync per creation: {names:?}");
+        let durable = names.iter().position(|name| name == "create_txn.synced");
+        let durable = durable.unwrap_or_else(|| panic!("{label}: never made durable: {names:?}"));
         let last_commit = names.iter().rposition(|name| name == "sqlite.commit.deferred").unwrap();
         let reply = names.iter().position(|name| name == "reply.sent").unwrap();
         assert!(
-            last_commit < synced[0] && synced[0] < reply,
-            "{label}: the sync must follow the last commit and precede the reply: {names:?}"
+            last_commit < durable && durable < reply,
+            "{label}: durable after the last commit and before the reply: {names:?}"
         );
     }
 

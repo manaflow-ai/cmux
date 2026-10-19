@@ -30,6 +30,8 @@ thread_local! {
 pub(crate) struct CreateTxn<'a> {
     mux: &'a Mux,
     scope: Option<DeferScope>,
+    /// Not closed yet (`finish` and drop close once).
+    open: bool,
 }
 
 impl Mux {
@@ -59,7 +61,7 @@ impl Mux {
             }
         });
         let scope = (!nested).then(|| self.registry_connection.deferred_sync().scope());
-        CreateTxn { mux: self, scope }
+        CreateTxn { mux: self, scope, open: true }
     }
 
     /// `event` if it may go out now, `None` when the current thread's
@@ -90,13 +92,16 @@ impl Mux {
 
 impl CreateTxn<'_> {
     /// Make every commit of the creation durable, then publish what it
-    /// held. A sync failure is returned after the publications go out: the
-    /// commits are in the database either way, and readers retry the sync.
-    pub(crate) fn finish(mut self) -> anyhow::Result<()> {
-        self.close()
+    /// held. A failed sync ends the daemon before anything is published
+    /// (`deferred_sync::fatal_sync_failure`).
+    pub(crate) fn finish(mut self) {
+        self.close();
     }
 
-    fn close(&mut self) -> anyhow::Result<()> {
+    fn close(&mut self) {
+        if !std::mem::replace(&mut self.open, false) {
+            return;
+        }
         let key = self.mux as *const Mux as usize;
         let outermost = HELD.with(|held| {
             let mut slot = held.borrow_mut();
@@ -109,11 +114,10 @@ impl CreateTxn<'_> {
             };
             if last { slot.take() } else { None }
         });
-        let Some(held) = outermost else { return Ok(()) };
-        let synced = match self.scope.take() {
-            Some(scope) => scope.finish(),
-            None => Ok(()),
-        };
+        let Some(held) = outermost else { return };
+        if let Some(scope) = self.scope.take() {
+            scope.finish();
+        }
         crate::debug_spans::mark("create_txn.synced");
         for event in held.events {
             self.mux.emit(event);
@@ -121,14 +125,11 @@ impl CreateTxn<'_> {
         if held.journal_wake {
             self.mux.publish_journal_event();
         }
-        synced.context("sync the registry WAL after a creation")
     }
 }
 
 impl Drop for CreateTxn<'_> {
     fn drop(&mut self) {
-        if let Err(error) = self.close() {
-            eprintln!("cmux-tui: {error:#}");
-        }
+        self.close();
     }
 }

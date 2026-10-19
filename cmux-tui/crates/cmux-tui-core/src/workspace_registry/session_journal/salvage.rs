@@ -78,7 +78,9 @@ impl SessionJournalReader {
     /// Startup reads only the head here, so a bad first segment cannot stop
     /// the daemon before any fold has a chance to skip it.
     pub(crate) fn head(&self) -> anyhow::Result<u64> {
-        query_journal_head(&self.connection)
+        let head = query_journal_head(&self.connection)?;
+        self.pass_barrier();
+        Ok(head)
     }
 }
 
