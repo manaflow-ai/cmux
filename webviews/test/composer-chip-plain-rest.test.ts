@@ -97,7 +97,12 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
         // the focus that follows keyboard focus, as Tab would.
         await page.keyboard.press("Shift");
         await page.locator(chip).first().focus();
-        expect(await page.locator(chip).first().evaluate((element) => element.matches(":focus-visible"))).toBe(true);
+        expect(
+          await page
+            .locator(chip)
+            .first()
+            .evaluate((element) => element.matches(":focus-visible")),
+        ).toBe(true);
         const focus = await look(page, chip);
         expect(focus.filled, "keyboard focus draws a background").toBe(true);
         expect(focus.radius, "a small-radius rect, never a capsule").toBeLessThan(focus.height / 2 - 2);
