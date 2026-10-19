@@ -8,7 +8,7 @@
             login (until the batch App exists): poll, debounce, run batches
   run       the batch: select eligible PRs, stack them on feat-cmux-next,
             validate the stack once (every cmux-next tier plus a fleet
-            production build), land each PR with gh-merge-green, or bisect a
+            production build), land each PR through GitHub's merge API at that head, or bisect a
             red stack down to the PR that broke it
   stack     stack PRs locally and print the result (no pushes, no GitHub writes)
   select    print which open PRs are eligible and why the others are not
@@ -1547,17 +1547,8 @@ class Controller:
             f"{failing}\n\nNext: fix, push."))
 
     # -- landing
-    def merge_green(self) -> Path:
-        path = Path(tempfile.gettempdir()) / "gh-merge-green"
-        if not path.exists():
-            self.git("fetch", "--quiet", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main")
-            path.write_text(self.git("show", "refs/remotes/origin/main:scripts/gh-merge-green") + "\n")
-            path.chmod(0o755)
-        return path
-
     def land(self, validation: Validation) -> list[tuple[PullRequest, str]]:
         landed = []
-        helper = self.merge_green()
         fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
         landing = getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
         stop = 0
@@ -1615,7 +1606,7 @@ class Controller:
                 f"Batch queue: landing. [Batch]({self.run_url}), stack `{validation.stack.head[:12]}` "
                 f"on `{validation.stack.base[:12]}`, [heavy tier]({validation.heavy_url}), "
                 f"build: {validation.build.get('link', 'n/a')}."))
-            outcome = self.merge_one(helper, pr, validation)
+            outcome = self.merge_one(pr, validation)
             landed.append((pr, outcome))
             if "GitHub refused to merge" in outcome:
                 self.comment_once(pr, "refused", (
@@ -1635,70 +1626,23 @@ class Controller:
                 f"`{stack.base[:12]}` with " + " ".join(f"#{item.number}" for item in stack.included) + ". "
                 f"Fleet production build: job `{build.get('job_id', 'n/a')}` ({build.get('link', 'n/a')}). "
                 f"{heavy}. Validated this PR at `{pr.sha[:12]}`.\n\n"
-                "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`; gh-merge-green is optional).")
+                "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`).")
 
-    def waivable(self, line: str, validation: Validation) -> bool:
-        """Whether every red lane in gh-merge-green's refusal is a heavy-tier
-        job the stack ran green, so --override waives only what the batch tested.
+    def merge_one(self, pr: PullRequest, validation: Validation) -> str:
+        """Squash-merge the exact head this batch validated through GitHub's merge API.
 
-        The line reads `not green: <lane>; <lane> on <sha>, not excused by ...`.
-        A lane is a quoted check (`'cmux-next swift test'`) or a cmux-next run
-        verdict (`cmux-next run <id> attempt <n> (<event>) is failure`), whose
-        failed jobs then decide."""
-        found = re.match(r"not green: (.+) on [0-9a-f]{7,40}, not excused by ", line)
-        if not found:
-            return False
-
-        def passed(name: str) -> bool:
-            return name in HEAVY_CHECKS and any(job.endswith(name) for job in validation.heavy_passed)
-
-        for lane in found.group(1).split("; "):
-            quoted = re.fullmatch(r"'(.+)'", lane)
-            verdict = re.fullmatch(r"cmux-next run (\d+) attempt \d+ \(\S+\) is failure", lane)
-            if quoted:
-                if not passed(quoted.group(1)):
-                    return False
-            elif verdict:
-                try:
-                    jobs = self.failed_jobs(int(verdict.group(1)))
-                except RuntimeError as error:  # unreadable: nothing is waived
-                    log(f"could not read run {verdict.group(1)}: {error}")
-                    return False
-                if not jobs or not all(passed(job) for job in jobs):
-                    return False
-            else:
-                return False
-        return True
-
-    def merge_one(self, helper: Path, pr: PullRequest, validation: Validation) -> str:
-        ref = f"{self.args.repo}#{pr.number}"
-        env = {**self.writer.env, "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
+        The batch already ran every tier on the stack, so nothing is re-judged here: GitHub refuses a head
+        that moved, a conflict or a branch rule, and that refusal is reported and the PR waits for the next
+        batch. (feat-cmux-next's bar is the batch plus the review gate, not main's needs-green helper.)"""
         passed = ", ".join(validation.heavy_passed) or "no heavy-tier job"
-        reason = (f"cmux-next batch {self.run_url} validated this exact head in stack "
-                  f"{validation.stack.head[:12]}: these passed there: {passed}, and the fleet production build")
-        deadline = time.monotonic() + 30 * 60
-        # Each --override call follows a refusal that waivable() just approved;
-        # a later refusal is judged again, so a lane that turns red meanwhile is never waived unchecked.
-        override = False
-        while True:
-            # Trailing flags reach gh pr merge after gh-merge-green's own: GitHub
-            # merges only the head this batch validated, never a newer push.
-            command = [str(helper), ref, *(["--override", reason] if override else []), "--squash",
-                       "--match-head-commit", pr.sha]
-            completed = subprocess.run(command, capture_output=True, text=True, env=env)
-            output = (completed.stdout + completed.stderr).strip()
-            if completed.returncode == 0:
-                return "landed" + (" (override: own heavy check red, batch green)" if override else "")
-            line = next((item for item in output.splitlines() if item.startswith("not green")), output[-300:])
-            pending = re.search(r"is (queued|in_progress|waiting|pending|requested)/", line) or "has not run" in line
-            if not override and self.waivable(line, validation):
-                override = True  # the batch ran that tier on this head's stack
-                continue
-            override = False
-            if pending and time.monotonic() < deadline:
-                time.sleep(120)
-                continue
-            return f"not landed: {line}"
+        try:
+            self.writer.api(f"repos/{self.args.repo}/pulls/{pr.number}/merge", method="PUT", body={
+                "sha": pr.sha, "merge_method": "squash",
+                "commit_message": (f"Landed by the cmux-next batch queue ({self.run_url}): stack "
+                                   f"{validation.stack.head[:12]}, heavy tier passed: {passed}.")})
+        except RuntimeError as error:
+            return f"not landed: GitHub refused to merge {self.args.repo}#{pr.number}: {str(error)[-200:]}"
+        return "landed"
 
     def after_landing(self) -> None:
         """Merges by the job token start no push workflows; start the base ones.

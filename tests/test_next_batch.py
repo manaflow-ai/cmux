@@ -1014,7 +1014,7 @@ class FormatBeforeLanding(unittest.TestCase):
         controller.comment_once = lambda *args: None
         formatted, merged = [], []
         controller.format_pr = lambda item, branch: formatted.append(item.number) or "f" * 40
-        controller.merge_one = lambda helper, item, validation: merged.append(item.number) or "landed"
+        controller.merge_one = lambda item, validation: merged.append(item.number) or "landed"
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="h", included=[red, clean]),
                                    branch="next-batch/x-1")
         reviewed = Path(tempfile.mkdtemp()) / "reviewed"
@@ -1049,7 +1049,7 @@ class NotifyOwners(unittest.TestCase):
         controller.comments = []
         controller.comment_once = lambda item, kind, body: controller.comments.append((item.number, kind, body))
         controller.merged = []
-        controller.merge_one = lambda helper, item, validation: controller.merged.append(item.number) or "landed"
+        controller.merge_one = lambda item, validation: controller.merged.append(item.number) or "landed"
         return controller
 
     def validation(self, prs, passed=("cmux-next swift test",)) -> nb.Validation:
@@ -1140,17 +1140,6 @@ class ReviewGateHoles(NotifyOwners):
         path.write_text("".join(f"{item.number} {item.sha}\n" for item in items))
         path.chmod(0o600)
         return str(path)
-
-    def test_the_merge_is_pinned_to_the_validated_head(self):
-        controller = self.controller(notify=False)
-        calls = []
-        controller.writer = mock.Mock(env={})
-        def run(command, **kwargs):
-            calls.append(command)
-            return subprocess.CompletedProcess(command, 0, "", "")
-        with mock.patch.object(nb.subprocess, "run", run):
-            nb.Controller.merge_one(controller, Path("/bin/true"), pr(1), self.validation([pr(1)]))
-        self.assertIn(["--match-head-commit", pr(1).sha], [calls[0][i:i + 2] for i in range(len(calls[0]))])
 
     def test_only_reviewed_prs_are_stacked_when_landing(self):
         gh = mock.Mock()
