@@ -105,15 +105,20 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// Each target's pull request in a GraphQL answer, reshaped as `gh pr view` prints it (the
     /// rollup's contexts as `statusCheckRollup`), by the target's URL: nil for a target GitHub
     /// answered null for (no such pull request, or not visible); a target the answer does not
-    /// mention (no `data`) is left out.
+    /// mention (no `data`), or whose null comes with an error other than NOT_FOUND (SSO, a resource
+    /// limit), is left out, so it keeps its last answer.
     static func pullRequests(fromGraphQL data: Data, _ targets: [Target]) -> [String: AgentPanePullRequest?] {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let answers = object["data"] as? [String: Any] else { return [:] }
+        let unanswered = Set(((object["errors"] as? [[String: Any]]) ?? []).compactMap { error -> String? in
+            guard (error["type"] as? String) != "NOT_FOUND" else { return nil }
+            return (error["path"] as? [Any])?.first as? String
+        })
         var result: [String: AgentPanePullRequest?] = [:]
         for (index, target) in targets.enumerated() {
             guard let alias = answers["p\(index)"] else { continue }
             guard var view = (alias as? [String: Any])?["pullRequest"] as? [String: Any] else {
-                result[target.url] = .some(nil)
+                if !unanswered.contains("p\(index)") { result[target.url] = .some(nil) }
                 continue
             }
             let commit = ((view["commits"] as? [String: Any])?["nodes"] as? [[String: Any]])?.last?["commit"] as? [String: Any]

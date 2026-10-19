@@ -5,6 +5,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -40,7 +41,7 @@ public final class SidebarSessionTreeFeed {
                                  pullRequests: pullRequests.answers)
             }) {
                 if tree.state != pass?.state { tree.state = pass?.state }
-                if let pass { pullRequests.refresh(pass.asks) }
+                if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
     }
@@ -113,10 +114,11 @@ public final class SidebarSessionTreeFeed {
 
 /// The pull request of each session folder's branch and of each pull request URL a session opened,
 /// for the sidebar's session tree: read with the chat header's reader (two gh calls at a time, never
-/// prompting), at most once every five minutes per folder or URL, when the tree passes again (a
-/// lane or a workspace changed). A folder is one `gh pr view` there; every stale github.com URL
+/// prompting), at most once every five minutes per folder or URL: when the tree passes again (a
+/// lane or a workspace changed), and once every five minutes on its own while the tree shows
+/// pull requests not yet merged (an idle session's CI can still fail). A folder is one `gh pr view` there; every stale github.com URL
 /// goes in one batched GraphQL read (`read(urls:)`), never one call per pull request; a failed read
-/// keeps the last answers. Nothing else polls. The
+/// keeps the last answers. The
 /// chat header's chip shares those two calls, so the sidebar asks seldom and never stalls it.
 @MainActor @Observable
 final class SidebarPullRequestStore {
@@ -129,6 +131,10 @@ final class SidebarPullRequestStore {
     /// The most doublings of `freshness` a failing URL waits (5 minutes become 80).
     static let maximumBackoff = 4
     @ObservationIgnored private let reader: AgentChatPullRequestReader
+    /// What the tree showed last, read again by ``recheck``.
+    @ObservationIgnored private var shown: Set<String> = []
+    /// Reads `shown` again once `freshness` passes, though nothing in the tree changed.
+    @ObservationIgnored private let recheck = DemandTimer(owner: "sidebar.pullRequests.recheck")
     @ObservationIgnored private let freshness: Duration
 
     init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(300)) {
@@ -139,6 +145,15 @@ final class SidebarPullRequestStore {
     /// Asks again for each of `asks` (a folder, or a pull request's `https://` URL) whose answer is
     /// missing or older than `freshness`.
     func refresh(_ asks: Set<String>) {
+        shown = asks
+        if freshness > .zero, asks.contains(where: { !isSettled($0) }) {
+            recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
+                guard let self else { return }
+                refresh(shown)
+            }
+        } else {
+            recheck.cancel()
+        }
         let stale = asks.filter { key in
             !asking.contains(key) && !isSettled(key) && asked[key].map { ContinuousClock.now - $0 >= wait(key) } ?? true
         }
@@ -182,10 +197,16 @@ final class SidebarPullRequestStore {
         }
     }
 
-    /// A merged or closed pull request's URL: it never changes again, so it is not asked again.
-    /// (A folder's branch can get a new pull request after one merges, so folders always are.)
+    /// Stops the recheck: the tree is off.
+    func stop() {
+        shown = []
+        recheck.cancel()
+    }
+
+    /// A merged pull request's URL: it never changes again, so it is not asked again. (A closed one
+    /// can be reopened; a folder's branch can get a new pull request after one merges, so both are.)
     func isSettled(_ key: String) -> Bool {
-        key.hasPrefix("https://") && ["merged", "closed"].contains(answers[key]?.state ?? "")
+        key.hasPrefix("https://") && answers[key]?.state == "merged"
     }
 
     /// How long `key`'s answer stays fresh: `freshness`, doubled for each failed read in a row.
