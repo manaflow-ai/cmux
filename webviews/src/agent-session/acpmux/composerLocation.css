@@ -474,6 +474,11 @@
 .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):active {
   background: var(--acpmux-row-press);
 }
+/* Opening a picker moves focus into its popup before the browser paints the held frame, which
+   clears :active. Keep that first frame at the same tone as the open chip (popoverTrigger.ts). */
+.acpmux-composer-bar .acpmux-picker-button[data-press-active] {
+  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
+}
 .acpmux-composer-bar
   :is(.acpmux-model, .acpmux-effort, .acpmux-access)
   .acpmux-picker-button:focus-visible {
@@ -485,7 +490,7 @@
 }
 /* A pill pressed or open stays on that hover step with no edge: a click never flashes a brighter
    press tone or a ring (Leo 2026-10-18). */
-.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"]) {
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"], [data-press-active]) {
   background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
   box-shadow: none;
 }
