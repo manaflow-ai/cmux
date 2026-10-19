@@ -47,6 +47,8 @@ extension AgentTabStore {
         }, saveQuickActions: { [weak self] list in
             await self?.customization.saveQuickActions(list) ?? false
         }, moveToFloatingChat: { [weak self] session in actions.moveToFloatingChat(session, via: self?.moveToFloatingChat) }, refreshPullRequest: pullRequest.askAgain)
+        AgentChatThreadActions().wire(&model.header, tab: actions.tab, registry: actions.registry, cwd: { [weak self] in self?.lookup($0)?.store.tab(id: $0)?.cwd }, local: { [weak self] in self?.gitLink?($0)?.isLocal == true },
+                                      files: { actions.openFiles($0, on: $1) }, changes: { actions.runBeside(AgentChatSplitToggles.changes, arguments: ["path": .string($0)], on: $1) })
         model.chatMenuItems = actions.menuItems
         model.onSearchWeb = actions.searchWeb
     }
@@ -57,7 +59,9 @@ extension AgentTabStore {
     private func openNewTabColumn(beside provisional: String, cwd: String? = nil, split: Bool = true) -> Bool {
         let chat = resolve(provisional)
         // The page opens on the chat's machine: that machine's folders, never this Mac's (cx-k21v).
-        guard let newTab = firstPageNewTab?(cwd ?? lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
+        guard var newTab = firstPageNewTab?(cwd ?? lookup(chat)?.store.tab(id: chat)?.cwd, chat) else { return false }
+        // The chat's side column (`agentChat.sideColumn`) starts as tiles of what it can hold.
+        AgentChatPanelPlacement().configure(&newTab.page, split: split)
         return openBeside(provisional, split: split) { pane, daemon in try self.open(in: pane, of: daemon, newTab: newTab) }
     }
 

@@ -10,11 +10,90 @@ html[data-cmux-page="files"] body { overflow: hidden; }
 
 .files-header {
   flex: none;
-  padding: 10px 12px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 4px 12px;
   font-weight: 600;
+}
+
+.files-title {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Refresh: a quiet icon button at the header's end. */
+.files-refresh {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--page-text-2);
+  cursor: pointer;
+}
+.files-refresh:hover { background: var(--page-hover); color: var(--page-text); }
+.files-refresh:focus-visible { outline: 1.5px solid var(--page-text-3); outline-offset: 1px; }
+
+/* Search: a field under the header, the magnifier inside it. */
+.files-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 8px 6px;
+}
+
+.files-search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--page-hover);
+  color: var(--page-text-3);
+}
+.files-search:focus-within { box-shadow: inset 0 0 0 1px var(--page-text-3); }
+.files-search-field {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--page-text);
+  font: inherit;
+  outline: none;
+}
+.files-search-field::placeholder { color: var(--page-text-3); }
+.files-search-field::-webkit-search-cancel-button { display: none; }
+
+/* What git ignores: listed, greyed out. */
+.files-name.is-ignored,
+.files-icon.is-ignored,
+.files-folder.is-ignored { opacity: 0.45; }
+
+.files-icon { flex: none; display: inline-flex; }
+
+/* A search match's folder, after its name. */
+.files-where {
+  min-width: 0;
+  margin-inline-start: 2px;
+  color: var(--page-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
 }
 
 .files-scroll {

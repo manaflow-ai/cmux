@@ -3,6 +3,8 @@ import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
+import { ThoughtFold } from "./ThoughtFold";
+import { thoughtStyle } from "./thoughtStyle";
 import { formatDuration } from "./turns";
 
 /// With the live viewport off, a done thought folds once it is taller than the transcript's
@@ -77,15 +79,14 @@ export function thoughtPreview(text: string): string {
 /// "Thought"), or with the Debug choice "preview", "Thought" and its first line. The reader's
 /// toggle always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's toggle
 /// animates the height, except under Reduce Motion.
-export function ThoughtRow({
-  item,
-  id,
-  streaming = false,
-}: {
-  item: AcpmuxActivity;
-  id?: string;
-  streaming?: boolean;
-}) {
+export function ThoughtRow(props: { item: AcpmuxActivity; id?: string; streaming?: boolean }) {
+  // The Debug choice agentPane.debug.thoughtStyle (thoughtStyle.ts): a brain line that opens.
+  if (thoughtStyle.current() === "brain")
+    return <ThoughtFold id={props.id} text={props.item.text.trim()} streaming={props.streaming} />;
+  return <PlainThoughtRow {...props} />;
+}
+
+function PlainThoughtRow({ item, id, streaming = false }: { item: AcpmuxActivity; id?: string; streaming?: boolean }) {
   const t = useT();
   const text = item.text.trim();
   const enabled = thoughtLayout.enabled();

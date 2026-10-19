@@ -6,6 +6,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import type { MdBlock } from "../src/agent-session/acpmux/conversation/Markdown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -15,6 +16,8 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
+  addEventListener: dom.window.addEventListener.bind(dom.window),
+  removeEventListener: dom.window.removeEventListener.bind(dom.window),
   document: dom.window.document,
   location: dom.window.location,
   navigator: dom.window.navigator,
@@ -44,6 +47,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
+document.documentElement.setAttribute("data-lab-live-render", "off");
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
@@ -63,7 +67,7 @@ const button = (label: string) =>
     (element) => element.getAttribute("aria-label") === label || element.textContent === label,
   );
 
-async function draw(markdown: string, streaming = false, open?: (artifact: unknown) => void) {
+async function draw(markdown: string, streaming = false, open?: (artifact: unknown) => void, plainCode = false) {
   const { createRoot } = await import("react-dom/client");
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
   const { ArtifactContext } = await import("../src/agent-session/acpmux/conversation/artifactPreview");
@@ -72,7 +76,9 @@ async function draw(markdown: string, streaming = false, open?: (artifact: unkno
   act(() =>
     root!.render(
       <ArtifactContext.Provider value={open}>
-        <Markdown streaming={streaming}>{markdown}</Markdown>
+        <Markdown streaming={streaming} plainCode={plainCode}>
+          {markdown}
+        </Markdown>
       </ArtifactContext.Provider>,
     ),
   );
@@ -85,7 +91,7 @@ test("a closed cmux-render fence draws as a render card named by its page's titl
   expect(card!.querySelector(".acpmux-render-card-title")?.textContent).toBe("Desk clamp");
   // Nothing runs until the reader presses Run, as for a render tool call.
   expect(host.querySelector("iframe")).toBeNull();
-  act(() => button("Run")!.click());
+  act(() => button("Show visualization")!.click());
   const frame = host.querySelector("iframe")!;
   expect(frame.getAttribute("src")).toBe("cmux-agent://render/frame");
   expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
@@ -128,3 +134,108 @@ test("a page a reply rewrites under the same title is its next version in the si
     page("<p>v2</p>"),
   ]);
 });
+
+for (const [name, markdown] of [
+  ["quote", `> review:\n> \`\`\`cmux-render\n> ${PAGE}\n> \`\`\``],
+  ["list", `- review:\n  \`\`\`cmux-render\n  ${PAGE}\n  \`\`\``],
+]) {
+  test(`plainCode keeps a render fence in a ${name} as code`, async () => {
+    document.documentElement.setAttribute("data-lab-live-render", "on");
+    try {
+      await draw(markdown!, false, undefined, true);
+      expect(host.querySelector(".acpmux-render-card") === null).toBe(true);
+      expect(host.querySelector("iframe") === null).toBe(true);
+      expect(host.textContent).toContain(PAGE);
+    } finally {
+      document.documentElement.setAttribute("data-lab-live-render", "off");
+    }
+  });
+}
+
+test.each(["<!doctype html>", " \n<!-- page -->\n<!-- layout -->\n<!DoCtYpE html>"])(
+  "heartbeat injection preserves standards mode with leading %s",
+  async (prefix) => {
+    const html = prefix + "<html><head><title>Standards</title></head><body>Page</body></html>";
+    await draw("```cmux-render\n" + html + "\n```");
+    act(() => button("Show visualization")!.click());
+    const frame = host.querySelector("iframe")!;
+    const messages: { html: string }[] = [];
+    frame.contentWindow!.postMessage = (data) => messages.push(data);
+    void act(() =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          source: frame.contentWindow,
+          data: { type: "cmux-render-ready" },
+        }),
+      ),
+    );
+    const page = new JSDOM(messages[0]!.html);
+    try {
+      expect(page.window.document.compatMode).toBe("CSS1Compat");
+      expect(messages[0]!.html.startsWith(prefix + "<script>")).toBe(true);
+      expect(page.window.document.querySelector("script")?.textContent).toContain("cmux-render-ping");
+    } finally {
+      page.window.close();
+    }
+  },
+);
+
+test("a closed code fence in a streaming list still gets its highlighted card", async () => {
+  dom.reconfigure({ url: "http://localhost/" });
+  try {
+    await act(async () => {
+      const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+      await loadHighlightedCode();
+      await draw("- Example:\n  ```js\n  const count = 1;\n  ```\n  More:\n  ```js\n  const next =", true);
+    });
+    expect(host.querySelector("li diffs-container")).not.toBeNull();
+    expect(host.querySelector("li .cv-codeblock")?.classList.contains("cv-codeblock--plain")).toBe(false);
+  } finally {
+    act(() => root?.unmount());
+    root = undefined;
+    dom.reconfigure({ url: "cmux-agent://pane/index.html" });
+  }
+});
+
+test.each(["````", "~~~", "~~~~"])(
+  "%s outer fences keep render examples as code in full and incremental parsing",
+  async (fence) => {
+    const { Markdown, parseMarkdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
+    const { IncrementalMarkdown } = await import("../src/agent-session/acpmux/conversation/incrementalMarkdown");
+    const { RenderLiveContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
+    const example = "```cmux-render\n<p>Documentation only</p>\n```";
+    const source = `${fence}markdown\n${example}\n\nMore code\n${fence}\n\nAfter\n`;
+    const expected: MdBlock[] = [
+      { type: "code", lang: "markdown", code: example + "\n\nMore code" },
+      { type: "paragraph", text: "After" },
+    ];
+    expect(parseMarkdown(source)).toEqual(expected);
+    const parser = new IncrementalMarkdown();
+    document.documentElement.setAttribute("data-lab-live-render", "on");
+    try {
+      await draw("");
+      for (let end = 1; end <= source.length; end++) {
+        const prefix = source.slice(0, end);
+        expect(parser.update(prefix).map(({ block }) => block)).toEqual(parseMarkdown(prefix));
+        act(() =>
+          root!.render(
+            <RenderLiveContext.Provider value>
+              <Markdown
+                streaming={end < source.indexOf(`\n${fence}\n`)}
+                plainCode={end >= source.indexOf(`\n${fence}\n`)}
+                receivedText={prefix}
+              >
+                {prefix}
+              </Markdown>
+            </RenderLiveContext.Provider>,
+          ),
+        );
+        expect(host.querySelector(".acpmux-render-card")).toBeNull();
+        expect(host.querySelector("iframe")).toBeNull();
+      }
+      expect(parser.update(source).map(({ block }) => block)).toEqual(expected);
+    } finally {
+      document.documentElement.setAttribute("data-lab-live-render", "off");
+    }
+  },
+);
