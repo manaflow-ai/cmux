@@ -16,6 +16,7 @@ use super::state::LinkConfig;
 pub(super) struct Identity {
     pub config: LinkConfig,
     pub key: Zeroizing<[u8; 32]>,
+    pub route: super::native_route::NativeRoute,
 }
 
 #[derive(Deserialize)]
@@ -25,6 +26,10 @@ struct Bootstrap {
     install: String,
     team: String,
     mesh: String,
+    tenant: String,
+    ipv4_cidr: String,
+    device: String,
+    tunnel: super::native_route::Tunnel,
     private_key: String,
 }
 
@@ -69,16 +74,14 @@ fn read_identity(stream: &mut UnixStream) -> io::Result<Identity> {
     }
     let bootstrap: Bootstrap = serde_json::from_slice(&bytes).map_err(|_| refused())?;
     let encoded = Zeroizing::new(bootstrap.private_key);
-    if bootstrap.version != 1
+    if bootstrap.version != 2
         || !bootstrap.install.starts_with("inst_")
         || bootstrap.install.len() <= 5
         || !cmux_link::stamp::valid_id(&bootstrap.install)
         || !bootstrap.team.starts_with("team_")
         || bootstrap.team.len() != 25
         || !bootstrap.team[5..].bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        || !bootstrap.mesh.starts_with("mesh_")
-        || bootstrap.mesh.len() != 31
-        || !bootstrap.mesh[5..].bytes().all(|b| b"0123456789abcdefghjkmnpqrstvwxyz".contains(&b))
+        || !native_id(&bootstrap.mesh, "mesh_")
     {
         return Err(refused());
     }
@@ -88,10 +91,25 @@ fn read_identity(stream: &mut UnixStream) -> io::Result<Identity> {
     }
     let mut key = Zeroizing::new([0u8; 32]);
     key.copy_from_slice(&decoded);
+    let route = super::native_route::NativeRoute::new(
+        bootstrap.tenant,
+        bootstrap.mesh,
+        &bootstrap.device,
+        bootstrap.ipv4_cidr,
+        bootstrap.tunnel,
+    )
+    .map_err(|_| refused())?;
     Ok(Identity {
         config: LinkConfig { install: bootstrap.install, port: 0, server_identity: None },
         key,
+        route,
     })
+}
+
+pub(super) fn native_id(value: &str, prefix: &str) -> bool {
+    value.starts_with(prefix)
+        && value.len() == prefix.len() + 26
+        && value[prefix.len()..].bytes().all(|b| b"0123456789abcdefghjkmnpqrstvwxyz".contains(&b))
 }
 
 #[cfg(test)]
@@ -100,15 +118,20 @@ mod tests {
     use std::io::Write as _;
 
     fn bootstrap() -> serde_json::Value {
-        serde_json::json!({"version": 1, "install": "inst_native",
+        serde_json::json!({"version": 2, "install": "inst_native",
             "team": format!("team_{}", "a".repeat(20)), "mesh": format!("mesh_{}", "0".repeat(26)),
+            "tenant": "tenant_a", "ipv4_cidr": "10.128.0.0/20", "device": format!("dev_{}", "0".repeat(26)),
+            "tunnel": {"id": format!("tun_{}", "0".repeat(26)), "meshId": format!("mesh_{}", "0".repeat(26)),
+                "deviceId": format!("dev_{}", "0".repeat(26)), "endpointHost": "203.0.113.30", "endpointPort": 51820,
+                "serverPublicKey": STANDARD.encode([3u8; 32]), "interfaceAddress": "100.64.0.1/32", "meshAddress": "10.128.0.10",
+                "allowedIps": ["10.128.0.0/20"], "mtu": 1280, "persistentKeepaliveSeconds": 25},
             "private_key": STANDARD.encode([7u8; 32])})
     }
 
     #[test]
     fn native_cloud_broker_rejects_malformed_scope_or_key_without_echoing_it() {
         for (field, value) in [
-            ("version", serde_json::json!(2)),
+            ("version", serde_json::json!(3)),
             ("install", serde_json::json!("host_other")),
             ("team", serde_json::json!("team_other")),
             ("mesh", serde_json::json!("mesh_other")),

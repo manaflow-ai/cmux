@@ -13,6 +13,7 @@ mod dial_cli;
 mod enrollment;
 mod ensure;
 mod native_broker;
+mod native_route;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
@@ -511,13 +512,15 @@ async fn serve(
     mut broker: Option<cloud_broker::Bound>,
 ) -> anyhow::Result<()> {
     let native = broker.as_ref().is_some_and(|bound| bound.identity.is_some());
-    let (config, private_key) = match broker.as_mut().and_then(|bound| bound.identity.take()) {
-        Some(identity) => (identity.config, identity.key),
-        None => (
-            state.config().context("run `cmux link init --install ID` first")?,
-            state.private_key()?,
-        ),
-    };
+    let (config, private_key, native_route) =
+        match broker.as_mut().and_then(|bound| bound.identity.take()) {
+            Some(identity) => (identity.config, identity.key, Some(identity.route)),
+            None => (
+                state.config().context("run `cmux link init --install ID` first")?,
+                state.private_key()?,
+                None,
+            ),
+        };
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -532,7 +535,7 @@ async fn serve(
         },
         socket,
     )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
+    let overlay = Arc::new(MeshOverlay::new(mesh, private_key).with_native_route(native_route));
     let (source, broker) = match broker {
         Some(cloud_broker::Bound { stream, .. }) => {
             stream.set_nonblocking(true)?;

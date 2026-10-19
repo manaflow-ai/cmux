@@ -72,8 +72,13 @@ fn native_cloud_broker_descriptor_transfer_uses_the_child_key_without_loading_le
         channel,
         "{}",
         serde_json::json!({
-            "version": 1, "install": "inst_native", "team": format!("team_{}", "a".repeat(20)),
+            "version": 2, "install": "inst_native", "team": format!("team_{}", "a".repeat(20)),
             "mesh": format!("mesh_{}", "0".repeat(26)), "private_key": STANDARD.encode([7u8; 32]),
+            "tenant": "tenant_a", "ipv4_cidr": "10.128.0.0/20", "device": format!("dev_{}", "0".repeat(26)),
+            "tunnel": {"id": format!("tun_{}", "0".repeat(26)), "meshId": format!("mesh_{}", "0".repeat(26)),
+                "deviceId": format!("dev_{}", "0".repeat(26)), "endpointHost": "203.0.113.30", "endpointPort": 51820,
+                "serverPublicKey": STANDARD.encode([3u8; 32]), "interfaceAddress": "100.64.0.1/32", "meshAddress": "10.128.0.10",
+                "allowedIps": ["10.128.0.0/20"], "mtu": 1280, "persistentKeepaliveSeconds": 25},
         })
     )
     .unwrap();

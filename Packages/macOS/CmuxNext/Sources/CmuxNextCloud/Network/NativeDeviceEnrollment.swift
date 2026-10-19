@@ -92,8 +92,21 @@ public actor NativeDeviceEnrollment {
               context.install == saved.context.install, context.point == saved.context.point,
               context.environment == saved.context.environment else { throw NativeDeviceEnrollmentError.invalidIdentity }
         try await checkStartup(context: context, epoch: epoch, binding: binding)
+        let target = try await identity.nativeNetworkTarget(team: scope.team, mesh: scope.mesh)
+        try await checkStartup(context: context, epoch: epoch, binding: binding)
+        guard target.scope == scope, target.origin == nativeOrigin else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        let policyProof = try await proof("overlay-policy", target: binding.device, context: context)
+        let policy: NativeDevicePolicyIdentity = try await readNative("POST", "/v1/devices/\(binding.device)/signed/overlay-policy", body: JSONEncoder().encode(policyProof))
+        try await checkStartup(context: context, epoch: epoch, binding: binding)
+        guard policy.tenantId == scope.tenant, policy.meshId == scope.mesh, policy.deviceId == binding.device,
+              policy.wgPublicKey == binding.wgPublicKey, policy.installPublicKey == context.point else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        let tunnelProof = try await proof("tunnel", target: binding.device, context: context)
+        let tunnel: NativeTunnelConfiguration = try await readNative("POST", "/v1/devices/\(binding.device)/signed/tunnel", body: JSONEncoder().encode(tunnelProof))
+        try await checkStartup(context: context, epoch: epoch, binding: binding)
+        guard tunnel.meshId == scope.mesh, tunnel.deviceId == binding.device else { throw NativeDeviceEnrollmentError.invalidIdentity }
         let record = try currentRecord(saved.store)
-        let bytes = try JSONEncoder().encode(LinkBootstrap(install: context.install, team: scope.team, mesh: scope.mesh, private_key: record.privateKey))
+        let bytes = try JSONEncoder().encode(LinkBootstrap(install: context.install, team: scope.team, mesh: scope.mesh,
+            tenant: scope.tenant, ipv4_cidr: target.ipv4CIDR, device: binding.device, tunnel: tunnel, private_key: record.privateKey))
         return NativeCloudLinkStartup(bytes: bytes, publicKey: binding.wgPublicKey, recheck: { [weak self] in
             guard let self else { throw NativeDeviceEnrollmentError.revoked }
             try await self.checkStartup(context: context, epoch: epoch, binding: binding)
@@ -101,10 +114,14 @@ public actor NativeDeviceEnrollment {
     }
 
     private struct LinkBootstrap: Encodable {
-        let version = 1
+        let version = 2
         let install: String
         let team: String
         let mesh: String
+        let tenant: String
+        let ipv4_cidr: String
+        let device: String
+        let tunnel: NativeTunnelConfiguration
         let private_key: String
     }
 
