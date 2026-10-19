@@ -315,6 +315,9 @@ export function Composer({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  // The handle is made once: its notices read the current locale's strings.
+  const tRef = useRef(t);
+  tRef.current = t;
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   const field = useRef<MarkdownFieldHandle>(null);
@@ -435,9 +438,17 @@ export function Composer({
           ]);
       },
       attach(attachment) {
+        // A pick past the most the composer holds says so, as a dropped file does.
+        const held = attachmentsRef.current.filter((chip) => chip.id !== attachment.id);
+        if (held.length >= MAX_ATTACHMENTS) {
+          setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
+          return;
+        }
+        // Ahead of the render, so each of several picks attached at once counts the ones before it.
+        attachmentsRef.current = [...held, attachment];
         setAttachments((current) => {
-          const held = current.filter((chip) => chip.id !== attachment.id);
-          return held.length >= MAX_ATTACHMENTS ? current : [...held, attachment];
+          const kept = current.filter((chip) => chip.id !== attachment.id);
+          return kept.length >= MAX_ATTACHMENTS ? current : [...kept, attachment];
         });
       },
       send: () => submitNow.current(true),
