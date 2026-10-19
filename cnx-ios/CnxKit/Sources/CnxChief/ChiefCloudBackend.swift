@@ -328,7 +328,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 }
                 let delay = Self.retryDelay(attempt: attempt)
                 let clock = clock
-                let wait = Task { try? await clock.sleep(for: delay) }
+                let wait = Task { _ = try? await clock.sleep(for: delay) }
                 backoff = wait
                 await wait.value
                 backoff = nil
