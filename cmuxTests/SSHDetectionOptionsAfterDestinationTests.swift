@@ -91,6 +91,16 @@ struct SSHDetectionOptionsAfterDestinationTests {
         #expect(try #require(Self.detect(["ssh", "-o", "User=carol", "host", "-l", "bob"])).destination == "carol@host")
     }
 
+    /// `-S` is the exception: each one replaces the control path, including one
+    /// set by `-o ControlPath=`, while a later `-o ControlPath=` does not replace it
+    /// (`ssh -G` reports `/b`, `/b` and `/a` for these). The upload rides this
+    /// socket, so the wrong one could send it through another host's master.
+    @Test func theLastControlPathFlagWins() throws {
+        #expect(try #require(Self.detect(["ssh", "-S", "/a", "host", "-S", "/b"])).controlPath == "/b")
+        #expect(try #require(Self.detect(["ssh", "-o", "ControlPath=/a", "host", "-S", "/b"])).controlPath == "/b")
+        #expect(try #require(Self.detect(["ssh", "-S", "/a", "host", "-o", "ControlPath=/b"])).controlPath == "/a")
+    }
+
     /// Restore replays an interactive ssh's argv; a shell-less one stays out.
     @Test func restoreTreatsOptionsAfterTheDestinationTheSameWay() {
         func binding(_ arguments: [String]) -> SurfaceResumeBindingSnapshot? {
