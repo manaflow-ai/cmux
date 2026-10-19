@@ -4,7 +4,6 @@ import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp } from "./live-http.ts";
 import type { UpstreamConfig } from "./live.ts";
 import { UpstreamAccessTokens, type UpstreamAccessTokensService } from "./access-tokens.ts";
-import { proofSegment } from "./live-http.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { accessTokenAllowsVm } from "../proofs/access-token-allows.ts";
 
@@ -21,7 +20,6 @@ export function makeUpstreamAccessTokens(config: UpstreamConfig): UpstreamAccess
           Effect.flatMap((body) => Schema.decodeUnknown(Identity)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "createIdentity", status: null })))),
         );
         const id = encodeURIComponent(identity.identityId);
-        const providerVmId = encodeURIComponent(upstreamIdOf(owns));
         yield* http.json("grantIdentityVm", "POST", `/v5/identities/${id}/permissions/vm`, { vmId: upstreamIdOf(owns), allowedLinuxUsers: [linuxUser] }).pipe(
           Effect.asVoid,
           Effect.tapError(() => http.json("deleteIdentity", "DELETE", `/v5/identities/${id}`).pipe(Effect.ignore)),
@@ -38,4 +36,3 @@ export function makeUpstreamAccessTokens(config: UpstreamConfig): UpstreamAccess
 
 export const upstreamAccessTokensLayer = (config: { readonly baseUrl: string; readonly apiKey: string; readonly environment: Environment }): Layer.Layer<UpstreamAccessTokens> =>
   Layer.succeed(UpstreamAccessTokens, makeUpstreamAccessTokens({ baseUrl: config.baseUrl, apiKey: Redacted.make(config.apiKey), environment: config.environment }));
-

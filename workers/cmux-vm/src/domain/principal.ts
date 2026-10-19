@@ -53,7 +53,7 @@ export const actorRef = (actor: Actor): string => {
     case "service":
       return `service:${actor.serviceId}`;
     case "access-token":
-      return `token:${actor.tokenId}`;
+      return `token:${actor.tokenId}:${actor.principal}`;
   }
 };
 

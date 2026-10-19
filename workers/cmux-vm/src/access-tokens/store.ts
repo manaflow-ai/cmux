@@ -51,15 +51,18 @@ export const sqlAccessTokenStoreLayer: Layer.Layer<AccessTokenStore, never, SqlC
         ).pipe(Effect.asVoid, Effect.mapError((cause) => new AccessTokenStoreError({ operation: "access_tokens.insert", cause }))),
       find: (tenantId, id) =>
         sql.query("access_tokens.find", `SELECT ${columns} FROM cmux_vm.access_tokens WHERE tenant_id = $1 AND id = $2 LIMIT 1`, [tenantId, id]).pipe(
+          Effect.mapError((cause) => new AccessTokenStoreError({ operation: "access_tokens.find", cause })),
           Effect.flatMap((rows) => decode("access_tokens.find", rows)),
           Effect.map((rows) => rows[0] ?? null),
         ),
       list: (tenantId, limit) =>
         sql.query("access_tokens.list", `SELECT ${columns} FROM cmux_vm.access_tokens WHERE tenant_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`, [tenantId, limit]).pipe(
+          Effect.mapError((cause) => new AccessTokenStoreError({ operation: "access_tokens.list", cause })),
           Effect.flatMap((rows) => decode("access_tokens.list", rows)),
         ),
       revoke: (tenantId, id, at) =>
         sql.query("access_tokens.revoke", `UPDATE cmux_vm.access_tokens SET revoked_at = COALESCE(revoked_at, $3::timestamptz) WHERE tenant_id = $1 AND id = $2 RETURNING ${columns}`, [tenantId, id, at.toISOString()]).pipe(
+          Effect.mapError((cause) => new AccessTokenStoreError({ operation: "access_tokens.revoke", cause })),
           Effect.flatMap((rows) => decode("access_tokens.revoke", rows)),
           Effect.map((rows) => rows[0] ?? null),
         ),

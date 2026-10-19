@@ -78,7 +78,7 @@ const liveServices = (env: Env) => {
     durableObjectLimitsLayer(env.TENANT_LIMITS),
     upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
     upstreamAccessTokensLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
-    Layer.effect(AccessTokens, Effect.map(TenantLimits, (limits) => makeAccessTokenService(parseAccessTokenKeys(env.CMUX_VM_ACCESS_TOKEN_KEYS), limits))),
+    Layer.effect(AccessTokens, Effect.map(TenantLimits, (limits) => makeAccessTokenService(parseAccessTokenKeys(env.CMUX_VM_ACCESS_TOKEN_KEYS), limits))).pipe(Layer.provide(durableObjectLimitsLayer(env.TENANT_LIMITS))),
     // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
     Layer.provideMerge(
       stackLayers({

@@ -21,6 +21,12 @@ export interface FakeSnapshot {
   readonly autoDeleteSeconds: number | null;
 }
 
+export interface FakeIdentity {
+  readonly id: string;
+  readonly grants: Map<string, string[]>;
+  readonly tokens: Set<string>;
+}
+
 /** One upstream call as the fake saw it. `json` is the parsed JSON body, if any. */
 export interface UpstreamCall {
   readonly method: string;
@@ -43,7 +49,12 @@ export type UpstreamOperation =
   | "read"
   | "write"
   | "dir"
-  | "resize";
+  | "resize"
+  | "createIdentity"
+  | "grantIdentityVm"
+  | "createIdentityToken"
+  | "deleteIdentity";
+
 
 const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
@@ -76,6 +87,7 @@ const conflict = (message: string) => Response.json({ code: "CONFLICT", message 
 export function makeFakeUpstream(apiKey: string) {
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
+  const identities = new Map<string, FakeIdentity>();
   const files = new Map<string, Uint8Array>();
   const calls: UpstreamCall[] = [];
   const failures = new Map<UpstreamOperation, Array<{ readonly status: number; readonly body?: unknown }>>();
@@ -228,10 +240,44 @@ export function makeFakeUpstream(apiKey: string) {
           vmId: vm.id,
         });
       }
+      case "createIdentity": {
+        const identity: FakeIdentity = { id: `identity-${crypto.randomUUID()}`, grants: new Map(), tokens: new Set() };
+        identities.set(identity.id, identity);
+        return Response.json({ identityId: identity.id });
+      }
+      case "grantIdentityVm": {
+        const match = /^\/v5\/identities\/([^/]+)\/permissions\/vm$/u.exec(url.pathname);
+        const identity = match?.[1] === undefined ? undefined : identities.get(decodeURIComponent(match[1]));
+        if (identity === undefined) return notFound();
+        const body: unknown = await request.clone().json();
+        if (typeof body !== "object" || body === null || !("vmId" in body)) return conflict("missing vm");
+        const vmId = String(body.vmId);
+        const users = "allowedLinuxUsers" in body && Array.isArray(body.allowedLinuxUsers) ? body.allowedLinuxUsers.map(String) : [];
+        identity.grants.set(vmId, users);
+        return Response.json({ id: `grant-${crypto.randomUUID()}`, identityId: identity.id, vmId, allowedLinuxUsers: users, grantedAt: "2026-10-03T00:00:00Z", grantedBy: "fake" });
+      }
+      case "createIdentityToken": {
+        const match = /^\/v5\/identities\/([^/]+)\/tokens$/u.exec(url.pathname);
+        const identity = match?.[1] === undefined ? undefined : identities.get(decodeURIComponent(match[1]));
+        if (identity === undefined) return notFound();
+        const token = `provider-${crypto.randomUUID()}`;
+        identity.tokens.add(token);
+        return Response.json({ id: `token-${crypto.randomUUID()}`, token });
+      }
+      case "deleteIdentity": {
+        const match = /^\/v5\/identities\/([^/]+)$/u.exec(url.pathname);
+        const id = match?.[1] === undefined ? "" : decodeURIComponent(match[1]);
+        if (!identities.delete(id)) return notFound();
+        return new Response(null, { status: 204 });
+      }
     }
   };
 
   const operationOf = (method: string, url: URL): { operation: UpstreamOperation; vmId: string | null } | null => {
+    if (url.pathname === "/v5/identities" && method === "POST") return { operation: "createIdentity", vmId: null };
+    if (/^\/v5\/identities\/[^/]+$/u.test(url.pathname) && method === "DELETE") return { operation: "deleteIdentity", vmId: null };
+    if (/^\/v5\/identities\/[^/]+\/permissions\/vm$/u.test(url.pathname) && method === "POST") return { operation: "grantIdentityVm", vmId: null };
+    if (/^\/v5\/identities\/[^/]+\/tokens$/u.test(url.pathname) && method === "POST") return { operation: "createIdentityToken", vmId: null };
     if (url.pathname === "/v5/vms") return method === "POST" ? { operation: "create", vmId: null } : { operation: "list", vmId: null };
     if (SNAPSHOT_PATH.test(url.pathname) && method === "DELETE") return { operation: "deleteSnapshot", vmId: null };
     const match = VM_PATH.exec(url.pathname);
@@ -277,6 +323,7 @@ export function makeFakeUpstream(apiKey: string) {
     vms,
     snapshots,
     files,
+    identities,
     calls,
     /** Makes the next `times` calls of `operation` answer `status`. */
     fail(operation: UpstreamOperation, status: number, times = 1, body?: unknown) {

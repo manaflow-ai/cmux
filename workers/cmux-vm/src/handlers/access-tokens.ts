@@ -1,6 +1,6 @@
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { name } from "@gdp-ts/core";
-import { Clock, Effect } from "effect";
+import { Clock, Effect, Option } from "effect";
 import { CreatedAccessToken, AccessTokenList, SshAccess, type CreateAccessTokenRequest } from "../access-tokens/api.ts";
 import { AccessTokenStore, type AccessTokenRecord, AccessTokens, type AccessTokenScope } from "../access-tokens/tokens.ts";
 import { AccessTokenId } from "../access-tokens/tokens.ts";
@@ -36,6 +36,11 @@ const parseTokenId = (raw: string): AccessTokenId | null => {
   }
 };
 
+const parseVm = (raw: string): VmId | null => {
+  const parsed = parseVmId(raw);
+  return Option.isSome(parsed) ? parsed.value : null;
+};
+
 const recordFor = (tenantId: Principal["tenantId"], raw: string) => {
   const id = parseTokenId(raw);
   return id === null ? Effect.succeed(null) : Effect.flatMap(AccessTokenStore, (store) => store.find(tenantId, id).pipe(Effect.mapError(() => unavailable())));
@@ -53,7 +58,7 @@ const tokenVmProof = (record: AccessTokenRecord) =>
       accessTokenScopes: record.scopes,
       accessTokenLinuxUser: record.linuxUser,
     };
-    const allows = yield* name(synthetic, (caller) => Effect.succeed(service.proofFor(caller, record)));
+    const allows = yield* (name(synthetic, (caller) => Effect.succeed(service.proofFor(caller, record))) as unknown as Effect.Effect<import("../proofs/access-token-allows.ts").AccessTokenAllows<Principal>, never>);
     return { synthetic, allows };
   });
 
@@ -70,10 +75,10 @@ const create = (payload: CreateAccessTokenRequest) =>
     if (vmIds.length !== payload.vmIds.length) return yield* Effect.fail(badRequest("vmIds must not contain duplicates"));
     const parsedVmIds: VmId[] = [];
     const valid = yield* Effect.forEach(vmIds, (raw) => {
-      const parsed = parseVmId(raw);
+      const parsed = parseVm(raw);
       if (parsed === null) return Effect.succeed(false);
       parsedVmIds.push(parsed);
-      return name(principal, (caller) => name(parsed, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.map((proof) => proof !== null))));
+      return name(principal, (caller) => name(parsed, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.map((proof) => proof !== null)))) as Effect.Effect<boolean, never>;
     });
     if (valid.some((ok) => !ok)) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
     const created = yield* signer.mint({
@@ -149,13 +154,13 @@ const ssh = (rawId: string) =>
       if (!scopeSet(record.scopes).has("ssh")) return yield* Effect.fail(new Forbidden({ message: "This access token lacks the ssh scope", missingScope: undefined }));
       const vmRaw = record.vmIds[0];
       if (vmRaw === undefined) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
-      const parsed = parseVmId(vmRaw);
+      const parsed = parseVm(vmRaw);
       if (parsed === null) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
       const { synthetic, allows } = yield* tokenVmProof(record);
       const upstream = yield* UpstreamAccessTokens;
-      const delegated = yield* name(synthetic, (caller) => name(parsed, (vm) =>
-        Effect.flatMap(tenantOwnsVm(caller, vm), (owns) => owns === null ? Effect.fail(new NotFound({ message: "VM not found" })) : upstream.mintSsh(vm, { owns, allows }, record.linuxUser)),
-      )).pipe(Effect.mapError((error) => error instanceof NotFound ? error : unavailable()));
+      const delegated = yield* (name(synthetic, (caller) => name(parsed, (vm) =>
+        Effect.flatMap(tenantOwnsVm(caller, vm), (owns): Effect.Effect<import("../upstream/access-tokens.ts").DelegatedSsh, NotFound | import("../upstream/client.ts").UpstreamError> => owns === null ? Effect.fail(new NotFound({ message: "VM not found" })) : upstream.mintSsh(vm, { owns, allows }, record.linuxUser)),
+      )) as unknown as Effect.Effect<import("../upstream/access-tokens.ts").DelegatedSsh, NotFound | import("../upstream/client.ts").UpstreamError>).pipe(Effect.mapError((error) => error instanceof NotFound ? error : unavailable()));
       yield* (yield* AccessTokenStore).setProviderIdentity(principal.tenantId, record.id, delegated.identityId).pipe(Effect.mapError(() => unavailable()));
       return new SshAccess({ host: delegated.host, user: delegated.user, password: delegated.password });
     }),

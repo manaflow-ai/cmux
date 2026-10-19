@@ -116,6 +116,7 @@ export const ALL_SCOPES: ReadonlyArray<Scope> = [
   "acl:read",
   "acl:write",
   "admin",
+  "access-token:create",
 ];
 
 /**

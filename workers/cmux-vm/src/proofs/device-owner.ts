@@ -30,6 +30,7 @@ export const isTenantAdmin = (principal: Principal): Effect.Effect<boolean, Iden
   const actor = principal.actor;
   if (actor.kind === "api_key") return Effect.succeed(principal.scopes.has("admin"));
   if (actor.kind === "service") return Effect.succeed(false);
+  if (actor.kind === "access-token") return Effect.succeed(false);
   return Effect.flatMap(TeamAdmin, (admins) => admins.isAdmin(principal.tenantId, actor.userId));
 };
 

@@ -81,6 +81,8 @@ const isReservation = Schema.is(Reservation);
 
 const Lock = Schema.Struct({ holder: Schema.String, untilMs: Schema.Number });
 const isLock = Schema.is(Lock);
+const AccessTokenRevocation = Schema.Struct({ expiresMs: Schema.Number });
+const isAccessTokenRevocation = Schema.is(AccessTokenRevocation);
 
 /** A stored value of the wrong shape (from an older version) reads as absent. */
 const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | undefined => (guard(value) ? value : undefined);
@@ -210,7 +212,7 @@ export class TenantLedger {
 
   async isAccessTokenRevoked(tokenId: string, nowMs: number): Promise<boolean> {
     const key = `access-revoke:${tokenId}`;
-    const value = checked(Schema.Struct({ expiresMs: Schema.Number }), await this.storage.get(key));
+    const value = checked(isAccessTokenRevocation, await this.storage.get(key));
     if (value === undefined) return false;
     if (value.expiresMs <= nowMs) {
       await this.storage.delete(key);
@@ -228,7 +230,7 @@ export class TenantLedger {
     }
     const revocations = await this.storage.list({ prefix: "access-revoke:", limit: 64 });
     for (const [key, value] of revocations) {
-      const record = checked(Schema.Struct({ expiresMs: Schema.Number }), value);
+      const record = checked(isAccessTokenRevocation, value);
       if (record === undefined || record.expiresMs <= nowMs) await this.storage.delete(key);
     }
   }

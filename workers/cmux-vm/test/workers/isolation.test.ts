@@ -47,6 +47,10 @@ describe("the endpoint table", () => {
       ...TENANT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...SNAPSHOT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...MESH_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
+      "POST /v1/access-tokens",
+      "GET /v1/access-tokens",
+      "DELETE /v1/access-tokens/{tokenId}",
+      "POST /v1/access-tokens/{tokenId}/ssh",
     ];
     expect([...published].sort()).toEqual([...covered].sort());
   });

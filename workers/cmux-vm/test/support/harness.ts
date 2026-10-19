@@ -26,6 +26,7 @@ import { ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AccessTokenStore, AccessTokens, makeAccessTokenService, type AccessTokenRecord } from "../../src/access-tokens/tokens.ts";
 import { UpstreamAccessTokens } from "../../src/upstream/access-tokens.ts";
+import { makeUpstreamAccessTokens } from "../../src/upstream/live-access-tokens.ts";
 
 export const STACK_API_URL = "https://stack.test";
 export const STACK_PROJECT_ID = "project-test";
@@ -236,16 +237,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
       }),
       setProviderIdentity: (tenantId, id, identityId) => Effect.sync(() => {
         const index = accessTokens.findIndex((record) => record.tenantId === tenantId && record.id === id);
-        if (index >= 0) accessTokens[index] = { ...accessTokens[index], providerIdentityId: identityId };
+        const record = index < 0 ? undefined : accessTokens[index];
+        if (record !== undefined) accessTokens[index] = { ...record, providerIdentityId: identityId };
       }),
     }),
     Layer.effect(AccessTokens, Effect.map(TenantLimits, (tenantLimits) => makeAccessTokenService([
       { kid: "access-test", privateJwk: accessPrivateJwk, publicJwk: accessPublicJwk, active: true },
-    ], tenantLimits))),
-    Layer.succeed(UpstreamAccessTokens, {
-      mintSsh: (_vm, _proofs, linuxUser) => Effect.succeed({ host: "beta-ssh.freestyle.sh", user: `vm+${linuxUser}`, password: "fake-provider-token", identityId: `identity-${crypto.randomUUID()}`, tokenId: "fake-provider-token" }),
-      revokeIdentity: (_identityId) => Effect.void,
-    }),
+    ], tenantLimits))).pipe(Layer.provide(limits)),
+    Layer.succeed(UpstreamAccessTokens, makeUpstreamAccessTokens({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch })),
     Layer.succeed(
       UpstreamClient,
       makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: upstream.fetch }),

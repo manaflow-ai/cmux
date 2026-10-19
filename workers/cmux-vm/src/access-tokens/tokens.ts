@@ -1,6 +1,6 @@
 import { Context, Data, Effect, Redacted, Schema } from "effect";
 import { name, type Named } from "@gdp-ts/core";
-import { compactVerify, CompactSign, importJWK, type JWK, type KeyLike } from "jose";
+import { compactVerify, CompactSign, importJWK, type JWK } from "jose";
 import { TenantId, UserId, VmId, type TenantId as TenantIdType, type UserId as UserIdType, type VmId as VmIdType } from "../lib/ids.ts";
 import type { Principal } from "../domain/principal.ts";
 import { TenantLimits, type TenantLimitsService } from "../limits/service.ts";
@@ -123,7 +123,8 @@ const newTokenId = (): AccessTokenId => {
   return AccessTokenId.make(`at_${text}`);
 };
 
-const asKey = (jwk: JWK, operation: string): Effect.Effect<KeyLike, AccessTokenUnavailable> =>
+type ImportedKey = Awaited<ReturnType<typeof importJWK>>;
+const asKey = (jwk: JWK, operation: string): Effect.Effect<ImportedKey, AccessTokenUnavailable> =>
   Effect.tryPromise({ try: () => importJWK(jwk, "EdDSA"), catch: () => new AccessTokenUnavailable({ reason: operation }) });
 
 export interface AccessTokenService {
@@ -209,7 +210,7 @@ export const makeAccessTokenService = (keys: ReadonlyArray<AccessTokenKeys>, lim
           accessTokenScopes: claims.scopes,
           accessTokenLinuxUser: claims.linuxUser,
         };
-        const proof = yield* name(principal, (caller) => Effect.succeed(mintAccessTokenAllows(caller, claims.jti, claims.tenant, claims.principal, claims.vmIds)));
+        const proof = yield* (name(principal, (caller) => Effect.succeed(mintAccessTokenAllows(caller, claims.jti, claims.tenant, claims.principal, claims.vmIds))) as unknown as Effect.Effect<AccessTokenAllows<Principal>, never>);
         return { id: claims.jti, tenantId: claims.tenant, principal: claims.principal, vmIds: claims.vmIds, scopes: claims.scopes, linuxUser: claims.linuxUser, issuedAt: new Date(claims.iat * 1000), expiresAt, proof };
       }),
     proofFor: (caller, record) => mintAccessTokenAllows(caller, record.id, record.tenantId, record.principal, record.vmIds),

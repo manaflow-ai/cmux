@@ -1,7 +1,5 @@
 import { Context, Effect } from "effect";
 import type { Named } from "@gdp-ts/core";
-import type { Principal } from "../domain/principal.ts";
-import type { AccessTokenId } from "../access-tokens/tokens.ts";
 import type { VmId } from "../lib/ids.ts";
 import type { AccessTokenAllows } from "../proofs/access-token-allows.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -25,4 +23,3 @@ export interface UpstreamAccessTokensService {
 }
 
 export class UpstreamAccessTokens extends Context.Tag("cmux-vm/UpstreamAccessTokens")<UpstreamAccessTokens, UpstreamAccessTokensService>() {}
-

@@ -53,7 +53,7 @@ export const rateLimit = (principal: Principal, rateClass: RateClass) =>
  * with the named caller and the proof. For tenant-wide endpoints.
  */
 export const withCaller = <const S extends Scope, A, E, R>(
-  scope: S,
+  requiredScope: S,
   rateClass: RateClass,
   k: <C>(caller: Named<C, Principal>, granted: KeyHasScope<C, S>) => Effect.Effect<A, E, R>,
 ) =>
@@ -61,8 +61,8 @@ export const withCaller = <const S extends Scope, A, E, R>(
     const principal = yield* CurrentPrincipal;
     return yield* name(principal, (caller) =>
       Effect.gen(function* () {
-        const granted = keyHasScope(caller, scope);
-        if (granted === null) return yield* Effect.fail(missingScope(scope));
+        const granted = keyHasScope(caller, requiredScope);
+        if (granted === null) return yield* Effect.fail(missingScope(requiredScope));
         yield* rateLimit(principal, rateClass);
         return yield* k(caller, granted);
       }),
@@ -75,7 +75,7 @@ export const withCaller = <const S extends Scope, A, E, R>(
  */
 export const withOwnedVm = <const S extends Scope, A, E, R>(
   rawId: string,
-  scope: S,
+  requiredScope: S,
   rateClass: RateClass,
   k: <C, V>(
     caller: Named<C, Principal>,
@@ -89,20 +89,20 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
     if (principal.actor.kind === "access-token") {
       const scopes = new Set(principal.accessTokenScopes ?? []);
       const path = request.url;
-      if (S === "vm:exec" && !scopes.has("exec")) return yield* Effect.fail(new Forbidden({ message: "This access token lacks the exec scope" }));
+      if (requiredScope === "vm:exec" && !scopes.has("exec")) return yield* Effect.fail(new Forbidden({ message: "This access token lacks the exec scope" }));
       const terminalAllowed = path.endsWith("/terminal") || (request.method === "GET" && /\/terminals\/[^/]+$/u.test(path));
-      if (S === "vm:terminal" && (!scopes.has("pty") || !terminalAllowed)) {
+      if (requiredScope === "vm:terminal" && (!scopes.has("pty") || !terminalAllowed)) {
         return yield* Effect.fail(new Forbidden({ message: "This access token may open or attach PTY sessions only" }));
       }
-      if (S === "vm:files") {
+      if (requiredScope === "vm:files") {
         const needed = request.method === "PUT" ? "files:write" : "files:read";
         if (!scopes.has(needed)) return yield* Effect.fail(new Forbidden({ message: `This access token lacks the ${needed} scope` }));
       }
     }
     return yield* name(principal, rawId, (caller, raw) =>
       Effect.gen(function* () {
-        const granted = keyHasScope(caller, scope);
-        if (granted === null) return yield* Effect.fail(missingScope(scope));
+        const granted = keyHasScope(caller, requiredScope);
+        if (granted === null) return yield* Effect.fail(missingScope(requiredScope));
         yield* rateLimit(principal, rateClass);
         const parsed = parseVmId(raw.value);
         if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
