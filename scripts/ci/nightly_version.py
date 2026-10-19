@@ -22,8 +22,11 @@ which only grows; Sparkle compares it, never the marketing version.
 """
 
 import argparse
+import http.client
+import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -53,13 +56,48 @@ class Missing(Refused):
     pass
 
 
+# A feed read that fails in transit (TLS handshake timeout, reset, 5xx) is
+# tried again after these delays; run 39296746784 failed its nightly-next
+# build on one handshake timeout. A 404, another 4xx or a feed that does not
+# parse is an answer, not a transit failure, and refuses at once.
+# CMUX_NIGHTLY_FEED_RETRY_DELAYS (comma-separated seconds) overrides the delays.
+DEFAULT_RETRY_DELAYS = (2, 5, 10)
+
+
+def retry_delays():
+    value = os.environ.get("CMUX_NIGHTLY_FEED_RETRY_DELAYS")
+    if value is None:
+        return DEFAULT_RETRY_DELAYS
+    return tuple(float(part) for part in value.split(",") if part.strip())
+
+
+def transient(error):
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code >= 500 or error.code == 429
+    # IncompleteRead (a body cut off mid-transfer) is an HTTPException, not an OSError.
+    return isinstance(error, (OSError, http.client.HTTPException))
+
+
+def fetch(source):
+    # The feed CDN refuses the default Python user agent.
+    request = urllib.request.Request(source, headers={"User-Agent": "cmux-nightly-ci"})
+    delays = retry_delays()
+    for attempt in range(len(delays) + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.read()
+        except (OSError, http.client.HTTPException) as error:
+            if not transient(error) or attempt == len(delays):
+                raise
+            print(f"nightly_version: {source}: {error}; trying again in {delays[attempt]:g} s", file=sys.stderr)
+            time.sleep(delays[attempt])
+
+
 def read_feed(source):
     try:
-        if source.startswith("https://"):
-            # The feed CDN refuses the default Python user agent.
-            request = urllib.request.Request(source, headers={"User-Agent": "cmux-nightly-ci"})
-            with urllib.request.urlopen(request, timeout=30) as response:
-                data = response.read()
+        # http:// only for a loopback test server; real feeds are https.
+        if source.startswith(("https://", "http://127.0.0.1:")):
+            data = fetch(source)
         else:
             with open(source, "rb") as handle:
                 data = handle.read()
@@ -70,7 +108,7 @@ def read_feed(source):
         raise Refused(f"cannot read feed {source}: {error}") from error
     except FileNotFoundError as error:
         raise Missing(f"cannot read feed {source}: it does not exist") from error
-    except (OSError, ET.ParseError) as error:
+    except (OSError, http.client.HTTPException, ET.ParseError) as error:
         raise Refused(f"cannot read feed {source}: {error}") from error
 
 

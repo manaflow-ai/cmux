@@ -248,6 +248,9 @@ final class AgentPaneDictation {
         if let audio = update.audio {
             value["audio"] = ["mimeType": "audio/wav", "data": audio.base64EncodedString()] as [String: any Sendable]
         }
+        if let omitted = update.audioOmitted {
+            value["audioOmitted"] = omitted.rawValue
+        }
         return value
     }
 
