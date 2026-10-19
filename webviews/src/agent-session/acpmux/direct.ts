@@ -3091,10 +3091,20 @@ export class AcpmuxDirectClient {
   /// Adds older transcript pages until the held transcript opens with a turn start, acpmux has no
   /// more, or OPEN_TURN_PAGES pages came. False when the selection moved on meanwhile.
   private async reachTurnStart(sessionId: string, generation: number): Promise<boolean> {
-    const other = new Set<string>([COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS, ...QUEUE_KINDS]);
+    const other = new Set<string>([
+      COMMANDS_KIND,
+      USAGE_KIND,
+      CONFIG_KIND,
+      BOOKMARKS_KIND,
+      ...SECRET_KINDS,
+      ...QUEUE_KINDS,
+    ]);
     for (let pages = 0; pages < OPEN_TURN_PAGES; pages++) {
       const transcript = this.events.filter((event) => !other.has(event.kind));
-      const head = transcript.reduce<EventRecord | undefined>((first, event) => (first && first.seq <= event.seq ? first : event), undefined);
+      const head = transcript.reduce<EventRecord | undefined>(
+        (first, event) => (first && first.seq <= event.seq ? first : event),
+        undefined,
+      );
       if (!head || startsTurn(head) || head.seq <= 1) return true;
       const beforeSeq = this.events.reduce((first, event) => Math.min(first, event.seq), head.seq);
       const result = await this.request("_acpmux/events", {

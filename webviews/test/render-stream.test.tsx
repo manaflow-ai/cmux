@@ -46,9 +46,8 @@ Object.assign(scope, replacements);
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 const { RenderLiveContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
-const renderLive = (children: ReactNode) => root!.render(
-  <RenderLiveContext.Provider value>{children}</RenderLiveContext.Provider>,
-);
+const renderLive = (children: ReactNode) =>
+  root!.render(<RenderLiveContext.Provider value>{children}</RenderLiveContext.Provider>);
 
 afterAll(() => {
   act(() => root?.unmount());
@@ -70,10 +69,17 @@ beforeEach(() => {
   document.documentElement.setAttribute("data-lab-live-render", "on");
 });
 
-function draw(html: string, { closed = false, live = true, lang = "cmux-render", streaming = true, renderLive = streaming } = {}) {
+function draw(
+  html: string,
+  { closed = false, live = true, lang = "cmux-render", streaming = true, renderLive = streaming } = {},
+) {
   document.documentElement.setAttribute("data-lab-live-render", live ? "on" : "off");
   act(() =>
-    root!.render(<RenderLiveContext.Provider value={renderLive}><Markdown streaming={streaming}>{"```" + lang + "\n" + html + (closed ? "\n```" : "")}</Markdown></RenderLiveContext.Provider>),
+    root!.render(
+      <RenderLiveContext.Provider value={renderLive}>
+        <Markdown streaming={streaming}>{"```" + lang + "\n" + html + (closed ? "\n```" : "")}</Markdown>
+      </RenderLiveContext.Provider>,
+    ),
   );
 }
 
@@ -499,7 +505,9 @@ test("a fence first revealed after the transport ends still runs live", async ()
     callbacks.set(++id, callback);
     return id;
   };
-  revealFrames.cancel = (handle) => { callbacks.delete(handle); };
+  revealFrames.cancel = (handle) => {
+    callbacks.delete(handle);
+  };
   try {
     act(() => renderLive(<RevealedMarkdown text="First" streaming />));
     const final = "First paragraph.\n\nSecond paragraph.\n\n```cmux-render\n<p>Revealed late</p>\n```";

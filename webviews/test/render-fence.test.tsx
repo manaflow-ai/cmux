@@ -75,7 +75,9 @@ async function draw(markdown: string, streaming = false, open?: (artifact: unkno
   act(() =>
     root!.render(
       <ArtifactContext.Provider value={open}>
-        <Markdown streaming={streaming} plainCode={plainCode}>{markdown}</Markdown>
+        <Markdown streaming={streaming} plainCode={plainCode}>
+          {markdown}
+        </Markdown>
       </ArtifactContext.Provider>,
     ),
   );
@@ -158,10 +160,14 @@ test.each(["<!doctype html>", " \n<!-- page -->\n<!-- layout -->\n<!DoCtYpE html
     const frame = host.querySelector("iframe")!;
     const messages: { html: string }[] = [];
     frame.contentWindow!.postMessage = (data) => messages.push(data);
-    void act(() => dom.window.dispatchEvent(new dom.window.MessageEvent("message", {
-      source: frame.contentWindow,
-      data: { type: "cmux-render-ready" },
-    })));
+    void act(() =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent("message", {
+          source: frame.contentWindow,
+          data: { type: "cmux-render-ready" },
+        }),
+      ),
+    );
     const page = new JSDOM(messages[0]!.html);
     try {
       expect(page.window.document.compatMode).toBe("CSS1Compat");
@@ -172,7 +178,6 @@ test.each(["<!doctype html>", " \n<!-- page -->\n<!-- layout -->\n<!DoCtYpE html
     }
   },
 );
-
 
 test("a closed code fence in a streaming list still gets its highlighted card", async () => {
   dom.reconfigure({ url: "http://localhost/" });

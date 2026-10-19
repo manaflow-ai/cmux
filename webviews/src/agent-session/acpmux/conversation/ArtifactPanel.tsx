@@ -242,7 +242,11 @@ function RunningFrame({ html, title }: { html: string; title: string }) {
   const { frame, stopped, error } = useRenderFrame(html);
   const t = useT();
   if (stopped)
-    return <div className="acpmux-render-note" role="status">{t("render.error")} {error}</div>;
+    return (
+      <div className="acpmux-render-note" role="status">
+        {t("render.error")} {error}
+      </div>
+    );
   return (
     <iframe
       ref={frame}

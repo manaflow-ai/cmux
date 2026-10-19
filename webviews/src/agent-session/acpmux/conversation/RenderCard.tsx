@@ -433,11 +433,16 @@ function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequ
           aria-label={label}
         >
           {pending.text
-            .replace(/[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Zl}\p{Zp}\u00a0\u2000-\u200a\u3000\ufff9-\ufffb]/gu, (character) =>
-              character === "\n" ? character : `[U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}]`,
+            .replace(
+              /[\p{Default_Ignorable_Code_Point}\p{Cc}\p{Zl}\p{Zp}\u00a0\u2000-\u200a\u3000\ufff9-\ufffb]/gu,
+              (character) =>
+                character === "\n"
+                  ? character
+                  : `[U+${character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}]`,
             )
-            .replace(/\n(?: *\n){3,}/g, (lines) =>
-              `\n${t("render.blankLines", { count: lines.split("\n").length - 2 })}\n`,
+            .replace(
+              /\n(?: *\n){3,}/g,
+              (lines) => `\n${t("render.blankLines", { count: lines.split("\n").length - 2 })}\n`,
             )}
         </div>
       </div>
