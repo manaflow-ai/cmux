@@ -9,10 +9,11 @@ import Observation
 /// is read again. The CLI owns every file write and its refusals (a symlink, a non-file, a plugin
 /// file cmux did not write), so this type only reads and relays: a row in `conflict` offers no
 /// Install, and the page shows the CLI's own command for doing it by hand. Nothing runs until the
-/// page asks: the card reads status when it is shown, and writes only on a click.
+/// page asks: the card reads status when it is shown, and writes only on a click. The App
+/// supplies the bundled CLI's location and routes the page's `cmux.settings.integrations.*` here.
 @MainActor
 @Observable
-final class SettingsAgentIntegrations {
+public final class SettingsAgentIntegrations: PageProvider {
     /// One provider as `agent hook status` reports it (cmux-tui-hooks `run_with_context`).
     struct Row: Equatable {
         var id: String
@@ -38,10 +39,19 @@ final class SettingsAgentIntegrations {
     @ObservationIgnored private let runCLI: @Sendable (URL, [String]) async throws -> (Int32, Data, Data)
     @ObservationIgnored private var generation = 0
 
-    init(cli: @escaping @MainActor () -> URL? = { LocalServerSource.bundledCLI() },
-         runCLI: @escaping @Sendable (URL, [String]) async throws -> (Int32, Data, Data) = SettingsAgentIntegrations.run) {
+    public init(cli: @escaping @MainActor () -> URL?,
+                runCLI: @escaping @Sendable (URL, [String]) async throws -> (Int32, Data, Data) = SettingsAgentIntegrations.run) {
         self.cli = cli
         self.runCLI = runCLI
+    }
+
+    /// `cmux.settings.integrations.state` and `.run`; any other op is not this card's.
+    public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        switch op {
+        case "cmux.settings.integrations.state": return state
+        case "cmux.settings.integrations.run": return try await run(params)
+        default: throw PageError.unknownOp(op)
+        }
     }
 
     /// The page's `cmux.settings.integrations.state` (webviews/src/pages/settings/ops.ts `IntegrationsState`).
