@@ -124,10 +124,25 @@ def focused():
     return next((p for p in panes() if p.get("focused")), None)
 
 
+def ensure_terminal():
+    """A shown terminal workspace: `newTab` from a script makes one terminal; focus: true shows it."""
+    if (focused() or {}).get("kind") == "terminal":
+        return True
+    reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "instant-bench"}, "wait": True})
+    print("newTab:", json.dumps(reply)[:300], flush=True)
+    ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30)
+    time.sleep(1)  # test harness: shell prompt
+    return ok
+
+
 def bench(phase, window):
     rows = []
+    if not ensure_terminal():
+        sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     for command in COMMANDS:
         for index in range(opts.runs):
+            if command != "new_workspace" and not ensure_terminal():
+                sys.exit("no focused terminal: " + json.dumps(panes())[:800])
             before = len(panes())
             result = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
             result.update({"phase": phase, "run": index})
@@ -203,11 +218,6 @@ def main():
     LAUNCHED.append(app.pid)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
-    # A terminal workspace, shown: `newTab` from a script makes one terminal; focus: true shows it.
-    reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "instant-bench"}, "wait": True})
-    print("newTab:", json.dumps(reply)[:300], flush=True)
-    if not wait(lambda: (focused() or {}).get("kind") == "terminal", 30):
-        sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
     rows = []
