@@ -44,6 +44,17 @@ function trackAnimation(running: { current: Animation[] }, animation: Animation)
   running.current.push(animation);
 }
 
+/// More than one row arrives or more than one leaves.
+function isLoad(before: readonly string[], after: readonly string[]): boolean {
+  const was = new Set(before);
+  const is = new Set(after);
+  let arrived = 0;
+  let left = 0;
+  for (const key of is) if (!was.has(key) && ++arrived > 1) return true;
+  for (const key of was) if (!is.has(key) && ++left > 1) return true;
+  return false;
+}
+
 function measure(root: HTMLElement, elements: HTMLElement[], keys: readonly string[]): Places {
   const origin = root.getBoundingClientRect();
   return new Map(
@@ -113,11 +124,14 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       shownKeys.current = currentKeys;
       return;
     }
-    const changed = shown.current !== "" && shown.current !== signature;
+    // Only a real insert or removal moves: a row or so arriving or leaving. A list that swaps
+    // more at once is a load (a page shows the app's device chats, then acpmux's sessions take
+    // their slots under other keys), and is drawn in place like the first one.
+    const changed = shown.current !== "" && shown.current !== signature && !isLoad(shownKeys.current, currentKeys);
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
     const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
-    if (changed) cancelRunning(running);
+    if (shown.current !== signature) cancelRunning(running);
     const after = measure(root, elements, currentKeys);
     places.current = after;
     shown.current = signature;
