@@ -17,6 +17,9 @@ mod service;
 mod session;
 mod stream;
 
+/// How a stream asks again for a snapshot that did not decode
+/// ([`ServiceOptions::snapshot_backoff`]).
+pub use cmux_cloud_wire::SnapshotBackoff;
 pub use contract::{
     CLOUD_INBOX_OP_KINDS, CLOUD_OP_KINDS, InboxOpRequest, OpRequest, Target, valid_conversation_id,
 };

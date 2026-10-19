@@ -141,6 +141,19 @@ fn fake_app_after(
     (socket, handle)
 }
 
+#[test]
+fn an_app_socket_of_another_user_is_refused_before_a_request_is_written() {
+    let (socket, app) = fake_app(vec![]);
+    let own = cmux_tui_core::platform::effective_uid();
+    let other = if own == u32::MAX { own - 1 } else { own + 1 };
+    let result = connect_for_uid(&socket, other);
+    let kind = result.as_ref().err().map(std::io::Error::kind);
+    drop(result);
+
+    assert_eq!(kind, Some(std::io::ErrorKind::PermissionDenied));
+    assert!(app.join().unwrap()[0].is_empty(), "the client wrote before checking the peer uid");
+}
+
 fn global_for(socket: &std::path::Path) -> GlobalArgs {
     GlobalArgs {
         app_socket: Some(socket.to_path_buf()),

@@ -161,6 +161,8 @@ on:
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
       - .github/workflows/cmux-next-batch.yml
+      - tests/test_cmux_next_base_autofix_finishes.py
+      - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
@@ -1259,6 +1261,7 @@ jobs:
         run: |
           python3 tests/test_cmux_next_generated_catch_up.py
           python3 tests/test_next_batch.py
+          python3 tests/test_cmux_next_base_autofix_finishes.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
       # update keeps sessions and reopens the app) and the classic session import.
