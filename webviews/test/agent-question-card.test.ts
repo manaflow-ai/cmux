@@ -48,10 +48,10 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
   const prompt = "Which auth method should the API use?";
 
   /// The pending Claude question, recording each `chat.permission` the page hands the host.
-  async function pendingQuestion(): Promise<Page> {
+  async function pendingQuestion(fixture = "pending-single"): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     const { port } = vite!.httpServer!.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}/?fixture=question-pending-single`);
+    await page.goto(`http://127.0.0.1:${port}/?fixture=question-${fixture}`);
     await page.locator(".acpmux-question").waitFor();
     await page.evaluate(() => {
       const calls: Call[] = [];
@@ -76,6 +76,25 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
 
   const highlighted = (page: Page) =>
     page.locator(".acpmux-question-row[data-highlighted] .acpmux-question-label").innerText();
+
+  /// A chat with no ask yet, whose composer has the keyboard (and `draft` typed, when given); the
+  /// pending Claude question then arrives, as it does mid-chat.
+  async function questionArrivesMidChat(draft = ""): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/?fixture=worked-turn`);
+    const composer = page.locator(".acpmux-composer-prompt .acpmux-md-root [contenteditable=true]");
+    await composer.waitFor();
+    await composer.click();
+    if (draft) await page.keyboard.type(draft);
+    await page.locator(".acpmux-preview-controls select").selectOption("question-pending-single");
+    await page.locator(".acpmux-question").waitFor();
+    await page.waitForTimeout(300);
+    return page;
+  }
+
+  const focusedInCard = (page: Page) =>
+    page.evaluate(() => document.activeElement?.closest(".acpmux-question") !== null);
 
   describe("agent question card", () => {
     test("shows a Needs your input pill over a card headed by the question", async () => {
@@ -145,6 +164,43 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
           },
         },
       ]);
+      await page.close();
+    });
+
+    test("an ask that arrives while the empty composer has the keyboard takes it", async () => {
+      const page = await questionArrivesMidChat();
+      expect(await focusedInCard(page)).toBe(true);
+      await page.keyboard.press("ArrowDown");
+      expect(await highlighted(page)).toBe("API keys");
+      await page.close();
+    });
+
+    test("an ask that arrives mid-draft leaves the keyboard in the composer", async () => {
+      const page = await questionArrivesMidChat("half a prom");
+      expect(await focusedInCard(page)).toBe(false);
+      await page.keyboard.type("pt");
+      const text = await page.locator(".acpmux-composer-prompt .acpmux-md-root").innerText();
+      expect(text.trim()).toBe("half a prompt");
+      await page.close();
+    });
+
+    test("Esc on a multi-question tab hands the keyboard back without declining the answers so far", async () => {
+      const page = await pendingQuestion("pending-4-questions");
+      await page.locator(".acpmux-question-tab").nth(1).focus();
+      await page.keyboard.press("Escape");
+      expect(await focusedInCard(page)).toBe(false);
+      expect(await permissionCalls(page, 0)).toEqual([]);
+      await page.close();
+    });
+
+    test("a new ask arrives unfolded even when the last one was folded", async () => {
+      const page = await pendingQuestion();
+      await page.locator(".acpmux-question-status").click();
+      expect(await page.locator(".acpmux-question").isVisible()).toBe(false);
+      await page.locator(".acpmux-preview-controls select").selectOption("question-pending-multi");
+      await page.locator(".acpmux-question-prompt", { hasText: "platforms" }).waitFor({ state: "attached" });
+      expect(await page.locator(".acpmux-question-status").getAttribute("aria-expanded")).toBe("true");
+      expect(await page.locator(".acpmux-question").isVisible()).toBe(true);
       await page.close();
     });
   });
