@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -219,6 +219,46 @@ pub struct SessionMeta {
     /// `total_cost_usd`), which the next turn's cost is measured from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_cost_usd: Option<f64>,
+    /// The session whose agent started this one with its `start_session`
+    /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
+    /// for a session a person or client started. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsession: Option<SubsessionLink>,
+    /// This session's own sub-session limits, set at runtime by the person
+    /// or by an ancestor within its budget; unset fields inherit.
+    #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
+    pub subsession_limits: SubsessionLimits,
+}
+
+/// A sub-session's place in its family (`hub/subsessions.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsessionLink {
+    /// The parent session's id.
+    pub started_by: String,
+    /// Its name among its parent's children (unique there), e.g. `tests`.
+    pub short_name: String,
+    /// 1 for a child of a root session, 2 for a grandchild, and so on.
+    pub depth: u32,
+}
+
+/// Limit overrides of one session; `None` inherits its parent's, then the
+/// settings, then the defaults (`hub/subsessions.rs`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsessionLimits {
+    /// Most children this session may have open at once (not closed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_children: Option<u32>,
+    /// The deepest level a session under this one may be started at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_depth: Option<u32>,
+}
+
+impl SubsessionLimits {
+    pub fn is_empty(&self) -> bool {
+        self.max_children.is_none() && self.max_depth.is_none()
+    }
 }
 
 /// What one turn, or a session's turns together, cost (`hub/turn_usage.rs`).
@@ -493,7 +533,8 @@ struct SegmentWriter {
 
 impl LocalStore {
     pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
-        std::fs::create_dir_all(&root).with_context(|| format!("create {}", root.display()))?;
+        crate::config::private_state_dir(&root)
+            .with_context(|| format!("create private store {}", root.display()))?;
         Ok(Self {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
@@ -511,7 +552,8 @@ impl LocalStore {
         let Ok(rd) = std::fs::read_dir(&dir) else {
             return Ok(out);
         };
-        for entry in rd.flatten() {
+        for entry in rd {
+            let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
             if let Some(stem) = name.strip_suffix(".ndjson")
                 && let Ok(idx) = stem.parse::<u32>()
@@ -525,13 +567,14 @@ impl LocalStore {
 
     fn open_writer(&self, id: &str) -> Result<SegmentWriter> {
         let dir = self.dir(id).join("events");
-        std::fs::create_dir_all(&dir)?;
+        crate::config::private_state_dir(&self.dir(id))?;
+        crate::config::private_state_dir(&dir)?;
         let segs = self.segments(id)?;
         let (index, path) = match segs.last() {
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
-        let file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let file = open_private_append(&path)?;
         let written = file.metadata().map(|m| m.len()).unwrap_or(0);
         Ok(SegmentWriter { index, file, written })
     }
@@ -539,7 +582,7 @@ impl LocalStore {
 
 /// The seq of a segment's first readable record.
 fn first_seq(path: &Path) -> Result<Option<u64>> {
-    for line in BufReader::new(File::open(path)?).lines() {
+    for line in BufReader::new(crate::config::private_state_file(path)?).lines() {
         let line = line?;
         if let Ok(rec) = serde_json::from_str::<EventRecord>(&line) {
             return Ok(Some(rec.seq));
@@ -554,9 +597,27 @@ impl Store for LocalStore {
         let Ok(rd) = std::fs::read_dir(&self.root) else {
             return Ok(out);
         };
-        for entry in rd.flatten() {
-            let path = entry.path().join("session.json");
-            if let Ok(text) = std::fs::read_to_string(&path) {
+        for entry in rd {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_symlink() {
+                anyhow::bail!("session entry {} is a link", entry.path().display());
+            }
+            if !kind.is_dir() {
+                continue;
+            }
+            let session = entry.path();
+            crate::config::private_state_dir(&session)?;
+            let events = session.join("events");
+            match std::fs::symlink_metadata(&events) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+                Ok(_) => crate::config::private_state_dir(&events)?,
+            }
+            let path = session.join("session.json");
+            if let Ok(file) = crate::config::private_state_file(&path) {
+                let mut text = String::new();
+                BufReader::new(file).read_to_string(&mut text)?;
                 match serde_json::from_str::<SessionMeta>(&text) {
                     Ok(meta) => out.push(meta),
                     Err(e) => tracing::warn!("skip {}: {e}", path.display()),
@@ -571,13 +632,14 @@ impl Store for LocalStore {
         if !path.exists() {
             return Ok(None);
         }
-        let text = std::fs::read_to_string(&path)?;
+        let mut text = String::new();
+        BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
         Ok(Some(serde_json::from_str(&text)?))
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
         let dir = self.dir(&meta.id);
-        std::fs::create_dir_all(&dir)?;
+        crate::config::private_state_dir(&dir)?;
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
     }
 
@@ -590,7 +652,7 @@ impl Store for LocalStore {
         if w.written >= self.segment_bytes {
             let index = w.index + 1;
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-            let file = OpenOptions::new().create(true).append(true).open(&path)?;
+            let file = open_private_append(&path)?;
             *w = SegmentWriter { index, file, written: 0 };
         }
         let mut line = serde_json::to_string(record)?;
@@ -602,7 +664,7 @@ impl Store for LocalStore {
 
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         for (_, path) in self.segments(id)? {
-            let file = File::open(&path)?;
+            let file = crate::config::private_state_file(&path)?;
             for line in BufReader::new(file).lines() {
                 let line = line?;
                 if line.trim().is_empty() {
@@ -631,7 +693,8 @@ impl Store for LocalStore {
             if first_seq(&path)?.is_some_and(|first| first >= before) {
                 continue;
             }
-            let text = std::fs::read_to_string(&path)?;
+            let mut text = String::new();
+            BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
             for line in text.lines().rev() {
                 if line.trim().is_empty() {
                     continue;
@@ -658,7 +721,7 @@ impl Store for LocalStore {
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let mut out = Vec::new();
         for (_, path) in self.segments(id)? {
-            let file = File::open(&path)?;
+            let file = crate::config::private_state_file(&path)?;
             for line in BufReader::new(file).lines() {
                 let line = line?;
                 if line.trim().is_empty() {
@@ -708,5 +771,132 @@ impl Store for LocalStore {
 
     fn handoff_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("handoffs"))
+    }
+}
+
+/// Open one event segment for append, owner-only from creation and after an
+/// older build left it with wider permissions.
+#[cfg(unix)]
+fn open_private_append(path: &Path) -> Result<File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    if file.metadata()?.permissions().mode() & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn open_private_append(path: &Path) -> Result<File> {
+    Ok(crate::owner_only::open_append(path)?)
+}
+
+#[cfg(all(test, unix))]
+mod permission_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "acpmux-store-permissions-{}-{}",
+                std::process::id(),
+                uuid::Uuid::now_v7()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn mode(path: &Path) -> u32 {
+        std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn local_store_makes_existing_state_private_and_writes_private_events() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        let session = root.join("session-1");
+        let events = session.join("events");
+        std::fs::create_dir_all(&events).unwrap();
+        let metadata = session.join("session.json");
+        let first = events.join("000001.ndjson");
+        let second = events.join("000002.ndjson");
+        std::fs::write(&metadata, "{}").unwrap();
+        std::fs::write(&first, "").unwrap();
+        std::fs::write(&second, "").unwrap();
+        for directory in [&root, &session, &events] {
+            std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        for file in [&metadata, &first, &second] {
+            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        let _ = store.list().unwrap();
+        store
+            .append(
+                "session-1",
+                &EventRecord {
+                    seq: 1,
+                    at: 1,
+                    dir: "mux".into(),
+                    kind: "test".into(),
+                    msg: serde_json::json!({"text": "private"}),
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+        // Old segments are authenticated and narrowed when a read reaches
+        // them. Merely finding their names stays lazy so a tail page never
+        // opens an older segment it does not need.
+        store.events("session-1", 0, usize::MAX).unwrap();
+
+        assert_eq!(mode(&root), 0o700, "the sessions root contains every chat");
+        assert_eq!(mode(&session), 0o700);
+        assert_eq!(mode(&events), 0o700);
+        assert_eq!(mode(&metadata), 0o600);
+        assert_eq!(mode(&first), 0o600);
+        assert_eq!(mode(&second), 0o600);
+    }
+
+    #[test]
+    fn local_store_refuses_a_symlinked_existing_session() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        let outside = temp.0.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("linked-session")).unwrap();
+        let store = LocalStore::new(root, 64 * 1024).unwrap();
+        assert!(store.list().is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn local_store_refuses_a_state_root_with_an_extended_acl() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        std::fs::create_dir_all(&root).unwrap();
+        let status = std::process::Command::new("/bin/chmod")
+            .args(["+a", "group:staff allow read", root.to_str().unwrap()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(LocalStore::new(root, 64 * 1024).is_err());
     }
 }

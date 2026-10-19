@@ -1530,6 +1530,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "rquickjs",
  "rusqlite",
  "rustls",
  "serde",

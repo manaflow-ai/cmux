@@ -276,6 +276,18 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     });
     await other.getByText("Docs updated.").waitFor({ state: "detached" });
     expect(await settledChip(other)).toBe("Full access");
+    // A sessionless pending chat still exposes the harness-specific full-access mode as a real
+    // menu, rather than a disabled placeholder. The same path works for Claude and Codex mode ids.
+    const pendingAccess = other.locator(".acpmux-access-trigger");
+    expect(await pendingAccess.isEnabled()).toBe(true);
+    await pendingAccess.click();
+    await other.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Full access" }).waitFor();
+    expect(
+      await other
+        .locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Full access" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    await other.keyboard.press("Escape");
     // Then the person picks Normal in another pane: the pending chat names Normal before any send.
     const picked = await context.newPage();
     await picked.goto(url(PICKED));
