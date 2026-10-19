@@ -12,13 +12,14 @@ import {
   type UsageReport,
   type UsageTotals,
 } from "./ledger.ts";
-import { intervalCostMicrodollars, markedUpMicrodollars, parseMarkupBps, pricesFor, type ProviderPrices } from "./prices.ts";
+import { intervalCostMicrodollars, markedUpMicrodollars, parseMarkupBps, pricesFor, PROVIDER_PRICES, type PriceTable, type ProviderPrices } from "./prices.ts";
 
 export interface MeteringConfig {
   readonly markupBps: number | null;
   readonly stripeSecretKey?: string;
   readonly stripeMeterEvent?: string;
   readonly fetch?: (request: Request) => Promise<Response>;
+  readonly prices?: PriceTable;
 }
 
 interface Interval {
@@ -75,8 +76,9 @@ const ExportRow = Schema.Struct({
   identifier: Schema.String,
   value_microdollars: NumberValue,
   status: Schema.Literal("pending", "exported", "failed"),
+  attempts: NumberValue,
 });
-const AdjustmentRow = Schema.Struct({ tenant_id: Schema.String, hour_start: DateValue, identifier: Schema.String, value_microdollars: NumberValue, status: Schema.Literal("pending", "exported", "failed") });
+const AdjustmentRow = Schema.Struct({ tenant_id: Schema.String, hour_start: DateValue, identifier: Schema.String, value_microdollars: NumberValue, status: Schema.Literal("pending", "exported", "failed"), attempts: NumberValue });
 const WatermarkRow = Schema.Struct({ watermark: Schema.NullOr(DateValue) });
 const decodeRows = <A, I>(schema: Schema.Schema<A, I>, operation: string) => (rows: ReadonlyArray<unknown>) =>
   Schema.decodeUnknown(Schema.Array(schema))(rows).pipe(Effect.mapError((cause) => new StoreError({ operation, cause })));
@@ -131,12 +133,13 @@ const addHourCharge = (
   start: number,
   end: number,
   markupBps: number,
+  priceTable: PriceTable,
 ): ProviderPrices | null => {
   for (let hour = hourStart(start); hour < end; hour += HOUR_MS) {
     const overlapStart = Math.max(start, hour);
     const overlapEnd = Math.min(end, hour + HOUR_MS);
     if (overlapEnd <= overlapStart) continue;
-    const prices = pricesFor(interval.provider, interval.region, new Date(hour));
+    const prices = pricesFor(interval.provider, interval.region, new Date(hour), priceTable);
     if (prices === null) return null;
     const list = intervalCostMicrodollars(interval, (overlapEnd - overlapStart) / HOUR_MS, prices);
     const key = `${interval.tenantId}\u0000${hour}`;
@@ -147,7 +150,7 @@ const addHourCharge = (
       current.valueMicrodollars += markedUpMicrodollars(list, markupBps);
     }
   }
-  return pricesFor(interval.provider, interval.region, new Date(start));
+  return pricesFor(interval.provider, interval.region, new Date(start), priceTable);
 };
 
 const digestIdentifier = (prefix: string, value: string): Effect.Effect<string> =>
@@ -159,6 +162,7 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
   Layer.effectContext(
     Effect.gen(function* () {
       const sql = yield* SqlClient;
+      const priceTable = config.prices ?? PROVIDER_PRICES;
       const queryIntervals = (query: string, params: ReadonlyArray<SqlParam>, operation: string) =>
         sql.query(operation, query, params).pipe(Effect.flatMap(decodeRows(IntervalRow, operation)), Effect.map((rows) => rows.map(toInterval)));
 
@@ -319,7 +323,7 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               const overlapStart = Math.max(start, hour);
               const overlapEnd = Math.min(end, hour + HOUR_MS);
               if (overlapEnd <= overlapStart) continue;
-              const prices = pricesFor(interval.provider, interval.region, new Date(hour));
+              const prices = pricesFor(interval.provider, interval.region, new Date(hour), priceTable);
               if (prices === null) return yield* Effect.fail(unknownPricing(interval.provider, interval.region));
               const hours = (overlapEnd - overlapStart) / HOUR_MS;
               const listCost = intervalCostMicrodollars(interval, hours, prices);
@@ -343,7 +347,6 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
           yield* Effect.forEach(resources, (row) => {
             const one = Effect.gen(function* () {
               const resource: MeteringResource = { tenantId: row.tenant_id, cmuxVmId: row.cmux_id, upstreamVmId: row.upstream_id, provider: row.provider, region: row.region, deletedAt: row.deleted_at };
-              const observedAt = new Date(Math.max(runStartedAt.getTime(), Date.now()));
               const current = yield* openFor(resource.tenantId, resource.upstreamVmId);
               if (resource.deletedAt !== null) {
                 if (current !== null) yield* closeOpen(resource.tenantId, resource.upstreamVmId, new Date(Math.max(current.startedAt.getTime(), resource.deletedAt.getTime())), "reconcile");
@@ -352,6 +355,7 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               const provider = resource.provider ?? "freestyle";
               const region = resource.region ?? "*";
               const result = yield* read(resource);
+              const observedAt = new Date(Math.max(runStartedAt.getTime(), Date.now()));
               if (result.kind === "unavailable") return;
               if (result.kind === "gone") {
                 if (current !== null) yield* closeOpen(resource.tenantId, resource.upstreamVmId, observedAt, "reconcile");
@@ -377,8 +381,8 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
           if (markupBps === null) return;
           const cutoff = now.getTime() - EXPORT_GRACE_MS;
           const lower = now.getTime() - STRIPE_WINDOW_MS;
-          const exported = yield* sql.query("metering.exported", `SELECT tenant_id, hour_start, stripe_customer_id, identifier, value_microdollars, status FROM cmux_vm.usage_exports WHERE hour_start >= $1::timestamptz`, [new Date(lower).toISOString()]).pipe(Effect.flatMap(decodeRows(ExportRow, "metering.exported")));
-          const adjustments = yield* sql.query("metering.adjustments", `SELECT tenant_id, hour_start, identifier, value_microdollars, status FROM cmux_vm.usage_adjustments WHERE hour_start >= $1::timestamptz`, [new Date(lower).toISOString()]).pipe(Effect.flatMap(decodeRows(AdjustmentRow, "metering.adjustments")));
+          const exported = yield* sql.query("metering.exported", `SELECT tenant_id, hour_start, stripe_customer_id, identifier, value_microdollars, status, attempts FROM cmux_vm.usage_exports WHERE hour_start >= $1::timestamptz`, [new Date(lower).toISOString()]).pipe(Effect.flatMap(decodeRows(ExportRow, "metering.exported")));
+          const adjustments = yield* sql.query("metering.adjustments", `SELECT tenant_id, hour_start, identifier, value_microdollars, status, attempts FROM cmux_vm.usage_adjustments WHERE hour_start >= $1::timestamptz`, [new Date(lower).toISOString()]).pipe(Effect.flatMap(decodeRows(AdjustmentRow, "metering.adjustments")));
           const exportedByHour = new Map(exported.map((row) => [`${row.tenant_id}\u0000${row.hour_start.getTime()}`, row]));
           const adjustmentsByHour = new Map<string, ReadonlyArray<typeof AdjustmentRow.Type>>();
           for (const row of adjustments) adjustmentsByHour.set(`${row.tenant_id}\u0000${row.hour_start.getTime()}`, [...(adjustmentsByHour.get(`${row.tenant_id}\u0000${row.hour_start.getTime()}`) ?? []), row]);
@@ -398,19 +402,34 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               const error = Reflect.get(parsed, "error");
               if (typeof error !== "object" || error === null) return false;
               if (Reflect.get(error, "code") === "duplicate_meter_event") return true;
-              return Reflect.get(error, "type") === "invalid_request_error" && typeof Reflect.get(error, "message") === "string" && String(Reflect.get(error, "message")).includes(`already exists with identifier ${identifier}`);
+              const message = Reflect.get(error, "message");
+              return Reflect.get(error, "type") === "invalid_request_error" && typeof message === "string" && message.toLocaleLowerCase().includes(`already exists with identifier ${identifier.toLocaleLowerCase()}`);
             } catch { return false; }
           };
           yield* Effect.forEach(accountsRows, (account) => Effect.gen(function* () {
-            const watermarkRows = yield* sql.query("metering.exportWatermark", `SELECT min(hour_start) AS watermark FROM cmux_vm.usage_exports WHERE tenant_id = $1 AND status <> 'exported'`, [account.tenantId]).pipe(Effect.flatMap(decodeRows(WatermarkRow, "metering.exportWatermark")));
+            const watermarkRows = yield* sql.query("metering.exportWatermark", `SELECT min(hour_start) AS watermark FROM (SELECT hour_start FROM cmux_vm.usage_exports WHERE tenant_id = $1 AND status = 'pending' UNION ALL SELECT hour_start FROM cmux_vm.usage_adjustments WHERE tenant_id = $1 AND status = 'pending') pending`, [account.tenantId]).pipe(Effect.flatMap(decodeRows(WatermarkRow, "metering.exportWatermark")));
             const nonFinal = watermarkRows[0]?.watermark?.getTime();
-            const start = hourStart(nonFinal === undefined || nonFinal === null ? now.getTime() - 72 * HOUR_MS : Math.min(now.getTime() - 72 * HOUR_MS, nonFinal));
+            const start = hourStart(nonFinal === undefined || nonFinal === null ? lower : Math.max(lower, nonFinal));
+            for (const row of exported) {
+              if (row.tenant_id === account.tenantId && row.status === "failed" && Number(row.attempts) <= 1) {
+                yield* Effect.logError("cmux-vm Stripe export permanently failed; excluding hour from retries").pipe(Effect.annotateLogs({ tenantId: account.tenantId, hour: row.hour_start.toISOString() }));
+                yield* sql.query("metering.exported.failed.logged", `UPDATE cmux_vm.usage_exports SET attempts = 2 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND status = 'failed' AND attempts <= 1`, [account.tenantId, row.hour_start.toISOString()]);
+              }
+            }
+            for (const row of adjustments) {
+              if (row.tenant_id === account.tenantId && row.status === "failed" && Number(row.attempts) <= 1) {
+                yield* Effect.logError("cmux-vm Stripe adjustment permanently failed; excluding hour from retries").pipe(Effect.annotateLogs({ tenantId: account.tenantId, hour: row.hour_start.toISOString(), identifier: row.identifier }));
+                yield* sql.query("metering.adjustment.failed.logged", `UPDATE cmux_vm.usage_adjustments SET attempts = 2 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $3 AND status = 'failed' AND attempts <= 1`, [account.tenantId, row.hour_start.toISOString(), row.identifier]);
+              }
+            }
             const rows = yield* queryIntervals(`SELECT ${intervalColumns} FROM cmux_vm.usage_intervals WHERE tenant_id = $1 AND started_at < $2::timestamptz AND (ended_at IS NULL OR ended_at > $3::timestamptz)`, [account.tenantId, new Date(cutoff).toISOString(), new Date(start).toISOString()], "metering.exportIntervals");
             const charges = new Map<string, HourCharge>();
             for (const interval of rows) {
               const from = Math.max(interval.startedAt.getTime(), account.activatedAt.getTime(), start);
               const to = Math.min(interval.endedAt?.getTime() ?? cutoff, cutoff);
-              if (to > from && addHourCharge(charges, interval, from, to, markupBps) === null) yield* Effect.fail(unknownPricing(interval.provider, interval.region));
+              if (to > from && addHourCharge(charges, interval, from, to, markupBps, priceTable) === null) {
+                yield* Effect.logError("cmux-vm Stripe export skipped an unpriced interval hour").pipe(Effect.annotateLogs({ provider: interval.provider, region: interval.region, tenantId: account.tenantId }));
+              }
             }
             for (const charge of [...charges.values()].sort((left, right) => left.hourStart.getTime() - right.hourStart.getTime())) {
               if (charge.hourStart.getTime() + HOUR_MS > cutoff) continue;
@@ -424,10 +443,10 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               if (!baseReady) {
                 const result = yield* sendEvent(account, baseSent, baseIdentifier, charge.hourStart);
                 if (result.status >= 200 && result.status < 300 || isDuplicate(result, baseIdentifier)) {
-                  yield* sql.query("metering.exported.done", `UPDATE cmux_vm.usage_exports SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString()]);
+                  yield* sql.query("metering.exported.done", `UPDATE cmux_vm.usage_exports SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND status <> 'exported'`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString()]);
                   baseReady = true;
                 } else if (result.status >= 400 && result.status < 500) {
-                  yield* sql.query("metering.exported.failed", `UPDATE cmux_vm.usage_exports SET status = 'failed', attempts = attempts + 1, last_error = $3 WHERE tenant_id = $1 AND hour_start = $2::timestamptz`, [account.tenantId, charge.hourStart.toISOString(), result.body.slice(0, 500)]);
+                  yield* sql.query("metering.exported.failed", `UPDATE cmux_vm.usage_exports SET status = 'failed', attempts = attempts + 1, last_error = $3 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND status <> 'exported'`, [account.tenantId, charge.hourStart.toISOString(), result.body.slice(0, 500)]);
                   continue;
                 } else continue;
               }
@@ -436,9 +455,13 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               const pendingAdjustment = priorAdjustments.find((row) => row.status === "pending");
               if (pendingAdjustment !== undefined) {
                 const retry = yield* sendEvent(account, Number(pendingAdjustment.value_microdollars), pendingAdjustment.identifier, charge.hourStart);
-                if (retry.status >= 200 && retry.status < 300 || isDuplicate(retry, pendingAdjustment.identifier)) yield* sql.query("metering.adjustment.done", `UPDATE cmux_vm.usage_adjustments SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString(), pendingAdjustment.identifier]);
-                else continue;
+                if (retry.status >= 200 && retry.status < 300 || isDuplicate(retry, pendingAdjustment.identifier)) yield* sql.query("metering.adjustment.done", `UPDATE cmux_vm.usage_adjustments SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4 AND status <> 'exported'`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString(), pendingAdjustment.identifier]);
+                else if (retry.status >= 400 && retry.status < 500) {
+                  yield* sql.query("metering.adjustment.failed", `UPDATE cmux_vm.usage_adjustments SET status = 'failed', attempts = attempts + 1, last_error = $3 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4 AND status <> 'exported'`, [account.tenantId, charge.hourStart.toISOString(), retry.body.slice(0, 500), pendingAdjustment.identifier]);
+                  continue;
+                } else continue;
               }
+              if (priorAdjustments.some((row) => row.status === "failed")) continue;
               const sentAdjustments = priorAdjustments.filter((row) => row.status === "exported" || row.status === "pending").reduce((sum, row) => sum + Number(row.value_microdollars), 0);
               const delta = charge.valueMicrodollars - baseSent - sentAdjustments;
               if (delta === 0) continue;
@@ -449,8 +472,10 @@ export const meteringLayer = (config: MeteringConfig): Layer.Layer<MeteringLedge
               if (existingAdjustment?.status === "failed" || existingAdjustment?.status === "exported") continue;
               if (existingAdjustment === undefined) yield* sql.query("metering.adjustment.pending", `INSERT INTO cmux_vm.usage_adjustments (tenant_id, hour_start, stripe_customer_id, identifier, value_microdollars, status, attempts) VALUES ($1, $2::timestamptz, $3, $4, $5, 'pending', 0) ON CONFLICT DO NOTHING`, [account.tenantId, charge.hourStart.toISOString(), account.stripeCustomerId, adjustmentIdentifier, delta]);
               const correction = yield* sendEvent(account, delta, adjustmentIdentifier, charge.hourStart);
-              if (correction.status >= 200 && correction.status < 300 || isDuplicate(correction, adjustmentIdentifier)) yield* sql.query("metering.adjustment.done", `UPDATE cmux_vm.usage_adjustments SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString(), adjustmentIdentifier]);
-              else if (correction.status >= 400 && correction.status < 500) yield* sql.query("metering.adjustment.failed", `UPDATE cmux_vm.usage_adjustments SET status = 'failed', attempts = attempts + 1, last_error = $3 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4`, [account.tenantId, charge.hourStart.toISOString(), correction.body.slice(0, 500), adjustmentIdentifier]);
+              if (correction.status >= 200 && correction.status < 300 || isDuplicate(correction, adjustmentIdentifier)) yield* sql.query("metering.adjustment.done", `UPDATE cmux_vm.usage_adjustments SET status = 'exported', exported_at = $3::timestamptz, attempts = attempts + 1 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4 AND status <> 'exported'`, [account.tenantId, charge.hourStart.toISOString(), now.toISOString(), adjustmentIdentifier]);
+              else if (correction.status >= 400 && correction.status < 500) {
+                yield* sql.query("metering.adjustment.failed", `UPDATE cmux_vm.usage_adjustments SET status = 'failed', attempts = attempts + 1, last_error = $3 WHERE tenant_id = $1 AND hour_start = $2::timestamptz AND identifier = $4 AND status <> 'exported'`, [account.tenantId, charge.hourStart.toISOString(), correction.body.slice(0, 500), adjustmentIdentifier]);
+              }
             }
           }).pipe(Effect.catchAll((error) => Effect.logError("cmux-vm Stripe export tenant failed").pipe(Effect.annotateLogs({ operation: error instanceof StoreError ? error.operation : "export" }), Effect.asVoid))), { concurrency: 1 });
         });

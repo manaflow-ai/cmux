@@ -44,6 +44,7 @@ interface ExportView {
   readonly identifier: string;
   value_microdollars: number;
   status: "pending" | "exported" | "failed";
+  attempts: number;
   last_error: string | null;
 }
 interface AdjustmentView {
@@ -52,6 +53,7 @@ interface AdjustmentView {
   readonly identifier: string;
   readonly value_microdollars: number;
   status: "pending" | "exported" | "failed";
+  attempts: number;
 }
 
 const asDate = (value: SqlParam): Date => new Date(String(value));
@@ -126,14 +128,17 @@ export const makeLiveMetering = (
       case "metering.exported":
         return [...exports.values()];
       case "metering.exportWatermark": {
-        const rows = [...exports.values()].filter((row) => row.tenant_id === String(params[0]) && row.status !== "exported");
-        return [{ watermark: rows.length === 0 ? null : rows.reduce((earliest, row) => row.hour_start < earliest ? row.hour_start : earliest, rows[0]!.hour_start) }];
+        const rows = [
+          ...[...exports.values()].filter((row) => row.tenant_id === String(params[0]) && row.status === "pending").map((row) => row.hour_start),
+          ...[...adjustments.values()].filter((row) => row.tenant_id === String(params[0]) && row.status === "pending").map((row) => row.hour_start),
+        ];
+        return [{ watermark: rows.length === 0 ? null : rows.reduce((earliest, row) => row < earliest ? row : earliest, rows[0]!) }];
       }
       case "metering.adjustments":
         return [...adjustments.values()];
       case "metering.exported.pending": {
         const key = `${String(params[0])}\u0000${String(params[1])}`;
-        if (!exports.has(key)) exports.set(key, { tenant_id: String(params[0]), hour_start: asDate(params[1] ?? null), stripe_customer_id: String(params[2]), identifier: String(params[3]), value_microdollars: Number(params[4]), status: "pending", last_error: null });
+        if (!exports.has(key)) exports.set(key, { tenant_id: String(params[0]), hour_start: asDate(params[1] ?? null), stripe_customer_id: String(params[2]), identifier: String(params[3]), value_microdollars: Number(params[4]), status: "pending", attempts: 0, last_error: null });
         return [];
       }
       case "metering.exported.pending.update": {
@@ -145,29 +150,36 @@ export const makeLiveMetering = (
       case "metering.exported.done": {
         const key = `${String(params[0])}\u0000${String(params[1])}`;
         const row = exports.get(key);
-        if (row !== undefined) { row.status = "exported"; row.last_error = null; }
+        if (row !== undefined && row.status !== "exported") { row.status = "exported"; row.attempts += 1; row.last_error = null; }
         return [];
       }
-      case "metering.exported.failed": {
+      case "metering.exported.failed":
+      case "metering.exported.failed.logged": {
         const key = `${String(params[0])}\u0000${String(params[1])}`;
         const row = exports.get(key);
-        if (row !== undefined) { row.status = "failed"; row.last_error = String(params[2]); }
+        if (row !== undefined && row.status !== "exported") {
+          row.status = "failed";
+          row.attempts = operation === "metering.exported.failed.logged" ? 2 : row.attempts + 1;
+          if (operation === "metering.exported.failed") row.last_error = String(params[2]);
+        }
         return [];
       }
       case "metering.adjustment.pending":
         {
           const key = String(params[3]);
-          if (!adjustments.has(key)) adjustments.set(key, { tenant_id: String(params[0]), hour_start: asDate(params[1] ?? null), identifier: key, value_microdollars: Number(params[4]), status: "pending" });
+          if (!adjustments.has(key)) adjustments.set(key, { tenant_id: String(params[0]), hour_start: asDate(params[1] ?? null), identifier: key, value_microdollars: Number(params[4]), status: "pending", attempts: 0 });
           return [];
         }
       case "metering.adjustment.done": {
         const row = adjustments.get(String(params[3]));
-        if (row !== undefined) row.status = "exported";
+        if (row !== undefined && row.status !== "exported") { row.status = "exported"; row.attempts += 1; }
         return [];
       }
-      case "metering.adjustment.failed": {
-        const row = adjustments.get(String(params[3]));
-        if (row !== undefined) row.status = "failed";
+      case "metering.adjustment.failed":
+      case "metering.adjustment.failed.logged": {
+        const identifier = operation === "metering.adjustment.failed" ? String(params[3]) : String(params[2]);
+        const failedRow = adjustments.get(identifier);
+        if (failedRow !== undefined && failedRow.status !== "exported") { failedRow.status = "failed"; failedRow.attempts = operation === "metering.adjustment.failed.logged" ? 2 : failedRow.attempts + 1; }
         return [];
       }
       default:

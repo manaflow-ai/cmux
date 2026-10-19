@@ -11,7 +11,9 @@ export interface ProviderPrices {
   readonly transferGbMicrodollars: number;
 }
 
-export const PROVIDER_PRICES: Readonly<Record<string, Readonly<Record<string, ReadonlyArray<ProviderPrices>>>>> = {
+export type PriceTable = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<ProviderPrices>>>>>;
+
+export const PROVIDER_PRICES: PriceTable = {
   freestyle: {
     "*": [
       {
@@ -21,19 +23,12 @@ export const PROVIDER_PRICES: Readonly<Record<string, Readonly<Record<string, Re
         storageGibHourMicrodollars: 86,
         transferGbMicrodollars: 20_000,
       },
-      {
-        effective_from: "2026-10-19T00:00:00.000Z",
-        vcpuHourMicrodollars: 50_000,
-        memoryGibHourMicrodollars: 15_000,
-        storageGibHourMicrodollars: 100,
-        transferGbMicrodollars: 20_000,
-      },
     ],
   },
 };
 
-export const pricesFor = (provider: string, region: string, _at: Date): ProviderPrices | null => {
-  const prices = PROVIDER_PRICES[provider]?.[region] ?? PROVIDER_PRICES[provider]?.["*"];
+export const pricesFor = (provider: string, region: string, _at: Date, table: PriceTable = PROVIDER_PRICES): ProviderPrices | null => {
+  const prices = table[provider]?.[region] ?? table[provider]?.["*"];
   if (prices === undefined || prices.length === 0) return null;
   const ordered = [...prices].sort((left, right) => Date.parse(left.effective_from) - Date.parse(right.effective_from));
   const matching = ordered.filter((price) => Date.parse(price.effective_from) <= _at.getTime()).at(-1);

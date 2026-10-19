@@ -17,6 +17,10 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
   Effect.gen(function* () {
     const upstream = yield* UpstreamClient;
 
+    // A hand-made object can satisfy the structural controller shape at runtime; the cron check rejects it.
+    const handmadeController = { cron: "*/1 * * * *" } as unknown as ScheduledController;
+    yield* withMeteringMayReadFleet(handmadeController, () => Effect.void).pipe(Effect.catchAll(() => Effect.void));
+
     yield* name(principal, vmA, vmB, (caller, a, b) =>
       Effect.gen(function* () {
         const read = keyHasScope(caller, "vm:read");
@@ -52,6 +56,8 @@ export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
         yield* upstream.createVm(caller, { cmuxId: vmA, idleTimeoutSeconds: 300, environment: "local" }, { scope: write });
         // @ts-expect-error fleet reads require the scheduled-only metering proof
         yield* upstream.getVmForMetering(UpstreamId.make("provider-vm"), "scheduled");
+        // Structural typing still permits a handmade object with the controller fields in a runtime test;
+        // the helper's cron check is the residual runtime guard for that misuse.
         // @ts-expect-error only a ScheduledController may mint fleet-read proof
         yield* withMeteringMayReadFleet({}, () => Effect.void);
       }),
