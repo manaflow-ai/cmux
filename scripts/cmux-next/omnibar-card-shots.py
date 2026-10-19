@@ -85,10 +85,11 @@ if not wait(lambda: "error" not in omnibar(window), 90):
 settle()
 
 failures = 0
-for mode in ("dark", "light", "compact"):
-    if mode == "compact":  # dark again, at compact density (the tighter tab gap above the bar)
-        print("compact", rpc("settings.set", {"path": "appearance.density", "value": "compact"}), flush=True)
-        print("dark theme", rpc("settings.set", {"path": "appearance.theme", "value": None}), flush=True)
+for mode in ("dark", "compact", "light"):
+    # compact: dark at compact density (the tighter tab gap above the bar); light at the default.
+    if mode != "dark":
+        density = "compact" if mode == "compact" else "comfortable"
+        print("density", density, rpc("settings.set", {"path": "appearance.density", "value": density}), flush=True)
     looks = rpc("debug.appearance", {"mode": "dark" if mode == "compact" else mode})
     print(mode, "appearance", looks, flush=True)
     background = (looks or {}).get("terminal_background") if isinstance(looks, dict) else None
