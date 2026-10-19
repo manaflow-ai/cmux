@@ -125,6 +125,13 @@ extension TerminalSurface {
             } else {
                 ensureRendererPresented()
             }
+            if surface == nil,
+               requiresRestoreSpawnPacing,
+               rendererPortalVisible,
+               let view = attachedView,
+               view.window != nil {
+                enqueueRestoredRuntimeSurfaceCreation(for: view)
+            }
         } else {
             rendererPresentationState.recoveryAttempted = false
             setOcclusion(false)
@@ -182,6 +189,15 @@ extension TerminalSurface {
         // native rebuild publication below.
         if visible {
             ensureRendererPresented(presentationReady: presentationReady)
+            // Restore attaches the model before the portal knows which panes
+            // are actually presented. Retry native admission at the first
+            // visible transition; hidden panes remain lightweight models.
+            if surface == nil,
+               requiresRestoreSpawnPacing,
+               let view = attachedView,
+               view.window != nil {
+                enqueueRestoredRuntimeSurfaceCreation(for: view)
+            }
         }
         // Stamp the last-visible time while visible, and exactly once at the hide
         // transition (the hide moment is the last-visible time). Do NOT re-stamp

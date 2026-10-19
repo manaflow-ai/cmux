@@ -22,6 +22,14 @@ extension TerminalSurface {
     @MainActor
     func enqueueRestoredRuntimeSurfaceCreation(for view: any TerminalSurfaceNativeViewing) {
         guard !restoredRuntimeSurfaceStartQueued else { return }
+        // A restored model can be attached to cmux's hidden bootstrap window
+        // before its pane is presented. Do not spend a restore admission on a
+        // renderer that cannot be seen yet. The visibility transition retries
+        // this path, keeping session state resident without native fan-out.
+        // Test/headless hosts have no AppKit window and retain the historical
+        // immediate scheduling semantics. A real bootstrap/presentation window
+        // must wait for the portal visibility signal.
+        guard (rendererPortalVisible || view.window == nil), rendererWindowVisible else { return }
         restoredRuntimeSurfaceStartQueued = true
         let surfaceId = id
         restoreSpawnScheduler.scheduleRestoredSurfaceSpawn(
@@ -34,6 +42,12 @@ extension TerminalSurface {
             guard self.surface == nil else { return }
             guard let view, view.window != nil else { return }
             guard self.attachedView === view else { return }
+            // Visibility may change during the inter-spawn cooldown. Do not
+            // turn a hidden restore admission into a native Ghostty surface;
+            // the next portal/window reveal retries through the visibility
+            // hook in TerminalSurface+Renderer.
+            guard (self.rendererPortalVisible || view.window == nil),
+                  self.rendererWindowVisible else { return }
             self.createSurface(for: view, source: .scheduledRestore)
         }
     }
