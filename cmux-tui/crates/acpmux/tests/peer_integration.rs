@@ -1146,11 +1146,9 @@ fn github_token() -> String {
 
 /// B's session after a prompt with a pasted token, as A's client lists it,
 /// as B's own client lists it, and as A's watcher hears of it live after a
-/// second such prompt. B trusts the devices in `trusted`.
-async fn listed_through_a_peer(tag: &str, trusted: Vec<String>) -> (Value, Value, Value) {
-    let mut cfg = config(PermissionPolicy::Ask);
-    cfg.trusted_peers = trusted;
-    let b = hub(cfg).await;
+/// second such prompt.
+async fn listed_through_a_peer(tag: &str) -> (Value, Value, Value) {
+    let b = hub(config(PermissionPolicy::Ask)).await;
     let (port, peer_token) = listen_with_peer_token(b.clone(), tag).await;
     let mut cb = client(b.clone()).await;
     let name = format!("secret-{tag}");
@@ -1196,7 +1194,7 @@ async fn listed_through_a_peer(tag: &str, trusted: Vec<String>) -> (Value, Value
 /// keeps them raw.
 #[tokio::test]
 async fn a_peer_lists_a_sessions_text_masked_and_the_owning_daemon_keeps_it_raw() {
-    let (on_a, on_b, live) = listed_through_a_peer("masked", vec![]).await;
+    let (on_a, on_b, live) = listed_through_a_peer("masked").await;
     let mask = "[GitHub Personal Access Token]";
     assert_eq!(on_a["lastPrompt"], format!("push with {mask}"), "{on_a}");
     assert_eq!(on_a["preview"], format!("echo: push with {mask}"), "{on_a}");
@@ -1208,11 +1206,44 @@ async fn a_peer_lists_a_sessions_text_masked_and_the_owning_daemon_keeps_it_raw(
     assert!(!live.to_string().contains("ghp_"), "{live}");
 }
 
-/// hq#2509: a device B names in `trustedPeers` gets the raw text.
+/// hq#2509: a peer reads B's queued prompt masked and edits it from that
+/// text; B puts the secret back where its mask still stands.
 #[tokio::test]
-async fn a_trusted_peer_device_lists_the_raw_text() {
-    let me = acpmux::server::peer_text::device_name();
-    let (on_a, _, live) = listed_through_a_peer("trusted", vec![me]).await;
-    assert_eq!(on_a["lastPrompt"], format!("push with {}", github_token()), "{on_a}");
-    assert_eq!(live["lastPrompt"], format!("again {}", github_token()), "{live}");
+async fn a_peer_edits_a_queued_prompt_from_its_masked_text_without_losing_the_secret() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "queue").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "queue-edit"}}})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let send = |n: i64, text: &str, prompt_id: &str| {
+        Message::request(
+            n,
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}}),
+        )
+        .to_line()
+    };
+    cb.tx.send(send(900, "hang", "p-hang")).await.unwrap();
+    let queued = format!("deploy with {} now", github_token());
+    cb.tx.send(send(901, &queued, "p-q")).await.unwrap();
+    cb.wait("_acpmux/prompt_accepted", |p| p["promptId"] == "p-q" && p["queued"] == true).await;
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let listed = ca.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let on_a = listed["sessions"].as_array().unwrap().iter().find(|x| x["name"] == "b/queue-edit").cloned().unwrap();
+    let mask = "[GitHub Personal Access Token]";
+    let shown = on_a["queue"][0]["prompt"].as_str().unwrap().to_owned();
+    assert_eq!(shown, format!("deploy with {mask} now"), "{on_a}");
+
+    let edit = json!({"sessionId": "b/queue-edit", "promptId": "p-q", "op": "update", "text": format!("{shown} please")});
+    let edited = ca.call("_acpmux/queue_edit", edit).await.unwrap();
+    assert_eq!(edited["ok"], true, "{edited}");
+    let on_b = cb.call(method::MUX_INFO, json!({"session": id})).await.unwrap();
+    assert_eq!(on_b["queue"][0]["prompt"], format!("{queued} please"), "{on_b}");
+    let cancel = Message::notification(method::SESSION_CANCEL, json!({"sessionId": id}));
+    cb.tx.send(cancel.to_line()).await.unwrap();
 }

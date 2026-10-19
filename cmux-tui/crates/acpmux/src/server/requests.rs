@@ -860,7 +860,15 @@ async fn dispatch_request(
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
-            hub.queue_edit(&s, &params, control, super::trust_gate::gated(conn.origin, &params))
+            // A peer edits from the masked text it read (`peer_text.rs`).
+            let unmasked;
+            let params = if super::peer_text::masks(conn.origin) {
+                unmasked = hub.unmask_queue_edit(&s, &params);
+                &unmasked
+            } else {
+                &params
+            };
+            hub.queue_edit(&s, params, control, super::trust_gate::gated(conn.origin, params))
                 .await
         }
         method::MUX_QUEUE_REMOVE => {

@@ -3,7 +3,7 @@
 
 use serde_json::{Value, json};
 
-use super::{masked, sends_raw};
+use super::{masked, masks};
 use crate::rpc::{Message, method};
 use crate::server::Origin;
 
@@ -31,17 +31,14 @@ fn summary(token: &str) -> Value {
 
 fn assert_masked(s: &Value) {
     let text = s.to_string();
-    let mut shown = s.clone();
-    shown["queue"] = Value::Null;
-    assert!(!shown.to_string().contains("ghp_"), "a raw token reached a peer: {text}");
+    assert!(!text.contains("ghp_"), "a raw token reached a peer: {text}");
     assert_eq!(s["title"], format!("rotate {MASK}"));
     assert_eq!(s["lastPrompt"], format!("push with {MASK}"));
     assert_eq!(s["preview"], format!("used {MASK}"));
     assert_eq!(s["lastMessage"]["text"], format!("used {MASK}"));
     assert_eq!(s["lastMessage"]["role"], "agent");
     assert_eq!(s["turn"]["prompt"], format!("push with {MASK}"));
-    // A queued prompt stays raw: a client edits it from its text.
-    assert_eq!(s["queue"][0]["prompt"], format!("then {}", github_token()));
+    assert_eq!(s["queue"][0]["prompt"], format!("then {MASK}"));
     assert_eq!(s["lastTurn"]["errorText"], format!("bad credentials {MASK}"));
     // What addresses the session stays exact.
     assert_eq!(s["sessionId"], "s1");
@@ -119,20 +116,11 @@ fn text_without_a_secret_is_left_alone() {
 }
 
 #[test]
-fn only_an_untrusted_peer_gets_masked_text() {
-    let trusted = vec!["huge-blue".to_owned()];
-    let one = |d: &str| vec![d.to_owned()];
+fn only_a_peer_reads_masked_text() {
     for origin in [Origin::Local, Origin::LocalApp, Origin::Web] {
-        assert!(sends_raw(origin, &[], &[]), "{origin:?}");
+        assert!(!masks(origin), "{origin:?}");
     }
-    assert!(!sends_raw(Origin::Peer, &[], &[]), "a peer is masked by default");
-    assert!(!sends_raw(Origin::Peer, &one("huge-blue"), &[]), "nothing is trusted by default");
-    assert!(!sends_raw(Origin::Peer, &[], &trusted), "a peer that names no device");
-    assert!(!sends_raw(Origin::Peer, &one("air-blue"), &trusted));
-    assert!(sends_raw(Origin::Peer, &one("huge-blue"), &trusted));
-    // Two device headers are no claim; neither is an empty one.
-    assert!(!sends_raw(Origin::Peer, &[one("huge-blue"), one("huge-blue")].concat(), &trusted));
-    assert!(!sends_raw(Origin::Peer, &one(""), &["".to_owned()]));
+    assert!(masks(Origin::Peer));
 }
 
 #[test]

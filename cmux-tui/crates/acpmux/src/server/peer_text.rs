@@ -1,41 +1,30 @@
 //! What a peer daemon reads of a session's own words (hq#2509). A summary
 //! carries what the person typed and what the agent said (`title`,
-//! `lastPrompt`, `preview`, `lastMessage`, the running turn's prompt, the
-//! last turn's error), and a peer shows it on another screen, so a
-//! connection proven a peer (`peer_auth.rs`) gets those fields masked
+//! `lastPrompt`, `preview`, `lastMessage`, the running turn's and queued
+//! prompts, the last turn's error), and a peer shows it on another screen,
+//! so a connection proven a peer (`peer_auth.rs`) gets those fields masked
 //! (`secret_scan`): a pasted token reads `[GitHub Personal Access Token]`.
 //! So do a chat's title and preview. The unix socket, the local app and the
 //! Web keep the raw text, and so does a peer daemon served as Web (its peer
-//! token withheld over plain `ws://`).
+//! token withheld over plain `ws://`). Every peer is masked: the peer token
+//! is one per launch, shared by every peer, so nothing here tells one peer
+//! from another to trust.
 //!
-//! Queued prompts stay raw: a client edits one starting from its text
-//! (`_acpmux/queue_edit`), so a masked one would be written back over it.
+//! A peer that edits a queued prompt starts from its masked text; the edit
+//! gets the secrets back where their masks still stand
+//! (`secret_scan::unmask`, `hub/queue_edit.rs`), so a mask is never written
+//! over the prompt.
 //!
-//! The exception: `trustedPeers` in config.json names peer devices that get
-//! the raw text, empty by default. A connecting daemon names its device in
-//! the `x-acpmux-peer-device` upgrade header (its hostname, as `hostname`
-//! prints it). The list is read when a peer connects. The name is
-//! the peer's own claim: it only picks raw text for a connection already
-//! proven a peer by the peer token, which may attach any session and read
-//! its transcript anyway. That transcript (`session/update`, `_acpmux/event`,
-//! history records, a chat transcript's turns) is not masked here.
+//! Only these summary fields are masked. What the session itself says
+//! (`session/update`, `_acpmux/event`, history records, a chat transcript's
+//! turns, tool output) still reaches a peer raw.
 
 use crate::rpc::{Message, method};
 use serde_json::Value;
 
-/// The upgrade request header that names the connecting peer's device.
-pub const DEVICE_HEADER: &str = "x-acpmux-peer-device";
-
-/// The device name this daemon sends as a peer: its hostname.
-pub fn device_name() -> String {
-    crate::hand::pair::hostname()
-}
-
-/// Whether a connection gets the summaries' text raw: every origin but
-/// Peer, and a peer whose one named device is in `trusted`.
-pub fn sends_raw(origin: super::Origin, devices: &[String], trusted: &[String]) -> bool {
-    origin != super::Origin::Peer
-        || matches!(devices, [one] if !one.is_empty() && trusted.iter().any(|t| t == one))
+/// Whether a connection reads session text masked: a peer's.
+pub fn masks(origin: super::Origin) -> bool {
+    origin == super::Origin::Peer
 }
 
 /// `msg` as a peer may read it: the session text in every summary and chat
@@ -82,6 +71,11 @@ fn mask_text(v: &mut Value) -> bool {
                 changed |= mask_field(map.get_mut("lastMessage").and_then(|m| m.get_mut("text")));
                 changed |= mask_field(map.get_mut("turn").and_then(|t| t.get_mut("prompt")));
                 changed |= mask_field(map.get_mut("lastTurn").and_then(|t| t.get_mut("errorText")));
+                if let Some(Value::Array(queue)) = map.get_mut("queue") {
+                    for queued in queue {
+                        changed |= mask_field(queued.get_mut("prompt"));
+                    }
+                }
             } else if map.contains_key("attention") || map.contains_key("turns") {
                 // A chat (`chats/activity.rs`) or its transcript: its harness title and preview.
                 for key in ["title", "preview"] {
