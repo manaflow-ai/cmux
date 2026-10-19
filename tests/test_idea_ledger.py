@@ -49,7 +49,8 @@ RAW = {
     "merged": [
         {"number": 10, "title": "Shipped thing", "url": "https://github.com/manaflow-ai/cmux/pull/10",
          "mergedAt": "2026-10-17T00:00:00Z", "mergeCommit": {"oid": SHIPPED_SHA}, "author": {"login": "a"},
-         "body": "Closes #50", "comments": {"nodes": [{"body": "gallery: verified https://gallery.example/pr/10"}]}},
+         "body": "Closes #50", "comments": {"nodes": [{"body": "gallery: verified https://gallery.example/pr/10",
+                                 "authorAssociation": "MEMBER"}]}},
         {"number": 11, "title": "Merged after the nightly", "url": "https://github.com/manaflow-ai/cmux/pull/11",
          "mergedAt": "2026-10-18T10:00:00Z", "mergeCommit": {"oid": UNSHIPPED_SHA}, "author": {"login": "b"},
          "body": "", "comments": {"nodes": []}},
@@ -196,6 +197,13 @@ class IdeaLedgerTest(unittest.TestCase):
         items, ledger, _ = self.run_ledger(env_extra={"BD_FAIL_ALL": "1"})
         self.assertIn(("cx-idea1",), items)
         self.assertEqual(ledger["meta"]["beads_source"], "board")
+
+    def test_only_an_org_member_can_mark_a_pull_request_verified(self):
+        raw = json.loads(json.dumps(RAW))
+        raw["merged"][0]["comments"]["nodes"][0]["authorAssociation"] = "NONE"
+        raw["merged"][0]["body"] = "Closes #50\n\n✅ verified"
+        items, _, _ = self.run_ledger(raw=raw)
+        self.assertEqual(items[(10,)]["state"], "shipped")
 
     def test_curated_clusters_win(self):
         temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
