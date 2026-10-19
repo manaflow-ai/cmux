@@ -76,7 +76,57 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// Whether an avatar value names a picture rather than text: a file
     /// name (no path) with an image extension, e.g. `"avatar": "cat.png"`.
     static func namesPicture(_ avatar: String) -> Bool {
-        !avatar.contains("/") && ["png", "jpg", "jpeg", "heic"].contains((avatar as NSString).pathExtension.lowercased())
+        !avatar.contains("/") && pictureExtensions.contains((avatar as NSString).pathExtension.lowercased())
+    }
+
+    /// The picture files a profile may name (the Chief sheet's PNG, JPEG, GIF and WebP, and HEIC).
+    static let pictureExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "gif", "webp"]
+    /// What Choose Picture… offers.
+    static let pictureTypes: [UTType] = [.png, .jpeg, .heic, .gif, .webP]
+    /// The largest GIF kept as it is (a still is drawn down instead): the daemon's own picture cap,
+    /// which the Chief sheet keeps too.
+    static let maximumGIFBytes = 1024 * 1024
+    /// The pictures this writes beside profile.json; choosing another replaces them.
+    static let pictureFiles = ["avatar.png", "avatar.gif"]
+
+    /// Makes `source` the Chief's picture (backgrounds plan phase 4): a GIF is copied as it is,
+    /// keeping its motion; a still is drawn at 512 px as a PNG, so a large photo stays small.
+    /// Throws when it is not a picture ImageIO reads, or a GIF over ``maximumGIFBytes``.
+    public func writePicture(from source: URL) throws {
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        guard let image = CGImageSourceCreateWithURL(source as CFURL, nil), CGImageSourceGetCount(image) > 0,
+              let type = (CGImageSourceGetType(image) as String?).flatMap(UTType.init) else { throw CocoaError(.fileReadCorruptFile) }
+        let folder = profileFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let gif = type.conforms(to: .gif)
+        let name = gif ? "avatar.gif" : "avatar.png"
+        let partial = folder.appendingPathComponent(name + ".app.tmp")
+        if gif {
+            let size = (try source.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0
+            guard size <= Self.maximumGIFBytes else { throw CocoaError(.fileReadTooLarge) }
+            try? FileManager.default.removeItem(at: partial)
+            try FileManager.default.copyItem(at: source, to: partial)
+        } else {
+            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                            kCGImageSourceCreateThumbnailWithTransform: true,
+                                            kCGImageSourceThumbnailMaxPixelSize: 512]
+            guard let still = CGImageSourceCreateThumbnailAtIndex(image, 0, options as CFDictionary),
+                  let destination = CGImageDestinationCreateWithURL(partial as CFURL, UTType.png.identifier as CFString, 1, nil)
+            else { throw CocoaError(.fileReadCorruptFile) }
+            CGImageDestinationAddImage(destination, still, nil)
+            guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        }
+        for old in Self.pictureFiles { try? FileManager.default.removeItem(at: folder.appendingPathComponent(old)) }
+        try FileManager.default.moveItem(at: partial, to: folder.appendingPathComponent(name))
+        writeAvatar(name)
+    }
+
+    /// Goes back to the bundled picture: no avatar, and the pictures this wrote removed.
+    public func clearPicture() {
+        writeAvatar("")
+        let folder = profileFile.deletingLastPathComponent()
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        for old in Self.pictureFiles { try? FileManager.default.removeItem(at: folder.appendingPathComponent(old)) }
     }
 
     /// The header's avatar from one profile read: its text, or the bytes of

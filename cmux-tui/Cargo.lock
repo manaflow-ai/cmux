@@ -1187,6 +1187,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mux2"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+ "libc",
+]
+
+[[package]]
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [
@@ -1476,6 +1484,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-build-identity",
+ "cmux-config",
  "cmux-host",
  "cmux-link",
  "cmux-pty",
