@@ -44,8 +44,9 @@ extension ScreenContentView {
 
     /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
     /// and the panes in front of it (`above`, from `panesAbove()`).
+    /// The zooming pane is above the docks (`rank`): they hide none of it.
     func ringCovers(of host: PaneHostView, docks: [CGRect], above: [ObjectIdentifier: [CGRect]]) -> [CGRect] {
-        (isStripHost(host) ? docks : []) + (above[ObjectIdentifier(host)] ?? [])
+        (isStripHost(host) && host.pane != zoomMotion.pane ? docks : []) + (above[ObjectIdentifier(host)] ?? [])
     }
 
     /// True when the scroll moves this divider or column edge.
@@ -72,16 +73,27 @@ extension ScreenContentView {
     /// `clip` is that range (`PaneArrival.stripClip`, which follows a dock
     /// growing in); a pane growing in from an edge is also masked to
     /// `revealing`, the part its spring shows.
-    /// Any part under a pane in front (`above`, from `panesAbove()`) is cut off too.
+    /// Any part under a pane in front (`above`, from `panesAbove()`) is cut off too: a pane over one
+    /// whole side narrows the clip; one over a corner or the middle (a zoom growing over a grid) is a
+    /// cutout, which only a Chromium page reads (its child window draws above every view; a view
+    /// under the pane in front is hidden by the view order).
     func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, revealing: CGRect? = nil, above: [ObjectIdentifier: [CGRect]]) {
         var visible = revealing.map(host.frame.intersection) ?? host.frame
         if scrolls, let clip { visible = visible.intersection(clip) }
-        for cover in above[ObjectIdentifier(host)] ?? [] { visible = visible.remainder(outside: cover) }
+        var cutouts: [CGRect] = []
+        for cover in above[ObjectIdentifier(host)] ?? [] {
+            let rest = visible.remainder(outside: cover), shared = visible.intersection(cover)
+            if rest == visible, !shared.isNull, shared.width > 0.5, shared.height > 0.5 {
+                cutouts.append(shared.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
+            } else {
+                visible = rest
+            }
+        }
         // A split's presented rect is the content itself: rounded as at rest.
-        let changed = visible == host.frame
+        let changed = visible == host.frame && cutouts.isEmpty
             ? host.setStripClip(nil)
             : host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY),
-                                cornerRadius: revealing == nil ? 0 : host.cornerRadius)
+                                cornerRadius: revealing == nil ? 0 : host.cornerRadius, cutouts: cutouts)
         // A clip can change while the pane stays put (a dock growing over it): the window's
         // Chromium pages re-read their clip shapes, which carry this mask.
         if changed { context.stripClipsDidChange() }
@@ -112,10 +124,12 @@ extension ScreenContentView {
     /// Strip hosts and dividers, then the docks that do not own the corners
     /// (backdrop, hosts, dividers), then the docks that do, then the scrollbar
     /// (layout-model.md F4: column-major side docks draw above bands,
-    /// row-major bands above side docks).
+    /// row-major bands above side docks). A zooming or unzooming pane is above
+    /// all of them until it lands (DESIGN Z2, Z4).
     private func rank(_ view: NSView) -> Int {
         switch view {
         case let host as PaneHostView:
+            if host.pane == zoomMotion.pane { return 10 }
             // A zoom's covered panes stay under every pane.
             if covered.contains(host.pane) { return -1 }
             return geometry.scrolls(pane: host.pane) ? 0 : 3 + cornerRank(geometry.dockFrame(containing: host.pane))
@@ -143,7 +157,7 @@ extension ScreenContentView {
     /// Reorders subviews only when the order is wrong. `sortSubviews`
     /// keeps every view in the window (no detach), so terminal surfaces and
     /// page windows are not torn down.
-    private func ensureStacking() {
+    func ensureStacking() {
         let ranks = subviews.enumerated().map { rank($1) * 100_000 + $0 }
         guard ranks != ranks.sorted() else { return }
         let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks)))
