@@ -141,9 +141,15 @@ public struct SetClientInfoRequest: DaemonRequest {
     public var name: String?
     public var kind: String?
     public var capabilities: [String]?
-    public init(name: String? = nil, kind: String? = "frontend", capabilities: [String]? = nil) {
+    /// Shared-sizing identity (`shared-sizing-v1`): the device this connection's views are on.
+    public var deviceKind: String?
+    public var deviceName: String?
+    public init(name: String? = nil, kind: String? = "frontend", capabilities: [String]? = nil,
+                deviceKind: String? = nil, deviceName: String? = nil) {
         self.name = name
         self.kind = kind
         self.capabilities = capabilities
+        self.deviceKind = deviceKind
+        self.deviceName = deviceName
     }
 }
