@@ -180,6 +180,9 @@ impl Hub {
             .ok_or_else(no_offer)?;
         // The task's title names the sub-session (`subsessions.rs`).
         let title = child.as_ref().and_then(|_| self.offer_title(session, offer_id));
+        // Made before the chat's lock is taken: `offer_link` reads this
+        // chat's meta, and two chats never hold each other's meta locks.
+        let link = child.as_ref().map(|_| self.offer_link(session, title.as_deref()));
         if let Some(child) = &child {
             // Checked and set under the chat's lock: one parent, and only a chat
             // started for this offer.
@@ -196,7 +199,7 @@ impl Hub {
             meta.parent_id = Some(session.id.clone());
             // Its sub-session too, unless something already linked it.
             if meta.subsession.is_none() {
-                meta.subsession = Some(self.offer_link(session, title.as_deref()));
+                meta.subsession = link;
                 if meta.status != super::SessionStatus::Closed {
                     self.subsessions.set_open(&session.id, &child.id, true);
                 }
