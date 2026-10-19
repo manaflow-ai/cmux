@@ -648,14 +648,26 @@ struct EmptyClipboardWriteTests {
         service.writeString(copied, to: location)
         try await settle(board) { $0.string(forType: .string) == copied }
         #expect(board.string(forType: .string) == copied)
-        let changeCount = board.changeCount
 
+        // How far one real write moves the change count.
+        let beforeProbe = board.changeCount
+        let probe = "probe-\(UUID().uuidString)"
+        service.writeString(probe, to: location)
+        try await settle(board) { $0.string(forType: .string) == probe }
+        let oneWrite = board.changeCount - beforeProbe
+
+        // The lane is FIFO, so once the trailing write lands, the empty writes
+        // queued before it have been applied or dropped.
+        let beforeEmpty = board.changeCount
         service.writeRepresentations([.init(mimeType: "text/plain", string: "")], to: location)
         service.writeString("", to: location)
-        try await settle(board) { $0.changeCount != changeCount }
+        #expect(board.string(forType: .string) == probe)
+        let barrier = "barrier-\(UUID().uuidString)"
+        service.writeString(barrier, to: location)
+        try await settle(board) { $0.string(forType: .string) == barrier }
 
-        #expect(board.changeCount == changeCount)
-        #expect(board.string(forType: .string) == copied)
+        #expect(board.string(forType: .string) == barrier)
+        #expect(board.changeCount - beforeEmpty == oneWrite)
     }
 
     @Test func emptyPlainTextIsDroppedFromAMixedWrite() async throws {
