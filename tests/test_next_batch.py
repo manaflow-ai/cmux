@@ -443,6 +443,114 @@ class Bisect(unittest.TestCase):
                 self.assertLessEqual(len(controller.probes), 3)  # log2(8)
 
 
+CHECKS_LOG = """\
+2026-10-19T03:02:59.3742502Z \x1b[36;1m  echo "### ${#failed[@]} cmux-next check(s) failed"\x1b[0m
+2026-10-19T03:02:59.3742784Z \x1b[36;1m  printf -- '- %s\\n' "${failed[@]}"\x1b[0m
+2026-10-19T03:02:59.3791306Z ### 2 cmux-next check(s) failed
+2026-10-19T03:02:59.3791407Z 
+2026-10-19T03:02:59.3791459Z - Type scale (failure)
+2026-10-19T03:02:59.3791577Z - Tier routing (failure)
+2026-10-19T03:02:59.3791651Z 
+2026-10-19T03:02:59.3791707Z Each check's own step log has the details.
+2026-10-19T03:02:59.3792894Z ##[error]Process completed with exit code 1.
+"""
+
+
+class BaseReds(unittest.TestCase):
+    """Base pushes and dispatches skip the checks job, so the batch validates the
+    base itself and compares single checks, not the whole job."""
+
+    def controller(self) -> nb.Controller:
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r", dry_run=False, keep_branches=False)
+        controller.gh = mock.Mock()
+        controller.base_failures = None
+        controller.base_probe = None
+        controller.base_probe_result = {}
+        controller.base_sha = "b" * 40
+        controller.batch_id = "local-1"
+        return controller
+
+    def test_reads_the_red_checks_from_the_jobs_last_step(self):
+        self.assertEqual(nb.red_subchecks(CHECKS_LOG), ["Type scale", "Tier routing"])
+        self.assertEqual(nb.red_subchecks("no listing here\n"), [])
+
+    def test_a_red_checks_job_counts_each_red_check(self):
+        controller = self.controller()
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 7, "name": nb.CHECKS_JOB, "conclusion": "failure"},
+            {"id": 8, "name": "cmux-next swift test", "conclusion": "failure"},
+            {"id": 9, "name": "cmux-next daemon tests", "conclusion": "success"},
+        ]}
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, CHECKS_LOG, "")
+        self.assertEqual(controller.failed_jobs(1), [
+            f"{nb.CHECKS_JOB}: Tier routing", f"{nb.CHECKS_JOB}: Type scale", "cmux-next swift test"])
+        self.assertIn("actions/jobs/7/logs", " ".join(controller.gh.gh.call_args.args))
+
+    def test_an_unreadable_log_keeps_the_job(self):
+        controller = self.controller()
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
+        self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
+
+    def test_inherited_reds_join_the_probe_and_the_bases_own_runs(self):
+        controller = self.controller()
+        controller.base_probe_result = {"failed": {f"{nb.CHECKS_JOB}: Type scale"}}
+        controller.gh.runs.return_value = [
+            {"id": 1, "status": "completed", "head_branch": nb.BASE},
+            {"id": 2, "status": "completed", "head_branch": "other"},
+        ]
+        controller.failed_jobs = lambda run_id: {1: ["cmux app scheme compile (Debug)"], 2: ["x"]}[run_id]
+        self.assertEqual(controller.failing_on_base("b" * 40),
+                         {f"{nb.CHECKS_JOB}: Type scale", "cmux app scheme compile (Debug)"})
+
+    def test_the_probe_validates_the_base_on_its_own_branch(self):
+        controller = self.controller()
+        pushed = []
+        controller.push = lambda sha, ref: pushed.append((sha, ref))
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        controller.wait_run = lambda run_id, timeout: {"status": "completed"}
+        controller.failed_jobs = lambda run_id: [f"{nb.CHECKS_JOB}: Type scale"]
+        with mock.patch.object(nb.time, "sleep"):
+            controller.probe_base()
+        self.assertEqual(pushed, [("b" * 40, "next-batch/local-1-base")])
+        controller.gh.dispatch.assert_called_once_with(nb.HEAVY_WORKFLOW, "next-batch/local-1-base")
+        self.assertEqual(controller.base_probe_result["failed"], {f"{nb.CHECKS_JOB}: Type scale"})
+        self.assertEqual(controller.base_probe_result["url"], "https://probe")
+
+    def test_a_pr_red_on_the_stacks_failing_check_is_dropped_without_a_bisect(self):
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r", prs="", dry_run=True, keep_branches=True, land=False)
+        controller.validations, controller.base_probe_result, controller.base_sha = [], {}, ""
+        controller.started, controller.gh, controller.batch_id, controller.run_url = 0, mock.Mock(), "local-1", "u"
+        controller.reported = lambda item, kinds: ""
+        reports = []
+        controller.report_culprit = lambda item, red, prefix, own=False: reports.append((item.number, own))
+        controller.bisect = mock.Mock(side_effect=AssertionError("bisected"))
+        controller.post_sticky = lambda text: None
+        controller.land = lambda validation: [(item, "landed") for item in validation.stack.included]
+        controller.after_landing = lambda: None
+        failing = f"{nb.CHECKS_JOB}: Main-thread concurrency"
+        own = {2: {failing}, 3: {f"{nb.CHECKS_JOB}: Type scale"}}
+        controller.own_reds = lambda item: own.get(item.number, set())
+
+        def validate(prs, name):
+            stack = nb.Stack(base="b", head="h", included=list(prs))
+            validation = nb.Validation(name=name, stack=stack, build={"ok": True})
+            if any(item.number == 2 for item in prs):
+                validation.heavy_failed = [failing]
+            controller.validations.append(validation)
+            return validation
+
+        controller.validate = validate
+        prs = [pr(1), pr(2), pr(3)]
+        with mock.patch.object(nb, "open_prs", return_value=prs), mock.patch.object(nb, "now", return_value=NOW), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            controller.run()
+        self.assertEqual(reports, [(2, True)])
+        self.assertEqual([[item.number for item in v.stack.included] for v in controller.validations], [[1, 2, 3], [1, 3]])
+        controller.bisect.assert_not_called()
+
+
 class RemoteRegeneration(unittest.TestCase):
     """Generators run the stack's code, so they run in a dispatched job and
     send back a patch; the controller never runs them on its own host."""
