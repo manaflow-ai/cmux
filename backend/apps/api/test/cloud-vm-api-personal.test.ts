@@ -1,6 +1,6 @@
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import { personalTeamIdFor } from "../src/domains/user.ts"
-import { call, deliver, mirroredTeam, teamStub, useStack } from "./team-stack-support.ts"
+import { call, deliver, mirroredTeam, teamIdOf, teamStub, useStack } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
 import { env } from "cloudflare:workers"
 import type { Env } from "../src/env.ts"
@@ -11,7 +11,7 @@ import { PROJECT } from "./team-stack-support.ts"
 
 interface Marker { readonly version: number; readonly project: string; readonly team: string; readonly user: string; readonly stack_user: string; readonly nonce: string }
 const STACK_TEAM = "cb48f8e3-5ebf-4a16-918b-9adb7d6948a7"
-const fixture = async () => {
+const fixture = async (tenant = STACK_TEAM) => {
   const t = await mirroredTeam("Personal VM tenant")
   const personal = personalTeamIdFor(t.user)
   let creates = 0, uncertain = false, visible = true
@@ -20,7 +20,7 @@ const fixture = async () => {
     find: async (_marker: Marker) => visible ? found : [],
     create: async (marker: Marker) => {
       creates++
-      const receipt = { id: STACK_TEAM, marker }
+      const receipt = { id: tenant, marker }
       found = [receipt]
       if (uncertain) throw new Error("test lost response")
       return receipt
@@ -28,7 +28,7 @@ const fixture = async () => {
     members: async (_id: string) => [t.stackUser]
   }
   await inDO(teamStub(personal), async (instance) => { instance.personalStack = stack })
-  return { ...t, personal, stack, creates: () => creates, marker: () => found[0]?.marker, loseResponse: () => { uncertain = true }, visible: (value: boolean) => { visible = value } }
+  return { ...t, personal, stack, creates: () => creates, marker: () => found[0]?.marker, loseResponse: () => { uncertain = true }, answer: () => { uncertain = false }, visible: (value: boolean) => { visible = value } }
 }
 const ensure = (team: string) => inDO(teamStub(team), async (instance) => instance.ensureVmApiTenant(team))
 const read = (team: string) => inDO(teamStub(team), async (instance) => instance.vmApiTenant(team, "operate"))
@@ -148,4 +148,54 @@ it("denies new work after the backing Stack team is deleted while retaining clea
   expect(await ensure(t.personal)).toHaveProperty("status", "unavailable")
   expect(await inDO(teamStub(t.personal), async (instance) => instance.vmApiTenant(t.personal, "cleanup"))).toHaveProperty("tenant", STACK_TEAM)
   expect(t.creates()).toBe(1)
+})
+
+it("fails closed when a second member joins the tenant after provisioning", async () => {
+  const TENANT = crypto.randomUUID()
+  const t = await fixture(TENANT)
+  expect(await ensure(t.personal)).toHaveProperty("status", "ready")
+  expect(await read(t.personal)).toHaveProperty("tenant", TENANT)
+  t.stack.members = async () => [t.stackUser, crypto.randomUUID()]
+  // Past the short positive cache of the last solo-membership read.
+  const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 5 * 60_000)
+  try {
+    expect(await read(t.personal)).toBeNull()
+    expect(await inDO(teamStub(t.personal), async (instance) => instance.vmApiTenant(t.personal, "cleanup"))).toHaveProperty("tenant", TENANT)
+  } finally { later.mockRestore() }
+})
+
+it("never mirrors the personal tenant's Stack team or its members as a cmux team", async () => {
+  const TENANT = crypto.randomUUID()
+  const t = await fixture(TENANT)
+  expect(await ensure(t.personal)).toHaveProperty("status", "ready")
+  const invitee = crypto.randomUUID()
+  t.w.teams.set(TENANT, "Personal")
+  t.w.members.set(`${TENANT}:${t.stackUser}`, "Owner")
+  t.w.members.set(`${TENANT}:${invitee}`, "Invitee")
+  const getTeam = t.w.fake.getTeam
+  t.w.fake.getTeam = async (id: string) => { const team = await getTeam(id); return team && id === TENANT ? { ...team, vm_personal_tenant: true } : team }
+  await useStack(TENANT, t.w)
+  expect((await deliver("team.created", { id: TENANT, display_name: "Personal" })).body).toMatchObject({ outcome: "vm_personal_tenant_ignored" })
+  expect((await deliver("team_membership.created", { team_id: TENANT, user_id: invitee })).body).toMatchObject({ outcome: "vm_personal_tenant_ignored" })
+  const mirror = teamIdOf(TENANT)
+  expect(await inDO(teamStub(mirror), async (instance) => instance.vmApiTenantState(mirror))).toBe("unknown")
+  expect(await inDO(teamStub(mirror), async (instance) => instance.vmApiTenant(mirror, "operate"))).toBeNull()
+})
+
+it("starts over under a fresh nonce once a lost create stays unfound past its window", async () => {
+  const TENANT = crypto.randomUUID()
+  const t = await fixture(TENANT)
+  t.loseResponse()
+  t.visible(false)
+  expect(await ensure(t.personal)).toMatchObject({ status: "pending" })
+  const first = t.marker()?.nonce
+  expect(await ensure(t.personal)).toMatchObject({ status: "pending" })
+  expect(t.creates()).toBe(1)
+  t.answer()
+  const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 25 * 3600_000)
+  try {
+    expect(await ensure(t.personal)).toMatchObject({ status: "ready", target: { tenant: TENANT } })
+  } finally { later.mockRestore() }
+  expect(t.creates()).toBe(2)
+  expect(t.marker()?.nonce).not.toBe(first)
 })
