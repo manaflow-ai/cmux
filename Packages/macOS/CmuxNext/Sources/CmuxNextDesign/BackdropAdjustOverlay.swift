@@ -18,7 +18,7 @@ public final class BackdropAdjustOverlay: NSView {
     private var faded: [(NSView, CGFloat)] = []
     /// Fades views the window adds while placing (a page, a toast): AppKit sends no change for
     /// `subviews`, so each window update (after every event it handles) looks for new ones.
-    private var updateObserver: NSObjectProtocol?
+    private var updateObserver: (any NSObjectProtocol)?
     /// The one overlay placing now, in any window.
     private static weak var active: BackdropAdjustOverlay?
     private let bar = NSVisualEffectView()
