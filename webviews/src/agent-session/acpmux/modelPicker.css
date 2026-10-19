@@ -318,6 +318,9 @@
 .acpmux-quick-layout { display: flex; align-items: stretch; }
 .acpmux-quick-rail {
   flex: none;
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
   padding: 6px;
   border-inline-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }

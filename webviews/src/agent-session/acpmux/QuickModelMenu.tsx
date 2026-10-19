@@ -355,7 +355,7 @@ export function QuickModelMenu({
         {families ? (
           <div className="acpmux-quick-layout">
             {/* The rail: Starred (when any), then each harness; a tab shows its models in place. */}
-            <div className="acpmux-quick-rail" role="group" aria-label={t("picker.harness")}>
+            <fieldset className="acpmux-quick-rail" aria-label={t("picker.harness")}>
               {families.list.map((family) => (
                 <button
                   key={family.id}
@@ -382,7 +382,7 @@ export function QuickModelMenu({
                   )}
                 </button>
               ))}
-            </div>
+            </fieldset>
             <div className="acpmux-quick-body">{list}</div>
           </div>
         ) : (
