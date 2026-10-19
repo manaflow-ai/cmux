@@ -85,6 +85,7 @@ pub mod op_names {
     pub const HOME_SETTINGS_SET: &str = "home.settings.set";
     pub const HOST_ENROLL: &str = "host.enroll";
     pub const HOST_REMOVE: &str = "host.remove";
+    pub const HOST_REPLICA_PURGE: &str = "host.replica.purge";
     pub const INBOX_ARCHIVE: &str = "inbox.archive";
     pub const INBOX_DM_PEER: &str = "inbox.dm_peer";
     pub const INBOX_LIST: &str = "inbox.list";
@@ -275,6 +276,7 @@ pub mod op_names {
         HOME_SETTINGS_SET,
         HOST_ENROLL,
         HOST_REMOVE,
+        HOST_REPLICA_PURGE,
         INBOX_ARCHIVE,
         INBOX_DM_PEER,
         INBOX_LIST,
@@ -468,6 +470,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "home.settings.set" => visitor.visit::<HomeSettingsSetOp>(),
         "host.enroll" => visitor.visit::<HostEnrollOp>(),
         "host.remove" => visitor.visit::<HostRemoveOp>(),
+        "host.replica.purge" => visitor.visit::<HostReplicaPurgeOp>(),
         "inbox.archive" => visitor.visit::<InboxArchiveOp>(),
         "inbox.dm_peer" => visitor.visit::<InboxDmPeerOp>(),
         "inbox.list" => visitor.visit::<InboxListOp>(),
