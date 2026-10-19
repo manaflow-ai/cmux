@@ -1276,6 +1276,13 @@ pub struct DirectWebSocketOptions {
     pub keepalive: WebSocketKeepalive,
 }
 
+impl DirectWebSocketOptions {
+    /// A listener with the production keepalive policy.
+    pub fn new(allow_insecure_non_loopback: bool, trusted_carrier: bool) -> Self {
+        Self { allow_insecure_non_loopback, trusted_carrier, ..Self::default() }
+    }
+}
+
 struct LimitedTcpListener {
     inner: tokio::net::TcpListener,
     permits: Arc<Semaphore>,
