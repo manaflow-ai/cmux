@@ -97,6 +97,11 @@ extension TabManager {
         )
     }
 
+    func setTabColor(tabId: UUID, color: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        applyWorkspaceColor(color, to: [tab])
+    }
+
     func applyWorkspaceColor(_ color: String?, to workspaces: [Workspace]) {
         guard !workspaces.isEmpty else { return }
         for workspace in workspaces {
