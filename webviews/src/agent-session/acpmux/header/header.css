@@ -39,6 +39,8 @@
   html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-diff-panel{left:auto;width:var(--acpmux-viewer-width);border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
 }
 .acpmux-file-viewer{background:var(--agent-page-bg)}
+/* No Back chevron (only the X closes it): the name lines up with the search field below. */
+.acpmux-file-viewer>.acpmux-diff-header{padding-left:16px}
 .acpmux-file-viewer-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .acpmux-file-viewer-body{flex:1;min-height:0;overflow:auto;padding:8px 16px 16px}
 .acpmux-file-viewer-note{margin:8px 0 0;color:var(--agent-muted);font-size:var(--text-detail)}

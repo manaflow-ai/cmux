@@ -387,7 +387,7 @@ export function ChatHeaderTools({
         label: t("header.changes"),
         icon: "diff.file",
         shortcut: changesKey,
-        pressed: lit.includes(HEADER_ACTIONS.changes),
+        pressed: on(HEADER_ACTIONS.changes, "toggle"),
         run: () => onChanges("toggle"),
       });
     if (onPreview && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
@@ -403,7 +403,7 @@ export function ChatHeaderTools({
         key: "files",
         label: t("header.files"),
         icon: "folder",
-        pressed: lit.includes(HEADER_ACTIONS.files),
+        pressed: on(HEADER_ACTIONS.files, "toggle"),
         run: () => onFiles("toggle"),
       });
     return items;

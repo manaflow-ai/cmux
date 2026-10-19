@@ -6,7 +6,6 @@
 import type { KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useT } from "./i18n";
-import { ChevronLeft } from "./changeIcons";
 import { FileDoc, Folder } from "./conversation/icons";
 import { Icon } from "./icons/Icon";
 
@@ -47,11 +46,11 @@ export function FilesView({
   onClose(): void;
 }) {
   const t = useT();
-  const back = useRef<HTMLButtonElement>(null);
+  const close = useRef<HTMLButtonElement>(null);
   const [shown, setShown] = useState<Shown>({ kind: "loading" });
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<{ base: string; paths: string[] } | "failed" | undefined>();
-  useEffect(() => back.current?.focus({ preventScroll: true }), []);
+  useEffect(() => close.current?.focus({ preventScroll: true }), []);
   useEffect(() => {
     let current = true;
     setShown({ kind: "loading" });
@@ -105,20 +104,11 @@ export function FilesView({
       onKeyDown={onKeyDown}
     >
       <header className="acpmux-diff-header">
-        <button
-          ref={back}
-          type="button"
-          className="acpmux-diff-back"
-          aria-label={t("changes.back")}
-          title={t("changes.back")}
-          onClick={onClose}
-        >
-          <ChevronLeft />
-        </button>
         <span className="acpmux-file-viewer-name" title={folder}>
           {inside ? `${name}/${inside}` : name}
         </span>
         <button
+          ref={close}
           type="button"
           className="acpmux-diff-tool"
           aria-label={t("image.close")}

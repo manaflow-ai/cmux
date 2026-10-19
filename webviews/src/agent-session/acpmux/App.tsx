@@ -6084,15 +6084,7 @@ function AcpmuxPane() {
                 )}
                 {fileView && fileOpen && !diffView && (
                   <Suspense fallback={null}>
-                    <FileViewer
-                      file={fileView}
-                      onClose={closeFile}
-                      onDismiss={() => {
-                        closeFile();
-                        closeFiles();
-                      }}
-                      onOpenFile={openChangedFile}
-                    />
+<FileViewer file={fileView} onClose={closeFile} onOpenFile={openChangedFile} />
                   </Suspense>
                 )}
                 {filesView && filesOpen && localCwd && !diffView && !(fileView && fileOpen) && (
