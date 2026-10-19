@@ -394,7 +394,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
         }
-        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, transaction } => {
+        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
                 mux,
                 client,
@@ -405,6 +405,7 @@ pub(super) fn handle_command_with_cancellation(
                 mode,
                 role,
                 permanent,
+                pinned,
                 transaction,
             )
         }
@@ -589,6 +590,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
         Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
         Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
+        Command::CloudHostReplicaSet(params) => cloud_host_replica::set(mux, client, params),
+        Command::CloudHostReplicaClear(params) => cloud_host_replica::clear(mux, client, params),
+        Command::CloudHostReplicaStatus => cloud_host_replica::status(mux, client),
         Command::PageCredential(params) => page_credential::page_credential(mux, client, params),
         Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
@@ -620,6 +624,9 @@ pub(super) fn handle_command_with_cancellation(
             cloud_conversations::unsubscribe(mux, client, Some(params))
         }
         Command::CloudConversationLive(params) => cloud_conversations::live(mux, client, params),
+        Command::CloudConversationTyping(params) => {
+            cloud_conversations::typing(mux, client, params)
+        }
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),

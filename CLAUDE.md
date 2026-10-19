@@ -82,6 +82,9 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
+  A bug-fix PR body names that command, its failure on the base and its pass on the head,
+  then an `### Observed / Not run` section: what you ran and saw, then what you only read
+  or didn't run. `gh-merge-green` warns when a fix PR lacks it; it does not block.
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
   Ordinary PRs use the normal fast, path-routed coverage by default. Add `full-ci` only for a
   user-requested or agreed broad validation plan, naming the extra lanes and why
@@ -101,6 +104,8 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   Ship user-visible high-tier behavior behind a default-off setting. After merging high tier,
   check the first nightly-next that has it; revert with `gh-merge-green --revert` if it broke
   and the fix misses the next cut. Never add `risk:waived`; only a maintainer does.
+- Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
+  the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
   first; a second model is not a review gate. Wait for checks relevant to the
   change; disclose skipped verification on the PR. `main` is nightly: fix forward,
@@ -109,16 +114,9 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
-- The normal merge path is `gh-merge-green`, including its coordinator `WINDOW` freeze check.
-  A maintainer’s direct merge directive may use a guarded fallback when that helper refuses solely
-  because the coordinator `WINDOW` is unavailable or unreadable: verify live that the exact head
-  SHA is unchanged, `ci-status` is successful, the exact-head `cmux-next` run is successful, all
-  focused checks pass, every remaining red check is proven identical base-red, no conflict markers
-  or unresolved actionable review threads remain, and the PR is not missing an exact-head workflow
-  run. Record the helper refusal and each verification receipt in the PR before using the fallback.
-  This fallback never bypasses a failed or pending focused check, a missing workflow run, or an
-  active freeze path; it applies to app/runtime/UI PRs only with the maintainer’s direct merge
-  directive and the same base-red proof.
+- The normal merge path is `gh-merge-green`. It refuses a PR that touches a path an open
+  `merge-freeze` issue freezes, or when the freeze state can't be read; only the freeze owner's
+  `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
 
 ## Implementation rules by task
 

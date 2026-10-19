@@ -121,6 +121,23 @@ public final class CmuxSidebarView: NSView {
         set { controller.selectionColor = newValue }
     }
 
+    /// Draws the selected row or pinned tile in a neutral grey in every window state, with the
+    /// normal text colours and grey pinned names, instead of the system's blue selection
+    /// (Messages' pinned grid look). Off by default (MessagesLab's look).
+    public var neutralSelection: Bool {
+        get { controller.neutralSelection }
+        set { controller.neutralSelection = newValue }
+    }
+    /// The filter button, right of the search field, for the host's styling (its frame and menu
+    /// stay the list's).
+    public var filterButton: NSButton { controller.filterButton }
+    /// The filter button's side when the host draws it as a round button (nil: MessagesLab's
+    /// 26 pt accessory button with the circled glyph).
+    public var roundFilterSide: CGFloat? {
+        get { controller.roundFilterSide }
+        set { controller.roundFilterSide = newValue }
+    }
+
     let controller = SidebarController()
     private let link = SidebarLink()
     /// The list's scroll view, for the host's scroller style (cmux's scrollers are thin overlays).

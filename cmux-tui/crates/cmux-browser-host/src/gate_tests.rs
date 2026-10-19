@@ -33,6 +33,10 @@ struct FakeDriver {
     /// Runs inside the next `tab.screenshot` (what another session does
     /// while the capture is taken).
     during_capture: Mutex<Option<DuringCapture>>,
+    /// The focused-input probe's answer (`FOCUSED_INPUT`).
+    focused_input: Mutex<Value>,
+    /// frame.observe answers by method (`describe`, `rect`).
+    observed: Mutex<std::collections::HashMap<String, Value>>,
 }
 
 /// What another session does while a capture is taken (`during_capture`).
@@ -128,7 +132,10 @@ impl Driver for FakeDriver {
         match method {
             "frame.evaluate" => {
                 let source = params["source"].as_str().unwrap_or("");
-                if source.contains("cmux-capture-") && !self.page_fields.lock().unwrap().is_empty()
+                if source.contains("cmux-focused-input") {
+                    Ok(self.focused_input.lock().unwrap().clone())
+                } else if source.contains("cmux-capture-")
+                    && !self.page_fields.lock().unwrap().is_empty()
                 {
                     Ok(self.capture_step(source, &params["args"]))
                 } else if source.contains("cmux-capture-held") {
@@ -140,6 +147,10 @@ impl Driver for FakeDriver {
                 }
             }
             "frame.focused" => Ok(self.focused_frame.lock().unwrap().clone()),
+            "frame.observe" => Ok(params["method"]
+                .as_str()
+                .and_then(|m| self.observed.lock().unwrap().get(m).cloned())
+                .unwrap_or(Value::Null)),
             "tab.screenshot" => {
                 let during = self.during_capture.lock().unwrap().take();
                 if let Some(during) = during {
@@ -252,6 +263,8 @@ fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
         page_fields: Mutex::new(Vec::new()),
         mask_needles: Mutex::new(std::collections::HashMap::new()),
         during_capture: Mutex::new(None),
+        focused_input: Mutex::new(Value::Null),
+        observed: Mutex::new(std::collections::HashMap::new()),
     });
     (Gate::new(driver.clone(), Grants { raw_cdp, ..Grants::default() }), driver)
 }
@@ -1468,3 +1481,6 @@ fn a_proxied_session_is_refused_a_name_that_resolves_to_metadata() {
 
 #[path = "gate_isolated_tests.rs"]
 mod isolated;
+
+#[path = "gate_typing_tests.rs"]
+mod typing;

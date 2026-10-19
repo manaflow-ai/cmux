@@ -60,7 +60,7 @@ extension DaemonStore {
     func checkOverlayConservation(confirmed: Int) {
         #if DEBUG
         guard !intentLog.isEmpty else { return }
-        let visible = index.tabsByID.count - index.provisionalTabCount
+        let visible = index.tabsByID.count - index.provisionalTabCount + CancelledCreation.hiddenTabs(in: intentLog)
         guard visible != confirmed else { return }
         reportMirrorViolation("intent overlay changed the tabs: confirmed \(confirmed), visible \(visible)")
         #endif

@@ -95,8 +95,7 @@ def main() -> int:
         print(f"error: {p}", file=sys.stderr)
     if missing:
         print("error: cmux-tui crates embed files the cmux-tui tree key does not cover. Add these lines to "
-              "scripts/cmux-next/cmux-tui-tree-inputs.txt and the same paths to the pull_request_target "
-              "paths of .github/workflows/cmux-tui-artifacts.yml:", file=sys.stderr)
+              "scripts/cmux-next/cmux-tui-tree-inputs.txt:", file=sys.stderr)
         for t in missing:
             kind = "tree" if (root / t).is_dir() else "blob"
             print(f"{kind} {t}", file=sys.stderr)

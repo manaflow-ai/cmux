@@ -212,7 +212,10 @@ impl Mux {
                         name: optional_owned_string(fields, "terminal_name")?,
                         created_screen_name: None,
                         size: effect_cell_size(fields)?,
-                        on_exit: None,
+                        // Internal owner jobs retain their terminal view.
+                        // Generic workspace.create still rejects this field
+                        // at catalog admission, preserving its public shape.
+                        on_exit: effect_on_exit(fields)?,
                     },
                 )
                 .map(|created| created.path)
@@ -713,6 +716,10 @@ impl Mux {
         on_exit: Option<TerminalOnExit>,
         index: Option<usize>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
+        // `pinned-dock-v1`: a pinned column that takes no tabs refuses
+        // before anything spawns, and again when the tab attaches.
+        let operation = ResourceOperation::TabCreateTerminal.wire_name();
+        self.with_state(|state| ensure_pane_takes_tabs(operation, state, target))?;
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
@@ -733,9 +740,14 @@ impl Mux {
         }
         let active_at = self.next_active_at();
         let notifications = self.tree_decorations();
+        let mut refused = None;
         let attached = {
             let mut state = self.state.lock().unwrap();
-            let delta = match state.panes.get_mut(&target) {
+            if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
+                refused = Some(error);
+            }
+            let pane = if refused.is_some() { None } else { state.panes.get_mut(&target) };
+            let delta = match pane {
                 Some(pane) => {
                     // At its end, or at the strip index the creation names
                     // (`tab_slot`: Reopen Closed puts a tab back in place).
@@ -777,6 +789,14 @@ impl Mux {
                 })
                 .transpose()?
         };
+        if let Some(error) = refused {
+            self.fail_hosted_terminal_attachment(
+                &surface,
+                "resource-terminal-tab-attach-failed",
+                "pinned-column-takes-no-tabs",
+            )?;
+            return Err(error);
+        }
         let Some((delta, created)) = attached else {
             self.fail_hosted_terminal_attachment(
                 &surface,
