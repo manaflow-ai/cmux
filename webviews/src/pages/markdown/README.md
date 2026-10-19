@@ -10,6 +10,14 @@ A save is a minimal-change write (`sourceMap.ts`). The editor keeps each top-lev
 
 `host.ts` lists the ops and streams the native host (diff-host.md S6) implements: `cmux.markdown.config`, `cmux.markdown.save {path, text, baseHash}` (refused with `cmux.markdown.conflict` on a hash mismatch), `cmux.markdown.open` (also for followed links), `cmux.markdown.openLink`, `cmux.markdown.resolveLinks`, `cmux.markdown.listFiles`, the page commands `save`, `back`, `forward` and `link`, the streams `cmux.markdown.changes` and `cmux.markdown.look`, the `save` page command (Cmd-S), and same-origin resources for images (`assetBase`, the file's folder only) and the diagram libraries (`libBase`: `mermaid.js`, `vega.js`). The page runs under the strict PageCSP: Vega uses `vega-interpreter`, code highlighting the Shiki JavaScript engine.
 
+## Editable everywhere
+
+Every markdown file opens editable, whoever opened it (Open File..., `cmux open`, an agent, a link) and in any workspace, Home included. The host sends `readOnly` with a `readOnlyReason` only for a real reason, and the page names it: `encoding` (not UTF-8), `binary`, `permission` (the file is not writable) or `transcript` (a chat transcript the host opens read only). A change on disk reloads the page when it has no unsaved edits and raises the conflict banner when it has.
+
+## Text size
+
+Cmd-= (also Cmd-Shift-=, Cmd-+) and Cmd-- are the app key dispatcher's `zoomIn` and `zoomOut` page commands: one pixel per step, 8 to 40, in rich and source mode. Cmd-0 (`zoomReset`) goes back to the default, `markdown.font.size` (Settings > Appearance > Markdown Viewer > Default Font Size, 16 when unset). The page applies the size as `--cmux-md-zoom` (size over the default) on the body and code sizes (`fontZoom.ts`); a viewer keeps its size across a page reload, and a viewer at the default follows a new default.
+
 ## Links
 
 A plain click on a link places the caret; Cmd-click follows it (the cursor turns into a pointer while Cmd is held), and in a read-only file a click follows. Hovering shows a card with the full URL or the resolved path, how the link opens, and "Not found" for a relative target that does not exist (also marked with a wavy underline). Where a followed link goes (`linkRouter.ts`):
@@ -46,7 +54,7 @@ Lengths given as numbers are pixels (`em` where noted); strings are CSS values. 
 | `markdown.defaultMode`         | `"rich"`                           | The mode a file opens in: `"rich"` or `"source"`.                                                                 |
 | `markdown.toolbar`             | `true`                             | Show the toolbar (file, save status, mode switch).                                                                |
 | `markdown.font.family`         | system UI font                     | `--cmux-md-font-family`                                                                                           |
-| `markdown.font.size`           | `16`                               | `--cmux-md-font-size`                                                                                             |
+| `markdown.font.size`           | `16`                               | `--cmux-md-font-size`; the default text size (Settings row; Cmd-0 returns to it)                                 |
 | `markdown.font.weight`         | `400`                              | `--cmux-md-font-weight`                                                                                           |
 | `markdown.font.lineHeight`     | `1.6`                              | `--cmux-md-line-height`                                                                                           |
 | `markdown.headings.family`     | the body font                      | `--cmux-md-heading-font-family`                                                                                   |

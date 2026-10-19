@@ -42,6 +42,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var shownNotice: String? { sendNotice ?? notice }
     /// The Chief's activity line under the transcript (`chief-live-v1`).
     let liveLine = HomeLiveLine()
+    /// The status line's details, made on the first click.
+    private(set) var turnPopover: HomeTurnStatusPopover?
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -112,6 +114,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if let linkPreviews { core.links = { [weak linkPreviews] in linkPreviews?.cached($0) } }
         controller.intents = self
         liveLine.dispatch = { [weak controller] text in if controller?.store != nil { controller?.dispatch(.setNotice(text)) } }
+        liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
+        liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
         media.onReady = { [weak self] _ in self?.refreshAttachments() }
     }
@@ -124,6 +128,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func stop() {
         stopped = true
         liveLine.stop()
+        turnPopover?.close()
         controller.intents = nil
     }
 
@@ -152,6 +157,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
                hasOlder newHasOlder: Bool, draft: HomeTurnDraft? = nil) {
         // MessagesLab hides a sender's typing dots while its stream has text (ask 11).
         let typing = wantedTyping
+        // My sends while the Chief's reply streamed stay below the text it showed then (ProjectionCore+Freeze).
+        let items = core.arrange(items)
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
@@ -323,6 +330,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if homeStore.summary(conversation) == nil { _ = noteSend("sent: the store has not listed this conversation") }
         if !store.state.atNewest { _ = noteSend("sent: an older window shows, no local bubble") }
         if store.state.atNewest {
+            // The Chief's reply text already on screen stays where it is, above this send (cmux: send order).
+            for a in core.freezeStream(before: key, in: store.state) { controller.dispatch(a) }
             controller.dispatch(.send)
             // The local bubble morphs into HomeStore's item; without it the item shows on its own.
             _ = core.recordSend(key, in: store.state)
@@ -509,6 +518,22 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func statusLineClicked(_ rect: CGRect, in view: NSView) {
+        let popover = turnPopover ?? {
+            let made = HomeTurnStatusPopover { [weak self] in self?.liveLine.details() }
+            // Closed by Esc or a click outside: the field takes the keyboard back (a click elsewhere keeps its own).
+            made.onClosed = { [weak self] in
+                guard let self, let window = view.window else { return }
+                // A click that closed it in another text field keeps that field's keyboard.
+                if let other = window.firstResponder as? NSText, other !== self.controller.demo?.compose.textView.view { return }
+                self.controller.focusCompose()
+            }
+            turnPopover = made
+            return made
+        }()
+        popover.toggle(relativeTo: rect, of: view)
+    }
+
     func draftChanged() {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
         homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)
@@ -654,6 +679,9 @@ struct ProjectionCore {
     var links: HomeMapping.Links = { _ in nil }
     /// The agent's running reply on screen (`stream(_:state:)`, MessagesLab ask 11).
     var shownStream: ShownStream?
+    /// Running replies whose shown text was frozen in place by my send (`freezeStream(before:)`),
+    /// by turn: the frozen text stays above that send, the rest streams below it.
+    var frozen: [IdempotencyKey: FrozenReply] = [:]
 
     init(me: ParticipantID) { self.me = me }
 
@@ -692,4 +720,7 @@ struct ProjectionCore {
     }
 
     mutating func forget(_ key: IdempotencyKey) { aliases[key] = nil }
+
+    /// A frozen piece of the running reply joins the shown snapshot at the newest (ProjectionCore+Freeze).
+    mutating func insertShown(_ item: TranscriptItem) { shown.append(item) }
 }
