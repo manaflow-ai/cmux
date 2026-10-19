@@ -531,9 +531,12 @@ jobs:
       - name: Lint every workflow
         if: ${{ matrix.group == 'ci' }}
         env:
-          ACTIONLINT_VERSION: "1.7.7"
-          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
-          ACTIONLINT_ASSET_ID: "221573254"
+          # manaflow-ai/actionlint v1.7.12-manaflow.1: upstream main 011a6d15 with the
+          # shellcheck stdin deadlock fix (rhysd/actionlint#651), built
+          # reproducibly; the release notes hold the build recipe.
+          ACTIONLINT_VERSION: "1.7.12-manaflow.1"
+          ACTIONLINT_SHA256: "9446e75901c9bc4447fa6cc1706b7b1b0c1af77fac1586a7c227170c902ecc25"
+          ACTIONLINT_ASSET_ID: "656977422"
           # Warnings and errors gate; informational shellcheck findings do not.
           SHELLCHECK_OPTS: "-S warning"
         run: |
