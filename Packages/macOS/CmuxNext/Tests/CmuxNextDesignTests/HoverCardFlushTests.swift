@@ -76,4 +76,20 @@ import Testing
         #expect(gap > -1 / r.scale - 0.001, "the card overlaps its row by \(-gap) pt, more than a pixel")
         #expect(abs(r.card.maxY - r.anchor.maxY) < 0.5, "the card is not top-aligned with its row")
     }
+
+    /// The touching edge holds at every display scale, not only the test machine's.
+    @Test(arguments: [1, 2, 3] as [CGFloat])
+    func theTouchingEdgeSnapsTowardTheTargetAtEveryScale(scale: CGFloat) {
+        let size = CGSize(width: 240, height: 91)
+        let anchor = CGRect(x: 40.3, y: 600.3, width: 180, height: 28.1)
+        let below = HoverCardPanel.origin(for: .below, anchor: anchor, size: size, scale: scale)
+        let belowGap = anchor.minY - (below.y + size.height)
+        #expect(belowGap <= 0.001 && belowGap > -1 / scale - 0.001, "below at @\(scale)x: \(belowGap) pt")
+        let above = HoverCardPanel.origin(for: .above, anchor: anchor, size: size, scale: scale)
+        let aboveGap = above.y - anchor.maxY
+        #expect(aboveGap <= 0.001 && aboveGap > -1 / scale - 0.001, "above at @\(scale)x: \(aboveGap) pt")
+        let beside = HoverCardPanel.origin(for: .beside, anchor: anchor, size: size, scale: scale)
+        let besideGap = beside.x - anchor.maxX
+        #expect(besideGap <= 0.001 && besideGap > -1 / scale - 0.001, "beside at @\(scale)x: \(besideGap) pt")
+    }
 }
