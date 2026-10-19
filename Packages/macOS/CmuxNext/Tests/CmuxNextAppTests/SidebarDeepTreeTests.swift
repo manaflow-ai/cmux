@@ -144,6 +144,25 @@ import Testing
         #expect(tree.drawn?.collapsed == [])
     }
 
+    /// The saved folds keep only parents the tree still has: a closed workspace's fold leaves the
+    /// list on the next save, so it never grows with every workspace ever folded. Before the
+    /// feed's first pass (no parents yet) nothing is dropped.
+    @Test func aClosedParentsFoldLeavesTheSavedList() {
+        let defaults = UserDefaults(suiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults)
+        let a = WorkspaceID("a"), b = WorkspaceID("b"), d = WorkspaceID("d")
+        tree.state = SidebarSessionTreeState(parents: [WorkspaceID("child-a"): a, WorkspaceID("child-d"): d])
+        tree.toggle(a)
+        tree.toggle(d)
+        tree.state = SidebarSessionTreeState(parents: [WorkspaceID("child-d"): d, WorkspaceID("child-b"): b]) // a closed
+        tree.toggle(b)
+        #expect(tree.collapsed == [b, d])
+        #expect(Set(defaults.stringArray(forKey: SidebarSessionTree.collapsedKey) ?? []) == ["b", "d"])
+        let launched = SidebarSessionTree(defaults: defaults)
+        launched.toggle(WorkspaceID("e")) // before the first pass
+        #expect(launched.collapsed == [b, d, WorkspaceID("e")])
+    }
+
     /// A fixed fifty-workspace spawn tree: `w0`...`w4` are coordinators; `w<n>` for n >= 5 was
     /// started by an earlier workspace, chosen so the tree is four levels deep. Model order is the
     /// ids' order shuffled by a fixed stride, so drawn order cannot follow model order by chance.
