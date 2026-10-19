@@ -8,7 +8,13 @@ import Foundation
 /// ```
 public struct ErrorRedactor {
     private let rules: [(NSRegularExpression, String)]
+    private let assignmentAnchors: NSRegularExpression
     private let queryAssignments: NSRegularExpression
+    private static let sensitiveAssignmentComponents: Set<String> = [
+        "auth", "authorization", "cookie", "credential", "credentials", "password", "passwd", "pwd", "secret",
+        "token",
+    ]
+    private static let keyShapeComponents: Set<String> = ["access", "api", "client", "private", "session"]
     private static let exactQueryKeys: Set<String> = [
         "access_token", "refresh_token", "token", "key", "api_key", "apikey", "sig", "signature",
         "code", "auth", "authorization", "password", "passwd", "pwd", "secret",
@@ -26,13 +32,6 @@ public struct ErrorRedactor {
             // Cookie and authorization headers contain structured lists whose
             // later fields are just as sensitive as the first one.
             (#"(?i)\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+"#, "$1$2<redacted>"),
-            // camelCase assignments such as `clientSecret` and
-            // `secretAccessKey`; the capitalized component is the boundary.
-            (#"\b([a-z][A-Za-z0-9]*(?:Secret|Password|Passwd|Pwd|Token|Credential|APIKey|ApiKey|AccessKey|PrivateKey)[A-Za-z0-9]*)((?:\\+)?"?\s*[:=]\s*)((?:\\+)?"[^"\r\n]*(?:\\+)?"|(?:\\+)?'[^'\r\n]*(?:\\+)?'|[^\s,;}]+(?:\s+[^\s,;}]+)?)"#, "$1$2<redacted>"),
-            // Header or assignment forms. The full identifier is retained so an
-            // environment-style prefix (`AWS_SECRET_ACCESS_KEY`) cannot put the
-            // credential marker behind an underscore word-boundary bypass.
-            (#"(?i)\b((?:[A-Za-z0-9]+[_-])*(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[_-]?key|access[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?key|client[_-]?secret|credentials?|secret|password|passwd|pwd|token|auth)(?:[_-][A-Za-z0-9]+)*)((?:\\+)?"?\s*[:=]\s*)((?:\\+)?"[^"\r\n]*(?:\\+)?"|(?:\\+)?'[^'\r\n]*(?:\\+)?'|[^\s,;}]+(?:\s+[^\s,;}]+)?)"#, "$1$2<redacted>"),
             (#"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+"#, "Bearer <redacted>"),
             (#"\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}"#, "<jwt>"),
             (#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|github_pat|xox[abprs]|AKIA|ASIA)[-_]?[A-Za-z0-9_-]{12,}"#, "<redacted>"),
@@ -40,8 +39,11 @@ public struct ErrorRedactor {
             (#"[A-Za-z0-9+/_=-]{48,}"#, "<blob>"),
         ]
         rules = patterns.map { (try! NSRegularExpression(pattern: $0.0), $0.1) } // swiftlint:disable:this force_try
+        assignmentAnchors = try! NSRegularExpression( // swiftlint:disable:this force_try
+            pattern: #"\b([A-Za-z_][A-Za-z0-9_-]*)((?:(?:\\+)?["'])?\s*[:=]\s*)"#
+        )
         queryAssignments = try! NSRegularExpression( // swiftlint:disable:this force_try
-            pattern: #"(^|[?#&;])([^=?&#;\s]+)=([^&#;\s"']*)"#
+            pattern: #"(^|[?#&;\s])([^=?&#;\s]+)=([^&#;\s"']*)"#
         )
     }
 
@@ -52,7 +54,28 @@ public struct ErrorRedactor {
             text = rule.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text),
                                                  withTemplate: replacement)
         }
-        return redactQueryAssignments(in: text)
+        return redactQueryAssignments(in: redactAssignments(in: text))
+    }
+
+    private func redactAssignments(in text: String) -> String {
+        let source = text as NSString
+        let result = NSMutableString(string: text)
+        let matches = assignmentAnchors.matches(in: text, range: NSRange(location: 0, length: source.length))
+        var ranges: [NSRange] = []
+        var coveredUntil = 0
+        for match in matches {
+            guard match.range.location >= coveredUntil else { continue }
+            let key = source.substring(with: match.range(at: 1))
+            guard Self.isSensitiveAssignmentKey(key) else { continue }
+            let valueStart = NSMaxRange(match.range)
+            let valueEnd = Self.assignmentValueEnd(in: source, from: valueStart)
+            ranges.append(NSRange(location: valueStart, length: valueEnd - valueStart))
+            coveredUntil = valueEnd
+        }
+        for range in ranges.reversed() {
+            result.replaceCharacters(in: range, with: "<redacted>")
+        }
+        return result as String
     }
 
     private func redactQueryAssignments(in text: String) -> String {
@@ -76,5 +99,70 @@ public struct ErrorRedactor {
         let normalized = components.joined(separator: "_")
         return exactQueryKeys.contains(normalized)
             || components.contains(where: sensitiveQueryComponents.contains)
+    }
+
+    private static func isSensitiveAssignmentKey(_ key: String) -> Bool {
+        let components = normalizedAssignmentKey(key).split(separator: "_").map(String.init)
+        if components.contains(where: sensitiveAssignmentComponents.contains) { return true }
+        return components.contains("key") && components.contains(where: keyShapeComponents.contains)
+    }
+
+    private static func normalizedAssignmentKey(_ key: String) -> String {
+        let characters = Array(key)
+        var normalized = ""
+        for index in characters.indices {
+            let character = characters[index]
+            guard character.isLetter || character.isNumber else {
+                if normalized.last != "_" { normalized.append("_") }
+                continue
+            }
+            let previous = index > characters.startIndex ? characters[characters.index(before: index)] : nil
+            let next = index < characters.index(before: characters.endIndex)
+                ? characters[characters.index(after: index)] : nil
+            if character.isUppercase,
+               (previous?.isLowercase == true || previous?.isNumber == true
+                   || (previous?.isUppercase == true && next?.isLowercase == true)),
+               normalized.last != "_" {
+                normalized.append("_")
+            }
+            normalized.append(contentsOf: character.lowercased())
+        }
+        return normalized.trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    }
+
+    private static func assignmentValueEnd(in source: NSString, from start: Int) -> Int {
+        var quoteIndex = start
+        while quoteIndex < source.length, source.character(at: quoteIndex) == 92 { quoteIndex += 1 }
+        guard quoteIndex < source.length else { return source.length }
+        let quote = source.character(at: quoteIndex)
+        guard quote == 34 || quote == 39 else {
+            var end = start
+            while end < source.length, !isUnquotedBoundary(source.character(at: end)) { end += 1 }
+            return end
+        }
+
+        let delimiterEscapeDepth = quoteIndex - start
+        var index = quoteIndex + 1
+        while index < source.length {
+            let character = source.character(at: index)
+            if character == 10 || character == 13 { return index }
+            if character == 92 {
+                let runStart = index
+                while index < source.length, source.character(at: index) == 92 { index += 1 }
+                if index < source.length, source.character(at: index) == quote {
+                    if index - runStart == delimiterEscapeDepth { return index + 1 }
+                    index += 1
+                }
+                continue
+            }
+            if delimiterEscapeDepth == 0, character == quote { return index + 1 }
+            index += 1
+        }
+        return source.length
+    }
+
+    private static func isUnquotedBoundary(_ character: unichar) -> Bool {
+        character == 9 || character == 10 || character == 11 || character == 12 || character == 13 || character == 32
+            || character == 38 || character == 44 || character == 59 || character == 125
     }
 }
