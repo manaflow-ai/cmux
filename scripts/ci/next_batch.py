@@ -1100,11 +1100,16 @@ class Controller:
         if log is None:
             return {name}
         steps, tests, errors = base_red_excuse.signature(job, log)
+        crashes = base_red_excuse.crash_signals(log)
+        if not tests and not errors and not crashes:
+            # Only failed steps (a timeout, unparsed output): nothing to compare, as
+            # base_red_excuse.judge refuses. The bare name matches only a base job just as opaque.
+            return {name}
         parts = {f"{name}: step {step}" for step in steps} | {f"{name}: test {test}" for test in tests}
+        parts |= {f"{name}: crash signal {signal}" for signal in crashes}
         if not tests:
             parts |= {f"{name}: error {error}" for error in errors}
-        # Nothing comparable: the bare name matches only a base job that had nothing comparable either.
-        return parts or {name}
+        return parts
 
     def wait_base_tree(self) -> None:
         """Wait (once a batch) for the base's own cmux-tui artifacts runs.
