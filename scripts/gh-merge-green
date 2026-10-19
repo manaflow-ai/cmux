@@ -834,8 +834,16 @@ fast_gate() {
   gate_checked="${gate_checked:-no fast lane reported}, conflict markers, freezes"
   reds=$(sed -n 's/^red=//p' <<<"$gate_out")
   [ -n "$reds" ] || return 0
-  # A red lint check is never waived (see the full gate); others may be by --override.
-  if [ -n "$override_reason" ] && ! grep -qiE 'god[ -]?files?|l10n|locali[sz]ation|concurrency' <<<"$reds"; then
+  # A red lint check is never waived or base-excused (see the full gate): it fails
+  # only on the change itself. Others may be waived by --override or the base.
+  local lint_reds
+  lint_reds=$(grep -iE 'god[ -]?files?|l10n|locali[sz]ation|concurrency' <<<"$reds" || true)
+  if [ -n "$lint_reds" ]; then
+    refuse \
+      "not green: $(paste -sd ';' - <<<"$lint_reds" | sed 's/;/; /g') red on $sha; --override cannot bypass god-file, l10n or concurrency lint" \
+      'fix what the lint check reports on the exact head, then retry'
+  fi
+  if [ -n "$override_reason" ]; then
     printf 'note: --override waives %s on %s\n' "$(paste -sd ';' - <<<"$reds" | sed 's/;/; /g')" "$sha" >&2
     return 0
   fi
