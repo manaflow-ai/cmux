@@ -544,10 +544,13 @@ export function ModelPicker(props: ModelPickerProps) {
         models: latest.slice(0, 9).map((model) => row(entry, model)),
         more: [...latest.slice(9), ...older].map((model) => row(entry, model)),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
+        ...(signedOutHere && loginFor(entry) && onLogIn
+          ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
+          : {}),
       });
     }
     return list;
-  }, [quick, harnesses, loginFor, favorites, starredText, harness, props.model, t]);
+  }, [quick, harnesses, loginFor, favorites, starredText, harness, props.model, t, onLogIn]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);

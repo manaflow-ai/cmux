@@ -176,16 +176,18 @@ async function mount(listed: unknown, options: { fast?: boolean; refuse?: boolea
     );
   }
   root = createRoot(host);
-  await act(async () => {
-    root!.render(
-      <QueryClientProvider client={new QueryClient()}>
-        <ChatAccountsContext.Provider value={accounts}>
-          <Host />
-        </ChatAccountsContext.Provider>
-      </QueryClientProvider>,
-    );
-  });
-  return { sent, asked, added };
+  const client = new QueryClient();
+  // A fresh element each time: the composer re-renders as a live chat streams.
+  const tree = () => (
+    <QueryClientProvider client={client}>
+      <ChatAccountsContext.Provider value={accounts}>
+        <Host />
+      </ChatAccountsContext.Provider>
+    </QueryClientProvider>
+  );
+  await act(async () => root!.render(tree()));
+  const rerender = () => act(async () => root!.render(tree()));
+  return { sent, asked, added, rerender };
 }
 
 const doc = () => dom.window.document;
@@ -370,6 +372,65 @@ test("typing filters the models in place, across harnesses, with no search field
   await key("Backspace");
   await settle();
   expect(modelNames(menu()!).some((name) => name.toLowerCase().includes("opus"))).toBe(true);
+});
+
+// Review of #22005: the composer re-renders while the menu is open, keys keep reaching the menu
+// while typing unmounts rows, digits narrow a filter, and the rail is no row of the list.
+test("the rail tab and the typed filter survive the composer re-rendering", async () => {
+  const { rerender } = await mount({ routes: [] });
+  await open();
+  const codex = railTabs().find((tab) => tab.getAttribute("aria-label") === "Codex")!;
+  await act(async () => codex.click());
+  await settle();
+  const names = modelNames(menu()!);
+  await rerender();
+  await settle();
+  expect(modelNames(menu()!)).toEqual(names);
+  for (const letter of "hai") await key(letter);
+  await rerender();
+  await settle();
+  expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“hai”");
+});
+
+test("typing keeps keyboard focus in the menu when the focused row goes away", async () => {
+  await mount({ routes: [] });
+  await open();
+  const effort = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("Effort"),
+  )!;
+  await act(async () => effort.focus());
+  const typeAt = (value: string) =>
+    act(async () => {
+      const target = (doc().activeElement as HTMLElement | null) ?? doc().body;
+      target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: value, bubbles: true }));
+    });
+  await typeAt("h");
+  await settle();
+  expect(menu()!.contains(doc().activeElement)).toBe(true);
+  await typeAt("a");
+  await settle();
+  expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“ha”");
+});
+
+test("while filtering, a digit narrows the list instead of picking a row", async () => {
+  const { sent } = await mount({ routes: [] });
+  await open();
+  for (const letter of "gpt 5") await key(letter);
+  await settle();
+  expect(menu()).not.toBeNull();
+  expect(sent.filter((entry) => entry.method === "model")).toHaveLength(0);
+  expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“gpt 5”");
+});
+
+test("the rail's tabs are not rows of the menu", async () => {
+  await mount({ routes: [] });
+  await open();
+  expect(railTabs().length).toBeGreaterThan(1);
+  expect(railTabs().every((tab) => !(tab.getAttribute("role") ?? "").startsWith("menuitem"))).toBe(true);
+  // Right moves to the next harness's tab.
+  await key("ArrowRight");
+  await settle();
+  expect(railTabs().findIndex((tab) => tab.getAttribute("aria-pressed") === "true")).toBe(1);
 });
 
 // Review of #21853: the bolt leaves a narrow row, so fast mode must stay reachable from the menu.

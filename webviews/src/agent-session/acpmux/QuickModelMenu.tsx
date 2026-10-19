@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import type { Choice } from "./ComposerPickers";
@@ -49,6 +49,8 @@ export type QuickFamily = {
   models: QuickModel[];
   more: QuickModel[];
   note?: string;
+  /// Runs a signed-out harness's login (its Log In row).
+  logIn?(): void;
 };
 
 export type QuickFamilies = {
@@ -116,13 +118,28 @@ export function QuickModelMenu({
   // The rail's tab and the typed filter start over with each opening.
   const [tab, setTab] = useState(families?.current);
   const [query, setQuery] = useState("");
-  const chatFamily = families?.current;
-  const familyList = families?.list;
-  useEffect(() => {
-    if (!open) return;
-    setTab(chatFamily ?? familyList?.find((family) => !family.starred)?.id);
-    setQuery("");
-  }, [open, chatFamily, familyList]);
+  // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
+  // reply), and an effect on the families would throw away the tab and the typed filter.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setTab(families?.current ?? families?.list.find((family) => !family.starred)?.id);
+      setQuery("");
+    }
+  }
+  // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
+  // goes to the first row left, so the next key, Enter and Escape still reach the menu.
+  const popup = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const node = popup.current;
+    if (!open || !node || !families) return;
+    const active = node.ownerDocument.activeElement;
+    if (query || !node.contains(active)) {
+      const first = node.querySelector<HTMLElement>('.acpmux-quick-body [role^="menuitem"]:not([data-disabled])');
+      (first ?? node).focus({ preventScroll: true });
+    }
+  }, [query, open, families]);
   const shown = families?.list.find((family) => family.id === tab);
   const onChatTab = !families || tab === families.current;
   // What the list draws: the typed filter's matches, else the tab's top models.
@@ -143,7 +160,20 @@ export function QuickModelMenu({
     if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     // Only the menu's own keys, not a submenu's (React carries those up through the portal).
     if (!event.currentTarget.contains(event.target as Node)) return;
-    if (/^[1-9]$/.test(event.key)) {
+    popup.current = event.currentTarget;
+    // Left and Right move along the rail (its tabs are not rows, so Up and Down stay in the list).
+    if (families && !query && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      const tabs = families.list;
+      const at = tabs.findIndex((family) => family.id === tab);
+      const next = tabs[(at + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+      if (next) {
+        event.preventDefault();
+        setTab(next.id);
+      }
+      return;
+    }
+    // While filtering, a digit is part of the name ("gpt 5"); Enter picks the highlighted match.
+    if (/^[1-9]$/.test(event.key) && !(families && query)) {
       const choice = rows[Number(event.key) - 1];
       if (!choice) return;
       event.preventDefault();
@@ -192,6 +222,11 @@ export function QuickModelMenu({
         {rows.length === 0 && (
           <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
             {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
+          </MenuItem>
+        )}
+        {!query && shown?.note && shown.logIn && (
+          <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
+            <span className="acpmux-menu-label">{t("harness.logIn")}</span>
           </MenuItem>
         )}
       </MenuGroup>
@@ -320,34 +355,33 @@ export function QuickModelMenu({
         {families ? (
           <div className="acpmux-quick-layout">
             {/* The rail: Starred (when any), then each harness; a tab shows its models in place. */}
-            <div className="acpmux-quick-rail">
-              <MenuRadioGroup
-                value={tab ?? ""}
-                onValueChange={(value) => {
-                  setTab(value);
-                  setQuery("");
-                }}
-              >
-                {families.list.map((family) => (
-                  <MenuRadioItem
-                    key={family.id}
-                    value={family.id}
-                    label={family.name}
-                    title={family.note ? `${family.name} · ${family.note}` : family.name}
-                    className="acpmux-quick-rail-tab"
-                  >
-                    {family.starred ? (
-                      <StarIcon />
-                    ) : family.mark ? (
-                      <AgentMark agent={family.mark} size={16} />
-                    ) : (
-                      <span aria-hidden="true" className="acpmux-quick-rail-initial">
-                        {family.name.trim().charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
+            <div className="acpmux-quick-rail" role="group" aria-label={t("picker.harness")}>
+              {families.list.map((family) => (
+                <button
+                  key={family.id}
+                  type="button"
+                  aria-label={family.name}
+                  aria-pressed={family.id === tab}
+                  title={family.note ? `${family.name} · ${family.note}` : family.name}
+                  className="acpmux-quick-rail-tab"
+                  // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
+                  tabIndex={-1}
+                  onClick={() => {
+                    setTab(family.id);
+                    setQuery("");
+                  }}
+                >
+                  {family.starred ? (
+                    <StarIcon />
+                  ) : family.mark ? (
+                    <AgentMark agent={family.mark} size={16} />
+                  ) : (
+                    <span aria-hidden="true" className="acpmux-quick-rail-initial">
+                      {family.name.trim().charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </button>
+              ))}
             </div>
             <div className="acpmux-quick-body">{list}</div>
           </div>

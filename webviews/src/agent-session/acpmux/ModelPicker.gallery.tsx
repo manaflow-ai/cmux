@@ -217,7 +217,7 @@ export default componentEntry<ModelPickerProps>({
         await openQuick(ctx);
         await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
         await ctx.waitFor(
-          () => ctx.document.querySelector('.acpmux-quick-rail-tab[aria-label="Codex"][aria-checked="true"]') !== null,
+          () => ctx.document.querySelector('.acpmux-quick-rail-tab[aria-label="Codex"][aria-pressed="true"]') !== null,
         );
       },
     },
