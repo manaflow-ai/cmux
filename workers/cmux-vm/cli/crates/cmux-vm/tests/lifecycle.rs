@@ -11,27 +11,89 @@ async fn provider_free_server_enrollment_and_policy_use_their_own_routes() {
     let server = MockServer::start().await;
     let mesh = "mesh_00000000000000000000000000";
     let id = "dev_00000000000000000000000000";
-    let install = "BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=";
+    let install =
+        "BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=";
     let wg = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=";
     let request = json!({"name":"server","wgPublicKey":wg,"installPublicKey":install,"signedAt":1792370000000_i64,"nonce":"AAECAwQFBgcICQoLDA0ODw","signature":"A".repeat(86)+"=="});
     let dir = std::env::temp_dir().join(format!("cmux-overlay-server-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("enroll.json");
-    std::fs::write(&file, serde_json::to_vec(&request).unwrap()).unwrap();
+    let mut local = request.clone();
+    local["privateKey"] = json!("must-not-be-sent");
+    std::fs::write(&file, serde_json::to_vec(&local).unwrap()).unwrap();
     let receipt = json!({"id":id,"meshId":mesh,"name":"server","wgPublicKey":wg,"installPublicKey":install,"createdAt":"2026-10-19T00:00:00Z","kind":"server","transport":"overlay"});
-    Mock::given(method("POST")).and(path(format!("/v1/meshes/{mesh}/overlay-servers"))).and(authorized()).and(body_json(&request))
-        .respond_with(ResponseTemplate::new(201).set_body_json(&receipt)).expect(1).mount(&server).await;
-    let output = cli(&server, &["--json", "device", "enroll-server", mesh, "--request", file.to_str().unwrap()]).await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/meshes/{mesh}/overlay-servers")))
+        .and(authorized())
+        .and(body_json(&request))
+        .respond_with(ResponseTemplate::new(201).set_body_json(&receipt))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let output = cli(
+        &server,
+        &[
+            "--json",
+            "device",
+            "enroll-server",
+            mesh,
+            "--request",
+            file.to_str().unwrap(),
+        ],
+    )
+    .await;
     assert_eq!(output.code, exit::OK, "{}", output.stderr);
     assert_eq!(json_stdout(&output), receipt);
     let policy = json!({"tenantId":"team_alpha","deviceId":id,"meshId":mesh,"wgPublicKey":wg,"installPublicKey":install,"aclVersion":0,"policyDigest":"a".repeat(64),"peers":[]});
-    Mock::given(method("GET")).and(path(format!("/v1/overlay-servers/{id}/policy"))).and(authorized())
-        .respond_with(ResponseTemplate::new(200).set_body_json(&policy)).expect(1).mount(&server).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/overlay-servers/{id}/policy")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&policy))
+        .expect(1)
+        .mount(&server)
+        .await;
     let output = cli(&server, &["--json", "device", "server-policy", id]).await;
     assert_eq!(output.code, exit::OK, "{}", output.stderr);
     assert_eq!(json_stdout(&output), policy);
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/overlay-servers/{id}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&receipt))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        json_stdout(&cli(&server, &["--json", "device", "get-server", id]).await),
+        receipt
+    );
+    let list = json!({"items":[receipt]});
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/meshes/{mesh}/overlay-servers")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&list))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        json_stdout(&cli(&server, &["--json", "device", "servers", mesh]).await),
+        list
+    );
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/overlay-servers/{id}")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert_eq!(
+        cli(&server, &["device", "revoke-server", id]).await.code,
+        exit::USAGE
+    );
+    let revoked = cli(&server, &["--json", "device", "revoke-server", id, "--yes"]).await;
+    assert_eq!(revoked.code, exit::OK, "{}", revoked.stderr);
+    assert_eq!(json_stdout(&revoked), json!({"id":id,"revoked":true}));
     std::fs::remove_dir_all(dir).unwrap();
-    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+    assert_eq!(server.received_requests().await.unwrap().len(), 5);
 }
 
 #[tokio::test]

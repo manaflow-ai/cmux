@@ -8,6 +8,13 @@ const compile = (dst: readonly string[], allow: readonly string[] = ["tcp:4100"]
 });
 
 describe("device overlay policy compilation", () => {
+  it("excludes destination-only identities from both explicit sources and source wildcards", () => {
+    const input = { document: { rules: [{ src: ["device:*"], dst: ["vm_a"], allow: ["tcp:22"] }] }, deviceIds: ["dev_client", "dev_server"], sourceDeviceIds: ["dev_client"], vmIds: ["vm_a"], rulesPerResource: 180, rulesPerMesh: 500 };
+    const compiled = compileAcl(input);
+    expect(compiled.ok).toBe(true);
+    if (compiled.ok) expect(compiled.rules.map((rule) => rule.deviceId)).toEqual(["dev_client"]);
+    expect(compileAcl({ ...input, document: { rules: [{ src: ["dev_server"], dst: ["dev_client"], allow: ["*"] }] } })).toMatchObject({ ok: false, reason: "invalid" });
+  });
   it("expands device destinations without creating provider rules or self edges", () => {
     const result = compile(["device:*", "dev_b"]);
     expect(result).toMatchObject({ ok: true, rules: [] });

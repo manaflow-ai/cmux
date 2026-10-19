@@ -18,6 +18,8 @@ export interface MeshBudgets {
   readonly meshesPerTenant: number;
   /** Devices per mesh (`device.perMesh`). */
   readonly devicesPerMesh: number;
+  /** Provider-free, destination-only servers per mesh; separate from tunnel capacity. */
+  readonly overlayServersPerMesh: number;
   /** Compiled firewall rules per mesh (`firewallRule.perMesh`). */
   readonly rulesPerMesh: number;
   /**
@@ -41,6 +43,7 @@ export interface MeshBudgets {
 export const DEFAULT_MESH_BUDGETS: MeshBudgets = {
   meshesPerTenant: 1,
   devicesPerMesh: 50,
+  overlayServersPerMesh: 50,
   rulesPerMesh: 500,
   rulesPerResource: 180,
   overlayRulesPerMesh: DEFAULT_OVERLAY_RULES_PER_MESH,

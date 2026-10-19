@@ -47,7 +47,8 @@
         "0009_cmux_vm_mesh_device_address.sql": "dcd032132b00d3592058415a530b40cef240a7e22b655f7a13ccb7a81ad23d48",
         "0010_cmux_vm_creation_receipts.sql": "c1267b4233adf845d9888d7624f02bf2c4167693b1ad7554aa912f5ca85065e3",
         "0011_cmux_vm_creation_receipt_index.sql": "8dfe42e94a4b40c9f8cd734ebc62051dfc8fb7ed7a2bc9c1151a19732a65e9d9",
-        "0012_cmux_vm_device_overlay_policy.sql": "7690cfba87d6b5a64e9f0a9a3884d9ecb9059d42999dca40345f56d3f1d5f09d"
+        "0012_cmux_vm_device_overlay_policy.sql": "7690cfba87d6b5a64e9f0a9a3884d9ecb9059d42999dca40345f56d3f1d5f09d",
+        "0013_cmux_vm_overlay_servers.sql": "28bef794158b078bce7cdd559f85afe2ee35027e1dfd26b404043965f55f055d"
       }
     },
     "backend": {

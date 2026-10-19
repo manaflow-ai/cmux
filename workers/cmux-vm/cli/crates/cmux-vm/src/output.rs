@@ -51,6 +51,33 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
+    pub fn overlay_server(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let server: cmux_vm_client::types::OverlayServer = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        self.line(&format!(
+            "{} {}",
+            server.id.as_str(),
+            server.name.escape_debug()
+        ))
+    }
+
+    pub fn overlay_server_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let list: cmux_vm_client::types::OverlayServerList = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        for server in list.items {
+            self.line(&format!(
+                "{} {}",
+                server.id.as_str(),
+                server.name.escape_debug()
+            ))?;
+        }
+        Ok(())
+    }
+
     pub fn vm(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);

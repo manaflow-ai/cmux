@@ -35,7 +35,7 @@ export const SIGNATURE_SKEW_MS = 120_000;
 
 export const SIGNED_MESSAGE_VERSION = "cmux-mesh-v1";
 
-export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel" | "address" | "overlay-policy";
+export type SignedPurpose = "enroll" | "rotate-key" | "peers" | "tunnel" | "address" | "overlay-policy" | "enroll-overlay-server" | "overlay-server-policy" | "revoke-overlay-server";
 
 /** The 65-byte uncompressed P-256 point, base64 (starts with 0x04, so with "B"). */
 export const InstallPublicKey = Schema.String.pipe(Schema.pattern(/^B[A-Za-z0-9+/]{86}=$/u)).annotations({

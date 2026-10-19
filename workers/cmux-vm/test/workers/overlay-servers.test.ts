@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 import { enrollBody, makeInstallKey, type InstallKey } from "../support/mesh-signing.ts";
+import { newDeviceId } from "../../src/lib/ids.ts";
 
 const TEAM = "team_alpha";
 const WG1 = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=";
@@ -94,5 +95,57 @@ describe("provider-free overlay servers", () => {
     expect((await policy(server)).status).toBe(404);
     expect((await call(`/v1/overlay-servers/${server}`)).status).toBe(404);
     expect(h.upstreamRequests).toHaveLength(before);
+    const revokedAudit = h.audit.filter((row) => row.action === "overlay_server.revoke");
+    expect(revokedAudit).toHaveLength(1);
+    expect(revokedAudit[0]?.actor).toBe(`device:${server}`);
+    expect(revokedAudit[0]?.ownerActor).toBe(h.audit.find((row) => row.action === "overlay_server.create")?.actor);
+  });
+
+  it("serializes gateway/server admission so a key cannot gain two live identities", async () => {
+    const [server, client] = await Promise.all([
+      enroll(),
+      call(`/v1/meshes/${mesh}/devices`, "POST", await enrollBody(install, mesh, { name: "laptop", wgPublicKey: WG1 })),
+    ]);
+    expect([server.status, client.status].sort()).toEqual([201, 409]);
+  });
+
+  it("refuses wildcard expansion before persistence and leaves the existing policy readable", async () => {
+    await h.dispose(); h = await makeHarness({ mesh: { budgets: { overlayRulesPerMesh: 1 } } });
+    key = await h.addKey(TEAM, ALL_SCOPES);
+    mesh = idOf(await json(await call("/v1/meshes", "POST", {})));
+    expect((await call(`/v1/meshes/${mesh}/devices`, "POST", await enrollBody(install, mesh, { name: "laptop", wgPublicKey: WG2 }))).status).toBe(201);
+    expect((await call(`/v1/meshes/${mesh}/acl`, "PUT", { expectedVersion: 0, rules: [{ src: ["device:*"], dst: ["device:*"], allow: ["tcp:4100"] }] })).status).toBe(200);
+    const first = idOf(await json(await enroll()));
+    const original = install;
+    install = await makeInstallKey();
+    const refused = await enroll("dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDM=");
+    expect(refused.status).toBe(429);
+    install = original;
+    expect((await policy(first)).status).toBe(200);
+    expect((await json(await call(`/v1/meshes/${mesh}/overlay-servers`)))["items"]).toHaveLength(1);
+    expect((await call(`/v1/meshes/${mesh}`, "DELETE")).status).toBe(409);
+  });
+
+  it("bounds metadata admission separately from Cloud VM entitlements and enforces credential restrictions", async () => {
+    await h.dispose(); h = await makeHarness({ mesh: { budgets: { overlayServersPerMesh: 1 } } });
+    key = await h.addKey(TEAM, ALL_SCOPES);
+    mesh = idOf(await json(await call("/v1/meshes", "POST", {})));
+    h.setBilling(TEAM, false);
+    const response = await enroll(); expect(response.status).toBe(201);
+    const server = idOf(await json(response));
+    expect((await call(`/v1/overlay-servers/${server}`, "GET", undefined, await h.addKey(TEAM, ["mesh:read"])) ).status).toBe(403);
+    expect((await call(`/v1/overlay-servers/${server}`, "GET", undefined, await h.addKey(TEAM, ALL_SCOPES, { allowlist: [] }))).status).toBe(404);
+    install = await makeInstallKey(); expect((await enroll(WG2)).status).toBe(429);
+  });
+
+  it("fails closed on cross-inventory key ambiguity left by an old gateway writer", async () => {
+    const server = idOf(await json(await enroll()));
+    const client = idOf(record((await json(await call(`/v1/meshes/${mesh}/devices`, "POST", await enrollBody(install, mesh, { name: "laptop", wgPublicKey: WG2 }))))["device"]));
+    expect((await call(`/v1/meshes/${mesh}/acl`, "PUT", { expectedVersion: 0, rules: [{ src: [client], dst: [server], allow: ["tcp:4100"] }] })).status).toBe(200);
+    const row = h.mesh.store.devices[0];
+    if (row === undefined) throw new Error("missing gateway fixture");
+    h.mesh.store.devices.push({ ...row, deviceId: newDeviceId(), wgPublicKey: WG1 });
+    expect((await policy(server)).status).toBe(503);
+    expect((await json(await call(`/v1/devices/${client}/overlay-policy`)))["peers"]).toEqual([]);
   });
 });

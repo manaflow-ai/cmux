@@ -5,6 +5,7 @@
  */
 import { Effect, Layer, Option } from "effect";
 import { TenantId } from "../lib/ids.ts";
+import type { OverlayServerRow } from "./overlay-servers.ts";
 import { MeshStore, type MeshAclVersion, type MeshDeviceRow, type MeshEnrollmentCodeRow, type MeshMemberRow, type MeshRuleRow } from "./mesh.ts";
 
 /** A code row as tests may age it (expiresAt is writable here only). */
@@ -13,6 +14,7 @@ export type MemoryEnrollmentCode = Omit<MeshEnrollmentCodeRow, "expiresAt" | "us
 export function makeMemoryMeshStore() {
   const slots = new Map<number, { readonly tenantId: string; readonly meshId: string; readonly cidr: string }>();
   const devices: Array<MeshDeviceRow & { readonly tenantId: string; deletedAt: Date | null }> = [];
+  const servers: Array<OverlayServerRow & { readonly tenantId: string; revokedAt: Date | null }> = [];
   /** Published public IPv6 addresses (migration 0009), by device id. */
   const addresses = new Map<string, string>();
   const addressTimes = new Map<string, Date>();
@@ -23,6 +25,14 @@ export function makeMemoryMeshStore() {
   const codes: Array<MemoryEnrollmentCode> = [];
 
   const layer = Layer.succeed(MeshStore, {
+    recordOverlayServer: (tenantId, row) => Effect.sync(() => {
+      if (servers.some((other) => other.deviceId === row.deviceId || (other.revokedAt === null && other.tenantId === tenantId && other.meshId === row.meshId && (other.wgPublicKey === row.wgPublicKey || other.installPublicKey === row.installPublicKey)))) return false;
+      servers.push({ ...row, tenantId, revokedAt: null }); return true;
+    }),
+    getOverlayServer: (tenant, id) => Effect.sync(() => Option.fromNullable(servers.find((row) => row.tenantId === tenant && row.deviceId === id && row.revokedAt === null))),
+    findOverlayServerForSignature: (id) => Effect.sync(() => Option.map(Option.fromNullable(servers.find((row) => row.deviceId === id && row.revokedAt === null)), (row) => ({ ...row, tenantId: TenantId.make(row.tenantId) }))),
+    listOverlayServers: (tenant, mesh) => Effect.sync(() => servers.filter((row) => row.tenantId === tenant && row.meshId === mesh && row.revokedAt === null).sort((a, b) => a.deviceId.localeCompare(b.deviceId))),
+    revokeOverlayServer: (tenant, id, at) => Effect.sync(() => { for (const row of servers) if (row.tenantId === tenant && row.deviceId === id && row.revokedAt === null) row.revokedAt = at; }),
     claimSlot: (tenantId, meshId, slot, cidr) =>
       Effect.sync(() => {
         if (slots.has(slot) || [...slots.values()].some((entry) => entry.meshId === meshId)) return false;

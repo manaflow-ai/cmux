@@ -62,6 +62,8 @@ export interface CompileInput {
   readonly document: AclDocument;
   /** Live devices of this mesh. */
   readonly deviceIds: ReadonlyArray<string>;
+  /** Devices allowed to be sources. Destination-only servers are absent. */
+  readonly sourceDeviceIds?: ReadonlyArray<string>;
   /** VMs that are members of this mesh. */
   readonly vmIds: ReadonlyArray<string>;
   /** Each device's published public IPv6 address, canonical (parseDeviceIpv6); absent: no address rules. */
@@ -208,7 +210,7 @@ export const compileAcl = (input: CompileInput): CompileResult => {
   const overlayPerMesh = input.overlayRulesPerMesh ?? DEFAULT_OVERLAY_RULES_PER_MESH;
   const overlayPerDevice = input.overlayRulesPerDevice ?? DEFAULT_OVERLAY_RULES_PER_DEVICE;
   for (const [index, rule] of input.document.rules.entries()) {
-    const sources = expand(rule.src, "device:*", "dev_", input.deviceIds, `rules[${index}].src`);
+    const sources = expand(rule.src, "device:*", "dev_", input.sourceDeviceIds ?? input.deviceIds, `rules[${index}].src`);
     if (!sources.ok) return { ok: false, reason: "invalid", message: sources.message };
     // Validate both families even when a wildcard currently expands to nothing.
     const vmSelectors = rule.dst.filter((selector) => selector === "vm:*" || selector.startsWith("vm_"));

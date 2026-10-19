@@ -1,3 +1,4 @@
+import overlayServers from "../../migrations/0013_cmux_vm_overlay_servers.sql?raw";
 import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
 import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt_index.sql?raw";
 import overlayPolicy from "../../migrations/0012_cmux_vm_device_overlay_policy.sql?raw";
@@ -8,7 +9,7 @@ import overlayPolicy from "../../migrations/0012_cmux_vm_device_overlay_policy.s
  * purpose; and the schema gate naming 0009 when it was not applied.
  */
 import { PGlite } from "@electric-sql/pglite";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
 import s2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
@@ -25,7 +26,7 @@ import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
 
 const BEFORE = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries];
-const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex, overlayPolicy];
+const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex, overlayPolicy, overlayServers];
 
 const sqlOver = (db: PGlite) =>
   Layer.succeed(SqlClient, {
@@ -73,7 +74,7 @@ describe("migration 0009", () => {
 
   it("the schema gate names the column when 0009 was not applied", async () => {
     const old = new PGlite();
-    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex, overlayPolicy]) await old.exec(migration);
+    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex, overlayPolicy, overlayServers]) await old.exec(migration);
     expect(await Effect.runPromise(Effect.provide(checkSchema, sqlOver(old)))).toEqual(["cmux_vm.mesh_devices.public_ipv6: missing"]);
   });
 
@@ -82,6 +83,45 @@ describe("migration 0009", () => {
     const row = device(meshId, 1);
     await run(Effect.flatMap(MeshStore, (store) => store.recordDevice(T, row)));
     await expect(pg.query("UPDATE cmux_vm.mesh_devices SET public_ipv6 = '2600::1/64' WHERE device_cmux_id = $1", [row.deviceId])).rejects.toThrow();
+  });
+});
+
+describe("provider-free server storage", () => {
+  const row = () => ({ deviceId: newDeviceId(), meshId: newMeshId(), name: "server", wgPublicKey: "public-wg", installPublicKey: "public-install", createdBy: "user:user_ada", createdAt: at(1) });
+
+  it("keeps tenant-scoped identity rows without allocating gateway rows", async () => {
+    const server = row();
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.recordOverlayServer(T, server)))).toBe(true);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.getOverlayServer(T, server.deviceId)))).toEqual(Option.some(server));
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.getOverlayServer(TenantId.make("team_other"), server.deviceId)))).toEqual(Option.none());
+    const found = await run(Effect.flatMap(MeshStore, (store) => store.findOverlayServerForSignature(server.deviceId)));
+    expect(found).toEqual(Option.some({ ...server, tenantId: T }));
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.listDevices(T, server.meshId)))).toEqual([]);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.listOverlayServers(T, server.meshId)))).toEqual([server]);
+  });
+
+  it("never overwrites an identity or reuses its tombstone, and confines revocation to the tenant", async () => {
+    const server = row();
+    const save = (candidate: typeof server) => run(Effect.flatMap(MeshStore, (store) => store.recordOverlayServer(T, candidate)));
+    expect(await save(server)).toBe(true);
+    expect(await save({ ...server, deviceId: newDeviceId(), name: "replacement" })).toBe(false);
+    expect(await save({ ...server, deviceId: newDeviceId(), wgPublicKey: "different" })).toBe(false);
+    await run(Effect.flatMap(MeshStore, (store) => store.revokeOverlayServer(TenantId.make("team_other"), server.deviceId, at(2))));
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.getOverlayServer(T, server.deviceId)))).toEqual(Option.some(server));
+    await run(Effect.flatMap(MeshStore, (store) => store.revokeOverlayServer(T, server.deviceId, at(3))));
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.findOverlayServerForSignature(server.deviceId)))).toEqual(Option.none());
+    expect(await save(server)).toBe(false);
+    const replacement = { ...server, deviceId: newDeviceId() };
+    expect(await save(replacement)).toBe(true);
+    expect(await run(Effect.flatMap(MeshStore, (store) => store.listOverlayServers(T, server.meshId)))).toEqual([replacement]);
+  });
+
+  it("claims each new signature domain once after an idempotent migration, with old purposes intact", async () => {
+    await pg.exec(overlayServers);
+    for (const [index, purpose] of ["enroll-overlay-server", "overlay-server-policy", "revoke-overlay-server", "enroll", "overlay-policy"].entries()) {
+      const claim = () => run(Effect.flatMap(MeshStore, (store) => store.claimSignedRequest(T, (index + 1).toString(16).repeat(64), purpose, at(120_000), at(0))));
+      expect(await claim()).toBe(true); expect(await claim()).toBe(false);
+    }
   });
 });
 

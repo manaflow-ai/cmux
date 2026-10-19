@@ -47,6 +47,8 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   // A device's published public IPv6 address (address rules, bead cx-wb5.45).
   { table: "cmux_vm.mesh_devices", column: "public_ipv6", migration: "0009" },
   { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v2_check", migration: "0012" },
+  { table: "cmux_vm.mesh_overlay_servers", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0013" },
+  { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v3_check", migration: "0013" },
 ];
 
 /** The highest migration this build's requirements name. */

@@ -95,7 +95,7 @@ export class SignedDeviceRequest extends Schema.Class<SignedDeviceRequest>("Sign
   },
   {
     description:
-      "A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers, tunnel or overlay-policy, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use.",
+      "An identity's own request, authenticated only by its install key: the cmux-mesh-v1 message with the purpose specified by the endpoint, the device id as target, an empty WireGuard key and name, and the recorded install public key. Fresh (120 s) and single use.",
   },
 ) {}
 

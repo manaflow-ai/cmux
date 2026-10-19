@@ -18,7 +18,7 @@ mod prompt;
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
@@ -177,6 +177,38 @@ enum FileCommand {
 enum DeviceCommand {
     /// Read public peer identities and directed overlay permissions
     OverlayPolicy(DeviceArg),
+    /// Enroll a provider-free destination using a locally signed public request
+    EnrollServer(ServerEnrollArgs),
+    /// Read a provider-free server's identity
+    GetServer(DeviceArg),
+    /// List visible provider-free servers in a mesh
+    Servers(ServerListArgs),
+    /// Read a provider-free server's directed policy and Native tenant binding
+    ServerPolicy(DeviceArg),
+    /// Revoke a provider-free server identity (requires confirmation)
+    RevokeServer(ServerRevokeArgs),
+}
+
+#[derive(Args, Debug)]
+struct ServerEnrollArgs {
+    /// Mesh id (mesh_...)
+    mesh_id: String,
+    /// JSON containing name, public keys, signedAt, nonce and install signature
+    #[arg(long)]
+    request: PathBuf,
+}
+
+#[derive(Args, Debug)]
+struct ServerListArgs {
+    mesh_id: String,
+}
+
+#[derive(Args, Debug)]
+struct ServerRevokeArgs {
+    device_id: String,
+    /// Confirm revoking this identity without a prompt
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Args, Debug)]
@@ -734,6 +766,72 @@ async fn dispatch(
             let body = fetch_body(client.mesh_get_device_overlay_policy(id.as_str(), None)).await?;
             out.overlay_policy(&body)
         }
+        Command::Device(DeviceCommand::EnrollServer(args)) => {
+            let id = args
+                .mesh_id
+                .parse::<types::MeshId>()
+                .map_err(|_| CliError::usage("invalid mesh id"))?;
+            let file = std::fs::File::open(&args.request)
+                .map_err(|_| CliError::usage("could not read signed enrollment request"))?;
+            let mut bytes = Vec::new();
+            file.take(16_385)
+                .read_to_end(&mut bytes)
+                .map_err(|_| CliError::usage("could not read signed enrollment request"))?;
+            if bytes.len() > 16_384 {
+                return Err(CliError::usage("signed enrollment request exceeds 16 KiB"));
+            }
+            let request: types::EnrollDeviceRequest = serde_json::from_slice(&bytes)
+                .map_err(|_| CliError::usage("invalid signed enrollment request"))?;
+            let body = fetch_body(client.overlay_servers_enroll_overlay_server(
+                id.as_str(),
+                None,
+                None,
+                &request,
+            ))
+            .await?;
+            out.overlay_server(&body)
+        }
+        Command::Device(DeviceCommand::GetServer(args)) => {
+            let id = args
+                .device_id
+                .parse::<types::DeviceId>()
+                .map_err(|_| CliError::usage("invalid device id"))?;
+            let body =
+                fetch_body(client.overlay_servers_get_overlay_server(id.as_str(), None)).await?;
+            out.overlay_server(&body)
+        }
+        Command::Device(DeviceCommand::Servers(args)) => {
+            let id = args
+                .mesh_id
+                .parse::<types::MeshId>()
+                .map_err(|_| CliError::usage("invalid mesh id"))?;
+            let body =
+                fetch_body(client.overlay_servers_list_overlay_servers(id.as_str(), None)).await?;
+            out.overlay_server_list(&body)
+        }
+        Command::Device(DeviceCommand::ServerPolicy(args)) => {
+            let id = args
+                .device_id
+                .parse::<types::DeviceId>()
+                .map_err(|_| CliError::usage("invalid device id"))?;
+            let body =
+                fetch_body(client.overlay_servers_get_overlay_server_policy(id.as_str(), None))
+                    .await?;
+            let _: cmux_vm_client::types::OverlayServerPolicy = serde_json::from_slice(&body)
+                .map_err(|_| CliError::unexpected("invalid server policy response"))?;
+            out.overlay_policy(&body)
+        }
+        Command::Device(DeviceCommand::RevokeServer(args)) => {
+            let id = args
+                .device_id
+                .parse::<types::DeviceId>()
+                .map_err(|_| CliError::usage("invalid device id"))?;
+            if !args.yes {
+                confirm(prompt, Destroy::RevokeOverlayServer, id.as_str())?;
+            }
+            call(client.overlay_servers_revoke_overlay_server(id.as_str(), None)).await?;
+            out.revoked(id.as_str())
+        }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
         Command::File(FileCommand::Stat(args)) => {
             let id = args
@@ -852,6 +950,7 @@ enum Destroy {
     DeleteVm,
     DeleteSnapshot,
     RevokeApiKey,
+    RevokeOverlayServer,
 }
 
 impl Destroy {
@@ -862,6 +961,7 @@ impl Destroy {
             Destroy::DeleteVm => ("delete", "Delete", "VM id"),
             Destroy::DeleteSnapshot => ("delete", "Delete", "snapshot id"),
             Destroy::RevokeApiKey => ("revoke", "Revoke", "API key id"),
+            Destroy::RevokeOverlayServer => ("revoke", "Revoke", "device id"),
         }
     }
 }
@@ -895,7 +995,7 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
     } else {
         let past = match action {
             Destroy::RetireVm => "retired",
-            Destroy::RevokeApiKey => "revoked",
+            Destroy::RevokeApiKey | Destroy::RevokeOverlayServer => "revoked",
             _ => "deleted",
         };
         Err(CliError::cancelled(format!(

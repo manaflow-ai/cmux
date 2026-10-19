@@ -20,7 +20,7 @@ const fresh = async (): Promise<Sql> => {
   await createDb(db)
   dbs.push(db)
   const sql = await connectUrl(dbUrl(db))
-  await applyPending(sql, vm, base, { by: "t", target: "staging", allowContract: ["0009_cmux_vm_mesh_device_address.sql", "0010_cmux_vm_creation_receipts.sql", "0012_cmux_vm_device_overlay_policy.sql"] })
+  await applyPending(sql, vm, base, { by: "t", target: "staging", allowContract: ["0009_cmux_vm_mesh_device_address.sql", "0010_cmux_vm_creation_receipts.sql", "0012_cmux_vm_device_overlay_policy.sql", "0013_cmux_vm_overlay_servers.sql"] })
   await sql.query("CREATE TABLE public.users (id text PRIMARY KEY, name text); INSERT INTO public.users VALUES ('a', 'old')")
   return sql
 }
@@ -49,7 +49,7 @@ describe("runtime confinement guard (P0): writes outside cmux_vm roll back", () 
       const sql = await fresh()
       try {
         const before = (await sql.query<{ v: string }>(probe))[0]?.v
-        await expect(applyPending(sql, vm, [...base, file("0013_x.sql", body)], { by: "t", target: "staging" })).rejects.toThrow("outside schema cmux_vm")
+        await expect(applyPending(sql, vm, [...base, file("0014_x.sql", body)], { by: "t", target: "staging" })).rejects.toThrow("outside schema cmux_vm")
         expect((await sql.query<{ v: string }>(probe))[0]?.v).toBe(before)
         expect((await applied(sql)).length).toBe(base.length)
       } finally {
@@ -61,7 +61,7 @@ describe("runtime confinement guard (P0): writes outside cmux_vm roll back", () 
   it("refuses CREATE INDEX CONCURRENTLY on a table outside cmux_vm before running it", async () => {
     const sql = await fresh()
     try {
-      await expect(applyPending(sql, vm, [...base, file("0013_i.sql", "CREATE INDEX CONCURRENTLY users_name ON public.users (name);")], { by: "t", target: "staging" })).rejects.toThrow("outside schema cmux_vm")
+      await expect(applyPending(sql, vm, [...base, file("0014_i.sql", "CREATE INDEX CONCURRENTLY users_name ON public.users (name);")], { by: "t", target: "staging" })).rejects.toThrow("outside schema cmux_vm")
       expect((await sql.query<{ v: string | null }>("SELECT to_regclass('public.users_name')::text AS v"))[0]?.v).toBeNull()
     } finally {
       await sql.end()
@@ -71,7 +71,7 @@ describe("runtime confinement guard (P0): writes outside cmux_vm roll back", () 
   it("C an unqualified name never lands outside cmux_vm (search_path = pg_catalog, cmux_vm)", async () => {
     const sql = await fresh()
     try {
-      await expect(applyPending(sql, vm, [...base, file("0013_t.sql", "CREATE TABLE things (id text);")], { by: "t", target: "staging" })).rejects.toThrow()
+      await expect(applyPending(sql, vm, [...base, file("0014_t.sql", "CREATE TABLE things (id text);")], { by: "t", target: "staging" })).rejects.toThrow()
       expect((await sql.query<{ a: string | null; b: string | null }>("SELECT to_regclass('cmux_vm.things')::text AS a, to_regclass('public.things')::text AS b"))[0]).toEqual({ a: null, b: null })
     } finally {
       await sql.end()
@@ -87,7 +87,7 @@ describe("lock and statement timeouts (P1-4)", () => {
     await holder.query("BEGIN")
     await holder.query("LOCK TABLE cmux_vm.audit_log IN ACCESS SHARE MODE")
     const started = Date.now()
-    await expect(applyPending(sql, vm, [...base, file("0013_note.sql", "ALTER TABLE cmux_vm.audit_log ADD COLUMN note text;")], { by: "t", target: "staging" })).rejects.toThrow("lock timeout")
+    await expect(applyPending(sql, vm, [...base, file("0014_note.sql", "ALTER TABLE cmux_vm.audit_log ADD COLUMN note text;")], { by: "t", target: "staging" })).rejects.toThrow("lock timeout")
     expect(Date.now() - started).toBeLessThan(10_000)
     await holder.query("ROLLBACK")
     await holder.end()

@@ -64,6 +64,37 @@ and use one device identity inventory.
 This contract does not activate transport, push updates, admit HostDO relay
 sessions or grant command execution; those integrations remain separate.
 
+Provider-free servers use `POST /v1/meshes/{meshId}/overlay-servers`. Sign the
+same eight-line message with purpose `enroll-overlay-server`, the mesh id,
+the server's public keys and name. A fresh signed retry returns the existing
+identity when its owner, name and keys match. Records are separate from
+gateway devices, have no tunnel id and do not authorize provider operations.
+They are destinations only: `device:*` in a source selector includes gateway
+devices, while destination selectors include both inventories. Enrollment
+checks existing wildcard expansion before recording the new identity.
+
+Operators can read/list/revoke these identities and read their policy under
+`/v1/overlay-servers/{id}` and `/v1/meshes/{meshId}/overlay-servers`. Servers
+can sign their own `/signed/policy` or `/signed/revoke` request with the
+distinct purposes `overlay-server-policy` and `revoke-overlay-server`.
+Policy responses include the authoritative Native tenant id for a future
+backend binding, alongside the mesh id and public keys. Neither pairing nor
+this metadata activates a server role or grants execution. Backend pairing,
+policy push and relay admission still need integration.
+
+The CLI exposes `device enroll-server MESH --request signed-request.json`,
+`device get-server ID`, `device servers MESH`, `device server-policy ID`,
+and `device revoke-server ID --yes`. The enrollment file contains a signed
+public request; the CLI sends only the known request fields. Private keys
+remain with their signer. Admission is limited to 50 live server identities
+per mesh, independently of provider tunnel and Cloud VM billing capacity.
+
+Migration 0013 adds the server inventory and widens signed-request purposes.
+Apply it and grant the Worker SELECT, INSERT and UPDATE on
+`cmux_vm.mesh_overlay_servers` before deployment. The shared Worker/release
+schema gate requires the table, these privileges and a validated replay
+constraint; older gateway rows/readers remain unchanged.
+
 ## gdp-ts proofs
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,
