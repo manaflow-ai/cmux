@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// The sidebar's profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment
