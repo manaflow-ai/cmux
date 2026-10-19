@@ -64,14 +64,42 @@ pub(crate) fn is_prompt_cache_key(key: &str) -> bool {
         || key == "FORCE_PROMPT_CACHING_5M"
 }
 
-/// The prompt-cache keys in this process's own environment
-/// ([`is_prompt_cache_key`]). An agent never inherits them from the daemon,
-/// whoever started it; the agent's profile env is applied after this
-/// removal, so a preset that sets one on purpose still wins.
-pub(crate) fn inherited_prompt_cache_keys() -> Vec<std::ffi::OsString> {
+/// Values that name one turn or one session of the process that started
+/// the daemon. A Chief turn's shell carries its turn's subrouter session key
+/// and seal; an acpmux client run from that shell started the NIGHTLY
+/// Chief's daemon with them (2026-10-19), and every agent it spawned
+/// inherited what its preset did not set again: its subagents and
+/// compactors held that turn's seal, meant for that turn's session alone
+/// (`session_env.rs`). Per-session acpmux values
+/// (`ACPMUX_*`, `CMUX_AGENT_SESSION`) are set again for each agent in
+/// `agent/command.rs`; these have no per-agent value, so they are removed.
+pub(crate) const TURN_SCOPED_ENV: [&str; 5] = [
+    // `sr claude proxy` sends it as X-Subrouter-Session: one sticky account.
+    "SUBROUTER_SESSION_KEY",
+    // Codex's prompt-cache key, the same per-role key for Codex harnesses.
+    "CODEX_PROMPT_CACHE_KEY",
+    // A Chief turn's seal (session_env.rs): its turn session's alone.
+    "OPTCHAT_TURN_SEAL",
+    // The subagent preset's role flag.
+    "OPTCHAT_SUBAGENT",
+    // A coding agent's mark for the commands its tools run.
+    "AI_AGENT",
+];
+
+/// Whether `key` belongs to the daemon starter's turn or session alone: the
+/// prompt-cache switches ([`is_prompt_cache_key`]) and [`TURN_SCOPED_ENV`].
+pub(crate) fn is_caller_scoped_key(key: &str) -> bool {
+    is_prompt_cache_key(key) || TURN_SCOPED_ENV.contains(&key)
+}
+
+/// The caller-scoped keys in this process's own environment
+/// ([`is_caller_scoped_key`]). Neither the daemon nor an agent inherits them,
+/// whoever started it; an agent's profile, preset and session env are
+/// applied after this removal, so a value set on purpose still wins.
+pub(crate) fn inherited_caller_scoped_keys() -> Vec<std::ffi::OsString> {
     std::env::vars_os()
         .map(|(k, _)| k)
-        .filter(|k| is_prompt_cache_key(&k.to_string_lossy()))
+        .filter(|k| is_caller_scoped_key(&k.to_string_lossy()))
         .collect()
 }
 

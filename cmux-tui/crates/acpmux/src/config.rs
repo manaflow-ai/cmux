@@ -1019,7 +1019,7 @@ pub use nested_env::{
     CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
     scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
 };
-pub(crate) use nested_env::{inherited_prompt_cache_keys, is_nested_claude_key};
+pub(crate) use nested_env::{inherited_caller_scoped_keys, is_nested_claude_key};
 mod launchers;
 pub(crate) use launchers::which;
 pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
