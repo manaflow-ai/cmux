@@ -233,8 +233,8 @@ never prepares a plan or starts an updater.
 Settings Refresh restores intents only through an already admitted original
 machine/session, then observes any retained terminal. It cannot fall back to
 the focused or local machine. An unsettled intent blocks a fresh update of the
-same CLI on that machine when it belongs to the same session, or recovery
-reattached its session; a row no route can reach waits out the age bound. Only a new user gesture or native confirmation may
+same CLI on that machine, from any session: an unreachable session may be a
+live server still running the updater, and a true orphan waits out the age bound. Only a new user gesture or native confirmation may
 resume an unstarted (`not_found` or `prepared`) intent, preserving its original
 key and family. Pending execution stays fenced; a created receipt only
 reattaches. An intent settles, and stops blocking, when its terminal exits (with
