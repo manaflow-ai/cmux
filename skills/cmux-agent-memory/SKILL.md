@@ -53,8 +53,11 @@ optchat-chief agent-memory search some distinctive words
 
 A hit list is the owner's. A first line saying the owner "did not answer" means the
 route failed, and this machine's own index answered. The line carries the ssh or
-cmux error. Notes are never saved locally when the owner is down. The agent gets an
-error instead, so notes do not split across machines.
+cmux error. After a failure, calls skip the owner for a minute and answer locally at
+once. A dead route gives up after 30 seconds; pass a longer `--connect-timeout-seconds`
+in `ownerArgs` for a slow first install. Notes are never saved locally when the owner
+is down. The agent gets an error instead, so notes do not split across machines.
+`search --json` prints the same warning on stderr and keeps stdout JSON.
 
 ## A machine without the cmux NEXT app
 
@@ -75,8 +78,8 @@ optchat-chief agent-memory config claude
 
 The Codex entry pre-approves each tool (`approval_mode = "approve"`). Without that, a
 session with `approval_policy = "never"` refuses the calls. The server answers
-`initialize` and `tools/list` locally and at once, because Codex does not wait for a slow
-server. Only tool calls go to the owner.
+`initialize` and `tools/list` locally, without the owner, because Codex does not wait
+for a slow server. Only tool calls go to the owner.
 
 ## From a shell
 
@@ -88,8 +91,12 @@ server. Only tool calls go to the owner.
 | Save a lesson | `optchat-chief agent-memory remember TEXT` |
 | This machine only | add `--local` |
 
+Options go before the text. Everything after the first word of text is kept as
+written, so `remember never pass --no-verify` saves all of it; `--` ends options early.
+
 A note is refused, never redacted, when it is over 4000 characters, holds control
-characters, or looks like a credential. Each note records its date, host, agent session
+characters, or looks like a credential. The credential check is a backstop for common
+token shapes, not a scanner, and source files are indexed as they are. Each note records its date, host, agent session
 and directory.
 
 ## Migrating from `leo-workspace/tools/agent-memory`

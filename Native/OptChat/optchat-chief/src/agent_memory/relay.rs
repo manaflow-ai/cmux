@@ -17,15 +17,29 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde_json::{Value, json};
 
-/// One request's wait: the owner's server may rebuild a stale index first.
-const STEP_TIMEOUT: Duration = Duration::from_secs(110);
+/// The wait for the owner's server to finish: it may rebuild a stale index
+/// first. Under Codex's 120s tool timeout with room for the local fallback.
+const PROCESS_STEP_TIMEOUT: Duration = Duration::from_secs(100);
 /// The process deadline the owner's daemon enforces.
-const PROCESS_TIMEOUT_MS: u64 = 105_000;
+const PROCESS_TIMEOUT_MS: u64 = 95_000;
+/// Every other request's wait (open, spawn, write, read events).
+const STEP_TIMEOUT: Duration = Duration::from_secs(20);
+/// Route options that keep a dead owner from holding a call: `cmux remote
+/// rpc` otherwise waits 90s to connect and reconnects forever. Given before
+/// `ownerArgs`, so the user's own values win.
+const CONNECT_ARGS: [&str; 4] = [
+    "--connect-timeout-seconds",
+    "30",
+    "--reconnect-attempts",
+    "1",
+];
+/// How long a failed owner is answered for locally without trying again.
+const DOWN_FOR: Duration = Duration::from_secs(60);
 /// The workspace a call runs in: any directory exists there; the server
 /// works on its own files.
 const WORKSPACE_ROOT: &str = "/tmp";
@@ -77,6 +91,25 @@ pub struct Relay {
     pub argv: Vec<String>,
     pub cmux: PathBuf,
     conn: Option<Conn>,
+    /// Until when the owner counts as down, and why.
+    down: Option<(Instant, String)>,
+}
+
+/// A failed call, and whether it may be retried on a new connection: only
+/// when a kept connection broke before the owner's server was started, so
+/// a retry never runs a call (a remember) twice.
+struct Failure {
+    message: String,
+    retry: bool,
+}
+
+impl Failure {
+    fn fatal(message: String) -> Failure {
+        Failure {
+            message,
+            retry: false,
+        }
+    }
 }
 
 struct Conn {
@@ -102,29 +135,45 @@ impl Relay {
             argv,
             cmux,
             conn: None,
+            down: None,
         }
     }
 
-    /// The owner's answer to one JSON-RPC message. A broken connection is
-    /// reopened once (an ssh carrier that dropped while idle).
+    /// The owner's answer to one JSON-RPC message. A kept connection that
+    /// broke before the owner's server started (an ssh carrier that dropped
+    /// while idle) is reopened once. After a failure the owner counts as
+    /// down for a minute, so calls in that time fail at once.
     pub fn call(&mut self, message: &Value) -> Result<Value, String> {
-        match self.call_once(message) {
-            Ok(answer) => Ok(answer),
-            Err(first) => {
-                self.conn = None;
-                self.call_once(message)
-                    .map_err(|second| format!("{second} (first try: {first})"))
+        if let Some((until, why)) = &self.down {
+            if Instant::now() < *until {
+                return Err(format!("{why} (not retried for {}s)", DOWN_FOR.as_secs()));
             }
+            self.down = None;
         }
+        let result = match self.call_once(message) {
+            Ok(answer) => Ok(answer),
+            Err(first) if first.retry => self
+                .call_once(message)
+                .map_err(|second| format!("{} (first try: {})", second.message, first.message)),
+            Err(first) => Err(first.message),
+        };
+        if let Err(why) = &result {
+            self.down = Some((Instant::now() + DOWN_FOR, why.clone()));
+        }
+        result
     }
 
-    fn call_once(&mut self, message: &Value) -> Result<Value, String> {
-        if self.conn.is_none() {
-            self.conn = Some(self.connect()?);
+    fn call_once(&mut self, message: &Value) -> Result<Value, Failure> {
+        let kept = self.conn.is_some();
+        if !kept {
+            self.conn = Some(self.connect().map_err(Failure::fatal)?);
         }
         let result = self.run(message);
-        if result.is_err() {
+        if let Err(failure) = &result {
             self.conn = None;
+            if !kept {
+                return Err(Failure::fatal(failure.message.clone()));
+            }
         }
         result
     }
@@ -132,6 +181,7 @@ impl Relay {
     fn connect(&self) -> Result<Conn, String> {
         let mut child = Command::new(&self.cmux)
             .args(["remote", "rpc", &self.route])
+            .args(CONNECT_ARGS)
             .args(&self.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -176,15 +226,21 @@ impl Relay {
             stderr,
             workspace: Value::Null,
         };
-        let opened = conn.request(&json!({"type": "open-workspace", "root": WORKSPACE_ROOT}))?;
+        let opened = conn.request(
+            &json!({"type": "open-workspace", "root": WORKSPACE_ROOT}),
+            STEP_TIMEOUT,
+        )?;
         conn.workspace = expect(&opened, "workspace", "id")?;
         Ok(conn)
     }
 
-    fn run(&mut self, message: &Value) -> Result<Value, String> {
+    fn run(&mut self, message: &Value) -> Result<Value, Failure> {
         let argv = self.argv.clone();
-        let conn = self.conn.as_mut().ok_or("not connected")?;
-        let started = conn.request(&json!({
+        let conn = self
+            .conn
+            .as_mut()
+            .ok_or_else(|| Failure::fatal("not connected".into()))?;
+        let spawn = json!({
             "type": "spawn-process",
             "workspace": conn.workspace,
             "argv": argv,
@@ -193,19 +249,40 @@ impl Relay {
             "io": {"type": "pipes", "stdin": true},
             "lifetime": "workspace",
             "timeout_ms": PROCESS_TIMEOUT_MS,
-        }))?;
-        let process = expect(&started, "process-started", "process")?;
+        });
+        // A request that may not have reached the owner: safe to retry.
+        let started = conn
+            .request(&spawn, STEP_TIMEOUT)
+            .map_err(|message| Failure {
+                message,
+                retry: true,
+            })?;
+        let process = expect(&started, "process-started", "process").map_err(Failure::fatal)?;
+        // From here the owner may have run the call: no retry.
+        conn.finish(&process, message).map_err(Failure::fatal)
+    }
+}
+
+impl Conn {
+    /// Writes the message to the started server and reads its answer.
+    fn finish(&mut self, process: &Value, message: &Value) -> Result<Value, String> {
         let line = format!("{message}\n");
-        conn.request(&json!({
-            "type": "write-process",
-            "process": process,
-            "write_id": 1,
-            "data": base64::engine::general_purpose::STANDARD.encode(line.as_bytes()),
-            "eof": true,
-        }))?;
-        let exit = conn.request(&json!({"type": "wait-process", "process": process}))?;
+        self.request(
+            &json!({
+                "type": "write-process",
+                "process": process,
+                "write_id": 1,
+                "data": base64::engine::general_purpose::STANDARD.encode(line.as_bytes()),
+                "eof": true,
+            }),
+            STEP_TIMEOUT,
+        )?;
+        let exit = self.request(
+            &json!({"type": "wait-process", "process": process}),
+            PROCESS_STEP_TIMEOUT,
+        )?;
         expect(&exit, "process-exit", "process")?;
-        let (stdout, stderr) = conn.output(&process)?;
+        let (stdout, stderr) = self.output(process)?;
         let id = message.get("id");
         stdout
             .lines()
@@ -219,25 +296,25 @@ impl Relay {
                 )
             })
     }
-}
 
-impl Conn {
     /// One request line, one response line.
-    fn request(&mut self, request: &Value) -> Result<Value, String> {
+    fn request(&mut self, request: &Value, timeout: Duration) -> Result<Value, String> {
         writeln!(self.stdin, "{request}")
             .and_then(|()| self.stdin.flush())
             .map_err(|e| format!("cmux remote rpc: {e}{}", self.why()))?;
-        match self.lines.recv_timeout(STEP_TIMEOUT) {
+        match self.lines.recv_timeout(timeout) {
             Ok(line) => serde_json::from_str(&line)
                 .map_err(|e| format!("cmux remote rpc answered {line:?}: {e}")),
             Err(RecvTimeoutError::Timeout) => Err(format!(
                 "cmux remote rpc took longer than {}s",
-                STEP_TIMEOUT.as_secs()
+                timeout.as_secs()
             )),
             Err(RecvTimeoutError::Disconnected) => {
-                // Let the stderr reader catch the reason.
-                let _ = self.child.wait();
+                // Let the stderr reader catch the reason. The child has
+                // closed stdout; kill bounds the wait if it lingers.
                 std::thread::sleep(Duration::from_millis(50));
+                let _ = self.child.kill();
+                let _ = self.child.wait();
                 Err(format!("cmux remote rpc ended{}", self.why()))
             }
         }
@@ -258,12 +335,15 @@ impl Conn {
         let mut after = 0u64;
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         loop {
-            let page = self.request(&json!({
-                "type": "read-process-events",
-                "process": process,
-                "after_sequence": after,
-                "limit": 256,
-            }))?;
+            let page = self.request(
+                &json!({
+                    "type": "read-process-events",
+                    "process": process,
+                    "after_sequence": after,
+                    "limit": 256,
+                }),
+                STEP_TIMEOUT,
+            )?;
             let events = expect(&page, "process-events", "events")?;
             for event in events.as_array().into_iter().flatten() {
                 let inner = &event["event"];
@@ -364,6 +444,35 @@ mod tests {
         let mut relay = Relay::new("ssh://owner".into(), vec![], vec![], fake);
         let error = relay.call(&json!({"id": 1})).unwrap_err();
         assert!(error.contains("refused"), "{error}");
+    }
+
+    /// A carrier that drops after the owner's server started: the call is
+    /// not repeated (a remember would be saved twice), and the owner then
+    /// counts as down without another connection attempt.
+    #[test]
+    fn a_call_is_never_rerun_after_its_server_started() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("cmux");
+        let count = dir.path().join("spawns");
+        let script = FAKE_CMUX.replace(
+            "        a = {\"type\": \"process-started\", \"process\": \"p\", \"pid\": 1}\n",
+            &format!(
+                "        open({count:?}, \"a\").write(\"x\")\n        if len(open({count:?}).read()) == 2: print(json.dumps({{\"type\": \"process-started\", \"process\": \"p\", \"pid\": 1}}), flush=True); sys.exit(1)\n        a = {{\"type\": \"process-started\", \"process\": \"p\", \"pid\": 1}}\n",
+                count = count.display().to_string()
+            ),
+        );
+        assert_ne!(script, FAKE_CMUX);
+        std::fs::write(&fake, script).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut relay = Relay::new("ssh://owner".into(), vec![], vec!["owner".into()], fake);
+        let message = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call"});
+        relay.call(&message).unwrap();
+        assert!(relay.call(&message).is_err());
+        assert_eq!(std::fs::read_to_string(&count).unwrap(), "xx");
+        let error = relay.call(&message).unwrap_err();
+        assert!(error.contains("not retried"), "{error}");
+        assert_eq!(std::fs::read_to_string(&count).unwrap(), "xx");
     }
 
     /// Python stands in for `cmux remote rpc`: the owner's server is an echo

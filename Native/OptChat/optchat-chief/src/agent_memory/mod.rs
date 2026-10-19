@@ -20,7 +20,6 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::cli::Flags;
 use index::Index;
 use settings::MemorySettings;
 use sources::Sources;
@@ -35,11 +34,49 @@ optchat-chief agent-memory config codex|claude                the MCP entry for 
 Settings (cmux.json): agents.memory.enabled, .owner (a cmux remote route), .ownerArgs, .ownerCommand, .remember, .sources
 Env: CMUX_AGENT_MEMORY_HOME (~/.cmux/agent-memory), CMUX_AGENT_MEMORY_NOTES (~/.cmux/agent-memory-notes.jsonl),
      CMUX_NEXT_CONFIG_FILE; sources are always ~/.claude/projects/*/memory, ~/.codex/memories and .sources
---local: this machine's index, even when agents.memory.owner names another";
+--local: this machine's index, even when agents.memory.owner names another
+Options go before the text; `--` ends them, and the text is kept as written";
 
-/// The flags that take no value, taken out before parsing (the grammar
-/// would read the next word as their value).
-const SWITCHES: [&str; 3] = ["--json", "--local", "--force"];
+/// `agent-memory` arguments: options anywhere before the text, then the
+/// text verbatim, so a note about `--no-verify` keeps its words.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Args {
+    verb: Option<String>,
+    words: Vec<String>,
+    json: bool,
+    local: bool,
+    force: bool,
+    limit: Option<String>,
+}
+
+impl Args {
+    fn parse(args: &[String]) -> Result<Args, String> {
+        let mut out = Args::default();
+        let mut it = args.iter();
+        while let Some(arg) = it.next() {
+            match arg.as_str() {
+                "--" => {
+                    out.words.extend(it.by_ref().cloned());
+                }
+                "--json" => out.json = true,
+                "--local" => out.local = true,
+                "--force" => out.force = true,
+                "--limit" => {
+                    out.limit = Some(it.next().cloned().ok_or("--limit needs a number")?);
+                }
+                option if option.starts_with("--") => {
+                    return Err(format!("unknown option {option}\n{USAGE}"));
+                }
+                _ if out.verb.is_none() => out.verb = Some(arg.clone()),
+                _ => {
+                    out.words.push(arg.clone());
+                    out.words.extend(it.by_ref().cloned());
+                }
+            }
+        }
+        Ok(out)
+    }
+}
 
 /// The user's home: `HOME`, else the password database (a client may pass
 /// a stdio server only an allowlisted environment).
@@ -86,18 +123,12 @@ fn owner(settings: &MemorySettings, local: bool) -> Option<Box<dyn mcp::Owner>> 
 
 /// Runs `agent-memory ARGS`; returns what to print.
 pub fn run(args: &[String]) -> Result<String, String> {
-    let on = |s: &str| args.iter().any(|a| a == s);
-    let (json_out, local, force) = (on("--json"), on("--local"), on("--force"));
-    let rest: Vec<String> = args
-        .iter()
-        .filter(|a| !SWITCHES.contains(&a.as_str()))
-        .cloned()
-        .collect();
-    let flags = Flags::parse(&rest);
-    let words: Vec<&str> = flags.words.iter().skip(1).map(String::as_str).collect();
+    let parsed = Args::parse(args)?;
+    let (json_out, local, force) = (parsed.json, parsed.local, parsed.force);
+    let words: Vec<&str> = parsed.words.iter().map(String::as_str).collect();
     let home = user_home();
     let (index, settings) = open(&home);
-    match flags.words.first().map(String::as_str) {
+    match parsed.verb.as_deref() {
         Some("mcp") => {
             let mut server = mcp::Server {
                 index,
@@ -115,8 +146,9 @@ pub fn run(args: &[String]) -> Result<String, String> {
                     if words.is_empty() {
                         return Err(format!("search needs words\n{USAGE}"));
                     }
-                    let limit = flags
-                        .value("limit")
+                    let limit = parsed
+                        .limit
+                        .as_deref()
                         .map(|v| v.parse::<u64>().map_err(|e| format!("--limit {v}: {e}")))
                         .transpose()?;
                     let mut a = json!({"query": words.join(" ")});
@@ -140,6 +172,9 @@ pub fn run(args: &[String]) -> Result<String, String> {
                 }
             };
             if json_out {
+                if tool == "memory_remember" {
+                    return Err(format!("--json is for search and get\n{USAGE}"));
+                }
                 return json_call(&index, &settings, local, tool, &arguments);
             }
             let mut server = mcp::Server {
@@ -181,8 +216,10 @@ fn tool_text(server: &mut mcp::Server, tool: &str, arguments: Value) -> Result<S
     }
 }
 
-/// `--json`: hits with id, kind, date, source, snippet and full text. On a
-/// machine with an owner, the owner's CLI answers over the same route.
+/// `--json` (search and get): hits with id, kind, date, source, snippet and
+/// full text. On a machine with an owner, the owner answers over the same
+/// route; when it cannot, this machine's index does, and stderr says so
+/// (stdout stays the JSON).
 fn json_call(
     index: &Index,
     settings: &MemorySettings,
@@ -203,16 +240,26 @@ fn json_call(
         );
         let message = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": tool, "arguments": args}});
-        if let Ok(answer) = relay.call(&message) {
-            let text = answer["result"]["content"][0]["text"]
-                .as_str()
-                .unwrap_or("");
-            if answer["result"]["isError"] == json!(true) {
-                return Err(text.to_owned());
+        match relay.call(&message) {
+            Ok(answer) => {
+                if let Some(error) = answer.get("error") {
+                    return Err(error["message"]
+                        .as_str()
+                        .map_or_else(|| error.to_string(), str::to_owned));
+                }
+                let text = answer["result"]["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or("");
+                if answer["result"]["isError"] == json!(true) {
+                    return Err(text.to_owned());
+                }
+                return Ok(text.to_owned());
             }
-            return Ok(text.to_owned());
+            // An unreachable owner: this machine's own index, as for MCP reads.
+            Err(why) => eprintln!(
+                "agent memory: the owner ({route}) did not answer, so this machine's index answered and its ids are this machine's: {why}"
+            ),
         }
-        // An unreachable owner: this machine's own index, as for MCP reads.
     }
     json_local(index, tool, arguments)
 }
@@ -266,4 +313,38 @@ fn config(harness: Option<&str>) -> Result<String, String> {
 
 fn toml_string(text: &str) -> String {
     serde_json::to_string(text).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(line: &str) -> Result<Args, String> {
+        Args::parse(&line.split(' ').map(String::from).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn text_keeps_option_like_words() {
+        let a = parse("remember --local never pass --no-verify, use --force-with-lease --json")
+            .unwrap();
+        assert!(a.local && !a.json && !a.force);
+        assert_eq!(a.verb.as_deref(), Some("remember"));
+        assert_eq!(
+            a.words.join(" "),
+            "never pass --no-verify, use --force-with-lease --json"
+        );
+    }
+
+    #[test]
+    fn options_go_before_the_text_and_dashes_end_them() {
+        let a = parse("search --json --limit 5 hooks").unwrap();
+        assert!(a.json);
+        assert_eq!(a.limit.as_deref(), Some("5"));
+        assert_eq!(a.words, ["hooks"]);
+        let a = parse("remember -- --local is a flag").unwrap();
+        assert!(!a.local);
+        assert_eq!(a.words.join(" "), "--local is a flag");
+        assert!(parse("search --nope x").is_err());
+        assert!(parse("search --limit").is_err());
+    }
 }

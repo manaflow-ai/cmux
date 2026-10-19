@@ -81,8 +81,9 @@ impl Sources {
         out
     }
 
-    /// The newest modification time among the source files and the notes
-    /// log: a cheap first check before comparing the entry list.
+    /// The newest modification time among the source files (not the notes
+    /// log, which only `remember` writes): a cheap first check before
+    /// comparing the entry list.
     pub fn newest(&self) -> Option<SystemTime> {
         let mut paths = self.claude_files();
         paths.push(self.codex.join("memories").join("MEMORY.md"));
@@ -90,7 +91,6 @@ impl Sources {
         for dir in &self.extra {
             paths.extend(markdown_in(dir));
         }
-        paths.push(self.notes.clone());
         paths
             .iter()
             .filter_map(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())

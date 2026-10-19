@@ -3,10 +3,10 @@
 //! mcp` (the Chief's turn tools, whose list stays byte-identical, section
 //! 7.2): different tools, a different home, no host.
 //!
-//! `initialize` and `tools/list` are always answered here and at once:
-//! Codex does not wait for a slow server before a turn starts. Only
+//! `initialize` and `tools/list` are always answered here, without the
+//! owner: Codex does not wait for a slow server before a turn starts. Only
 //! `tools/call` goes to the owner when `agents.memory.owner` names one
-//! (relay.rs). When the owner does not answer, a search or read answers
+//! (relay.rs), so startup never waits on the route. When the owner does not answer, a search or read answers
 //! from this machine's own index and says so; a note is refused, so notes
 //! never split across machines.
 

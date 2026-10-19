@@ -313,3 +313,37 @@ fn the_chief_tool_list_is_unchanged() {
         .collect();
     assert_eq!(names, ["zoom", "date", "spawn", "tell"]);
 }
+
+/// A memory file written while a rebuild reads the sources: its mtime is
+/// before the manifest's, but after the build started reading, so the index
+/// is stale. A note saved through `remember` keeps the index current.
+#[test]
+fn an_edit_during_a_rebuild_is_not_missed() {
+    let home = short_home();
+    seed(home.path());
+    let index = index(home.path());
+    index.refresh(false).unwrap();
+    let from = Provenance::default();
+    index.remember("a lesson about hooks", &from).unwrap();
+    assert!(!index.stale());
+    let manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            home.path()
+                .join(".cmux/agent-memory/agent-memory-manifest.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let read_at = manifest["read_at"].as_u64().unwrap();
+    let file = home.path().join(".claude/projects/-repo/memory/merge.md");
+    std::fs::write(&file, "Edited mid-build.").unwrap();
+    let during = std::time::UNIX_EPOCH + std::time::Duration::from_nanos(read_at + 1_000);
+    std::fs::File::options()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(during)
+        .unwrap();
+    assert!(index.stale());
+    assert_eq!(index.search("mid-build", 5).unwrap().len(), 1);
+}

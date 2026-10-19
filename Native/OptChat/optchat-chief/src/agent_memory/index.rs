@@ -8,12 +8,15 @@
 //! or a note takes it exclusively; a search takes it shared, so no rebuild
 //! swaps the database under a reader. A rebuild writes a fresh sibling
 //! directory and renames it into place. The manifest lists the entries'
-//! sources; the index is stale when it is missing, when any source file is
-//! newer, or when the list of sources changed (a deleted file changes no
-//! mtime that survives).
+//! sources, when the build started reading them and the notes log's mtime
+//! once indexed; the index is stale when it is missing, when a source file
+//! changed after the build started reading (an edit during a rebuild
+//! counts), when the notes log changed outside `remember`, or when the list
+//! of sources changed (a deleted file changes no mtime that survives).
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use optchat_core::Kind;
 use optchat_host::db::ReadOnly;
@@ -26,7 +29,30 @@ use crate::paths::Paths;
 const MANIFEST: &str = "agent-memory-manifest.json";
 /// Bumped when the stored text or manifest changes shape: an older index
 /// (the leo-workspace prototype's bare label list) is rebuilt.
-const MANIFEST_VERSION: u64 = 2;
+const MANIFEST_VERSION: u64 = 3;
+
+/// What the manifest records about one build.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Manifest {
+    sources: Vec<String>,
+    /// When the build started reading its sources (ns since the epoch).
+    read_at: u64,
+    /// The notes log's mtime once its notes were indexed (ns), if any.
+    notes_at: Option<u64>,
+}
+
+fn nanos(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+fn mtime_ns(path: &Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .map(nanos)
+}
 
 /// One search hit or one entry read by id.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -92,23 +118,34 @@ impl Index {
         Ok(file)
     }
 
-    fn manifest(&self) -> Option<Vec<String>> {
+    fn manifest(&self) -> Option<Manifest> {
         let text = std::fs::read_to_string(self.root.join(MANIFEST)).ok()?;
         let value: Value = serde_json::from_str(&text).ok()?;
         if value.get("version").and_then(Value::as_u64) != Some(MANIFEST_VERSION) {
             return None;
         }
-        value
+        let sources = value
             .get("sources")?
             .as_array()?
             .iter()
             .map(|s| s.as_str().map(str::to_owned))
-            .collect()
+            .collect::<Option<Vec<_>>>()?;
+        Some(Manifest {
+            sources,
+            read_at: value.get("read_at")?.as_u64()?,
+            notes_at: value.get("notes_at").and_then(Value::as_u64),
+        })
     }
 
-    fn write_manifest(dir: &Path, sources: &[String]) -> Result<(), String> {
+    fn write_manifest(dir: &Path, manifest: &Manifest) -> Result<(), String> {
         let path = dir.join(MANIFEST);
-        let text = json!({"version": MANIFEST_VERSION, "sources": sources}).to_string();
+        let text = json!({
+            "version": MANIFEST_VERSION,
+            "sources": manifest.sources,
+            "read_at": manifest.read_at,
+            "notes_at": manifest.notes_at,
+        })
+        .to_string();
         let tmp = dir.join(format!("{MANIFEST}.tmp"));
         std::fs::write(&tmp, text)
             .and_then(|()| std::fs::rename(&tmp, &path))
@@ -121,18 +158,23 @@ impl Index {
     }
 
     fn stale_against(&self, entries: Option<&[Entry]>) -> bool {
-        let Some(listed) = self.manifest() else {
+        let Some(manifest) = self.manifest() else {
             return true;
         };
         if !self.paths().memory_db.is_file() {
             return true;
         }
-        let built = std::fs::metadata(self.root.join(MANIFEST)).and_then(|m| m.modified());
-        match (self.sources.newest(), built) {
-            (Some(newest), Ok(built)) if newest > built => return true,
-            (_, Err(_)) => return true,
-            _ => {}
+        if self
+            .sources
+            .newest()
+            .is_some_and(|newest| nanos(newest) >= manifest.read_at)
+        {
+            return true;
         }
+        if mtime_ns(&self.sources.notes) != manifest.notes_at {
+            return true;
+        }
+        let listed = manifest.sources;
         let now: Vec<String> = match entries {
             Some(entries) => entries.iter().map(|e| e.source.clone()).collect(),
             None => self
@@ -164,6 +206,10 @@ impl Index {
 
     /// Writes every entry into a fresh sibling and swaps it in (lock held).
     fn rebuild(&self) -> Result<usize, String> {
+        // Taken before reading: a source edited while this build reads it
+        // is newer than `read_at`, so the next search rebuilds again.
+        let read_at = nanos(SystemTime::now());
+        let notes_at = mtime_ns(&self.sources.notes);
         let entries = self.sources.entries();
         // A short sibling keeps the chat lock's socket path under SUN_LEN.
         let fresh = sibling(&self.root, &format!(".new-{}", std::process::id()));
@@ -171,8 +217,12 @@ impl Index {
         let result = (|| {
             create_private(&fresh)?;
             import(&fresh, &entries)?;
-            let sources: Vec<String> = entries.iter().map(|e| e.source.clone()).collect();
-            Self::write_manifest(&fresh, &sources)?;
+            let manifest = Manifest {
+                sources: entries.iter().map(|e| e.source.clone()).collect(),
+                read_at,
+                notes_at,
+            };
+            Self::write_manifest(&fresh, &manifest)?;
             let old = sibling(&self.root, ".old");
             let _ = std::fs::remove_dir_all(&old);
             if self.root.exists() {
@@ -251,10 +301,13 @@ impl Index {
         let (i, note) = notes::append(&self.sources.notes, text, from)?;
         let entry = note_entry(i, &note);
         let indexed = if was_current {
-            let mut sources = self.manifest().unwrap_or_default();
+            let mut manifest = self.manifest().unwrap_or_default();
             import(&self.root, std::slice::from_ref(&entry)).and_then(|ids| {
-                sources.push(entry.source.clone());
-                Self::write_manifest(&self.root, &sources)?;
+                // `read_at` stays: a source edited since the last build
+                // still makes the index stale. The notes log is current.
+                manifest.sources.push(entry.source.clone());
+                manifest.notes_at = mtime_ns(&self.sources.notes);
+                Self::write_manifest(&self.root, &manifest)?;
                 Ok(format!("saved {} as entry #{}", entry.source, ids[0]))
             })
         } else {
