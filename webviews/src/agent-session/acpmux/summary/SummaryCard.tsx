@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -66,17 +67,20 @@ export function SummaryCard({
   const close = card.close;
   // Closing the Subagents tab leaves focus on the Subagents title that opened it; on a folded
   // popover, where that title is not drawn, on the fold button, else on the card itself.
-  const refocus = useRef(false);
-  useEffect(() => {
-    if (tab || !refocus.current) return;
-    refocus.current = false;
+  const closeTab = () => {
+    flushSync(() => setTab(undefined));
     const card = panel.current;
     (
       card?.querySelector<HTMLElement>(".acpmux-summary-title__button") ??
       card?.querySelector<HTMLElement>(".acpmux-summary-card__fold") ??
       card
     )?.focus();
-  }, [tab]);
+  };
+  // A tab picked on a folded popover opens it: the tab's content is what the click asks for.
+  const showTab = (next: "summary" | "subagents") => {
+    if (!card.column && card.collapsed) card.fold(false);
+    setTab(next);
+  };
   useEffect(() => {
     if (!popover) return;
     const away = (event: Event) => {
@@ -144,7 +148,7 @@ export function SummaryCard({
                 className="acpmux-summary-tab"
                 aria-pressed={!onSubagents}
                 data-selected={onSubagents ? undefined : ""}
-                onClick={() => setTab("summary")}
+                onClick={() => showTab("summary")}
               >
                 {t("summary.title")}
               </button>
@@ -153,7 +157,7 @@ export function SummaryCard({
                   type="button"
                   className="acpmux-summary-tab__label"
                   aria-pressed={onSubagents}
-                  onClick={() => setTab("subagents")}
+                  onClick={() => showTab("subagents")}
                 >
                   {t("summary.subagents")}
                 </button>
@@ -162,10 +166,7 @@ export function SummaryCard({
                   className="acpmux-summary-tab__close"
                   aria-label={t("summary.subagents.closeTab")}
                   title={t("summary.subagents.closeTab")}
-                  onClick={() => {
-                    refocus.current = true;
-                    setTab(undefined);
-                  }}
+                  onClick={closeTab}
                 >
                   <Icon name="action.close" size={10} />
                 </button>

@@ -268,6 +268,28 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await context.close();
   });
 
+  test("a tab picked on a folded popover unfolds it to that tab", async () => {
+    const context = await browser!.newContext({ viewport: { width: 900, height: 800 } });
+    const page = await context.newPage();
+    await openPopoverTab(page);
+    const tab = (name: string) =>
+      panel(page).locator(".acpmux-summary-tabs").getByRole("button", { name, exact: true });
+    await panel(page).getByRole("button", { name: "Collapse summary" }).click();
+    await panel(page).getByRole("button", { name: "Expand summary" }).waitFor({ timeout: 5_000 });
+    expect(await panel(page).getByRole("region", { name: "Active · 1" }).count()).toBe(0);
+    // The Summary tab shows the summary, not a folded header.
+    await tab("Summary").click();
+    await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
+    expect(await tab("Summary").getAttribute("aria-pressed")).toBe("true");
+    // Folded again, the Subagents tab shows its list.
+    await panel(page).getByRole("button", { name: "Collapse summary" }).click();
+    await panel(page).getByRole("button", { name: "Expand summary" }).waitFor({ timeout: 5_000 });
+    await tab("Subagents").click();
+    await panel(page).getByRole("region", { name: "Active · 1" }).waitFor({ timeout: 5_000 });
+    expect(await tab("Subagents").getAttribute("aria-pressed")).toBe("true");
+    await context.close();
+  });
+
   test("a popover keeps a compact fold button beside its tabs", async () => {
     // 1280px: no room for the inline column, so the summary is a popover.
     const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
