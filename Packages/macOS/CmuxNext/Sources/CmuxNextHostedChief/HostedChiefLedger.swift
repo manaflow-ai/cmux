@@ -27,10 +27,12 @@ struct HostedChiefLedger {
     func recordFailure(chief: String) { defaults.set(failed(chief: chief) + 1, forKey: "home.chief.hosted.\(session).\(chief).failures") }
     func clearFailures(chief: String) { defaults.removeObject(forKey: "home.chief.hosted.\(session).\(chief).failures") }
 
-    /// The server refused the content (counts toward giving up); a network, rate or server error does not.
+    /// The server refused the content (counts toward giving up); a network, rate, server or sign-in error does not
+    /// (an expired token must not end the copy with nothing copied).
     static func isRefusal(_ error: any Error) -> Bool {
         guard case let HostedChiefError.owner(code, _) = error else { return false }
-        return !(code.contains("rate") || code.hasPrefix("http_5") || code.hasPrefix("internal") || code.contains("unavailable") || code == "brain_busy")
+        let transient = ["rate", "unavailable"].contains { code.contains($0) } || ["http_5", "internal", "auth"].contains { code.hasPrefix($0) }
+        return !(transient || ["brain_busy", "http_401", "http_403"].contains(code))
     }
 
     private func key(_ step: Step, _ chief: String) -> String { "home.chief.hosted.\(session).\(chief).\(step.rawValue)" }
