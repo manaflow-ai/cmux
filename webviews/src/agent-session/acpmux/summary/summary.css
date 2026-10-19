@@ -90,9 +90,9 @@
 :root[data-status-indicators=static] .acpmux-lineage__icon[data-state=waiting]::after{content:"!";color:var(--acpmux-warning,var(--agent-warning))}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
 .acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
-/* Reduce Transparency: the gallery is a solid page, unblurred, as the other blurred acpmux surfaces are. */
-@media (prefers-reduced-transparency:reduce){.acpmux-chat-gallery{background:var(--agent-page-bg);-webkit-backdrop-filter:none;backdrop-filter:none}}
-:root[data-reduce-transparency] .acpmux-chat-gallery{background:var(--agent-page-bg);-webkit-backdrop-filter:none;backdrop-filter:none}
+/* Reduce Transparency: the gallery is a solid page, unblurred, as the other blurred acpmux surfaces are. The page background is clear in a translucent window, so the solid color is the opaque surface token the composer uses. */
+@media (prefers-reduced-transparency:reduce){.acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base));-webkit-backdrop-filter:none;backdrop-filter:none}}
+:root[data-reduce-transparency] .acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base));-webkit-backdrop-filter:none;backdrop-filter:none}
 .acpmux-chat-gallery-filters{display:flex;gap:2px;margin-right:8px}
 .acpmux-chat-gallery-filter{height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-chat-gallery-filter:hover{background:var(--agent-control-hover)}
