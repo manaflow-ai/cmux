@@ -2258,6 +2258,7 @@
           "currentLineHighlight": "Hiçbir şey seçili değilken metin imlecinin bulunduğu satırı renklendirir.",
           "tabWidth": "Bir sekme durağının kaç sütun kapladığı. Girinti kılavuzları da aynı aralığı kullanır."
         },
+        "actions": "Komut paleti, kısayollar, sekme çubuğu düğmeleri ve artı düğmesi menüsü için yeniden kullanılabilir eylemler. builtin, command, agent, workspaceCommand, workspace, setting, settingPreset ve text desteklenir. Metin eylemleri satır sonlarını koruyarak odaklanmış terminale yapıştırır; submit: true Enter tuşuna basar. Ayar eylemleri genel yapılandırma gerektirir.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

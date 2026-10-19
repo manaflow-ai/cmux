@@ -28,6 +28,9 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalState: TerminalTabState?
     /// How a dead terminal ended (R41): the banner names this reason.
     public internal(set) var end: TerminalTabEnd?
+    /// A kept tab's keep-layout record (`end-terminals-keep-layout-v1`): its terminal ended at
+    /// Quit's End Sessions, Keep Layout and this launch restarts it.
+    public internal(set) var relaunch: TabRelaunch?
     public internal(set) var notification: TabNotification?
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
@@ -87,15 +90,6 @@ public final class TabModel: Identifiable {
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
     @ObservationIgnored private var observedCwd: String?
-    /// Whether this window minted the tab: it showed under a provisional surface before the daemon
-    /// had it. An optimistic split's terminal keeps its client-minted id through the daemon's
-    /// confirm (the same record), but its surface changes, so the focus topology names it by its
-    /// id only (``FocusTopology/Tab/surface`` is nil) and the confirm changes no topology. A
-    /// provisional chat or page tab (`pending_tab_…`) gives way to a new daemon record instead.
-    public let isClientMinted: Bool
-    /// The surface the focus topology names this tab by: nil for a tab this window minted.
-    public var focusSurface: String? { isClientMinted ? nil : String(surface.rawValue) }
-
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
         return title
@@ -132,7 +126,6 @@ public final class TabModel: Identifiable {
 
     init(_ s: TabSnapshot) {
         id = Self.identity(s)
-        isClientMinted = ProvisionalTab.isProvisional(surface: s.surface)
         snapshot = s
         resourceID = s.tabResourceID
         surface = s.surface
@@ -146,6 +139,7 @@ public final class TabModel: Identifiable {
         dead = s.dead
         terminalState = s.terminalState
         end = s.end
+        relaunch = s.relaunch
         notification = s.notification
         url = s.url
         pinned = s.pinned
@@ -188,6 +182,7 @@ public final class TabModel: Identifiable {
         if dead != s.dead { dead = s.dead }
         if terminalState != s.terminalState { terminalState = s.terminalState }
         if end != s.end { end = s.end }
+        if relaunch != s.relaunch { relaunch = s.relaunch }
         if notification != s.notification { notification = s.notification }
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }

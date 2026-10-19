@@ -118,7 +118,7 @@ final class BookmarkBarItemView: NSView {
         return true
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {

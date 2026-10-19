@@ -215,7 +215,7 @@ await requireBrowserLane("agent-pane-mode-keys.test.ts", async () => {
       undefined,
       { timeout: 5_000 },
     );
-    // The shield draws like the lock it replaced: in the trigger's own ink (the warning ink here)
+    // The shield draws like the lock it replaced: in the trigger's own ink
     // and at its own size, never styled as the trailing chevron.
     const look = await page.locator(".acpmux-access-trigger").evaluate((button) => {
       // The drawn glyph: the svg that carries data-shield, or the one inside it.

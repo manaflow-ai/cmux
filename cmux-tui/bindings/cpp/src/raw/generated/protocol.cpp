@@ -4117,10 +4117,25 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("lifecycle_ready", std::move(encoded).value());
     }
+    if (value.machine_capabilities) {
+        auto encoded = encode_value(*value.machine_capabilities);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_capabilities", std::move(encoded).value());
+    }
+    if (value.machine_id) {
+        auto encoded = encode_value(*value.machine_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_id", std::move(encoded).value());
+    }
     if (value.machine_name) {
         auto encoded = encode_value(*value.machine_name);
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_name", std::move(encoded).value());
+    }
+    if (value.machine_platform) {
+        auto encoded = encode_value(*value.machine_platform);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_platform", std::move(encoded).value());
     }
     auto encoded_pid = encode_value(value.pid);
     if (!encoded_pid) return std::move(encoded_pid).error();
@@ -4244,11 +4259,29 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         result.lifecycle_ready = std::move(decoded).value();
     }
+    const Json* field_machine_capabilities = value.find("machine_capabilities");
+    if (field_machine_capabilities) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_machine_capabilities);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_capabilities = std::move(decoded).value();
+    }
+    const Json* field_machine_id = value.find("machine_id");
+    if (field_machine_id) {
+        auto decoded = decode_value<std::string>(*field_machine_id);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_id = std::move(decoded).value();
+    }
     const Json* field_machine_name = value.find("machine_name");
     if (field_machine_name) {
         auto decoded = decode_value<std::string>(*field_machine_name);
         if (!decoded) return std::move(decoded).error();
         result.machine_name = std::move(decoded).value();
+    }
+    const Json* field_machine_platform = value.find("machine_platform");
+    if (field_machine_platform) {
+        auto decoded = decode_value<MachinePlatform>(*field_machine_platform);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_platform = std::move(decoded).value();
     }
     const Json* field_pid = value.find("pid");
     if (!field_pid) {
@@ -4883,6 +4916,43 @@ Result<MachineListeningTcpResult> Codec<MachineListeningTcpResult>::decode(const
         auto decoded = decode_value<std::string>(*field_stdout);
         if (!decoded) return std::move(decoded).error();
         result.stdout = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<MachinePlatform>::encode(const MachinePlatform& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_arch = encode_value(value.arch);
+    if (!encoded_arch) return std::move(encoded_arch).error();
+    object.emplace("arch", std::move(encoded_arch).value());
+    auto encoded_os = encode_value(value.os);
+    if (!encoded_os) return std::move(encoded_os).error();
+    object.emplace("os", std::move(encoded_os).value());
+    return Json(std::move(object));
+}
+
+Result<MachinePlatform> Codec<MachinePlatform>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    MachinePlatform result{};
+    const Json* field_arch = value.find("arch");
+    if (!field_arch) {
+        return make_error(ErrorCode::decode, "missing required field 'arch'");
+    }
+    if (field_arch) {
+        auto decoded = decode_value<std::string>(*field_arch);
+        if (!decoded) return std::move(decoded).error();
+        result.arch = std::move(decoded).value();
+    }
+    const Json* field_os = value.find("os");
+    if (!field_os) {
+        return make_error(ErrorCode::decode, "missing required field 'os'");
+    }
+    if (field_os) {
+        auto decoded = decode_value<std::string>(*field_os);
+        if (!decoded) return std::move(decoded).error();
+        result.os = std::move(decoded).value();
     }
     return result;
 }
@@ -21893,6 +21963,11 @@ Result<HomeInboxResult> Codec<HomeInboxResult>::decode(const Json& value) {
 Result<Json> Codec<IdentifyRequest>::encode(const IdentifyRequest& value) {
     (void)value;
     Json::Object object;
+    if (value.machine_metadata) {
+        auto encoded = encode_value(*value.machine_metadata);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("machine_metadata", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -21900,6 +21975,12 @@ Result<IdentifyRequest> Codec<IdentifyRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     IdentifyRequest result{};
+    const Json* field_machine_metadata = value.find("machine_metadata");
+    if (field_machine_metadata) {
+        auto decoded = decode_value<bool>(*field_machine_metadata);
+        if (!decoded) return std::move(decoded).error();
+        result.machine_metadata = std::move(decoded).value();
+    }
     return result;
 }
 
@@ -28584,6 +28665,11 @@ Result<Json> Codec<SetColumnDockRequest>::encode(const SetColumnDockRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("permanent", std::move(encoded).value());
     }
+    if (!value.pinned.is_absent()) {
+        auto encoded = encode_value(value.pinned);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pinned", std::move(encoded).value());
+    }
     if (!value.role.is_absent()) {
         auto encoded = encode_value(value.role);
         if (!encoded) return std::move(encoded).error();
@@ -28647,6 +28733,16 @@ Result<SetColumnDockRequest> Codec<SetColumnDockRequest>::decode(const Json& val
             auto decoded = decode_value<bool>(*field_permanent);
             if (!decoded) return std::move(decoded).error();
             result.permanent = Field<bool>(std::move(decoded).value());
+        }
+    }
+    const Json* field_pinned = value.find("pinned");
+    if (field_pinned) {
+        if (field_pinned->is_null()) {
+            result.pinned = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_pinned);
+            if (!decoded) return std::move(decoded).error();
+            result.pinned = Field<bool>(std::move(decoded).value());
         }
     }
     const Json* field_role = value.find("role");
@@ -32313,6 +32409,124 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
     }
     if (field_event) {
         if (*field_event != Json(std::string("agent-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<AgentInventoryChangedEvent>::encode(const AgentInventoryChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("agent-inventory-changed")));
+    auto encoded_machine = encode_value(value.machine);
+    if (!encoded_machine) return std::move(encoded_machine).error();
+    object.emplace("machine", std::move(encoded_machine).value());
+    auto encoded_revision = encode_value(value.revision);
+    if (!encoded_revision) return std::move(encoded_revision).error();
+    object.emplace("revision", std::move(encoded_revision).value());
+    auto encoded_watch_id = encode_value(value.watch_id);
+    if (!encoded_watch_id) return std::move(encoded_watch_id).error();
+    object.emplace("watch_id", std::move(encoded_watch_id).value());
+    return Json(std::move(object));
+}
+
+Result<AgentInventoryChangedEvent> Codec<AgentInventoryChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    AgentInventoryChangedEvent result{};
+    const Json* field_machine = value.find("machine");
+    if (!field_machine) {
+        return make_error(ErrorCode::decode, "missing required field 'machine'");
+    }
+    if (field_machine) {
+        auto decoded = decode_value<std::string>(*field_machine);
+        if (!decoded) return std::move(decoded).error();
+        result.machine = std::move(decoded).value();
+    }
+    const Json* field_revision = value.find("revision");
+    if (!field_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'revision'");
+    }
+    if (field_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.revision = std::move(decoded).value();
+    }
+    const Json* field_watch_id = value.find("watch_id");
+    if (!field_watch_id) {
+        return make_error(ErrorCode::decode, "missing required field 'watch_id'");
+    }
+    if (field_watch_id) {
+        auto decoded = decode_value<std::string>(*field_watch_id);
+        if (!decoded) return std::move(decoded).error();
+        result.watch_id = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("agent-inventory-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<AgentInventoryWatchEndedEvent>::encode(const AgentInventoryWatchEndedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("agent-inventory-watch-ended")));
+    auto encoded_machine = encode_value(value.machine);
+    if (!encoded_machine) return std::move(encoded_machine).error();
+    object.emplace("machine", std::move(encoded_machine).value());
+    auto encoded_reason = encode_value(value.reason);
+    if (!encoded_reason) return std::move(encoded_reason).error();
+    object.emplace("reason", std::move(encoded_reason).value());
+    auto encoded_watch_id = encode_value(value.watch_id);
+    if (!encoded_watch_id) return std::move(encoded_watch_id).error();
+    object.emplace("watch_id", std::move(encoded_watch_id).value());
+    return Json(std::move(object));
+}
+
+Result<AgentInventoryWatchEndedEvent> Codec<AgentInventoryWatchEndedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    AgentInventoryWatchEndedEvent result{};
+    const Json* field_machine = value.find("machine");
+    if (!field_machine) {
+        return make_error(ErrorCode::decode, "missing required field 'machine'");
+    }
+    if (field_machine) {
+        auto decoded = decode_value<std::string>(*field_machine);
+        if (!decoded) return std::move(decoded).error();
+        result.machine = std::move(decoded).value();
+    }
+    const Json* field_reason = value.find("reason");
+    if (!field_reason) {
+        return make_error(ErrorCode::decode, "missing required field 'reason'");
+    }
+    if (field_reason) {
+        auto decoded = decode_value<std::string>(*field_reason);
+        if (!decoded) return std::move(decoded).error();
+        result.reason = std::move(decoded).value();
+    }
+    const Json* field_watch_id = value.find("watch_id");
+    if (!field_watch_id) {
+        return make_error(ErrorCode::decode, "missing required field 'watch_id'");
+    }
+    if (field_watch_id) {
+        auto decoded = decode_value<std::string>(*field_watch_id);
+        if (!decoded) return std::move(decoded).error();
+        result.watch_id = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("agent-inventory-watch-ended"))) {
             return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
         }
     }
@@ -39857,6 +40071,16 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "agent-inventory-changed") {
+        auto decoded = decode_value<AgentInventoryChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "agent-inventory-watch-ended") {
+        auto decoded = decode_value<AgentInventoryWatchEndedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "agent-presence-changed") {
         auto decoded = decode_value<AgentPresenceChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -40321,6 +40545,9 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand98FieldRequirements{{
     {"by", 12U, "shared-sizing-v1"},
     {"surface", 12U, "shared-sizing-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand116FieldRequirements{{
+    {"machine_metadata", 12U, "machine-identity-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand144FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
@@ -40421,7 +40648,8 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand213FieldRequirements{{
     {"display_name", 12U, "shared-sizing-v1"},
     {"user_id", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand215FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand215FieldRequirements{{
+    {"pinned", 12U, "pinned-dock-v1"},
     {"role", 12U, "dock-column-role-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 7> kCommand216FieldRequirements{{
@@ -40593,7 +40821,7 @@ constexpr std::array<CommandMetadata, 273> kCommands{{
     {"get-size-state", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"history-search", "local-admin", 12U, "history-search-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"home-inbox", "local-admin", 12U, "home-inbox-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"identify", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"identify", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand116FieldRequirements)},
     {"ids", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"import-bookmarks", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"import-session-organization", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -40751,9 +40979,11 @@ constexpr std::array<CommandMetadata, 273> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 83> kEvents{{
+constexpr std::array<EventMetadata, 85> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
+    {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
+    {"agent-inventory-watch-ended", 12U, "agent-inventory-watch-v1", "control", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"bookmarks-changed", 12U, "bookmarks-v1", "subscribe", "emitted"},

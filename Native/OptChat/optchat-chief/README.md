@@ -186,11 +186,13 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   and it starts no turn. A subagent that runs again later (a `tell`, the user
   writing in its chat) reports again when it finishes.
 
-- At most 16 subagents work at once (`subagents::MAX_LIVE`; one spawn takes
-  at most 8 tasks). A spawn over the cap answers `a<N>: queued`; a queued
-  subagent starts, with the view of that moment and its task, when another
-  finishes. The queue lives in the host's memory: a host that restarts
-  reports a still-queued subagent as not started.
+- Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
+  caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
+  over the cap answers `a<N>: queued`; a queued subagent starts, with the view
+  of that moment and its task, when another finishes. Its record keeps its
+  task, directory, effort and floor, so a host that restarts still starts it
+  (a record from before launches were saved takes its task from the spawn
+  call in the log, and the floor of that moment).
 - A turn whose subagents are at work gets `Subagents at work now: a1, a3.`
   after the view, before its new messages (never logged).
 - `chief.stop` stops the running turn and every subagent at work
