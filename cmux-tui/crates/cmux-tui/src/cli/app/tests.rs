@@ -151,10 +151,7 @@ fn an_app_socket_of_another_user_is_refused_before_a_request_is_written() {
     drop(result);
 
     assert_eq!(kind, Some(std::io::ErrorKind::PermissionDenied));
-    assert!(
-        app.join().unwrap()[0].is_empty(),
-        "the client wrote before checking the peer uid"
-    );
+    assert!(app.join().unwrap()[0].is_empty(), "the client wrote before checking the peer uid");
 }
 
 fn global_for(socket: &std::path::Path) -> GlobalArgs {
