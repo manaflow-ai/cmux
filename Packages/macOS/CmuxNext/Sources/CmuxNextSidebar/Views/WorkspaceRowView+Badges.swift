@@ -20,6 +20,12 @@ extension WorkspaceRowView {
             timeText = time
             timeLabel.setString(time)
         }
+        // `.status` shows the state as one status icon (`configure` set it): no badge.
+        if style == .status {
+            rowBadge.configure([], look: .corner)
+            rowBadge.themedToolTip = nil
+            return
+        }
         let corner = style == .corner
         // A text-only row (no user icon or favicon, WORKSPACE-ROWS-NO-DEFAULT-ICON) has no icon
         // corner: its one corner glyph draws as a one-glyph stack in the trailing slot.

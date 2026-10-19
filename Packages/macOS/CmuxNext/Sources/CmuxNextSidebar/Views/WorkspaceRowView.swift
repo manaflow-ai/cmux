@@ -22,6 +22,8 @@ final class WorkspaceRowView: SidebarRowView {
     var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    /// The `status` row badge's side (WorkspaceRowView+StatusGlyph); nil with any other style.
+    internal(set) var statusSide: SidebarStatusIconSide?
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
@@ -180,6 +182,7 @@ final class WorkspaceRowView: SidebarRowView {
         var fontSize: CGFloat
         var iconSize: CGFloat
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
+        var statusSide: SidebarStatusIconSide
         var disclosure: SidebarTabDisclosure?
         var row: WorkspaceRowContent?
     }
@@ -191,7 +194,7 @@ final class WorkspaceRowView: SidebarRowView {
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
-            disclosure: row.tabDisclosure, row: row.content
+            statusSide: tunables.statusSide, disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
@@ -209,7 +212,9 @@ final class WorkspaceRowView: SidebarRowView {
         // the activity indicator twice per configure. The badge never brings a kind glyph or an
         // agent brand with it: a row without the user's icon or a favicon stays text only, and
         // its corner badge sits in the trailing slot (`layoutRowBadge`).
-        let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
+        // `.status` draws neither badge nor count: one status icon on the `sidebar.statusIconSide` side.
+        statusSide = content.rowBadge == .status && !isShowingPlaceholder ? content.statusSide : nil
+        let badgesLead = statusSide == nil && content.rowBadge != .trailing && !isShowingPlaceholder
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         let priorTitle = lastTitle
@@ -240,14 +245,14 @@ final class WorkspaceRowView: SidebarRowView {
         (isExpanded, timeText) = (shown.expanded, shown.trailingText)
         timeLabel.setString(shown.trailingText ?? "")
         metaLabel.setString(shown.meta ?? "")
-        activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
+        activity.configure(badgesLead ? .idle : rowStatus(ws, activity: shown.activity), style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
             : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
-        badge.configure(badgesLead ? .none : ws.unread)
+        badge.configure(badgesLead || statusSide != nil ? .none : ws.unread)
         presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence : [])
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil

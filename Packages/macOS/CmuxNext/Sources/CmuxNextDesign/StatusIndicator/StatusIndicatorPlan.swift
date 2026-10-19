@@ -25,6 +25,9 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         case bars
         /// A status icon set's drawn mark (`StatusMark`, `StatusIconSet`).
         case mark(StatusMark)
+        /// Four dots on a circle, a quarter turn apart (the Orbit set's working mark,
+        /// `StatusIndicatorLayer+Orbit`). Still, they sit spread on the axes.
+        case orbit
     }
 
     public enum Animation: Hashable, Sendable {
@@ -43,6 +46,9 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         /// The dots dim and brighten one after another (one Motion `pulse`
         /// period per cycle).
         case wave
+        /// The `orbit` dots turn once per two Motion `pulse` periods and draw in and
+        /// out once per period; nothing fades.
+        case orbit
     }
 
     public enum Tint: Hashable, Sendable {
@@ -57,9 +63,12 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
         /// The theme foreground softened to Codex's spinner grey (white at
         /// 66% on Codex's dark sidebar): the Codex-like set's work.
         case spinner
-        /// Codex's unread blue: the Codex-like set's done dot. The one hue a
-        /// status set adds (Leo's team asked for Codex's dot, 2026-10-14).
+        /// Codex's unread blue: the Codex-like set's done dot. A hue a status
+        /// set adds (Leo's team asked for Codex's dot, 2026-10-14).
         case unread
+        /// Claude Code's orange: the Orbit set's working dots (Leo 2026-10-18, "like
+        /// Claude Code's four orange dots").
+        case claude
     }
 
     public var glyph: Glyph

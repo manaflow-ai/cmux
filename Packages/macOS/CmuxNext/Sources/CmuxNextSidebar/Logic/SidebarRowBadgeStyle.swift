@@ -5,7 +5,9 @@ public import CmuxNextDesign
 /// the row leads with its harness logo or kind icon, and one small badge on that icon's corner says
 /// the most urgent state; the count reads in the hover card. `stack` is Leo's alternative, one
 /// glyph per pending item overlapping in the trailing slot; `trailing` keeps the count badge and
-/// the trailing status glyph (the look before).
+/// the trailing status glyph (the look before); `status` is one status icon on the side
+/// `SidebarStatusIconSide` names, the default (Leo 2026-10-15 in #20900; Leo 2026-10-18: a running
+/// row's mark on the left).
 public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// One badge on the leading icon's bottom-right corner.
     case corner
@@ -13,19 +15,23 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
     case stack
     /// The count badge and the trailing status glyph.
     case trailing
+    /// No badge and no count: one status icon, the row's most urgent state (a done mark for unread
+    /// work included), in a fixed slot on the side `SidebarStatusIconSide` names.
+    case status
 
     public var tunableTitle: String {
         switch self {
         case .corner: "Corner badge on the icon"
         case .stack: "Glyph stack (one per item)"
         case .trailing: "Count and trailing glyph (before)"
+        case .status: "Status icon on the left or right"
         }
     }
 
     public static let tunable = Tunable<SidebarRowBadgeStyle>.choice(
         "sidebar.rowBadge", .sidebar, "Row badge",
-        help: "How a workspace row shows unread items and agent states: a badge on the leading icon's corner, a stack of glyphs, or the count with a trailing glyph.",
-        default: .corner, code: "SidebarRowBadgeStyle.tunable")
+        help: "How a workspace row shows unread items and agent states: a badge on the leading icon's corner, a stack of glyphs, the count with a trailing glyph, or one status icon on the side Status Icon Side names.",
+        default: .status, code: "SidebarRowBadgeStyle.tunable")
 }
 
 /// A row's pending items, most urgent first: a failure, then a permission (or sign-in) request,

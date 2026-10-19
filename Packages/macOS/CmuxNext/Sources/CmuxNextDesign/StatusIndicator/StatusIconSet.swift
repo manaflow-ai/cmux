@@ -9,8 +9,9 @@ public import Foundation
 /// marks working, blocked (with the OSC 7501 kind: permission, question,
 /// auth), done and error; idle draws nothing. Loading (busy, paused) and
 /// known progress keep the loading style's marks. Colors are theme roles
-/// only. The default is `codex` (Leo 2026-10-14, a team decision; was
-/// `symbols`, Lawrence 2026-10-09); `current` keeps the original drawing.
+/// only, and the hues two sets add. The default is `orbit` (Leo 2026-10-18; was `codex`, a team
+/// decision on 2026-10-14, and `symbols` before, Lawrence 2026-10-09); `current` keeps the
+/// original drawing.
 public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableChoice {
     /// Today's marks: working dots, a still attention dot, a danger dot, a check.
     case current
@@ -40,12 +41,16 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     /// (the shared spinner, re-tinted; a still ring when nothing may move), done is Codex's blue
     /// dot, waiting is a muted line bubble or shield, and only an error is red (a line i in a ring).
     case codex
+    /// Orbiting dots (Leo 2026-10-18: "like Claude Code's four orange dots that slowly rotate and
+    /// regroup"): work is four dots in Claude's orange that turn and draw in and out
+    /// (`StatusIndicatorLayer+Orbit`); every other state is the Codex-like set's.
+    case orbit
 
     /// The Debug Settings switch (the Debug menu writes the same value).
     public static let tunable = Tunable<StatusIconSet>.choice(
         "status.iconSet", .status, "Status icons",
-        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Codex-like is the default; Dots is the original drawing.",
-        default: .codex, code: "StatusIconSet.tunable")
+        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Orbiting dots is the default; Dots is the original drawing.",
+        default: .orbit, code: "StatusIconSet.tunable")
 
     public var tunableTitle: String {
         switch self {
@@ -61,6 +66,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbolsOutline: String(localized: "statusIconSet.symbolsOutline", defaultValue: "Outlined Symbols", bundle: .module)
         case .still: String(localized: "statusIconSet.still", defaultValue: "Static", bundle: .module)
         case .codex: String(localized: "statusIconSet.codex", defaultValue: "Codex-like", bundle: .module)
+        case .orbit: String(localized: "statusIconSet.orbit", defaultValue: "Orbiting Dots", bundle: .module)
         }
     }
 
@@ -79,6 +85,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbolsOutline: "SF Symbols, outlined, and a spinner for work."
         case .still: "Static glyphs, never animated: half-filled ring, empty bubble, shield, check disc, ! diamond."
         case .codex: "Codex's sidebar: a grey spinner (a still ring under Reduce Motion), blue done dot, muted line bubble and shield, red line i."
+        case .orbit: "Four orange dots that turn and regroup for work (the static look under Reduce Motion); Codex-like marks for the rest."
         }
     }
 
@@ -93,6 +100,10 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             return StaticStatusGlyph(state)?.plan
         }
         if self == .codex { return codexPlan(for: state) }
+        if self == .orbit {
+            if case .working(progress: .none) = state { return StatusIndicatorPlan(glyph: .orbit, animation: .orbit, tint: .claude) }
+            return codexPlan(for: state)
+        }
         switch state {
         case .working where state.progress == nil:
             if self == .bars { return StatusIndicatorPlan(glyph: .bars, animation: .wave, tint: .accent) }
@@ -155,7 +166,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             case nil: .symbol("exclamationmark.circle")
             }
         case .still: .vector(kind == .permission || kind == .auth ? .permission : .waiting)
-        case .codex: .vector(kind == .permission || kind == .auth ? .shieldLine : .waiting)
+        case .codex, .orbit: .vector(kind == .permission || kind == .auth ? .shieldLine : .waiting)
         }
     }
 
@@ -179,7 +190,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbols: .symbol("checkmark.circle.fill")
         case .symbolsOutline: .symbol("checkmark.circle")
         case .still: .vector(.done)
-        case .codex: .vector(.dot)
+        case .codex, .orbit: .vector(.dot)
         }
     }
 
@@ -194,7 +205,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .symbols: .symbol("xmark.octagon.fill")
         case .symbolsOutline: .symbol("xmark.octagon")
         case .still: .vector(.error)
-        case .codex: .vector(.info)
+        case .codex, .orbit: .vector(.info)
         }
     }
 

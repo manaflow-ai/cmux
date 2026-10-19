@@ -43,6 +43,8 @@ public final class StatusIndicatorLayer {
 
         /// Codex's unread dot, sampled from the Codex app (rgb 57 130 245).
         static let unread = CGColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1)
+        /// Claude Code's working orange (rgb 215 119 87), the Orbit set's dots.
+        static let claude = CGColor(srgbRed: 215 / 255, green: 119 / 255, blue: 87 / 255, alpha: 1)
 
         /// The color a plan's tint draws in.
         public func color(for tint: StatusIndicatorPlan.Tint) -> CGColor {
@@ -54,6 +56,7 @@ public final class StatusIndicatorLayer {
             case .accent: accent ?? loading
             case .spinner: (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
             case .unread: Self.unread
+            case .claude: Self.claude
             }
         }
     }
@@ -74,6 +77,8 @@ public final class StatusIndicatorLayer {
     private var brailleFrames: [CGImage] = []
     /// The working dots: a replicator of one dot (`StatusIndicatorLayer+Dots`).
     var dotsLayer: CAReplicatorLayer?
+    /// The Orbit set's dots: a replicator of one dot (`StatusIndicatorLayer+Orbit`).
+    var orbitLayer: CAReplicatorLayer?
     /// A status icon set's mark: a tinted layer masked by `StatusMarkArt`
     /// (`StatusIndicatorLayer+Mark`), and what its mask was drawn for.
     var markLayer: CALayer?
@@ -122,7 +127,7 @@ public final class StatusIndicatorLayer {
 
     /// The animation running now (tests, diagnostics).
     public var runningAnimation: StatusIndicatorPlan.Animation? {
-        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave")] {
+        for (sublayer, key) in [(glyphLayer as CALayer?, "spin"), (nativeLayer, "step"), (glyphLayer, "pulse"), (markLayer, "pulse"), (brailleLayer?.mask, "frames"), (dotsLayer?.sublayers?.first, "wave"), (orbitLayer?.sublayers?.first, "orbit")] {
             if let sublayer, sublayer.animation(forKey: key) != nil {
                 return StatusIndicatorPlan.Animation(key: key)
             }
@@ -169,6 +174,7 @@ public final class StatusIndicatorLayer {
         let rect = glyphRect
         let thickness = config.settings.thickness
         if case .mark = plan.glyph {} else { removeMark() }
+        if plan.glyph != .orbit { removeOrbit() }
         switch plan.glyph {
         case .none:
             removeGlyph(); removeTrack(); removeNative(); removeBraille(); removeDots()
@@ -234,6 +240,9 @@ public final class StatusIndicatorLayer {
         case .mark(let mark):
             removeGlyph(); removeTrack(); removeNative(); removeBraille(); removeDots()
             buildMark(mark, in: rect)
+        case .orbit:
+            removeGlyph(); removeTrack(); removeNative(); removeBraille(); removeDots()
+            buildOrbit(in: rect)
         }
     }
 
@@ -335,6 +344,7 @@ public final class StatusIndicatorLayer {
         nativeLayer?.removeAllAnimations()
         brailleLayer?.mask?.removeAllAnimations()
         dotsLayer?.sublayers?.first?.removeAllAnimations()
+        orbitLayer?.sublayers?.first?.removeAllAnimations()
     }
 
     // MARK: Color and motion
@@ -355,6 +365,7 @@ public final class StatusIndicatorLayer {
         nativeLayer?.backgroundColor = color
         brailleLayer?.backgroundColor = color
         (dotsLayer?.sublayers?.first as? CAShapeLayer)?.fillColor = color
+        (orbitLayer?.sublayers?.first as? CAShapeLayer)?.fillColor = color
     }
 
     private func updateAnimation() {
@@ -369,6 +380,7 @@ public final class StatusIndicatorLayer {
         case .pulse: Motion.pulseAnimation(low: Float(config.pulseLow))
         case .frames: Motion.framesAnimation(brailleFrames)
         case .wave: waveAnimation()
+        case .orbit: orbitAnimation()
         }
         guard let animation else { return }
         // Every indicator loop runs on one clock (Lawrence 2026-10-14: "all spinners need to be
@@ -385,6 +397,7 @@ public final class StatusIndicatorLayer {
         case .frames?: brailleLayer?.mask
         case .spin?, .spinBackward?, .pulse?: markLayer ?? glyphLayer
         case .wave?: dotsLayer?.sublayers?.first
+        case .orbit?: orbitLayer?.sublayers?.first
         case nil: nil
         }
     }

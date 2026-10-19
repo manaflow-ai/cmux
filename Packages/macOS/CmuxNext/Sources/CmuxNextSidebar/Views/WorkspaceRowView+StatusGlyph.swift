@@ -15,6 +15,20 @@ extension WorkspaceRowView {
         return NSRect(x: snapped(trailing - side), y: snapped(centerY - side / 2), width: side, height: side)
     }
 
+    /// The state the activity indicator draws: `activity`, or with the `.status` row badge the
+    /// row's most urgent state, a done mark for unread work included.
+    func rowStatus(_ ws: SidebarWorkspace, activity: StatusIndicatorState) -> StatusIndicatorState {
+        statusSide == nil ? activity : WorkspaceRowBadges(unread: ws.unread, activity: activity).first ?? .idle
+    }
+
+    /// Places the status icon on the left (the `.status` row badge) in a fixed slot at `x`, shown
+    /// or not, so every row's title starts on one column; returns where the icon or title starts.
+    func layoutLeadingStatus(at x: CGFloat, centerY: CGFloat) -> CGFloat {
+        guard statusSide == .left else { return x }
+        activity.frame = statusGlyphFrame(trailing: x + SidebarStyle.statusGlyphSize, centerY: centerY)
+        return x + SidebarStyle.statusGlyphSize + Metrics.space2
+    }
+
     /// The agent mark's image size: the status mark's when it stands in for the status, the
     /// indicator size when it sits beside the title, so its brand variant matches the box it fills.
     var agentMarkSize: CGFloat {

@@ -14,15 +14,19 @@ extension WorkspaceRowView {
         }
         let metrics = SidebarLayoutMetrics.standard
         let height: CGFloat = 2
-        let y = statusBlock.isHidden ? bottom - height - 1
-            : head + statusBlock.barSlotY(metrics) + (metrics.progressBarHeight - height) / 2
+        // Without a status block the bar sits inside the pill, one step above its bottom edge, and
+        // spans the content (the row's own inset on both sides), not the pill's edge (#20409).
+        let inset = SidebarStyle.horizontalInset + (grouped ? SidebarStyle.groupMemberIndent : 0)
+        let frame = statusBlock.isHidden
+            ? CGRect(x: inset, y: bottom - height - Metrics.space1, width: max(0, layoutBounds.width - SidebarStyle.horizontalInset - inset), height: height)
+            : CGRect(x: x, y: head + statusBlock.barSlotY(metrics) + (metrics.progressBarHeight - height) / 2, width: width, height: height)
         progressTrack.isHidden = false
-        progressTrack.frame = CGRect(x: x, y: y, width: width, height: height)
+        progressTrack.frame = frame
         progressTrack.cornerRadius = height / 2
-        progressFill.frame = CGRect(x: 0, y: 0, width: width * (progress.value ?? 1), height: height)
+        progressFill.frame = CGRect(x: 0, y: 0, width: frame.width * (progress.value ?? 1), height: height)
         progressFill.cornerRadius = height / 2
         performWithTheme {
-            progressTrack.backgroundColor = Palette.textTertiary.withAlphaComponent(0.25).cgColor
+            progressTrack.backgroundColor = Palette.textTertiary.withAlphaComponent(0.18).cgColor
             let color = progress.isError ? Palette.danger : Palette.accent
             progressFill.backgroundColor = (progress.value == nil ? color.withAlphaComponent(0.4) : color).cgColor
         }
