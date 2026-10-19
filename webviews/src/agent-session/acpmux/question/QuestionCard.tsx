@@ -62,8 +62,8 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// descriptions, a preview of the highlighted option, an inline Other answer, Skip and Submit.
 /// Bare keys work while focus is inside the card, and it takes the keyboard on arrival only when
 /// nothing else has it or the composer is empty. ⌘↩ submits; Escape skips (in the Other field it
-/// only leaves the field, and on a multi-question tab it hands the keyboard back, keeping the
-/// answers so far). Skipping on Escape is this card's choice, after the Claude app's; the shared
+/// only leaves the field, and in an ask of several questions it only hands the keyboard back, so
+/// the answers given so far are kept; Skip still declines). Skipping on Escape is this card's choice, after the Claude app's; the shared
 /// reducer (and the Mac card) still read Escape as "give the keyboard back". Only a person's click
 /// or key sends an answer.
 export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply(reply: QuestionReply): void }) {
@@ -108,7 +108,8 @@ function keyboardIsIdle(document: Document): boolean {
   const active = document.activeElement;
   if (!active || active === document.body) {
     const composer = document.querySelector(".acpmux-composer-prompt");
-    return !composer || composerText(composer) === "";
+    const shell = document.querySelector<HTMLTextAreaElement>(".acpmux-shell-field");
+    return (!composer || composerText(composer) === "") && !shell?.value.trim();
   }
   const composer = active.closest(".acpmux-composer-prompt");
   return composer !== null && composerText(composer) === "";
@@ -207,7 +208,6 @@ function PendingQuestion({
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement;
     const inOther = target.closest(".acpmux-question-other") !== null;
-    const inTabs = target.closest(".acpmux-question-tabs") !== null;
     // In the Other field, typing is text: only Enter and Escape act.
     if (inOther) {
       if (event.key !== "Enter" && event.key !== "Escape") return;
@@ -222,9 +222,9 @@ function PendingQuestion({
     if (!input) return;
     event.preventDefault();
     if (event.repeat && !REPEATS.has(event.key)) return;
-    // Escape skips the ask. In the Other field the reducer only leaves the field; on a tab it
-    // gives the keyboard back, so answers given to the other questions are not thrown away.
-    if (input.type === "escape" && !inOther && !inTabs) skip();
+    // Escape skips a one-question ask. In the Other field the reducer only leaves the field, and in
+    // an ask of several questions it gives the keyboard back, so answers given are not thrown away.
+    if (input.type === "escape" && !inOther && state.question.items.length === 1) skip();
     else dispatch(input);
   };
   // The keys reach the card from its focused rows, field and buttons, so it listens natively

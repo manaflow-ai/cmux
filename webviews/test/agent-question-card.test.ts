@@ -184,12 +184,19 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
-    test("Esc on a multi-question tab hands the keyboard back without declining the answers so far", async () => {
+    test("Esc in an ask of several questions hands the keyboard back without declining the answers so far", async () => {
       const page = await pendingQuestion("pending-4-questions");
-      await page.locator(".acpmux-question-tab").nth(1).focus();
+      // Answer the first question (1 picks and moves on), then Esc on the second's rows.
+      await page.keyboard.press("1");
+      expect(await page.locator(".acpmux-question-tab[aria-current=step]").innerText()).toBe("Platforms");
+      await page.keyboard.press("Escape");
+      expect(await focusedInCard(page)).toBe(false);
+      // From a tab too.
+      await page.locator(".acpmux-question-tab").nth(2).focus();
       await page.keyboard.press("Escape");
       expect(await focusedInCard(page)).toBe(false);
       expect(await permissionCalls(page, 0)).toEqual([]);
+      expect(await page.locator(".acpmux-question-tab[data-answered]").count()).toBe(1);
       await page.close();
     });
 

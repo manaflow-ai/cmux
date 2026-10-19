@@ -642,7 +642,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-mark[data-multi]{border-radius:4px}
 .acpmux-question-mark[data-chosen]{border-color:var(--agent-text)}
 .acpmux-question-mark[data-chosen]:not([data-multi])::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--agent-text)}
-.acpmux-question-mark[data-chosen][data-multi]{background:var(--agent-text)}
+.acpmux-question-mark[data-chosen][data-multi]{border-color:transparent;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-text)}
 .acpmux-question-other{align-items:center}
 .acpmux-question-other .acpmux-question-mark{margin-top:0}
 .acpmux-question-other input{flex:1;min-width:0;height:22px;padding:0;border:0;outline:none;background:none;color:var(--agent-text);font:inherit;caret-color:var(--cmux-caret, var(--agent-text))}
