@@ -17,8 +17,7 @@ const freeze: StartedSession = {
   title: "Switch gh-merge-green to merge-freeze issues",
   named: true,
   state: "running",
-  activity: "Running ss -ltnp 2>/dev/null | grep 2222; timeout 40 ssh huge-blue uptime",
-  pullRequests: { count: 2, tone: "ready", number: 22092, repo: "cmux" },
+  pullRequests: { count: 2, tone: "failing", number: 22092, repo: "cmux" },
 };
 
 /// The cards and a reply naming them, as a chat that started two chats draws them.
@@ -28,8 +27,8 @@ function GalleryStartedSessions({ started, reply }: Props) {
     <div className="acpmux-shell">
       <div data-started-fixture style={{ flex: 1, minWidth: 0, padding: 12 }}>
         <StartedMentionsContext.Provider value={mentions}>
-          <StartedSessionCards started={started} onOpen={() => undefined} />
           {reply && <Markdown>{reply}</Markdown>}
+          <StartedSessionCards started={started} onOpen={() => undefined} />
         </StartedMentionsContext.Provider>
       </div>
     </div>
@@ -54,7 +53,7 @@ export default componentEntry<Props>({
   load: async () => GalleryStartedSessions,
   variants: {
     two: {
-      note: "Two chats the agent started: one done, one running with its latest command and two PRs (the branch PR ready); the reply names both as chips.",
+      note: "Two chats the agent started: one done, one running with two PRs (the branch PR's checks failing), as one card after the reply that names both as chips.",
       props: {
         started: [triage, freeze],
         reply:

@@ -2938,18 +2938,15 @@ function AcpmuxPane() {
   // The chats this chat's agent started, as cards in its transcript and chips in its replies
   // (started/startedSessions.ts), with the started-session-cards experiment on. An offer's
   // started task stays on its suggested tasks card.
-  // Snapshots rebuild rows and activity each time: the list keeps its object while what it
-  // says is the same, so the transcript and every reply's chips (a context) do not redraw.
+  // Snapshots rebuild rows each time: the list keeps its object while what it says is the same,
+  // so the transcript and every reply's chips (a context) do not redraw.
   const startedOn = startedCardsShown();
   const startedFresh = useMemo(
     () =>
       startedOn
-        ? startedSessions(snapshot.sessions, snapshot.sessionId, {
-            exclude: offerChildren(snapshot.rows),
-            activity: snapshot.childActivity,
-          })
+        ? startedSessions(snapshot.sessions, snapshot.sessionId, { exclude: offerChildren(snapshot.rows) })
         : NO_STARTED,
-    [startedOn, snapshot.sessions, snapshot.sessionId, snapshot.rows, snapshot.childActivity],
+    [startedOn, snapshot.sessions, snapshot.sessionId, snapshot.rows],
   );
   const startedKept = useRef<{ key: string; started: readonly StartedSession[] }>({ key: "[]", started: NO_STARTED });
   const startedKey = startedFresh.length ? JSON.stringify(startedFresh) : "[]";
@@ -2960,7 +2957,7 @@ function AcpmuxPane() {
   const mentionsKey = JSON.stringify(started.map((child) => [child.sessionId, child.title, child.named, child.state]));
   const startedMentions = useMemo<StartedMentions>(
     () => (started.length ? { mentions: sessionMentions(started), open: openOfferChat } : NO_MENTIONS),
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- what the chips name, not each activity line
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- what the chips name, not each status change
     [mentionsKey],
   );
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).

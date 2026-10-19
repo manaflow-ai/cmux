@@ -289,16 +289,23 @@ describe("StartedSessionCards", () => {
     expect(draw({ sessionId: "s", title: "Asking task", state: "waiting" })).toMatch(
       /data-status="waiting"[^]*>Needs input</,
     );
-    expect(draw({ sessionId: "s", title: "Busy task", state: "running" })).toMatch(/data-status="running"[^]*>Running</);
+    expect(draw({ sessionId: "s", title: "Busy task", state: "running" })).toMatch(
+      /data-status="running"[^]*>Running</,
+    );
     expect(draw({ sessionId: "s", title: "Fresh task", state: "idle", unread: true })).toMatch(
       /data-status="unread"[^]*>New activity</,
     );
   });
 
   test("a pull request of unknown state names no status, only `#N`", () => {
-    const html = draw({ sessionId: "s", title: "URL task", state: "idle", pullRequests: { count: 1, tone: "unknown", number: 3 } });
+    const html = draw({
+      sessionId: "s",
+      title: "URL task",
+      state: "idle",
+      pullRequests: { count: 1, tone: "unknown", number: 3 },
+    });
     expect(html).toContain(">#3<");
-    expect(html).not.toContain("acpmux-session-status\"");
+    expect(html).not.toContain('acpmux-session-status"');
   });
 
   test("started session cards are off by default", () => {
