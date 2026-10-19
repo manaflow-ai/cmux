@@ -107,7 +107,9 @@ fn claude(h: &Path, project: &Path) {
         {
             let mut notice = line(
                 "user",
-                json!("<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Map\" finished</summary>\n</task-notification>"),
+                json!(
+                    "<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>Agent \"Map\" finished</summary>\n</task-notification>"
+                ),
                 "2026-10-02T09:00:03.000Z",
             );
             notice["origin"] = json!({"kind": "task-notification", "producer": "session-task"});
