@@ -490,7 +490,7 @@
 }
 /* A pill pressed or open stays on that hover step with no edge: a click never flashes a brighter
    press tone or a ring (Leo 2026-10-18). */
-.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"]) {
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"], [data-press-active]) {
   background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
   box-shadow: none;
 }
