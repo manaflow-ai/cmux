@@ -131,8 +131,9 @@ final class RemoteHostingFollower {
         let arguments: [String]
         if want {
             // Already serving this app's session the way the app needs: nothing to redo
-            // (enable restarts the listener, which would drop open connections).
-            if current.enabled, current.session == session, !current.spawn { return }
+            // (enable restarts the listener, which would drop open connections). A listener
+            // that is configured but not running is started again by enable.
+            if current.enabled, current.session == session, !current.spawn, current.serving || current.starting { return }
             arguments = ["host", "enable", "--no-spawn", "--session", session, "--json"]
         } else {
             guard current.enabled else { return }
