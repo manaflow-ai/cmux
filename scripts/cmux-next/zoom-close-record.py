@@ -204,6 +204,8 @@ def first_terminal(color):
     ids.clear()
     old = {p["pane"] for p in panes()}
     reply = action("workspace.newAtBottom")
+    # Through the socket the new workspace is made but not shown: show it (it is the last).
+    action("workspace.selectLast")
     shown = []
     for _ in range(25):
         settle(0.4)
