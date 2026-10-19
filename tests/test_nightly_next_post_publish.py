@@ -62,8 +62,9 @@ if "id: current" not in notes_publish or "git/ref/tags/$RELEASE_TAG" not in note
 if "appcast-arm64.xml" not in notes_publish or "EXPECTED_BUILD" not in notes_publish or "live_build > EXPECTED_BUILD" not in notes_publish:
     failures.append("publish-release-notes must skip when a newer NEXT appcast is already live")
 delta = job("republish-nightly-deltas")
-if "CHANNEL_FEED_BASE/appcast-arm64.xml" not in delta or "live_build > NIGHTLY_BUILD" not in delta:
-    failures.append("republish-nightly-deltas must skip when a newer NEXT appcast is already live")
+# `!=`, not `>`: a newer build may be live, or nightly-next-rollback.yml pulled this one (#21887).
+if "CHANNEL_FEED_BASE/appcast-arm64.xml" not in delta or "live_build != NIGHTLY_BUILD" not in delta:
+    failures.append("republish-nightly-deltas must skip unless the live NEXT appcast still serves this build")
 if "if: steps.current.outputs.current == 'true'" not in notes_publish:
     failures.append("publish-release-notes must skip stale notes after a newer publication")
 for writer in ("publish-release-notes", "republish-nightly-deltas"):
