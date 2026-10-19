@@ -27,6 +27,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// color code from its ANSI palette (syntax-theme.ts), as the agent chat and Ghostty do. Its
     /// `fontFamily` is the terminal's face, which pages that show code draw it in (appearance.ts).
     public let terminal: Terminal
+    /// The family code draws in (`AppFonts.codeFamily`: `appearance.fonts.code`, else the
+    /// terminal's), for scripts that need a literal family (the code editor); nil: each page's own.
+    public let codeFontFamily: String?
     /// `static` or `animated` (cx-sya4n): `data-status-indicators` on `<html>`, under which a
     /// page's stylesheets stop their status loops. Static under Reduce Motion or
     /// `appearance.statusIndicator.animation: "static"` (`StatusIndicatorConfig.isStatic`).
@@ -108,15 +111,17 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
         ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }
+            .merging(DesignSettings.shared.fonts.cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
+        codeFontFamily = DesignSettings.shared.fonts.codeFamily(terminalFamily: terminal.fontFamily)
         statusIndicators = Motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators}`
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, codeFontFamily}`
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -124,7 +129,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
 
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
-                                     "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators]
+                                     "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
+                                     "codeFontFamily": codeFontFamily.map { $0 as Any } ?? NSNull()]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json

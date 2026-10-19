@@ -6,7 +6,7 @@
 // `<config dir>/editor/theme.css` (rule 4). Fonts follow the terminal by default (the Ghostty rule):
 // with no `fontFamily` or `fontSize` the editor uses the terminal font the host sends in
 // `appearance`. Every key is optional; an invalid value keeps its default. Pure: no Monaco import.
-import { hostTerminalFontFamily, type DiffViewerAppearance } from "../../appearance";
+import { hostCodeFontFamily, type DiffViewerAppearance } from "../../appearance";
 import { monacoScrollerOptions, type ScrollerStyle } from "../../scrollers";
 import { keybindingEntries, type KeybindingEntry } from "./vscodeKeys";
 
@@ -359,7 +359,7 @@ export function editorFont(
   const terminal =
     typeof appearance?.fontFamily === "string" && appearance.fontFamily.trim()
       ? appearance.fontFamily
-      : hostTerminalFontFamily();
+      : hostCodeFontFamily();
   const family =
     settings.fontFamily ??
     `${terminal ? `${JSON.stringify(terminal.trim())}, ` : ""}ui-monospace, SFMono-Regular, Menlo, Monaco, monospace`;
