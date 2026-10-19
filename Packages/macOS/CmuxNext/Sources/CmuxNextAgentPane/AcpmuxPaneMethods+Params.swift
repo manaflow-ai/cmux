@@ -26,6 +26,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/view": (["sessionId", "visible"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
         "_acpmux/kill": (["sessionId", "purge"], []),
+        // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
+        "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         "_acpmux/prewarm": (["harness", "cwd"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).

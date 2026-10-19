@@ -14,6 +14,8 @@ final class AgentPageChats {
     var closed: [AgentPaneClosedItem] = []
     private(set) var open: (@MainActor (String) -> Void)?
     private(set) var openInTerminal: (@MainActor (String) -> Void)?
+    /// View Only from a row's right-click menu (``ChatsOpenCoordinator/open(_:inTerminal:watch:replacing:)``).
+    private(set) var watch: (@MainActor (String) -> Void)?
     /// A row of the New Tab page's All chats: the chat opens in that page's tab, which becomes the
     /// chat (`(chat key, page tab key)`, Lawrence 2026-10-11: "like a browser link").
     private(set) var openHere: (@MainActor (String, String) -> Void)?
@@ -32,6 +34,7 @@ final class AgentPageChats {
         let chats = tabs.pageChats
         if chats.open == nil { chats.open = { [weak opener] key in opener?.open(key) } }
         chats.openInTerminal = { [weak opener] key in opener?.openInTerminal(key) }
+        chats.watch = { [weak opener] key in opener?.open(key, watch: true) }
         chats.openHere = { [weak opener] key, page in opener?.open(key, replacing: page) }
         guard let environment else { return }
         chats.page = { query in

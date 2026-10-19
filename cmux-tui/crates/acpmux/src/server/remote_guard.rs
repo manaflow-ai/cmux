@@ -127,6 +127,12 @@ pub(super) async fn check(
         return Err(super::conn_auth::refused());
     }
     let web = origin.web_class();
+    // Taking over a watched conversation starts its harness on this machine (`hub/watch.rs`):
+    // only a local client does that.
+    if web && m == method::MUX_WATCH_TAKE_OVER {
+        return Err(RpcError::new(-32602, "a watched chat is taken over only on this machine")
+            .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
+    }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
         && crate::session_env::present(params.pointer("/_meta/acpmux"))
