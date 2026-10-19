@@ -1972,8 +1972,7 @@ export interface components {
             protocol: "tcp" | "udp" | "icmp" | "any";
             port?: components["schemas"]["Int"];
         };
-        /** @description Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane. */
-        OverlayPolicy: {
+        DeviceOverlayPolicy: {
             /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             deviceId: string;
             /** @description a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -1986,6 +1985,11 @@ export interface components {
             /** @description SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof. */
             policyDigest: string;
             peers: components["schemas"]["OverlayPeer"][];
+            /**
+             * maxLength(128)
+             * @description The tenant that owns this device. Account identity binding must require it and match its authoritative team-to-tenant mapping and both public keys.
+             */
+            tenantId?: string;
         };
         OverlayPeer: {
             /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -6491,13 +6495,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane. */
+            /** @description DeviceOverlayPolicy */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OverlayPolicy"];
+                    "application/json": components["schemas"]["DeviceOverlayPolicy"];
                 };
             };
             /** @description The request did not match the expected schema */
@@ -7272,13 +7276,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane. */
+            /** @description DeviceOverlayPolicy */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OverlayPolicy"];
+                    "application/json": components["schemas"]["DeviceOverlayPolicy"];
                 };
             };
             /** @description The request did not match the expected schema */
