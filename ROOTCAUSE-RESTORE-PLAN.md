@@ -395,6 +395,18 @@ so no message was sent to an unrelated workspace. Storage-dependent M5S
 validation remains paused until bounded list, write, fsync, and `loop.pid`
 probes pass; healthy-host Shipyard work is not blocked by this condition.
 
+## M5S rescore cleanup recheck (2026-10-19T15:02Z)
+
+The two-day orphaned `rescore_daily_until_2026-10-22.sh` shell was also
+confirmed to have parent PID 1, owned by `danielraffel`, and sleeping with no
+active child work. It was stopped with `SIGTERM` as a scoped cleanup. A fresh
+bounded `os.listdir("/Volumes/Atelier")` still failed with `InterruptedError`
+after 5.5 seconds. With both the reclaim scanner and stale rescore shell
+removed and the same failure persisting, stale agent jobs are ruled out as the
+sole cause. The underlying APFS/Thunderbolt bridge/device path remains the
+next investigation target; no unmount or repair was attempted while 229 PIDs
+still hold the volume across active worktrees.
+
 OWC's current [Express 1M2 troubleshooting guide](https://eshop.macsales.com/manuals/OWC-Express-1M2-troubleshooting-guide)
 recommends isolating the enclosure on a direct USB-C/Thunderbolt port, removing
 other external drives, and running First Aid from the bottom of the Disk Utility
