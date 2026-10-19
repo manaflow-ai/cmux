@@ -219,6 +219,46 @@ pub struct SessionMeta {
     /// `total_cost_usd`), which the next turn's cost is measured from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_cost_usd: Option<f64>,
+    /// The session whose agent started this one with its `start_session`
+    /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
+    /// for a session a person or client started. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsession: Option<SubsessionLink>,
+    /// This session's own sub-session limits, set at runtime by the person
+    /// or by an ancestor within its budget; unset fields inherit.
+    #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
+    pub subsession_limits: SubsessionLimits,
+}
+
+/// A sub-session's place in its family (`hub/subsessions.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsessionLink {
+    /// The parent session's id.
+    pub started_by: String,
+    /// Its name among its parent's children (unique there), e.g. `tests`.
+    pub short_name: String,
+    /// 1 for a child of a root session, 2 for a grandchild, and so on.
+    pub depth: u32,
+}
+
+/// Limit overrides of one session; `None` inherits its parent's, then the
+/// settings, then the defaults (`hub/subsessions.rs`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsessionLimits {
+    /// Most children this session may have open at once (not closed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_children: Option<u32>,
+    /// The deepest level a session under this one may be started at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_depth: Option<u32>,
+}
+
+impl SubsessionLimits {
+    pub fn is_empty(&self) -> bool {
+        self.max_children.is_none() && self.max_depth.is_none()
+    }
 }
 
 /// What one turn, or a session's turns together, cost (`hub/turn_usage.rs`).
@@ -518,7 +558,6 @@ impl LocalStore {
             if let Some(stem) = name.strip_suffix(".ndjson")
                 && let Ok(idx) = stem.parse::<u32>()
             {
-                drop(crate::config::private_state_file(&entry.path())?);
                 out.push((idx, entry.path()));
             }
         }
@@ -822,6 +861,10 @@ mod permission_tests {
                 },
             )
             .unwrap();
+        // Old segments are authenticated and narrowed when a read reaches
+        // them. Merely finding their names stays lazy so a tail page never
+        // opens an older segment it does not need.
+        store.events("session-1", 0, usize::MAX).unwrap();
 
         assert_eq!(mode(&root), 0o700, "the sessions root contains every chat");
         assert_eq!(mode(&session), 0o700);
