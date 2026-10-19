@@ -493,12 +493,16 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         let replies = await withTaskGroup(of: (Int, Result<Data, any Error>).self) { group in
             for surface in surfaces {
                 group.addTask {
+                    // One return of a local: a tuple returned from an awaiting do and its
+                    // catch loses its first element at -O (swiftlang/swift#92698).
+                    let reply: Result<Data, any Error>
                     do {
-                        return (surface, .success(try await client.request("process-info", params: ["surface": surface],
-                                                                           deadline: Self.processInfoDeadline)))
+                        reply = .success(try await client.request("process-info", params: ["surface": surface],
+                                                                  deadline: Self.processInfoDeadline))
                     } catch {
-                        return (surface, .failure(error))
+                        reply = .failure(error)
                     }
+                    return (surface, reply)
                 }
             }
             var replies: [(Int, Result<Data, any Error>)] = []

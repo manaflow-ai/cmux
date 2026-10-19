@@ -157,7 +157,7 @@ public struct DaemonLanePolicy: Sendable {
         guard line.count <= Self.maximumLineBytes else {
             return .refuse(Self.errorLine(id: nil, code: "too_large", message: "request exceeds 4 MiB"))
         }
-        guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
+        guard let object: [String: Any] = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
             return .refuse(Self.errorLine(id: nil, code: "bad_request", message: "request is not a JSON object"))
         }
         if object["protocol"] != nil { return Self.resourceVerdict(object) }
@@ -271,7 +271,7 @@ public struct DaemonLanePolicy: Sendable {
         guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
               let type = String(validatingCString: number.objCType), ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type)
         else { return false }
-        if ["C", "S", "I", "L", "Q"].contains(type) { return number.uint64Value <= UInt64(Int.max) }
+        if ["C", "S", "I", "L", "Q"].contains(type) { return number.uint64Value <= UInt64(truncatingIfNeeded: Int.max) }
         return number.int64Value >= 0
     }
 
@@ -305,7 +305,7 @@ public struct DaemonLanePolicy: Sendable {
         }
         let operation = object["operation"] as? String ?? ""
         guard let allowed = allowedResourceOperations[operation] else { return "\(operation) is not available to a phone" }
-        guard let params = object["params"] as? [String: Any] else { return "params is not an object" }
+        guard let params: [String: Any] = object["params"] as? [String: Any] else { return "params is not an object" }
         if let key = params.keys.sorted().first(where: { !allowed.contains($0) }) {
             return "\(operation) does not take \(key) from a phone"
         }
