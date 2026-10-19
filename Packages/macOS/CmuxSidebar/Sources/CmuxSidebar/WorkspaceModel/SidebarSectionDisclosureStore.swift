@@ -3,7 +3,7 @@ import Observation
 
 /// Owns disclosure choices for provider-rendered sidebar sections.
 ///
-/// Sections default to expanded. The app uses ``shared`` in every window so
+/// Sections default to expanded. The app injects one store into every window so
 /// choices update every sidebar and survive relaunch; tests pass isolated defaults.
 /// Missing sections retain their choices until the oldest entries are evicted
 /// by the 1,000-section limit.
@@ -14,15 +14,13 @@ import Observation
 /// ```
 @MainActor @Observable
 public final class SidebarSectionDisclosureStore {
-    /// The app-wide store every window's sidebar reads, backed by the app's preferences.
-    public static let shared = SidebarSectionDisclosureStore(defaults: .standard)
-
     static let preferenceKey = "sidebar.collapsedProviderSections"
     static let maximumRememberedSections = 1_000
 
     private let defaults: UserDefaults
     /// Oldest-first pairs avoid collisions between arbitrary provider and section IDs.
     private var collapsedSections: [[String]]
+    private var collapsedSectionMembership: Set<[String]>
 
     /// Creates disclosure state with app-supplied preferences.
     /// - Parameter defaults: The app preferences, or an isolated suite in tests.
@@ -30,10 +28,12 @@ public final class SidebarSectionDisclosureStore {
         self.defaults = defaults
         let stored = defaults.array(forKey: Self.preferenceKey) as? [[String]] ?? []
         var seen: Set<[String]> = []
-        collapsedSections = Array(stored.reversed()
+        let normalized = Array(stored.reversed()
             .filter { $0.count == 2 && seen.insert($0).inserted }
             .prefix(Self.maximumRememberedSections)
             .reversed())
+        collapsedSections = normalized
+        collapsedSectionMembership = Set(normalized)
         if collapsedSections != stored {
             defaults.set(collapsedSections, forKey: Self.preferenceKey)
         }
@@ -45,7 +45,7 @@ public final class SidebarSectionDisclosureStore {
     ///   - sectionID: The section's stable identifier within that provider.
     /// - Returns: `false` for sections without a collapse choice.
     public func isCollapsed(providerID: String, sectionID: String) -> Bool {
-        collapsedSections.contains([providerID, sectionID])
+        collapsedSectionMembership.contains([providerID, sectionID])
     }
 
     /// Persists a disclosure choice and updates all observers of this store.
@@ -60,7 +60,7 @@ public final class SidebarSectionDisclosureStore {
         let key = [providerID, sectionID]
         var next = collapsedSections
         if collapsed {
-            guard !next.contains(key) else { return }
+            guard !collapsedSectionMembership.contains(key) else { return }
             next.append(key)
             if next.count > Self.maximumRememberedSections {
                 next.removeFirst(next.count - Self.maximumRememberedSections)
@@ -70,6 +70,7 @@ public final class SidebarSectionDisclosureStore {
         }
         guard next != collapsedSections else { return }
         collapsedSections = next
+        collapsedSectionMembership = Set(next)
         defaults.set(next, forKey: Self.preferenceKey)
     }
 }

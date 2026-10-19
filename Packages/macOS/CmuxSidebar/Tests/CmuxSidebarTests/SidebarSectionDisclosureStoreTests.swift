@@ -54,6 +54,9 @@ import Testing
         store.setCollapsed(true, providerID: "projects", sectionID: "1")
         store.setCollapsed(true, providerID: "other", sectionID: "new")
 
+        #expect(!store.isCollapsed(providerID: "projects", sectionID: "0"))
+        #expect(store.isCollapsed(providerID: "projects", sectionID: "1"))
+        #expect(store.isCollapsed(providerID: "other", sectionID: "new"))
         let restored = SidebarSectionDisclosureStore(defaults: defaults)
         #expect(!restored.isCollapsed(providerID: "projects", sectionID: "0"))
         #expect(restored.isCollapsed(providerID: "projects", sectionID: "1"))

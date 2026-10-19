@@ -51,12 +51,6 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
-struct WorkspaceGroupNewWorkspaceTarget {
-    let groupId: UUID
-    let referenceWorkspaceId: UUID
-    let placement: WorkspaceGroupNewPlacement
-}
-
 /// Owns debug-window coordinators at the application composition root.
 @MainActor
 final class CmuxDebugWindowsCoordinator {
@@ -864,6 +858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
     var settingsRuntime: SettingsRuntime?
+    private let sidebarSectionDisclosureStore = SidebarSectionDisclosureStore(defaults: .standard)
     /// Injected before the coordinator is used; the managed-policy extension
     /// re-applies `DisableComputerUse` through it.
     var computerUseRuntimeService: ComputerUseRuntimeService?
@@ -10788,6 +10783,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // catalog default.
             .environment(\.settingsRuntime, settingsRuntime)
             .environment(browserDataImportCoordinator)
+            .environment(sidebarSectionDisclosureStore)
             .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N
