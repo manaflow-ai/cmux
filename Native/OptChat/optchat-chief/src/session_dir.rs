@@ -275,6 +275,15 @@ pub const CHIEF_CMUX_TOOLS: [&str; 15] = [
 /// turn's cache mark: 1,440 of its 2,905 uncached tokens, every turn.
 pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux");
 
+/// The turn presets' env that limits acpmux's `cmux` MCP server to
+/// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
+pub const TURN_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The code-mode tools of `cmux mcp serve`: a script reaches every cmux
+/// tool, so a turn always denies them, even when the server did not get
+/// `TURN_TOOLS_ENV`.
+const CODE_MODE_TOOLS: [&str; 2] = ["cmux_exec", "cmux_docs"];
+
 /// Deny rules for the other agent tool servers, the second guard for an
 /// acpmux without `TURN_TOOL_SERVERS` (their tools leave the list; their
 /// instructions stay).
@@ -327,9 +336,12 @@ pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<(Vec<String>, b
 
 /// Deny rules (`mcp__cmux__<name>`) for every name not in `CHIEF_CMUX_TOOLS`.
 fn deny_rules(names: Vec<String>) -> Vec<String> {
-    names
-        .into_iter()
-        .filter(|name| !CHIEF_CMUX_TOOLS.contains(&name.as_str()))
+    CODE_MODE_TOOLS
+        .iter()
+        .map(|name| (*name).to_owned())
+        .chain(names.into_iter().filter(|name| {
+            !CHIEF_CMUX_TOOLS.contains(&name.as_str()) && !CODE_MODE_TOOLS.contains(&name.as_str())
+        }))
         .map(|name| format!("mcp__cmux__{name}"))
         .collect()
 }

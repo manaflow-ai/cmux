@@ -65,6 +65,13 @@ pub const INHERITED_CALLER_ENV: [&str; 4] =
 /// A session env key passed to `cmux-cua mcp`: exact bundle ids the
 /// session's computer use may target although the guard refuses them.
 pub const CUA_SCOPE_ENV: &str = "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS";
+
+/// A session env key passed to the `cmux` server: the comma-separated cmux
+/// MCP tools the session may use (the Chief's turn presets). `cmux mcp
+/// serve` then lists only those and refuses every other call; unset, it
+/// speaks code mode. Only the session's own env sets it, never the
+/// daemon's (`scoped`).
+pub const MCP_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
 
@@ -366,10 +373,16 @@ impl AgentTools {
             self.servers.retain(|s| keep.contains(&s.name.as_str()));
         }
         let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
+        let tools = session_env.get(MCP_TOOLS_ENV);
         for server in &mut self.servers {
-            server.env.retain(|(k, _)| k != CUA_SCOPE_ENV);
+            server.env.retain(|(k, _)| k != CUA_SCOPE_ENV && k != MCP_TOOLS_ENV);
             if server.name == "cmux-cua" {
                 server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
+            }
+            if server.name == "cmux"
+                && let Some(tools) = tools
+            {
+                server.env.push((MCP_TOOLS_ENV.to_owned(), tools.clone()));
             }
         }
         let Some(dir) = &self.displays else {

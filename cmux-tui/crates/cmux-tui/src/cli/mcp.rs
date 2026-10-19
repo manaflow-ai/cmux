@@ -10,7 +10,9 @@
 //! speaks only on stdin and stdout, and nothing listens on the network
 //! (plans/cmux-next/mcp.md). `serve` speaks code mode (`code_mode`): two
 //! tools that search this tool list and run scripts against it;
-//! `serve --all-tools` lists every tool instead.
+//! `serve --all-tools` lists every tool instead. `CMUX_MCP_TOOLS` (a
+//! comma-separated allowlist, the Chief's turns) lists exactly those tools
+//! and refuses every other call, from a script too.
 
 mod action_tools;
 mod agent_events_tool;
@@ -29,6 +31,7 @@ mod transport;
 mod v2_tools;
 mod watch;
 
+use std::collections::BTreeSet;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -247,6 +250,26 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
 /// (`CMUX_AGENT_SESSION`, acpmux `agent_tools.rs`).
 const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
 
+/// The env acpmux gives the cmux MCP server of a session whose preset names
+/// the tools it may use (acpmux `agent_tools::MCP_TOOLS_ENV`, the Chief's
+/// turns). Fail closed: an empty value allows no tool.
+const ALLOWED_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The allowlist in `value`, or `None` when the env is unset.
+fn allowed_tools(value: Option<std::ffi::OsString>) -> Option<BTreeSet<String>> {
+    let value = value?;
+    Some(
+        value
+            .to_str()
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
 /// Why `serve` must not run with the settings file at `path`, or `None`
 /// when cmux.json turns the server on. An agent chat that cmux started
 /// (`CMUX_AGENT_SESSION` set) has it on unless the file says `false`
@@ -282,6 +305,7 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     let mut server = Server::new(LiveBackend { global }, Some(path));
     server.list_changed = true;
     server.code_mode = code_mode;
+    server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
     server.run(io::stdin().lock(), &output)
 }
 
@@ -350,6 +374,9 @@ pub(super) struct Server<B> {
     code_mode: bool,
     /// What one `cmux_exec` script may use.
     script_limits: code_mode::Limits,
+    /// `CMUX_MCP_TOOLS`: the only tools listed and callable. It turns code
+    /// mode off (the few tools are listed directly).
+    allowed: Option<BTreeSet<String>>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
 }
@@ -366,6 +393,7 @@ impl<B: Backend> Server<B> {
             initialized: false,
             code_mode: false,
             script_limits: code_mode::Limits::default(),
+            allowed: None,
             notes: None,
         }
     }
@@ -429,7 +457,7 @@ impl<B: Backend> Server<B> {
         let result = match method {
             "initialize" => Ok(initialize(&params, self.list_changed, self.code_mode)),
             "ping" => Ok(json!({})),
-            "tools/list" if self.code_mode => {
+            "tools/list" if self.code_mode && self.allowed.is_none() => {
                 let tools = self.list();
                 Ok(json!({ "tools": code_mode::descriptors(&tools) }))
             }
@@ -463,6 +491,9 @@ impl<B: Backend> Server<B> {
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
+        if let Some(allowed) = &self.allowed {
+            tools.retain(|tool| tool["name"].as_str().is_some_and(|name| allowed.contains(name)));
+        }
         tools
     }
 
@@ -499,6 +530,17 @@ impl<B: Backend> Server<B> {
             });
             return Ok(tool_error(envelope(error, "not_run", None)));
         }
+        if let Some(allowed) = &self.allowed
+            && !allowed.contains(name)
+        {
+            let error = json!({
+                "code": "tool.not_allowed",
+                "message": format!("this chat may not use {name}"),
+                "details": {},
+                "retryable": false,
+            });
+            return Ok(tool_error(envelope(error, "not_run", None)));
+        }
         if name == code_mode::DOCS {
             let tools = self.list();
             return Ok(match code_mode::docs(&tools, &arguments) {
@@ -507,8 +549,10 @@ impl<B: Backend> Server<B> {
             });
         }
         if name == code_mode::EXEC {
+            // One tool list per script, for its docs searches.
+            let mut tools = None;
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
-                self.script_request(request)
+                self.script_request(request, &mut tools)
             });
             return Ok(answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
@@ -647,7 +691,11 @@ impl<B: Backend> Server<B> {
 
     /// One request from a running `cmux_exec` script: a tool call through
     /// `call`, so a script has the rights of a direct call, or a docs search.
-    fn script_request(&mut self, request: code_mode::Request) -> Value {
+    fn script_request(
+        &mut self,
+        request: code_mode::Request,
+        tools: &mut Option<Vec<Value>>,
+    ) -> Value {
         match request {
             code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
                 code_mode::script_answer(Err((
@@ -659,10 +707,13 @@ impl<B: Backend> Server<B> {
                 code_mode::script_answer(self.call(&json!({"name": name, "arguments": arguments})))
             }
             code_mode::Request::Docs { query } => {
-                let tools = self.list();
+                let tools = match tools {
+                    Some(tools) => tools,
+                    None => tools.insert(self.list()),
+                };
                 let mut arguments = Map::new();
                 arguments.insert("query".into(), Value::String(query));
-                code_mode::docs(&tools, &arguments)
+                code_mode::docs(tools, &arguments)
                     .unwrap_or_else(|message| json!({"error": message}))
             }
         }

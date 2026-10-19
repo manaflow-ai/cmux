@@ -39,16 +39,27 @@ pub(super) struct Limits {
     /// loop that never ends). Time inside a call does not count: a call has
     /// its own owner deadline.
     pub compute: Duration,
+    /// The whole script, calls included. While a script runs the server
+    /// reads no other request, so this bounds that wait.
+    pub total: Duration,
 }
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { memory: 64 << 20, compute: Duration::from_secs(30) }
+        Self {
+            memory: 64 << 20,
+            compute: Duration::from_secs(30),
+            total: Duration::from_secs(10 * 60),
+        }
     }
 }
-/// Calls in one script.
+
+/// Calls and docs searches in one script.
 const MAX_CALLS: usize = 2_000;
-/// Console text kept per script; later lines are dropped and counted.
+/// Calls a result lists one by one; the rest are only counted.
+const MAX_CALL_RECORDS: usize = 200;
+/// Console text kept per script (each line counts one more byte, so empty
+/// lines count too); later lines are dropped and counted.
 const MAX_LOG_BYTES: usize = 64 << 10;
 /// Tools with schemas in one docs answer, by default and at most.
 const DOCS_DEFAULT_LIMIT: usize = 8;
@@ -163,6 +174,9 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
             .as_array()
             .and_then(|names| names.iter().map(Value::as_str).collect::<Option<Vec<_>>>())
             .ok_or_else(|| format!("{DOCS} names must be an array of strings"))?;
+        if names.len() > DOCS_MAX_LIMIT {
+            return Err(format!("{DOCS} names takes at most {DOCS_MAX_LIMIT} names"));
+        }
         let mut found = Vec::new();
         let mut unknown = Vec::new();
         for name in names {
@@ -188,7 +202,7 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
 /// `query`, best first: a word in the name counts most.
 fn search(tools: &[Value], query: &str, limit: usize) -> Value {
     let terms = query
-        .split(|c: char| c.is_whitespace() || c == '_' || c == '.')
+        .split(|c: char| c.is_whitespace() || matches!(c, '_' | '.' | '-'))
         .filter(|t| !t.is_empty())
         .collect::<Vec<_>>();
     let mut scored = tools
@@ -277,41 +291,71 @@ pub(super) fn exec(
         })
         .map_err(|error| format!("{EXEC} cannot start its engine: {error}"))?;
     let mut calls = 0usize;
+    // Whether a call may have changed something: one succeeded, or its
+    // outcome is unknown (`in_progress`).
+    let mut applied = false;
+    let mut records = Vec::new();
     let mut outcome = None;
-    // Every sender lives on the engine thread, so this ends when it does.
-    for message in from_script {
+    for message in &from_script {
         match message {
             ToServer::Request(request, reply) => {
-                if matches!(request, Request::Call { .. }) {
+                let name = match &request {
+                    Request::Call { name, .. } => Some(name.clone()),
+                    Request::Docs { .. } => None,
+                };
+                let answered = answer(request);
+                if let Some(name) = name {
                     calls += 1;
+                    let ok = answered["ok"] == true;
+                    let state = answered["error"]["state"].as_str().map(str::to_owned);
+                    applied |= ok || state.as_deref() == Some("in_progress");
+                    if records.len() < MAX_CALL_RECORDS {
+                        let mut record = json!({"name": name, "ok": ok});
+                        if let Some(state) = state {
+                            record["state"] = json!(state);
+                        }
+                        if let Some(key) = answered["error"]["idempotency_key"].as_str() {
+                            record["idempotency_key"] = json!(key);
+                        }
+                        records.push(record);
+                    }
                 }
-                let _ = reply.send(answer(request));
+                let _ = reply.send(answered);
             }
-            ToServer::Done(done) => outcome = Some(done),
+            ToServer::Done(done) => {
+                outcome = Some(done);
+                break;
+            }
         }
     }
     let _ = engine.join();
     let Some(outcome) = outcome else {
         return Ok(super::tool_error(json!({
-            "error": {"code": "script.engine", "message": "the script engine stopped", "details": {}, "retryable": false},
-            "state": if calls == 0 { "not_run" } else { "in_progress" },
+            "error": {
+                "code": "script.engine",
+                "message": "the script engine stopped",
+                "details": {},
+                "retryable": false,
+            },
+            "state": if applied { "partial" } else { "not_run" },
             "calls": calls,
+            "call_log": records,
         })));
     };
-    let mut value = json!({"calls": calls, "logs": outcome.logs});
+    let mut value = json!({"calls": calls, "call_log": records, "logs": outcome.logs});
     if outcome.dropped_logs > 0 {
         value["dropped_logs"] = json!(outcome.dropped_logs);
     }
     Ok(match outcome.result {
         Ok(result) => {
             value["result"] = result;
-            super::success(fit(value), calls > 0)
+            super::success(fit(value), applied)
         }
         Err(error) => {
             value["error"] = error;
-            // A failed script may have applied some calls; `calls` says how
-            // many ran, and each failed call's own state is in its error.
-            value["state"] = json!(if calls == 0 { "not_run" } else { "partial" });
+            // `partial`: some call may have applied; `call_log` says which,
+            // with each failed call's state and idempotency key.
+            value["state"] = json!(if applied { "partial" } else { "not_run" });
             super::tool_error(fit(value))
         }
     })
@@ -326,9 +370,10 @@ fn fit(mut value: Value) -> Value {
         return value;
     }
     for key in ["result", "error"] {
-        if let Some(inner) = value.get(key).filter(|inner| size(inner) > budget / 2) {
+        if let Some(inner) = value.get(key).filter(|inner| size(inner) > budget / 4) {
             let text = serde_json::to_string(inner).unwrap_or_default();
-            let mut end = budget / 2;
+            // A quarter: the preview is escaped once more inside the result.
+            let mut end = budget / 4;
             while !text.is_char_boundary(end) {
                 end -= 1;
             }
@@ -403,13 +448,15 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
     };
     runtime.set_memory_limit(limits.memory);
     runtime.set_max_stack_size(MAX_STACK);
-    let progress = Arc::new(Mutex::new(Instant::now()));
+    let started = Instant::now();
+    let progress = Arc::new(Mutex::new(started));
     let stopped = Arc::new(Mutex::new(false));
     {
         let progress = progress.clone();
         let stopped = stopped.clone();
         runtime.set_interrupt_handler(Some(Box::new(move || {
-            let over = progress.lock().map(|at| at.elapsed() > limits.compute).unwrap_or(true);
+            let over = started.elapsed() > limits.total
+                || progress.lock().map(|at| at.elapsed() > limits.compute).unwrap_or(true);
             if over && let Ok(mut stopped) = stopped.lock() {
                 *stopped = true;
             }
@@ -423,10 +470,26 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
     let calls = Rc::new(RefCell::new(0usize));
     let evaluated = context.with(|ctx| -> Result<(), String> {
         let native = Object::new(ctx.clone()).map_err(|e| e.to_string())?;
+        let count = calls.clone();
         let request = {
             let to_server = to_server.clone();
             let progress = progress.clone();
             move |request: Request| -> String {
+                let mut used = count.borrow_mut();
+                if *used >= MAX_CALLS {
+                    return failure(
+                        "script.too_many_calls",
+                        &format!("a script makes at most {MAX_CALLS} calls and docs searches"),
+                    );
+                }
+                *used += 1;
+                drop(used);
+                if started.elapsed() > limits.total {
+                    return failure(
+                        "script.timeout",
+                        &format!("a script runs at most {} s", limits.total.as_secs()),
+                    );
+                }
                 let (reply, answer) = mpsc::channel();
                 let value = if to_server.send(ToServer::Request(request, reply)).is_ok() {
                     answer.recv().unwrap_or_else(|_| closed())
@@ -440,20 +503,10 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
             }
         };
         let call_request = request.clone();
-        let call_count = calls.clone();
         native
             .set(
                 "call",
                 Function::new(ctx.clone(), move |name: String, arguments: String| -> String {
-                    let mut count = call_count.borrow_mut();
-                    if *count >= MAX_CALLS {
-                        return failure(
-                            "script.too_many_calls",
-                            &format!("a script makes at most {MAX_CALLS} calls"),
-                        );
-                    }
-                    *count += 1;
-                    drop(count);
                     let arguments = match serde_json::from_str::<Value>(&arguments) {
                         Ok(Value::Object(arguments)) => arguments,
                         _ => return failure("usage.invalid", "tool arguments must be an object"),
@@ -479,10 +532,10 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 Function::new(ctx.clone(), move |level: String, text: String| {
                     let mut logs = log_sink.borrow_mut();
                     let line = if level == "log" { text } else { format!("[{level}] {text}") };
-                    if logs.2 + line.len() > MAX_LOG_BYTES {
+                    if logs.2 + line.len() + 1 > MAX_LOG_BYTES {
                         logs.1 += 1;
                     } else {
-                        logs.2 += line.len();
+                        logs.2 += line.len() + 1;
                         logs.0.push(line);
                     }
                 })
@@ -503,7 +556,11 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
         ctx.globals().set("__cmuxNative", native).map_err(|e| e.to_string())?;
         ctx.eval::<(), _>(PRELUDE).catch(&ctx).map_err(|e| format!("prelude: {e}"))?;
         // The body runs inside an async function so it can await and return.
-        let source = format!("__cmuxFinish((async () => {{\n{script}\n}})());");
+        // `finish` leaves the global scope first, so the script cannot
+        // report a result of its own through it.
+        let source = format!(
+            "((finish) => {{ delete globalThis.__cmuxFinish; finish((async () => {{\n{script}\n}})()); }})(globalThis.__cmuxFinish);"
+        );
         ctx.eval::<(), _>(source).catch(&ctx).map_err(|e| e.to_string())?;
         Ok(())
     });
@@ -543,8 +600,9 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
         Err(json!({
             "code": "script.timeout",
             "message": format!(
-                "the script computed for {} ms without a cmux call",
-                limits.compute.as_millis()
+                "the script computed for {} ms without a cmux call, or ran longer than {} s",
+                limits.compute.as_millis(),
+                limits.total.as_secs()
             ),
         }))
     } else {

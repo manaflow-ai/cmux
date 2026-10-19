@@ -1417,3 +1417,46 @@ fn code_mode_stops_a_script_that_loops_or_allocates_without_end() {
     let after = call(&mut server, "cmux_exec", json!({"script": "return 2 + 2;"}));
     assert_eq!(after["structuredContent"]["result"], 4, "{after}");
 }
+
+#[test]
+fn an_allowlist_lists_only_its_tools_and_refuses_every_other_call() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.allowed = allowed_tools(Some("agents_snapshot, window_list,app_new_window".into()));
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let names = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        names,
+        BTreeSet::from(["agents_snapshot", "window_list", "app_new_window"].map(str::to_owned))
+    );
+    let allowed = call(&mut server, "window_list", json!({}));
+    assert_eq!(allowed["isError"], false, "{allowed}");
+    for refused in ["cmux_exec", "cmux_docs", "workspace_list", "app_workspace_rename"] {
+        let arguments =
+            if refused == "cmux_exec" { json!({"script": "return 1"}) } else { json!({}) };
+        let result = call(&mut server, refused, arguments);
+        assert_eq!(result["structuredContent"]["error"]["code"], "tool.not_allowed", "{refused}");
+    }
+    // Inside a script too (`cmux_exec` is refused before a script starts;
+    // the check is in `call`, which every script call goes through).
+    server.allowed.as_mut().unwrap().insert("cmux_exec".into());
+    let script =
+        call(&mut server, "cmux_exec", json!({"script": "await cmux.workspace_list({});"}));
+    assert_eq!(
+        script["structuredContent"]["error"]["cmux"]["error"]["code"], "tool.not_allowed",
+        "{script}"
+    );
+
+    // Fail closed: an empty value allows nothing; no env is code mode.
+    let mut empty = code_mode_server(Fake::with_actions());
+    empty.allowed = allowed_tools(Some(" , ".into()));
+    let listed =
+        empty.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    assert_eq!(listed["result"]["tools"], json!([]));
+    assert_eq!(allowed_tools(None), None);
+}
