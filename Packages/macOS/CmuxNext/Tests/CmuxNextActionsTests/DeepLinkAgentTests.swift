@@ -52,6 +52,8 @@ struct DeepLinkAgentTests {
         "other-app://agent/claude/s1",  // another build's scheme
         "cmux://user@agent/claude/s1",
         "cmux://agent:8080/claude/s1",
+        "cmux://agent/claude/..",  // a dots-only session collapses as a path
+        "cmux://agent/claude/.",
     ])
     func malformedAgentLinksAreRefused(_ text: String) {
         #expect(parse(text) == nil)
@@ -62,6 +64,7 @@ struct DeepLinkAgentTests {
         #expect(parse("cmux://agent/" + String(repeating: "a", count: 65) + "/s1") == nil)
         #expect(DeepLink(.agent(harness: "claude", session: String(repeating: "a", count: 201))).url(scheme: "cmux") == nil)
         #expect(DeepLink(.agent(harness: "Claude", session: "s1")).url(scheme: "cmux") == nil)
+        #expect(DeepLink(.agent(harness: "claude", session: "...")).url(scheme: "cmux") == nil)
     }
 
     @Test(arguments: [
@@ -70,6 +73,7 @@ struct DeepLinkAgentTests {
         "cmux://agent/claude/s1?host=" + String(repeating: "h", count: 65),
         "cmux://agent/claude/s1?host=a/b",
         "cmux://agent/claude/s1?name=%3Cscript%3E",
+        "cmux://agent/claude/s1?host=..",
     ])
     func malformedHintsAreDroppedNotTheLink(_ text: String) throws {
         let link = try #require(parse(text))
