@@ -25,6 +25,7 @@ mod approvals;
 mod children;
 mod drafts;
 mod engine_control;
+mod image_fit;
 pub mod images;
 mod inbox;
 mod mux_ack;
