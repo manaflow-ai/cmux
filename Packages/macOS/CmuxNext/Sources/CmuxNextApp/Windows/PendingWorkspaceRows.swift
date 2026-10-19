@@ -69,7 +69,7 @@ final class PendingWorkspaceRows {
     /// The pending rows of `window` whose workspace the store shows only as a stand-in
     /// (`provisional`: Cmd-N's optimistic workspace): the sidebar lists the pending row for them.
     func ids(in window: String, provisional: (String) -> Bool) -> Set<String> {
-        Set(rows.lazy.filter { $0.window == window && provisional($0.id) }.map(\.id))
+        Set(rows.filter { $0.window == window && provisional($0.id) }.map(\.id))
     }
 
     /// `sections` without the workspace rows `ids` (their pending rows list instead, at their slot).

@@ -203,12 +203,9 @@ def main():
     LAUNCHED.append(app.pid)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
-    made = run("workspace", "create", "--name", "instant-bench")
-    tab = re.search(r"value\.tab_id\s+(tab_\S+)", made.stdout)
-    for index in range(1, 10):
-        rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
-        if wait(lambda: any(tab and p.get("selected_tab") == tab.group(1) for p in panes()), 3):
-            break
+    # A terminal workspace, shown: `newTab` from a script makes one terminal; focus: true shows it.
+    reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "instant-bench"}, "wait": True})
+    print("newTab:", json.dumps(reply)[:300], flush=True)
     if not wait(lambda: (focused() or {}).get("kind") == "terminal", 30):
         sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     time.sleep(2)  # test harness: shell prompt
