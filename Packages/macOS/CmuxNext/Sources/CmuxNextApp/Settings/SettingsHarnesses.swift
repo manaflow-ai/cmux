@@ -33,6 +33,7 @@ final class SettingsHarnesses {
     @ObservationIgnored private let fetchHealth: @Sendable (AcpmuxEnvironment, Bool) async throws -> Data
     @ObservationIgnored private let openTerminal: @MainActor (String) -> Void
     @ObservationIgnored private let runUpdate: (@MainActor (String?, PageCallContext) async throws -> JSONValue)?
+    @ObservationIgnored private let runResume: (@MainActor (String, PageCallContext) async throws -> JSONValue)?
     @ObservationIgnored private let updateState: @MainActor () -> JSONValue
     @ObservationIgnored private let refreshUpdates: @MainActor () async -> Void
     @ObservationIgnored private var generation = 0
@@ -44,6 +45,7 @@ final class SettingsHarnesses {
          },
          openTerminal: @escaping @MainActor (String) -> Void,
          runUpdate: (@MainActor (String?, PageCallContext) async throws -> JSONValue)? = nil,
+         runResume: (@MainActor (String, PageCallContext) async throws -> JSONValue)? = nil,
          updateState: @escaping @MainActor () -> JSONValue = { .array([]) },
          refreshUpdates: @escaping @MainActor () async -> Void = {}) {
         self.environment = environment
@@ -51,6 +53,7 @@ final class SettingsHarnesses {
         self.fetchHealth = fetchHealth
         self.openTerminal = openTerminal
         self.runUpdate = runUpdate
+        self.runResume = runResume
         self.updateState = updateState
         self.refreshUpdates = refreshUpdates
     }
@@ -125,7 +128,7 @@ final class SettingsHarnesses {
     /// `registry`.
     func run(_ params: JSONValue, context: PageCallContext?) async throws -> JSONValue {
         let action = params["action"]?.stringValue ?? ""
-        if action == "update" || action == "updateAll" {
+        if action == "update" || action == "updateAll" || action == "resumeUpdate" {
             guard context?.userGesture == true || context?.isConfirmedUser == true else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
             }
@@ -140,6 +143,12 @@ final class SettingsHarnesses {
             }
             guard let runUpdate, let context else { throw PageError.unavailable(AgentHarnessStrings.unsupported) }
             return try await runUpdate(id, context)
+        case "resumeUpdate":
+            guard let key = params["intent"]?.stringValue, !key.isEmpty else {
+                throw PageError.invalidParams("resumeUpdate needs the retained intent key")
+            }
+            guard let runResume, let context else { throw PageError.unavailable(AgentHarnessStrings.unsupported) }
+            return try await runResume(key, context)
         case "autoUpdate":
             // acpmux keeps the choice and runs the update after a check finds it outdated.
             guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id }), let on = params["on"]?.boolValue else {

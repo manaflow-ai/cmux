@@ -18,27 +18,93 @@ test("owner job receipts stay pending until a terminal exit and unknown outcomes
   await settle();
   const base = page.provider.harnesses;
   const show = async (state: string, extra = {}) => {
-    await act(async () => page.provider.setHarnesses({ ...base, jobs: [{
-      machine: "machine_original", session: "session_original", cli: "codex", profiles: ["codex"],
-      terminal: "term_original", state, ...extra,
-    }] } as typeof base));
+    await act(async () =>
+      page.provider.setHarnesses({
+        ...base,
+        jobs: [
+          {
+            machine: "machine_original",
+            session: "session_original",
+            cli: "codex",
+            profiles: ["codex"],
+            terminal: "term_original",
+            state,
+            ...extra,
+          },
+        ],
+      } as typeof base),
+    );
     await settle();
   };
   await show("created");
   let job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
   expect(job?.dataset.agentUpdateJob).toBe("created");
   expect(job?.textContent).toContain("Update terminal created");
-  expect(card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')?.disabled).toBe(true);
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(true);
   await show("pending");
   job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
   expect(job?.textContent).toContain("Waiting for update to finish");
   await show("exited", { exit_code: 23 });
   job = card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]");
   expect(job?.textContent).toContain("Exit code: 23");
-  expect(card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')?.disabled).toBe(false);
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(false);
   await show("unknown");
-  expect(card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]")?.textContent).toContain("Outcome unknown");
-  expect(card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')?.disabled).toBe(true);
+  expect(card(page.container)!.querySelector<HTMLElement>("[data-agent-update-job]")?.textContent).toContain(
+    "Outcome unknown",
+  );
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(true);
+  page.unmount();
+});
+
+test("a recovered unstarted intent resumes only by an explicit click with its retained key", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const base = page.provider.harnesses;
+  const show = async (canResume: boolean, state = "unknown") => {
+    await act(async () =>
+      page.provider.setHarnesses({
+        ...base,
+        jobs: [
+          {
+            machine: "machine_original",
+            session: "session_original",
+            cli: "codex",
+            profiles: ["codex"],
+            intent_key: "retained-original-key",
+            state,
+            can_resume: canResume,
+          },
+        ],
+      } as typeof base),
+    );
+    await settle();
+  };
+  await show(true);
+  const resume = card(page.container)!.querySelector<HTMLButtonElement>('[data-harness-action="resumeUpdate"]');
+  expect(resume?.textContent).toContain("Resume original update");
+  expect(page.provider.harnessRuns.filter((run) => run.action !== "refresh")).toEqual([]);
+  expect(
+    card(page.container)!.querySelector<HTMLButtonElement>('[data-harness="codex"] [data-harness-action="update"]')
+      ?.disabled,
+  ).toBe(true);
+  await act(async () => resume!.click());
+  await settle();
+  expect(page.provider.harnessRuns.filter((run) => run.action !== "refresh")).toEqual([
+    { action: "resumeUpdate", intent: "retained-original-key" },
+  ]);
+  for (const state of ["unknown", "pending", "created"]) {
+    await show(false, state);
+    expect(card(page.container)!.querySelector('[data-harness-action="resumeUpdate"]')).toBeNull();
+  }
   page.unmount();
 });
 

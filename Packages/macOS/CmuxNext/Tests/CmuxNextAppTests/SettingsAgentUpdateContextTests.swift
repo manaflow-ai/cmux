@@ -28,7 +28,8 @@ import Testing
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "codex", kind: "acp", source: "path")] },
             fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0) },
-            runUpdate: { id, _ in recorder.lines.append("update:" + (id ?? "all")); return .array([]) })
+            runUpdate: { id, _ in recorder.lines.append("update:" + (id ?? "all")); return .array([]) },
+            runResume: { key, context in recorder.lines.append("resume:" + key + ":" + (context.opid ?? "")); return .array([]) })
         await harnesses.refresh()
         let page = SettingsPageProvider(settings: settings)
         page.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
@@ -36,7 +37,7 @@ import Testing
     }
 
     private func params(_ action: String) -> JSONValue {
-        ["action": .string(action), "id": "codex", "origin": "user", "confirmed": true, "userGesture": true]
+        ["action": .string(action), "id": "codex", "intent": "retained-key", "origin": "user", "confirmed": true, "userGesture": true]
     }
 
     private func context(_ mode: String) -> PageCallContext {
@@ -45,7 +46,7 @@ import Testing
             gestureEvent: mode == "gesture" ? 123 : nil)
     }
 
-    @Test(arguments: ["update", "updateAll"], ["script", "claim-user", "absent"])
+    @Test(arguments: ["update", "updateAll", "resumeUpdate"], ["script", "claim-user", "absent"])
     func untrustedPageCallsCannotReachTheTerminalHandoff(action: String, mode: String) async throws {
         let h = try await make()
         defer { try? FileManager.default.removeItem(at: h.directory) }
@@ -62,12 +63,12 @@ import Testing
         #expect(h.recorder.lines.isEmpty)
     }
 
-    @Test(arguments: ["update", "updateAll"], ["gesture", "confirmed"])
+    @Test(arguments: ["update", "updateAll", "resumeUpdate"], ["gesture", "confirmed"])
     func aRealGestureOrNativeConfirmationRetainsTheExistingHandoff(action: String, mode: String) async throws {
         let h = try await make()
         defer { try? FileManager.default.removeItem(at: h.directory) }
         _ = try await h.page.call("cmux.settings.harnesses.run", params: params(action), context: context(mode))
-        #expect(h.recorder.lines == [action == "update" ? "update:codex" : "update:all"])
+        #expect(h.recorder.lines == [action == "resumeUpdate" ? "resume:retained-key:original-operation" : action == "update" ? "update:codex" : "update:all"])
     }
 
     @Test(arguments: ["script", "gesture", "confirmed"])
