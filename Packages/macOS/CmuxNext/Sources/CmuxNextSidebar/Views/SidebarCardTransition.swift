@@ -15,8 +15,11 @@ import QuartzCore
 /// only: the layer's model values never change, so layout never sees them.
 ///
 /// The Core Animation objects are built here, not through `Motion.set`, because
-/// `Motion.set` writes the model value and reads the global policy; every duration
-/// and spring still comes from `policy` tokens (check-motion `motion-allow`).
+/// `Motion.set` writes the model value and reads the global policy. The fade
+/// durations and the spring's stiffness and damping come from `policy` tokens; the
+/// easing curves (ease-out in, ease-in out) and the spring's 0.002 settle tolerance
+/// (as `Motion.springAnimation`) are literal (check-motion `motion-allow`, pending
+/// the owner's call on a port to the Motion helpers).
 @MainActor
 struct SidebarCardTransition {
     /// The motion settings the card follows (`Motion.policy` by default).
