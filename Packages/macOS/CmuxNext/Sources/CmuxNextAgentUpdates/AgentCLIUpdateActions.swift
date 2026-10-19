@@ -22,12 +22,14 @@ public final class AgentCLIUpdateActions {
         let start: @MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobReceipt
         let observe: @MainActor (AgentCLIJobReceipt) async throws -> AgentCLIJobStatus
         var resolve: (@MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobResolution)?
+        var changes: (@MainActor () -> AsyncStream<Void>)?
 
         public init(machine: ResourceID, session: ResourceID, isCurrent: @escaping @MainActor () -> Bool,
                     inventory: @escaping @MainActor () async throws -> AcpmuxHarnessInventory,
                     start: @escaping @MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobReceipt,
                     observe: @escaping @MainActor (AgentCLIJobReceipt) async throws -> AgentCLIJobStatus,
-                    resolve: (@MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobResolution)? = nil) {
+                    resolve: (@MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobResolution)? = nil,
+                    changes: (@MainActor () -> AsyncStream<Void>)? = nil) {
             self.machine = machine
             self.session = session
             self.isCurrent = isCurrent
@@ -35,6 +37,7 @@ public final class AgentCLIUpdateActions {
             self.start = start
             self.observe = observe
             self.resolve = resolve
+            self.changes = changes
         }
     }
 
@@ -63,8 +66,10 @@ public final class AgentCLIUpdateActions {
         let profile: String?
         let target: ActionTargetRef?
         @ObservationIgnored var work: Task<JSONValue, any Error>?
+        @ObservationIgnored var following: Task<Void, Never>?
         var jobs: [JSONValue] = []
         var receipts: [AgentCLIJobReceipt] = []
+        var outcomeRevisions: [ResourceID: UInt64] = [:]
         var inputs: [AgentCLIUpdateIntent] = []
         var busy = false
         var restored = false
@@ -74,6 +79,8 @@ public final class AgentCLIUpdateActions {
             self.profile = profile
             self.target = target
         }
+
+        nonisolated deinit { following?.cancel() }
     }
 
     init(capture: @escaping @MainActor (ActionInvocation) throws -> Route, persistence: Persistence? = nil,
@@ -187,25 +194,7 @@ public final class AgentCLIUpdateActions {
 
     private func observeRetained() async {
         for intent in intents.values where intent.route.isCurrent() && !intent.busy {
-            for receipt in intent.receipts {
-                guard intent.route.isCurrent() else { break }
-                do {
-                    let status = try await intent.route.observe(receipt)
-                    guard intent.route.isCurrent(), status.terminalID == receipt.path.terminalID,
-                          let index = intent.jobs.firstIndex(where: { $0["terminal"]?.stringValue == status.terminalID.rawValue }),
-                          var job = intent.jobs[index].objectValue else { continue }
-                    job["state"] = .string(status.state.rawValue)
-                    if case .exit(let code) = status.outcome { job["exit_code"] = .number(Double(code)) }
-                    if case .signal(let number) = status.outcome { job["signal"] = .number(Double(number)) }
-                    intent.jobs[index] = .object(job)
-                    // Any exit, even one whose outcome is unknown, ends the process: it settles.
-                    if status.state == .exited, let key = job["intent_key"]?.stringValue, !settled.contains(key) {
-                        await settle(key, in: nil)
-                    }
-                } catch {
-                    // Keep the receipt and original route; a failed observation is no completion.
-                }
-            }
+            await observe(intent, route: intent.route)
         }
     }
 
