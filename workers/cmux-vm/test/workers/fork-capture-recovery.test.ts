@@ -43,7 +43,7 @@ it("cancels an uncertain fork capture and retains quota until verified cleanup",
   expect(intent).toMatchObject({ state: "cancelling", id: expect.stringMatching(/^vm_/) });
   expect((await fork()).status).toBe(409);
   expect((await h.request("/v1/vms", bearer(key), { method: "POST", body: {} })).status).toBe(429);
-  h.billed.delete("team_alpha");
+  h.setBilling("team_alpha", false);
   expect((await h.request(`/v1/vms/${source.vmId}`, bearer(key), { method: "DELETE" })).status).toBe(204);
   hidden = false;
   const reconciled = await h.request("/v1/vm-creations/by-key/reconcile", headers, { method: "POST" });
@@ -52,6 +52,6 @@ it("cancels an uncertain fork capture and retains quota until verified cleanup",
   expect(captures()).toHaveLength(1);
   expect(h.upstream.snapshots.size).toBe(0);
   expect(allocations()).toHaveLength(0);
-  h.billed.add("team_alpha");
+  h.setBilling("team_alpha", true);
   expect((await h.request("/v1/vms", bearer(key), { method: "POST", body: {} })).status).toBe(201);
 });
