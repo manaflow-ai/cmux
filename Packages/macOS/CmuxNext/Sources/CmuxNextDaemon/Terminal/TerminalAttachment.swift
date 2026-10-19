@@ -76,7 +76,12 @@ public actor TerminalAttachment: TerminalByteChannel {
         var heldSizeState: TerminalSizeState?
     }
 
-    private nonisolated let control = Mutex(Control())
+    /// A class box, so the reader thread's closure can share the mutex (a `Mutex` cannot be copied).
+    private final class ControlBox: Sendable {
+        let value = Mutex(Control())
+    }
+
+    private nonisolated let control = ControlBox()
 
     /// The host capability a snapshot attach needs: READY snapshots
     /// (`terminal-snapshot-v1`) followed by their scrollback as `history`
@@ -198,7 +203,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         #if DEBUG
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
         #endif
-        control.withLock { control in
+        control.value.withLock { control in
             control.lease = response.lease
             control.lastReported = size
             control.hidesInPlace = identity.supports(DaemonCapabilities.shared.sharedSizing)
@@ -229,8 +234,8 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// and the reply passes on the newer of the two. Pushed under the control lock, so states
     /// reach the view in generation order whichever thread admits them.
     private nonisolated static func admitSizeState(_ state: TerminalSizeState, selfParticipant: String?,
-                                                   control: borrowing Mutex<Control>, queue: TerminalEventQueue) {
-        control.withLock { control in
+                                                   control: ControlBox, queue: TerminalEventQueue) {
+        control.value.withLock { control in
             if let selfParticipant { control.participant = selfParticipant }
             guard let participant = control.participant else {
                 if control.heldSizeState.map({ state.generation > $0.generation }) ?? true { control.heldSizeState = state }
@@ -293,7 +298,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// Passive grid report. Skipped when it equals the last report.
     public nonisolated func sendResize(_ size: CellSize) {
         let size = CellSize(cols: max(1, size.cols), rows: max(1, size.rows))
-        let lease = control.withLock { control -> String?? in
+        let lease = control.value.withLock { control -> String?? in
             guard control.lastReported != size else { return .none }
             control.lastReported = size
             return .some(control.lease)
@@ -310,7 +315,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// geometry. The daemon accepts a claim only from a view that already
     /// reported a size on this attachment, so the report always goes first.
     public nonisolated func claimGeometry(reporting size: CellSize?) {
-        let (lease, report) = control.withLock { control -> (String?, CellSize?) in
+        let (lease, report) = control.value.withLock { control -> (String?, CellSize?) in
             if let size { control.lastReported = CellSize(cols: max(1, size.cols), rows: max(1, size.rows)) }
             return (control.lease, control.lastReported)
         }
@@ -324,7 +329,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// policy becomes last active first, then this view reports `size` and claims, which the
     /// daemon counts as activity. Sent in this order on one connection.
     public nonisolated func takeOver(reporting size: CellSize, setLatest: Bool) {
-        if setLatest, control.withLock({ $0.hidesInPlace }) {
+        if setLatest, control.value.withLock({ $0.hidesInPlace }) {
             fireAndForget(SetSizePolicyRequest(surface: surface, policy: .init(mode: "latest")))
         }
         claimGeometry(reporting: size)
@@ -337,7 +342,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     }
 
     public nonisolated func sendReleaseGeometry() {
-        let lease = control.withLock { control -> String? in
+        let lease = control.value.withLock { control -> String? in
             control.lastReported = nil
             return control.lease
         }
@@ -351,7 +356,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// at the same size needs no report or claim. A daemon without `shared-sizing-v1` gets the old
     /// release, and a claim of the last reported size on show.
     public nonisolated func sendHidden(_ hidden: Bool) {
-        let (lease, inPlace) = control.withLock { ($0.lease, $0.hidesInPlace) }
+        let (lease, inPlace) = control.value.withLock { ($0.lease, $0.hidesInPlace) }
         guard let lease else { return }
         if inPlace {
             fireAndForget(SetSizeCountsRequest(surface: surface, lease: lease, counts: hidden ? false : nil))
@@ -364,7 +369,7 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// Idempotent: the first call detaches and closes the connection.
     public nonisolated func detachNow() {
-        let lease = control.withLock { control -> String?? in
+        let lease = control.value.withLock { control -> String?? in
             guard !control.detached else { return .none }
             control.detached = true
             return .some(control.lease)
