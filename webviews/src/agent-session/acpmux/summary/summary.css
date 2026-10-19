@@ -3,7 +3,11 @@
    Rows are 28px, text truncates, and every control follows the Motion hover fade. */
 .acpmux-summary{position:relative;flex:none;display:flex}
 .acpmux-summary-button{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-summary-button:hover,.acpmux-summary-button[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
+.acpmux-summary-button:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
+/* The same look as the header's other buttons (Lucas 2026-10-19): on brightens the icon and keeps a fill. */
+.acpmux-summary-button:hover{color:var(--agent-text)}
+.acpmux-summary-button[aria-pressed="true"]{background:color-mix(in srgb,currentColor 10%,transparent);color:var(--agent-text)}
+.acpmux-summary-button[aria-pressed="true"]:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:18px;background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation)}
