@@ -84,6 +84,12 @@ enum SettingsSearchIndex {
         ),
         setting(
             .app,
+            "always-confirm-workspace-close",
+            String(localized: "settings.app.alwaysConfirmWorkspaceClose", defaultValue: "Always Confirm Closing Workspaces"),
+            "always confirm close workspace idle protect confirmation"
+        ),
+        setting(
+            .app,
             "warn-before-closing-window",
             String(localized: "settings.app.warnBeforeClosingWindow", defaultValue: "Warn Before Closing Window"),
             "cmd ctrl w close window confirmation running process"
@@ -234,6 +240,7 @@ enum SettingsSearchIndex {
         setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
         setting(.workspaceColors, "subtle-selection", String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"), "calm selected workspace tint"),
         setting(.workspaceColors, "brighten-dark-mode", String(localized: "settings.workspaceColors.brightenInDarkMode", defaultValue: "Brighten Colors in Dark Mode"), "lighten dark mode workspace color fill"),
+        setting(.workspaceColors, "unselected-fill-opacity", String(localized: "settings.workspaceColors.unselectedFillOpacity", defaultValue: "Unselected Fill Opacity"), "workspace color fill opacity unselected rows"),
         setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
         setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
         setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
@@ -297,6 +304,7 @@ enum SettingsSearchIndex {
         "app.warnBeforeClosingAgentSession": settingID(for: .app, idSuffix: "warn-before-closing-agent-session"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
         "app.warnBeforeClosingWorkspace": settingID(for: .app, idSuffix: "warn-before-closing-workspace"),
+        "app.alwaysConfirmWorkspaceClose": settingID(for: .app, idSuffix: "always-confirm-workspace-close"),
         "app.warnBeforeClosingWindow": settingID(for: .app, idSuffix: "warn-before-closing-window"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
@@ -363,6 +371,7 @@ enum SettingsSearchIndex {
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.subtleSelection": settingID(for: .workspaceColors, idSuffix: "subtle-selection"),
         "workspaceColors.brightenInDarkMode": settingID(for: .workspaceColors, idSuffix: "brighten-dark-mode"),
+        "workspaceColors.unselectedFillOpacity": settingID(for: .workspaceColors, idSuffix: "unselected-fill-opacity"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
         "customSidebars.renderer": settingID(for: .customSidebars, idSuffix: "renderer"),

@@ -3127,6 +3127,11 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
     }
 
+    func testForkDetected() {
+        let env = environment(existingPaths: ["/Applications/Fork.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.fork.isAvailable(in: env))
+    }
+
     func testAvailableTargetsFallbackToApplicationLookupForVSCodeAliasOutsideApplications() {
         let vscodePath = "/Volumes/Tools/Code.app"
         let env = environment(
@@ -3154,6 +3159,18 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         )
 
         XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
+    }
+
+    func testForkDetectedViaApplicationLookupOutsideApplications() {
+        let forkPath = "/Volumes/Tools/Fork.app"
+        let env = environment(
+            existingPaths: [forkPath],
+            applicationPathsByName: [
+                "Fork": forkPath,
+            ]
+        )
+
+        XCTAssertTrue(TerminalDirectoryOpenTarget.fork.isAvailable(in: env))
     }
 
     func testCommandPaletteShortcutsExcludeGenericIDEEntry() {
