@@ -20,6 +20,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let groupByPath = ["sidebar", "groupBy"]
     public static let showChatsPath = ["sidebar", "showChats"]
     public static let sessionTreePath = ["sidebar", "sessionTree"]
+    public static let rowOrderPath = ["sidebar", "rowOrder"]
     public static let showSpacesPath = ["sidebar", "showSpaces"]
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
@@ -121,6 +122,19 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "tree", "nested", "parent", "child", "pull request", "keycap", "sessions"])
     }
 
+    static func rowOrderDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(rowOrderPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.rowOrder", "Session Tree Order"),
+                          help: SettingsText.keyed("settings.sidebar.rowOrder.help",
+                                                   "With Session Tree on: keep rows where you put them and show what their agents do in place, or move a session that needs you to the top. A window's sidebar menu can choose for that window."),
+                          kind: .choice([
+                              SettingChoice(SidebarRowOrder.stable.rawValue, SettingsText.keyed("settings.choice.rowOrderStable", "Keep Rows in Place")),
+                              SettingChoice(SidebarRowOrder.attention.rawValue, SettingsText.keyed("settings.choice.rowOrderAttention", "Move Sessions That Need You")),
+                          ]),
+                          default: .string(SidebarSectionsPreferences.defaults.rowOrder.rawValue),
+                          keywords: ["sidebar", "tree", "order", "sort", "move", "top", "jump", "reorder", "stable", "recency", "attention"])
+    }
+
     static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(showChatsPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats"),
@@ -197,6 +211,14 @@ public nonisolated enum SidebarSectionsSetting {
             } else {
                 let choices = SidebarGroupBy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupBy", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: rowOrderPath) {
+            if let text = value.stringValue, let order = SidebarRowOrder(rawValue: text) {
+                result.rowOrder = order
+            } else {
+                let choices = SidebarRowOrder.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.rowOrder", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: densityPath) {

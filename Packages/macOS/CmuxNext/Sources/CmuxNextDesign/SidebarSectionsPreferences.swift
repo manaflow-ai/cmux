@@ -84,6 +84,15 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.
     public var sessionTree = false
+    /// `sidebar.rowOrder`: with the session tree on, rows hold their places (the default) or move
+    /// when they need you. A window's sidebar menu can choose for that window alone.
+    public var rowOrder = SidebarRowOrder.stable
+
+    /// Whether an agent's state may move a row, in a window that chose `window` (nil follows
+    /// `rowOrder`): without the session tree, `attention.movesToTop` as before; with it, the order.
+    public func movesRowsOnAttention(_ attention: AttentionSettings, window: SidebarRowOrder? = nil) -> Bool {
+        attention.movesToTop && (!sessionTree || (window ?? rowOrder) == .attention)
+    }
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

@@ -99,11 +99,8 @@ public final class SidebarModel {
     }
     /// Told the new set when a layout section collapses or expands (the App saves it).
     @ObservationIgnored public var onCollapsedLayoutSectionsChange: ((Set<LayoutSectionID>) -> Void)?
-    /// Collapsed top-level sections (Pinned, a machine): client view state,
-    /// never sent to a daemon. `setSections` and the section toggle keep
-    /// each section's `isCollapsed` equal to it, so the live remap of the
-    /// daemon's rows does not expand a section the user collapsed; the
-    /// window's sidebar snapshot saves it for the next launch.
+    /// Collapsed top-level sections (Pinned, a machine): client view state the window's snapshot saves; `setSections` and the
+    /// section toggle keep each `isCollapsed` equal to it, so the daemon's live rows never expand one the user collapsed.
     public var collapsedSections: Set<SectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
@@ -133,6 +130,9 @@ public final class SidebarModel {
     public var expanded = false
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
+    /// This window's `sidebar.rowOrder` (nil follows the setting); `onRowOrderChange` saves it.
+    public var rowOrder: SidebarRowOrder? { didSet { if rowOrder != oldValue { onRowOrderChange?(rowOrder) } } }
+    @ObservationIgnored public var onRowOrderChange: ((SidebarRowOrder?) -> Void)?
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Machine sections list loose workspaces before groups (a daemon-backed

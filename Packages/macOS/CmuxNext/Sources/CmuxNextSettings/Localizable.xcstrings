@@ -103486,6 +103486,530 @@
           }
         }
       }
+    },
+    "settings.sidebar.rowOrder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Tree Order"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترتيب شجرة الجلسات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redoslijed stabla sesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rækkefølge i sessionstræet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reihenfolge im Sitzungsbaum"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orden del árbol de sesiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordre de l’arborescence des sessions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordine dell'albero delle sessioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションツリーの並び順"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លំដាប់មែកធាងវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 트리 순서"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rekkefølge i økttreet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolejność w drzewie sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordem da árvore de sessões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок в дереве сеансов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลำดับในแผนผังเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum ağacı sırası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Порядок у дереві сеансів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thứ tự cây phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话树顺序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段樹順序"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rowOrder.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With Session Tree on: keep rows where you put them and show what their agents do in place, or move a session that needs you to the top. A window's sidebar menu can choose for that window."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند تشغيل شجرة الجلسات: أبقِ الصفوف حيث وضعتها واعرض ما يفعله وكلاؤها في مكانها، أو انقل الجلسة التي تحتاجك إلى الأعلى. يمكن لقائمة الشريط الجانبي في كل نافذة أن تختار لتلك النافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kad je stablo sesija uključeno: zadrži redove gdje si ih stavio i prikaži šta njihovi agenti rade na mjestu, ili pomjeri sesiju koja te treba na vrh. Meni bočne trake prozora može birati za taj prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Med sessionstræ slået til: hold rækkerne, hvor du placerede dem, og vis på stedet, hvad deres agenter laver, eller flyt en session, der har brug for dig, øverst. Et vindues sidepanelmenu kan vælge for det vindue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit aktivem Sitzungsbaum: Zeilen bleiben, wo du sie abgelegt hast, und zeigen vor Ort, was ihre Agenten tun, oder eine Sitzung, die dich braucht, rückt nach oben. Das Seitenleistenmenü eines Fensters kann für dieses Fenster wählen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con el árbol de sesiones activado: mantén las filas donde las pusiste y muestra en su sitio lo que hacen sus agentes, o sube arriba la sesión que te necesita. El menú de la barra lateral de cada ventana puede elegir para esa ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avec l’arborescence des sessions activée : garder les lignes là où vous les avez placées et montrer sur place ce que font leurs agents, ou placer en haut une session qui a besoin de vous. Le menu de la barre latérale d’une fenêtre peut choisir pour cette fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con l'albero delle sessioni attivo: mantieni le righe dove le hai messe e mostra sul posto cosa fanno i loro agenti, oppure sposta in alto una sessione che ti aspetta. Il menu della barra laterale di una finestra può scegliere per quella finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションツリーがオンのとき：行を置いた場所に固定してエージェントの状態をその場で表示するか、対応が必要なセッションを上に移動します。各ウインドウのサイドバーメニューでそのウインドウだけの設定を選べます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលបើកមែកធាងវគ្គ៖ រក្សាជួរនៅកន្លែងដែលអ្នកដាក់ ហើយបង្ហាញនៅនឹងកន្លែងនូវអ្វីដែលភ្នាក់ងាររបស់វាកំពុងធ្វើ ឬផ្លាស់ទីវគ្គដែលត្រូវការអ្នកទៅខាងលើ។ ម៉ឺនុយរបារចំហៀងនៃបង្អួចអាចជ្រើសសម្រាប់បង្អួចនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 트리가 켜져 있을 때: 행을 둔 자리에 그대로 두고 에이전트 상태를 그 자리에서 보여 주거나, 응답이 필요한 세션을 맨 위로 옮깁니다. 각 윈도우의 사이드바 메뉴에서 그 윈도우만 따로 고를 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Med økttre slått på: hold radene der du la dem og vis på stedet hva agentene gjør, eller flytt en økt som trenger deg, øverst. Sidefeltmenyen i et vindu kan velge for det vinduet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy drzewo sesji jest włączone: zostawiaj wiersze tam, gdzie je umieszczono, i pokazuj na miejscu, co robią ich agenci, albo przenoś na górę sesję, która cię potrzebuje. Menu paska bocznego okna może wybrać dla tego okna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com a árvore de sessões ativada: mantém as linhas onde você as colocou e mostra ali o que os agentes fazem, ou move para o topo a sessão que precisa de você. O menu da barra lateral de cada janela pode escolher para aquela janela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда дерево сеансов включено: строки остаются там, куда вы их поставили, и показывают на месте, что делают их агенты, либо сеанс, которому нужны вы, поднимается наверх. Меню боковой панели окна может выбрать для этого окна."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิดแผนผังเซสชัน: คงแถวไว้ตรงที่คุณวางและแสดงสิ่งที่เอเจนต์ทำอยู่ ณ ที่เดิม หรือย้ายเซสชันที่ต้องการคุณไว้ด้านบน เมนูแถบข้างของแต่ละหน้าต่างเลือกเฉพาะหน้าต่างนั้นได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum ağacı açıkken: satırları koyduğunuz yerde tutar ve ajanlarının ne yaptığını yerinde gösterir ya da size ihtiyaç duyan oturumu en üste taşır. Bir pencerenin kenar çubuğu menüsü o pencere için seçebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли дерево сеансів увімкнене: рядки лишаються там, куди ви їх поставили, і показують на місці, що роблять їхні агенти, або сеанс, якому потрібні ви, піднімається вгору. Меню бічної панелі вікна може вибрати для цього вікна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật cây phiên: giữ các hàng ở chỗ bạn đặt và hiển thị tại chỗ việc tác nhân đang làm, hoặc đưa phiên cần bạn lên đầu. Menu thanh bên của mỗi cửa sổ có thể chọn riêng cho cửa sổ đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启会话树时：让行保持在你放置的位置并就地显示其代理的状态，或将需要你处理的会话移到顶部。每个窗口的边栏菜单可以单独为该窗口选择。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟工作階段樹時：讓列保持在你放置的位置並就地顯示其代理的狀態，或將需要你處理的工作階段移到頂部。每個視窗的側邊欄選單可以單獨為該視窗選擇。"
+          }
+        }
+      }
+    },
+    "settings.choice.rowOrderStable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Rows in Place"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء الصفوف في أماكنها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadrži redove na mjestu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold rækkerne på plads"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilen an ihrem Platz lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener las filas en su sitio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les lignes en place"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni le righe al loro posto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行の位置を固定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាជួរនៅកន្លែងដដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "행 위치 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold radene på plass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zachowaj miejsca wierszy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter as linhas no lugar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не перемещать строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คงแถวไว้ที่เดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satırları yerinde tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не переміщувати рядки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ nguyên vị trí các hàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持行的位置不变"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持列的位置不變"
+          }
+        }
+      }
+    },
+    "settings.choice.rowOrderAttention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Sessions That Need You"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل الجلسات التي تحتاجك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomjeri sesije koje te trebaju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyt sessioner, der har brug for dig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen, die dich brauchen, verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover las sesiones que te necesitan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer les sessions qui ont besoin de vous"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta le sessioni che ti aspettano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応が必要なセッションを移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ទីវគ្គដែលត្រូវការអ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "응답이 필요한 세션 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytt økter som trenger deg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przenoś sesje, które cię potrzebują"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover as sessões que precisam de você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемещать сеансы, которым нужны вы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายเซสชันที่ต้องการคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size ihtiyaç duyan oturumları taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переміщувати сеанси, яким потрібні ви"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Di chuyển các phiên cần bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动需要你处理的会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動需要你處理的工作階段"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
