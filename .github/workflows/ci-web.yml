@@ -313,7 +313,11 @@ jobs:
       - name: Generated bundle merge driver
         run: python3 tests/test_install_git_hooks.py
 
+      # A budget miss must not hide the checks and tests below: the step records its outcome and
+      # the job fails on it in the last step. A failed build still stops everything after it.
       - name: Check diff viewer eager JS budget
+        id: eager-js-budget
+        continue-on-error: true
         run: node ./scripts/check-webviews-diff-budget.mjs
 
       - name: Verify React Compiler for webviews
@@ -341,6 +345,12 @@ jobs:
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
         run: ../scripts/ci/run-webviews-tests.sh
+
+      - name: Fail on the eager JS budget
+        if: ${{ !cancelled() && steps.eager-js-budget.outcome == 'failure' }}
+        run: |
+          echo "::error::The webviews eager JS budget failed; see the step 'Check diff viewer eager JS budget'."
+          exit 1
 
   # React Doctor is independent of the per-file browser tests. Keep it on its
   # own required lane so the long-running shard 1 does not serialize this
