@@ -640,6 +640,14 @@ impl HybridUnderlay {
                 tracing::debug!(?endpoints, ?relayed, ?relayed_tls, "WireGuard peer announced new endpoints");
                 // An empty list says only that the peer's network changed.
                 if !endpoints.is_empty() {
+                    // A route a `reach` chose to an address the peer no longer
+                    // lists (its old relayed one, after a roam) is over.
+                    if self.pinned_until.is_some()
+                        && self.direct.is_some_and(|route| !endpoints.contains(&route.addr.to_string()))
+                    {
+                        self.pinned_until = None;
+                        self.demote("the peer left the chosen route's address");
+                    }
                     self.set_peer_endpoints(endpoints);
                     // A roaming phone announces its new TURN address; an
                     // older peer lists none, and the old ones stay (a stale
