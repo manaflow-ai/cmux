@@ -592,8 +592,22 @@ impl SynchronizedTcpStream {
     ) -> std::io::Result<()> {
         let (header, header_len) = websocket_server_frame_header(opcode, payload.len());
         let _guard = self.write_lock.lock().unwrap();
-        self.stream.write_all(&header[..header_len])?;
-        self.stream.write_all(payload)?;
+        // Header and payload in one vectored write: the socket has Nagle
+        // off, so two writes put the 2-10 byte header in a segment of its
+        // own, doubling the packets of every small message (a keystroke
+        // echo).
+        let mut parts =
+            [std::io::IoSlice::new(&header[..header_len]), std::io::IoSlice::new(payload)];
+        let mut parts = &mut parts[..];
+        std::io::IoSlice::advance_slices(&mut parts, 0);
+        while !parts.is_empty() {
+            match self.stream.write_vectored(parts) {
+                Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+                Ok(n) => std::io::IoSlice::advance_slices(&mut parts, n),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
         self.stream.flush()
     }
 }
