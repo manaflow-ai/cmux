@@ -17,6 +17,10 @@
 //! The swap replaces only a folder that is an index (it holds the
 //! manifest) or is empty: `CMUX_AGENT_MEMORY_HOME` pointed at a folder with
 //! other files is refused, never deleted, and so is a notes log inside it.
+//!
+//! Entry ids are the database's and change when a rebuild renumbers the
+//! entries, so the manifest also keeps each source's id: `get` with a hit's
+//! source finds that entry again after a rebuild.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -33,12 +37,14 @@ use crate::paths::Paths;
 const MANIFEST: &str = "agent-memory-manifest.json";
 /// Bumped when the stored text or manifest changes shape: an older index
 /// (the leo-workspace prototype's bare label list) is rebuilt.
-const MANIFEST_VERSION: u64 = 3;
+const MANIFEST_VERSION: u64 = 4;
 
 /// What the manifest records about one build.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Manifest {
     sources: Vec<String>,
+    /// The entry id of each of `sources`, in the same order.
+    ids: Vec<u64>,
     /// When the build started reading its sources (ns since the epoch).
     read_at: u64,
     /// The notes log's mtime once its notes were indexed (ns), if any.
@@ -134,8 +140,18 @@ impl Index {
             .iter()
             .map(|s| s.as_str().map(str::to_owned))
             .collect::<Option<Vec<_>>>()?;
+        let ids = value
+            .get("ids")?
+            .as_array()?
+            .iter()
+            .map(Value::as_u64)
+            .collect::<Option<Vec<_>>>()?;
+        if ids.len() != sources.len() {
+            return None;
+        }
         Some(Manifest {
             sources,
+            ids,
             read_at: value.get("read_at")?.as_u64()?,
             notes_at: value.get("notes_at").and_then(Value::as_u64),
         })
@@ -146,6 +162,7 @@ impl Index {
         let text = json!({
             "version": MANIFEST_VERSION,
             "sources": manifest.sources,
+            "ids": manifest.ids,
             "read_at": manifest.read_at,
             "notes_at": manifest.notes_at,
         })
@@ -249,9 +266,10 @@ impl Index {
         let _ = std::fs::remove_dir_all(&fresh);
         let result = (|| {
             create_private(&fresh)?;
-            import(&fresh, &entries)?;
+            let ids = import(&fresh, &entries)?;
             let manifest = Manifest {
                 sources: entries.iter().map(|e| e.source.clone()).collect(),
+                ids,
                 read_at,
                 notes_at,
             };
@@ -325,12 +343,40 @@ impl Index {
     /// Entry `id` in full, as indexed. Builds a missing index, but never
     /// rebuilds a stale one: that could renumber the ids a search just gave.
     pub fn get(&self, id: u64) -> Result<Hit, String> {
+        self.get_entry(Some(id), None)
+    }
+
+    /// An entry by id, by source, or by both: with a source, the entry with
+    /// that source even when a rebuild gave it another id since the search
+    /// that showed it (an id alone may then read a different entry).
+    pub fn get_entry(&self, id: Option<u64>, source: Option<&str>) -> Result<Hit, String> {
         if self.manifest().is_none() || !self.paths().memory_db.is_file() {
             self.refresh(false)?;
         }
         let _lock = self.lock(true)?;
         let db = self.read_only()?;
-        self.row(&db, id)?.ok_or_else(|| format!("no entry #{id}"))
+        let at_id = match id {
+            Some(id) => self.row(&db, id)?,
+            None => None,
+        };
+        let Some(source) = source else {
+            let id = id.ok_or("memory_get needs an id or a source")?;
+            return at_id.ok_or_else(|| format!("no entry #{id}"));
+        };
+        if let Some(hit) = at_id.filter(|hit| hit.source == source) {
+            return Ok(hit);
+        }
+        let manifest = self.manifest().unwrap_or_default();
+        let found = manifest
+            .sources
+            .iter()
+            .position(|s| s == source)
+            .and_then(|i| manifest.ids.get(i).copied());
+        match found {
+            Some(id) => self.row(&db, id)?,
+            None => None,
+        }
+        .ok_or_else(|| format!("no entry from {source}; it was removed, search again"))
     }
 
     fn read_only(&self) -> Result<ReadOnly, String> {
@@ -375,6 +421,7 @@ impl Index {
                 // `read_at` stays: a source edited since the last build
                 // still makes the index stale. The notes log is current.
                 manifest.sources.push(entry.source.clone());
+                manifest.ids.push(ids[0]);
                 manifest.notes_at = mtime_ns(&self.sources.notes);
                 Self::write_manifest(&self.root, &manifest)?;
                 Ok(format!("saved {} as entry #{}", entry.source, ids[0]))

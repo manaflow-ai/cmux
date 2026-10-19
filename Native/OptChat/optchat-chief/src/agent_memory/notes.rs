@@ -211,13 +211,15 @@ pub fn append(path: &Path, text: &str, from: &Provenance) -> Result<(usize, Note
 /// body's shortest length.
 type Rule<'a> = (&'a [&'a str], &'a dyn Fn(char) -> bool, usize);
 
-/// Obvious credential shapes: GitHub, OpenAI/Anthropic-style `sk-`, Slack,
-/// AWS access key ids, Google API keys and PEM private keys.
+/// Obvious credential shapes: GitHub, OpenAI/Anthropic-style `sk-`, Stripe
+/// secret and restricted keys, Slack, AWS access key ids, Google API keys,
+/// GitLab, npm and Hugging Face tokens, JWTs and PEM private keys.
 pub fn looks_secret(text: &str) -> bool {
     let token = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     let alnum_ = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let alnum = |c: char| c.is_ascii_alphanumeric();
     let upper_digit = |c: char| c.is_ascii_uppercase() || c.is_ascii_digit();
-    let rules: [Rule; 7] = [
+    let rules: [Rule; 10] = [
         (&["ghp_", "gho_", "ghu_", "ghs_", "ghr_"], &alnum_, 20),
         (&["github_pat_"], &alnum_, 20),
         (&["sk-"], &token, 20),
@@ -225,6 +227,13 @@ pub fn looks_secret(text: &str) -> bool {
         (&["AKIA"], &upper_digit, 16),
         (&["AIza"], &token, 35),
         (&["glpat-"], &token, 20),
+        (
+            &["sk_live_", "sk_test_", "rk_live_", "rk_test_"],
+            &alnum,
+            20,
+        ),
+        (&["npm_"], &alnum, 36),
+        (&["hf_"], &alnum, 30),
     ];
     for (prefixes, class, min) in rules {
         for prefix in prefixes {
@@ -244,7 +253,35 @@ pub fn looks_secret(text: &str) -> bool {
             }
         }
     }
-    text.contains("-----BEGIN") && text.contains("PRIVATE KEY-----")
+    looks_like_jwt(text) || (text.contains("-----BEGIN") && text.contains("PRIVATE KEY-----"))
+}
+
+/// A JSON Web Token: three dot-separated base64url parts, the first two
+/// JSON objects (`eyJ`), each long enough to be generated.
+fn looks_like_jwt(text: &str) -> bool {
+    let base64url = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    let mut from = 0;
+    while let Some(at) = text[from..].find("eyJ") {
+        let begin = from + at;
+        let starts_word = text[..begin]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !base64url(c) && c != '.');
+        let run: String = text[begin..]
+            .chars()
+            .take_while(|c| base64url(*c) || *c == '.')
+            .collect();
+        let parts: Vec<&str> = run.split('.').collect();
+        if starts_word
+            && parts.len() == 3
+            && parts[1].starts_with("eyJ")
+            && parts.iter().all(|p| p.len() >= 10)
+        {
+            return true;
+        }
+        from = begin + 3;
+    }
+    false
 }
 
 fn hostname() -> Option<String> {

@@ -91,18 +91,23 @@ for a slow server. Only tool calls go to the owner.
 | --- | --- |
 | Search (every word must match) | `optchat-chief agent-memory search WORDS` |
 | Hits with source, date and full text | `optchat-chief agent-memory search --json WORDS` |
-| One entry | `optchat-chief agent-memory get ID` |
+| One entry | `optchat-chief agent-memory get ID`, or `get SOURCE` with the source a hit shows |
 | Save a lesson | `optchat-chief agent-memory remember TEXT` |
 | This machine only | add `--local` |
+
+Entry ids change when a rebuild renumbers the index (a memory file was added or
+removed). The source a hit shows does not, so `memory_get` with both the id and the
+source reads the same entry after a rebuild, and a removed source is an error.
 
 Options go before the text. Everything after the first word of text is kept as
 written, so `remember never pass --no-verify` saves all of it; `--` ends options early.
 
 A note is refused, never redacted, when it is over 4000 characters, holds control
 characters, or looks like a credential. The credential check is a backstop for common
-token shapes, not a scanner. A memory file or note that matches it is left out of the
-index; `agent-memory sync` and `agent-memory sources` name it so the secret can be
-removed. Each note records its date, host, agent session and directory.
+token shapes (GitHub, `sk-` model keys, Stripe, Slack, AWS, Google, GitLab, npm and Hugging
+Face tokens, JWTs, PEM private keys), not a scanner. A memory file or note that matches it
+is left out of the index; `agent-memory sync` and `agent-memory sources` name it so the
+secret can be removed. Each note records its date, host, agent session and directory.
 
 The index folder (`CMUX_AGENT_MEMORY_HOME`, default `~/.cmux/agent-memory`) is replaced
 on each rebuild, so it must be new, empty, or an index already. A folder holding other

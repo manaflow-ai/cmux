@@ -25,7 +25,7 @@ use settings::MemorySettings;
 use sources::Sources;
 
 pub const USAGE: &str = "optchat-chief agent-memory search [--json] [--limit N] [--local] WORDS...   entries holding every word
-optchat-chief agent-memory get ID [--json] [--local]          one entry in full
+optchat-chief agent-memory get ID|SOURCE [--json] [--local]   one entry in full, by #id or by the source a hit shows
 optchat-chief agent-memory remember [--local] TEXT...         save a dated note (lesson, host fact, decision)
 optchat-chief agent-memory mcp [--local]                      stdio MCP server: memory_search, memory_get, memory_remember
 optchat-chief agent-memory sync [--force]                     rebuild this machine's index now (search does it when stale)
@@ -158,11 +158,16 @@ pub fn run(args: &[String]) -> Result<String, String> {
                     ("memory_search", a)
                 }
                 "get" => {
-                    let id = words
-                        .first()
-                        .and_then(|w| w.trim_start_matches('#').parse::<u64>().ok())
-                        .ok_or_else(|| format!("get needs an entry id\n{USAGE}"))?;
-                    ("memory_get", json!({"id": id}))
+                    if words.is_empty() {
+                        return Err(format!("get needs an entry id or source\n{USAGE}"));
+                    }
+                    let id = (words.len() == 1)
+                        .then(|| words[0].trim_start_matches('#').parse::<u64>().ok())
+                        .flatten();
+                    match id {
+                        Some(id) => ("memory_get", json!({"id": id})),
+                        None => ("memory_get", json!({"source": words.join(" ")})),
+                    }
                 }
                 _ => {
                     if words.is_empty() {
@@ -277,8 +282,12 @@ pub fn json_local(index: &Index, tool: &str, arguments: &Value) -> Result<String
             Ok(Value::Array(hits.iter().map(index::Hit::to_json).collect()).to_string())
         }
         "memory_get" => {
-            let id = arguments["id"].as_u64().ok_or("get needs an id")?;
-            Ok(index.get(id)?.to_json().to_string())
+            let id = arguments["id"].as_u64();
+            let source = arguments["source"].as_str();
+            if id.is_none() && source.is_none() {
+                return Err("get needs an id or a source".into());
+            }
+            Ok(index.get_entry(id, source)?.to_json().to_string())
         }
         _ => Err(format!("--json is for search and get, not {tool}")),
     }
