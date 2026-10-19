@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { b64u, beginPairing, call, inDO, testEnv } from "./pairing-harness.ts"
 import { rolesTeam } from "./team-roles-support.ts"
 import { deliver } from "./team-stack-support.ts"
+import { hostNetworkExternal } from "../src/host-network-bind.ts"
 
 const MESH = "mesh_00000000000000000000000000"
 const DEVICE = "dev_00000000000000000000000000"
@@ -196,11 +197,25 @@ describe("app host network identity binding", () => {
 
   it.each(["team", "project"])("rechecks the owner %s mapping after the signed read", async (field) => {
     const f = await fixture(), owner = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(f.team.team))
-    f.onRead(async () => {
-      await inDO(owner, async (instance) => { instance.vmApiTenant = async () => ({ team: field === "team" ? "wrong-team" : f.team.team, tenant: f.team.stackTeam, project: field === "project" ? "wrong-project" : testEnv.STACK_PROJECT_ID }) })
+    let target = { team: f.team.team, tenant: f.team.stackTeam, project: testEnv.STACK_PROJECT_ID }
+    f.onRead(async () => { target = { ...target, [field]: `wrong-${field}` } })
+    const principal = { kind: "install" as const, identity: f.install, user: f.team.creator.user, team: f.team.team, install: f.install, grant: f.grant, install_kind: "mac", grant_classes: ["read", "mutate-own"] }
+    const frame = { op: "host.network.bind", params: { host: f.host, mesh: MESH, device: DEVICE, wg_public_key: f.wg, proof: await f.proof() }, idempotency_key: crypto.randomUUID() }
+    let result: any, commits = 0
+    // Inject only the routing authority. Keep actual host state, install-key RPC, signed read and reducer.
+    await inDO(owner, async (instance) => {
+      const engine = instance.boundEngine
+      result = await hostNetworkExternal({
+        team: f.team.team, project: testEnv.STACK_PROJECT_ID, origin: NATIVE, stream: engine.stream,
+        state: () => engine.currentState, rows: engine.rows, tenant: async () => target, http: globalThis.fetch, now: Date.now,
+        key: (user, install, grant) => (testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)) as any).deviceKey(user, install, grant),
+        submitSystem: (op, params, key, revision) => { commits++; return instance.submitSystem(op, params, key, undefined, revision) }
+      }, principal, frame)
     })
-    expect((await f.bind()).json.error?.code).toBe("auth.forbidden")
+    expect(result.error?.code).toBe("auth.forbidden")
+    expect(commits).toBe(0)
     expect(f.requests).toHaveLength(1)
+    expect((await f.directory()).hosts.find((h: { id: string }) => h.id === f.host)).not.toHaveProperty("network")
   })
 
   it.each([302, 404, 503])("keeps the host unbound after a %s and retries with a fresh proof", async (status) => {
