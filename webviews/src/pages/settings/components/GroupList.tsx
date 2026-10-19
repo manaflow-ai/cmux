@@ -37,7 +37,13 @@ export function GroupList({
                 <div className="collapse" key={row.key} data-open={shown.has(row.key) ? "" : undefined}>
                   <div className="collapse-body">
                     {(mounted?.has(row.key) ?? true) && (
-                      <SettingRow row={row} query={query} filtered={!shown.has(row.key)} />
+                      // A row outside the filter highlights nothing, so its props stay equal and it
+                      // skips the keystroke's render.
+                      <SettingRow
+                        row={row}
+                        query={shown.has(row.key) ? query : undefined}
+                        filtered={!shown.has(row.key)}
+                      />
                     )}
                   </div>
                 </div>
