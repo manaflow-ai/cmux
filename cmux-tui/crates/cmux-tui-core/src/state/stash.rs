@@ -31,7 +31,7 @@ use sha2::{Digest, Sha256};
 use crate::Actor;
 use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::*;
-use crate::state::closed_history::{REOPEN, Reopened};
+use crate::state::closed_history::{REOPEN, Reopened, note_created, recording_created};
 use crate::state::closed_history_store::queue_change;
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
@@ -243,35 +243,32 @@ impl Mux {
         }
         let restored_ids = restore.iter().map(|member| member["id"].clone()).collect::<Vec<_>>();
         let mut reopened = Reopened::default();
-        // The new workspace's starter tab, while it is open.
-        let mut starter = None;
-        let opened = match target {
-            RestoreTarget::Here => restore.iter().try_for_each(|member| {
-                self.restore_member_here(&mutation.actor, member, pane, &mut reopened)
-            }),
-            RestoreTarget::NewWorkspace => self.restore_in_new_workspace(
-                mutation,
-                &record,
-                &restore,
-                &mut reopened,
-                &mut starter,
-            ),
-        };
         // All or nothing: when a member cannot reopen, or the commit fails,
-        // what this call opened closes again and every member stays.
-        let opened_tabs = reopened.tabs.clone();
-        let committed = opened.and_then(|()| {
-            self.commit_restore(
-                mutation,
-                OPERATION,
-                &fingerprint,
-                stash_id,
-                &restored_ids,
-                reopened,
-            )
+        // every surface this call created closes again and every member
+        // stays. Surfaces are recorded as they are created, so one a later
+        // step of its reopen failed on closes too.
+        let (committed, created) = recording_created(|| {
+            match target {
+                RestoreTarget::Here => restore.iter().try_for_each(|member| {
+                    self.restore_member_here(&mutation.actor, member, pane, &mut reopened)
+                }),
+                RestoreTarget::NewWorkspace => {
+                    self.restore_in_new_workspace(mutation, &record, &restore, &mut reopened)
+                }
+            }
+            .and_then(|()| {
+                self.commit_restore(
+                    mutation,
+                    OPERATION,
+                    &fingerprint,
+                    stash_id,
+                    &restored_ids,
+                    reopened,
+                )
+            })
         });
         if committed.is_err() {
-            self.roll_back_restore(mutation, &opened_tabs, starter);
+            self.roll_back_restore(mutation, &created);
         }
         committed
     }
@@ -319,39 +316,38 @@ impl Mux {
         )
     }
 
-    /// Close what a failed restore opened: the tabs `tabs` names and the
-    /// new workspace's `starter` while they are still open, as a session end
-    /// (never recorded in Recently Closed), under a key of their own. A close
-    /// that fails is logged; the restore's own error is what the caller sees.
-    fn roll_back_restore(
-        self: &Arc<Self>,
-        mutation: &WorkspaceMutation,
-        tabs: &[String],
-        starter: Option<SurfaceId>,
-    ) {
-        let surfaces = self.with_state(|state| {
-            let mut surfaces = state
-                .resource_indexes
-                .tab_ids
-                .iter()
-                .filter(|(_, public)| tabs.contains(&public.to_string()))
-                .map(|(surface, _)| *surface)
-                .collect::<Vec<_>>();
-            surfaces.extend(starter.filter(|starter| state.pane_of(*starter).is_some()));
-            surfaces
-        });
-        if surfaces.is_empty() {
-            return;
+    /// Close what a failed restore created (`created`, the ones still open)
+    /// as a session end, never recorded in Recently Closed, under a key of
+    /// its own. A surface another client closes meanwhile is left out of a
+    /// second try; a close that still fails is logged, and the restore's own
+    /// error is what the caller sees.
+    fn roll_back_restore(self: &Arc<Self>, mutation: &WorkspaceMutation, created: &[SurfaceId]) {
+        let mut last_error = None;
+        for _ in 0..2 {
+            let open = self.with_state(|state| {
+                created
+                    .iter()
+                    .copied()
+                    .filter(|surface| state.pane_of(*surface).is_some())
+                    .collect::<Vec<_>>()
+            });
+            if open.is_empty() {
+                return;
+            }
+            let closed = WorkspaceMutation::new(
+                format!("stash-restore-rollback-{}", crate::workspace_registry::new_uuid_v4()),
+                mutation.origin.clone(),
+                mutation.actor.clone(),
+            )
+            .and_then(|close| {
+                self.close_tabs_for(open, true, Some(CloseReason::SessionEnd), &close)
+            });
+            match closed {
+                Ok(_) => return,
+                Err(error) => last_error = Some(error),
+            }
         }
-        let close = WorkspaceMutation::new(
-            format!("stash-restore-rollback-{}", crate::workspace_registry::new_uuid_v4()),
-            mutation.origin.clone(),
-            mutation.actor.clone(),
-        );
-        let closed = close.and_then(|close| {
-            self.close_tabs_for(surfaces, true, Some(CloseReason::SessionEnd), &close)
-        });
-        if let Err(error) = closed {
+        if let Some(error) = last_error {
             eprintln!(
                 "cmux-tui: stash.restore could not close the pages of a failed restore: {error:#}"
             );
@@ -409,20 +405,19 @@ impl Mux {
 
     /// One new workspace named after the stash holding `restore` in order.
     /// It starts with a shell (every new workspace does), which closes once
-    /// the pages are in, unrecorded (`session_end`). `opened_starter` names
-    /// that shell while it is open, so a failed restore closes it too.
+    /// the pages are in, unrecorded (`session_end`). The shell is recorded
+    /// as created, so a failed restore closes it with the pages.
     fn restore_in_new_workspace(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
         record: &Value,
         restore: &[Value],
         reopened: &mut Reopened,
-        opened_starter: &mut Option<SurfaceId>,
     ) -> anyhow::Result<()> {
         let actor = &mutation.actor;
         let name = record["name"].as_str().map(str::to_string);
         let starter = self.new_workspace_as(actor, name, None)?.id;
-        *opened_starter = Some(starter);
+        note_created(starter);
         let pane =
             self.with_state(|state| state.pane_of(starter)).context("new workspace has no pane")?;
         let (workspace, screen) = self.public_screen_of_pane(pane)?;
@@ -448,7 +443,6 @@ impl Mux {
                 Some(CloseReason::SessionEnd),
                 &starter_close,
             )?;
-            *opened_starter = None;
         }
         Ok(())
     }
