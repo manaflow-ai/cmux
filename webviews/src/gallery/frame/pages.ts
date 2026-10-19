@@ -48,7 +48,7 @@ const hash = (text: string) => {
 export async function mountMarkdownPage(state: MarkdownPageVariant, context: StageContext): Promise<void> {
   // The page reads its tables once, as it loads: the pseudo-locales go in first.
   for (const table of [
-    (await import("../../pages/markdown/generated/strings.json")).default,
+    (await import("../../pages/markdown/stringTable")).markdownTable,
     (await import("../../viewer-empty/generated/strings.json")).default,
   ])
     addPseudoLocales(table as unknown as Record<string, Record<string, string>>);

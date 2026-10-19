@@ -6,11 +6,10 @@ import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } from "../../appearance";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings, type Strings } from "../shared/i18n";
+import { createStrings, type StringTable, type Strings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DiagramLibraries, renderDiagram } from "./diagrams";
 import { MarkdownEditor, type EditorLabel, type MarkdownEditorHost } from "./editor";
-import table from "./generated/strings.json";
 import type { ThemeRegistrationAny } from "shiki/core";
 import { CodeHighlighter, codeThemes } from "./highlight";
 import { MARKDOWN_FLUSH_OP, MARKDOWN_LIST_FILES_OP, MARKDOWN_RESOLVE_LINKS_OP, resolveImageURL } from "./host";
@@ -25,6 +24,7 @@ import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
 import { L } from "./strings";
+import { markdownTable, markdownTableFor } from "./stringTable";
 import { MarkdownEmptyState } from "../../viewer-empty/MarkdownEmptyState";
 import { viewerEmptyStrings } from "../../viewer-empty/strings";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -126,7 +126,11 @@ function readingActions(store: MarkdownStore, zoom: MarkdownFontZoom): ReadingSe
   };
 }
 
-export function mountMarkdownPage(root: HTMLElement, client: PageClient | null = createPageClient()): MarkdownStore {
+export function mountMarkdownPage(
+  root: HTMLElement,
+  client: PageClient | null = createPageClient(),
+  table: StringTable = markdownTable,
+): MarkdownStore {
   const store = new MarkdownStore(client);
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
@@ -242,4 +246,9 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
 }
 
 const root = document.getElementById("root");
-if (root && document.documentElement.dataset.cmuxPage === "markdown") mountMarkdownPage(root);
+if (root && document.documentElement.dataset.cmuxPage === "markdown") {
+  const nav = globalThis.navigator;
+  const table = markdownTableFor(nav?.languages?.length ? nav.languages : [nav?.language ?? "en"]);
+  if (table instanceof Promise) void table.then((loaded) => mountMarkdownPage(root, createPageClient(), loaded));
+  else mountMarkdownPage(root, createPageClient(), table);
+}

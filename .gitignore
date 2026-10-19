@@ -100,6 +100,6 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 # (#21946). Committed copies collided in every pull request that touched a catalog.
 /webviews/src/**/generated/strings.json
 /webviews/src/pages/home-channels/generated/pane-strings.json
-/webviews/src/pages/diff/generated/locales/
-/webviews/src/pages/diff/generated/localeLoaders.ts
+/webviews/src/**/generated/locales/
+/webviews/src/**/generated/localeLoaders.ts
 /webviews/src/**/generated/*.tmp

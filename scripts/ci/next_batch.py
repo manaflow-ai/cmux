@@ -101,8 +101,8 @@ WEB_GENERATED = (
     # (build output since #21946; an older branch still tracks them).
     "webviews/src/*/generated/strings.json",
     "webviews/src/pages/home-channels/generated/pane-strings.json",
-    "webviews/src/pages/diff/generated/locales/*",
-    "webviews/src/pages/diff/generated/localeLoaders.ts",
+    "webviews/src/*/generated/locales/*",
+    "webviews/src/*/generated/localeLoaders.ts",
 )
 # Written by Swift tests under CMUX_UPDATE_*; only a mini can rebuild them.
 SWIFT_GENERATED = (
