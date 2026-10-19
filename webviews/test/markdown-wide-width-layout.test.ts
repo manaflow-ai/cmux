@@ -178,6 +178,36 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         await page.close();
       });
 
+      test("the Aa popover: a typed width and the preset menu change the column, and the popover stays open", async () => {
+        const page = await open(engine, 3000);
+        await page.click(".md-reading-button");
+        const input = page.locator(".md-width-input");
+        await input.waitFor();
+        await input.fill("300");
+        await input.press("Enter");
+        await page.waitForTimeout(100);
+        let box = await layout(page);
+        expect(Math.abs(box.content - 300 * box.ch)).toBeLessThan(2);
+        expect(await input.inputValue()).toBe("300");
+        expect(await page.locator(".md-width-presets").textContent()).toContain("Ultra Wide");
+        // Out of range: the field shows the nearest end.
+        await input.fill("99999");
+        await input.press("Enter");
+        expect(await input.inputValue()).toBe("1000");
+        await page.click(".md-width-presets button");
+        await page.getByRole("menuitemradio", { name: "Full Width" }).click();
+        await page.waitForTimeout(100);
+        box = await layout(page);
+        expect(Math.abs(box.content - (box.paneWidth - 2 * box.padding))).toBeLessThan(2);
+        expect(await page.locator(".md-width-input").count()).toBe(1);
+        await page.click(".md-width-presets button");
+        await page.getByRole("menuitemradio", { name: "Comfortable" }).click();
+        await page.waitForTimeout(100);
+        box = await layout(page);
+        expect(Math.abs(box.content - 72 * box.ch)).toBeLessThan(2);
+        await page.close();
+      });
+
       test("code is 85-90% of the body text, at the default and at a 14px body", async () => {
         const page = await open(engine, 1200);
         for (const css of ["", "--cmux-md-font-size: 14px;", "--cmux-md-font-size: 22px;"]) {
