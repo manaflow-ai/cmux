@@ -197,6 +197,9 @@ final class SidebarPullRequestStore {
         }
     }
 
+    /// Whether the five-minute recheck is pending.
+    var rechecks: Bool { recheck.isScheduled }
+
     /// Stops the recheck: the tree is off.
     func stop() {
         shown = []

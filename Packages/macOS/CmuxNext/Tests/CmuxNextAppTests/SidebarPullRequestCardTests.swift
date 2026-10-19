@@ -242,6 +242,28 @@ import Testing
         #expect(!slow.isSettled(url))
     }
 
+    /// The five-minute recheck runs only while the tree shows a pull request still in flight: a folder
+    /// whose branch has none, or a merged one, keeps no timer (a new lane or answer passes the tree
+    /// again anyway).
+    @Test func onlyAnOpenPullRequestKeepsTheRecheck() async throws {
+        let folder = "/src/app", url = "https://github.com/o/r/pull/4"
+        let gh = try Self.fakeGitHub(answer: """
+            {"data":{"p0":{"pullRequest":{"url":"\(url)","number":4,"title":"Going","state":"OPEN","isDraft":false,"mergeable":"MERGEABLE",
+             "createdAt":"2026-10-01T00:00:00Z","mergedAt":null,"additions":1,"deletions":1,"commits":{"nodes":[]}}}}}
+            """, status: 0)
+        let store = SidebarPullRequestStore(reader: AgentChatPullRequestReader(gh: gh), freshness: .seconds(300))
+        store.refresh([folder])
+        try await Self.waitUntil { Self.calls(gh) == 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        store.refresh([folder])
+        #expect(!store.rechecks)
+        store.refresh([folder, url])
+        try await Self.waitUntil { store.answers[url] != nil }
+        store.refresh([folder, url])
+        #expect(store.rechecks)
+        store.stop()
+    }
+
     /// A closed pull request can be reopened, so only a merged one is settled.
     @Test func aClosedPullRequestIsAskedAgain() async throws {
         let url = "https://github.com/o/r/pull/3"
