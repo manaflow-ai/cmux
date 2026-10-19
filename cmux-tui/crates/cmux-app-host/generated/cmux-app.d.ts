@@ -786,8 +786,8 @@ interface CmuxGlobal {
     get: CmuxOp<{ machine?: string; session?: string; conversation: string; tail?: number }, Cmux.ConversationPage>
     /** `conversation.history` (read, scope `conversation:read`) */
     history: CmuxOp<{ machine?: string; session?: string; conversation: string; before_seq: number; limit: number }, Array<Cmux.ConversationMessage>>
-    /** `conversation.import` (mutation, scope `conversation:write`): Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
-    import: CmuxOp<{ id?: Cmux.ConversationId; source?: { kind: "mac"; host: string; local_id: string }; kind?: "group" | "chief"; title?: string; participants?: Array<Cmux.HomeParticipantInput>; after_seq?: number; messages: Array<string>; read_cursors?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>> & {
+    /** `conversation.import` (mutation, scope `conversation:write`): Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same. */
+    import: CmuxOp<{ id?: Cmux.ConversationId; source?: { kind: "mac"; host: string; local_id: string }; kind?: "group" | "chief"; title?: string; participants?: Array<Cmux.HomeParticipantInput>; after_seq?: number; fill?: boolean; messages: Array<string>; read_cursors?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>> & {
       /** `conversation.import.commit` (mutation, scope `conversation:write`): Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry. */
       commit: CmuxOp<{ id: Cmux.ConversationId; last_seq: number; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
     }
@@ -1459,7 +1459,7 @@ interface CmuxGlobal {
     /** `tab.unpin` (mutation, scope `workspace:write`) */
     unpin: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
     /** `tab.update` (mutation, scope `workspace:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; zoom?: number | null; back?: Array<string>; forward?: Array<string>; owner?: string; icon?: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
+    update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; zoom?: number | null; back?: Array<string>; forward?: Array<string>; owner?: string; icon?: string | null; marked_unread?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
   }
   tab_group: {
     /** `tab_group.add_tabs` (mutation, scope `tab_group:write`) */

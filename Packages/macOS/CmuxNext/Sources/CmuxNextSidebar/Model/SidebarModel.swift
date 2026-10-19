@@ -56,6 +56,8 @@ public final class SidebarModel {
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
+    /// The workspace rows as the list draws them, top to bottom (its folder sort and filter applied; empty with no list).
+    @ObservationIgnored public var drawnWorkspaceOrder: () -> [WorkspaceID] = { [] }
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
@@ -63,7 +65,18 @@ public final class SidebarModel {
     /// top-section item while the window shows its page, else the shown
     /// workspace. The App derives it from the window state; the one
     /// highlight, stepping and numbering read it.
-    public var selectedItem: SidebarItem?
+    ///
+    /// The focused workspace is always listed (sidebar-focused-visible): a
+    /// new workspace selection opens the collapsed sections that hide it
+    /// (`expandSections(hiding:)`), and the list scrolls it into view
+    /// (`ListViewport.settle`). Every selection path (a click, Cmd-P, a link,
+    /// the CLI, an agent's focus, a new workspace) sets this one property.
+    public var selectedItem: SidebarItem? {
+        didSet {
+            guard selectedItem != oldValue, case let .workspace(id)? = selectedItem else { return }
+            expandSections(hiding: id)
+        }
+    }
     /// The workspace shown in the window: the selection when it is a workspace.
     public var activeWorkspaceID: WorkspaceID? {
         get { if case .workspace(let id)? = selectedItem { id } else { nil } }
@@ -131,6 +144,8 @@ public final class SidebarModel {
     public var minimal = false
     /// Expanded rows (`sidebar.density`), unless minimal.
     public var expanded = false
+    /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
+    public var detailedStatus = false
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
@@ -347,6 +362,26 @@ public final class SidebarModel {
         }
     }
 
+    /// Opens the collapsed sections that hide workspace `id` (a machine or
+    /// Pinned section, a document section), so the focused workspace has a
+    /// row. A collapsed group stays closed: it draws its active member as its
+    /// one row (`SidebarLayout.make`). Called on a selection change only, so
+    /// the user can still collapse the section the focused workspace is in.
+    func expandSections(hiding id: WorkspaceID) {
+        var sectionIDs: Set<SectionID> = [], layoutIDs: Set<LayoutSectionID> = []
+        for path in listedPaths(of: id) {
+            let section = storedSections[path.section]
+            if collapsedSections.contains(section.id) || section.isCollapsed { sectionIDs.insert(section.id) }
+            if case let .custom(custom) = section.kind, collapsedLayoutSections.contains(LayoutSectionID(custom.id)) {
+                layoutIDs.insert(LayoutSectionID(custom.id))
+            }
+        }
+        if !layoutIDs.isEmpty { collapsedLayoutSections.subtract(layoutIDs) }
+        guard !sectionIDs.isEmpty else { return }
+        collapsedSections.subtract(sectionIDs)
+        setSections(sections)
+    }
+
     private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
         if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
         return rowIndex?.paths(of: id) ?? []
@@ -358,7 +393,7 @@ public final class SidebarModel {
         selection.subtract(closed)
         if let oldActive, closed.contains(oldActive) {
             let surviving = allWorkspaces.map(\.id)
-            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving)
+            let next = FocusAfterClose.workspace(shown: oldActive, old: oldOrder, surviving: surviving, orders: [drawnWorkspaceOrder()])
             activeWorkspaceID = next
             selection = next.map { [$0] } ?? []
         }
@@ -441,6 +476,7 @@ public final class SidebarModel {
         showWorkspaceTabs = preferences.showWorkspaceTabs && !preferences.minimal
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
+        detailedStatus = preferences.detailedStatusIcons
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
@@ -460,6 +496,7 @@ public final class SidebarModel {
         o.activeWorkspaceID = activeWorkspaceID
         o.workspaceRow = workspaceRow
         (o.minimal, o.expanded) = (minimal, expanded)
+        o.detailedStatus = detailedStatus
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {
