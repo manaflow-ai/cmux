@@ -164,6 +164,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
+  earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
@@ -200,7 +201,7 @@ import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } 
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
-import { sideChatRow } from "./header/sideChatRow";
+import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
@@ -4813,9 +4814,20 @@ function AcpmuxPane() {
     t,
   );
   opensSideChat.current = sideChat !== undefined;
+  // New terminal and New browser (the chat menu, the summary panel): another one beside the chat on
+  // every click, whatever the header's Terminal and Browser buttons do.
+  const newTerminal = () => runSplitAction(HEADER_ACTIONS.terminal, localCwd, "open");
+  const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
-    const copy = copyRow({ link, rows: snapshot.rows }, (text) => ignoreFailure(copyText(text)), t);
+    const copy = copyRow(
+      { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
+      (text) => ignoreFailure(copyText(text)),
+      t,
+    );
+    // Fork › From here (the last turn), then, for a harness that forks at any turn, the earlier
+    // prompts, newest first (ChatGPT's "from a message"); otherwise one Fork row.
+    const forkPrompts = forksAnyTurn(summary?.family) ? earlierForkPrompts(snapshot.rows) : [];
     const fork: ChatMenuItem[] =
       forkable && lastForkSeq !== undefined
         ? [
@@ -4823,10 +4835,27 @@ function AcpmuxPane() {
               key: "fork",
               label: t("chatMenu.fork"),
               icon: "agent.fork",
-              onSelect: () => turnActions.fork?.(lastForkSeq),
+              ...(forkPrompts.length > 0
+                ? {
+                    children: [
+                      {
+                        key: "forkHere",
+                        label: t("chatMenu.forkFromHere"),
+                        onSelect: () => turnActions.fork?.(lastForkSeq),
+                      },
+                      ...forkPrompts.map((prompt) => ({
+                        key: `fork-${prompt.seq}`,
+                        label: prompt.text,
+                        onSelect: () => turnActions.fork?.(prompt.seq),
+                      })),
+                    ],
+                  }
+                : { onSelect: () => turnActions.fork?.(lastForkSeq) }),
             },
           ]
         : [];
+    // New side chat, New terminal and New browser: something new beside the chat, every time.
+    const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
     const continueIn: ChatMenuItem[] =
       snapshot.canHandoff && handoffTargets.length > 0
         ? [
@@ -4910,7 +4939,7 @@ function AcpmuxPane() {
           onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
         },
       ],
-      [...(sideChat ? [sideChat] : []), ...fork, ...continueIn],
+      [...opensBeside, ...fork, ...continueIn],
       copy ? [copy] : [],
       [
         {
