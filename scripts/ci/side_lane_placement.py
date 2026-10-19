@@ -107,7 +107,7 @@ def session_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None)
     carries it, and "" keeps the session-only jobs on `gui_runner`.
     """
     gui = gui_route_label(label, runners)
-    return _live([gui.replace(pool.GUI_PREFIX, pool.SESSION_PREFIX, 1)] if gui else [], runners)
+    return _live([pool.session_label(pool.pool_label(gui))] if gui else [], runners)
 
 
 def _live(candidates: Sequence[str], runners: Sequence[Mapping[str, Any]]) -> str:
