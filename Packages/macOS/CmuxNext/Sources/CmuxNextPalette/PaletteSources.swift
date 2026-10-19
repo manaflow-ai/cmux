@@ -8,6 +8,8 @@ import Foundation
 public struct PaletteSources {
     public var workspaces: (any PaletteWorkspaceSource)?
     public var tabs: (any PaletteTabSource)?
+    /// The groups, panes and tabs Go to Workspace (Cmd-P) also searches.
+    public var navigation: (any PaletteNavigationSource)?
     public var openIn: (any PaletteOpenInSource)?
     public var settings: (any PaletteSettingsSource)?
     public var recentDirectories: (any PaletteRecentDirectorySource)?
@@ -43,6 +45,7 @@ public struct PaletteSources {
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,
         tabs: (any PaletteTabSource)? = nil,
+        navigation: (any PaletteNavigationSource)? = nil,
         openIn: (any PaletteOpenInSource)? = nil,
         settings: (any PaletteSettingsSource)? = nil,
         recentDirectories: (any PaletteRecentDirectorySource)? = nil,
@@ -53,6 +56,7 @@ public struct PaletteSources {
     ) {
         self.workspaces = workspaces
         self.tabs = tabs
+        self.navigation = navigation
         self.openIn = openIn
         self.settings = settings
         self.recentDirectories = recentDirectories

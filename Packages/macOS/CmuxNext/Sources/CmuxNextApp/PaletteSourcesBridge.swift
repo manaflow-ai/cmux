@@ -35,6 +35,7 @@ enum PaletteSourcesBridge {
 
     private static func makeBase(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
+                       navigation: AppPaletteNavigationSource(services: services),
                        targets: targetSource(services),
                        context: { [weak services] in services.map(capturedTargets) ?? [] },
                        // Theme pickers preview the highlighted theme live.
@@ -83,10 +84,15 @@ enum PaletteSourcesBridge {
 
         var workspaces: [PaletteWorkspace] {
             let shown = services.windows.active?.state.workspaceID
+            var groupNames: [String: String] = [:]
+            for group in AppPaletteNavigationSource.groups(services) {
+                for id in group.workspaceIDs where groupNames[id] == nil { groupNames[id] = group.name }
+            }
             return services.machines.allWorkspaces.map(\.0).map { workspace in
                 let cwd = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.cwd != nil }?.cwd
                 return PaletteWorkspace(id: workspace.id, title: workspace.displayName, directory: cwd,
-                                        isSelected: workspace.id == shown, unreadCount: workspace.unreadCount)
+                                        isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
+                                        groupName: groupNames[workspace.id])
             }
         }
 
