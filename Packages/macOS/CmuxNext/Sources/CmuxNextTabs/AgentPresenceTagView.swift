@@ -24,7 +24,7 @@ public final class AgentPresenceTagView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override public var wantsUpdateLayer: Bool { true }
+    nonisolated override public var wantsUpdateLayer: Bool { true }
     override public var isFlipped: Bool { true }
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
 
