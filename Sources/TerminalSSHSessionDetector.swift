@@ -948,6 +948,7 @@ enum TerminalSSHSessionDetector {
 
         // OpenSSH keeps the first value it reads for a setting, whether it came
         // before or after the destination, so a later one never replaces it.
+        // `-S` is the exception: each one replaces the control path.
         func consumeValue(_ value: String, for option: Character) -> Bool {
             let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedValue.isEmpty else { return false }
@@ -967,7 +968,7 @@ enum TerminalSSHSessionDetector {
                 jumpHost = jumpHost ?? trimmedValue
                 return true
             case "S":
-                controlPath = controlPath ?? trimmedValue
+                controlPath = trimmedValue
                 return true
             case "l":
                 loginName = loginName ?? trimmedValue
