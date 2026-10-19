@@ -105,4 +105,31 @@ import Testing
         #expect(await calls.legacy == 0)
         #expect(await calls.app.isEmpty)
     }
+
+    @Test func clearingACustomNameUsesTheCanonicalDefaultTitle() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let world = CloudTeamScopeWorld(), calls = Calls()
+        let scope = try await resolver(root, world: world)
+        try await client(scope, calls: calls).run(.rename(""), machine: "vm-alpha01", origin: .user) { }
+        #expect(await calls.app.first?.args["name"]?.stringValue == "vm-alpha01")
+        #expect(await calls.legacy == 0)
+    }
+
+    @Test func aDestructiveScriptRefusalDoesNotBecomeAUserGestureOrLegacyCall() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let world = CloudTeamScopeWorld(), calls = Calls()
+        let scope = try await resolver(root, world: world)
+        let refusal = CloudAppOpFailure(code: "cmux.cloud.origin_refused", message: "user required")
+        var committed = false
+        await #expect(throws: refusal) {
+            try await client(scope, calls: calls, reply: { throw refusal })
+                .run(.delete, machine: "vm-alpha01", origin: .script) { committed = true }
+        }
+        #expect(!committed)
+        #expect(await calls.app.count == 1)
+        #expect(await calls.app.first?.origin == .script)
+        #expect(await calls.legacy == 0)
+    }
 }
