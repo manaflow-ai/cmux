@@ -39,6 +39,18 @@ pub enum IfLive {
     Open,
 }
 
+impl IfLive {
+    /// `ifLive` as `adopt` and `_acpmux/watch_take_over` take it: absent is `refuse`.
+    pub fn parse(value: Option<&str>) -> Result<Self, String> {
+        match value {
+            None | Some("refuse") => Ok(IfLive::Refuse),
+            Some("fork") => Ok(IfLive::Fork),
+            Some("open") => Ok(IfLive::Open),
+            Some(other) => Err(format!("ifLive {other:?} is not refuse, fork or open")),
+        }
+    }
+}
+
 impl AdoptRequest {
     /// Reads `{harness, agentSessionId, ifLive?, cwdMap?, watch?}`; `None` when
     /// absent, an error when malformed.
@@ -49,14 +61,8 @@ impl AdoptRequest {
             .and_then(Value::as_str)
             .ok_or("adopt needs agentSessionId")?;
         let harness = adopt.get("harness").and_then(Value::as_str).map(str::to_owned);
-        let if_live = match adopt.get("ifLive").and_then(Value::as_str) {
-            None | Some("refuse") => IfLive::Refuse,
-            Some("fork") => IfLive::Fork,
-            Some("open") => IfLive::Open,
-            Some(other) => {
-                return Err(format!("adopt ifLive {other:?} is not refuse, fork or open"));
-            }
-        };
+        let if_live = IfLive::parse(adopt.get("ifLive").and_then(Value::as_str))
+            .map_err(|e| format!("adopt {e}"))?;
         let cwd_map = match adopt.get("cwdMap") {
             None | Some(Value::Null) => Vec::new(),
             Some(Value::Array(items)) => items
