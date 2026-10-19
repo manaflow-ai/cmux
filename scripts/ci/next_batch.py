@@ -1390,7 +1390,11 @@ class Controller:
                 if not passed(quoted.group(1)):
                     return False
             elif verdict:
-                jobs = self.failed_jobs(int(verdict.group(1)))
+                try:
+                    jobs = self.failed_jobs(int(verdict.group(1)))
+                except RuntimeError as error:  # unreadable: nothing is waived
+                    log(f"could not read run {verdict.group(1)}: {error}")
+                    return False
                 if not jobs or not all(passed(job) for job in jobs):
                     return False
             else:
@@ -1406,7 +1410,8 @@ class Controller:
         deadline = time.monotonic() + 30 * 60
         override = False
         while True:
-            command = [str(helper), ref, *(["--override", reason] if override else []), "--squash"]
+            command = [str(helper), ref, *(["--override", reason] if override else []), "--squash",
+                       "--match-head-commit", pr.sha]
             completed = subprocess.run(command, capture_output=True, text=True, env=env)
             output = (completed.stdout + completed.stderr).strip()
             if completed.returncode == 0:
