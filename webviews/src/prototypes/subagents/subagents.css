@@ -302,7 +302,7 @@
   padding: 8px 20px 40px;
   border-radius: 28px 28px 0 0;
   background: var(--sa-raised);
-  box-shadow: 0 -8px 30px rgb(0 0 0 / 35%);
+  box-shadow: var(--elevation-2);
   overflow: auto;
   animation: sa-sheet-in 0.35s ease-out;
 }
