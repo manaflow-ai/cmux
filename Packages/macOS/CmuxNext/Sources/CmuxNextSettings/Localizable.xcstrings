@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sidebar.groupLineJoinsHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Join Group Lines to Headers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصل خطوط المجموعات بعناوينها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spoji linije grupa sa zaglavljima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind gruppelinjer med overskrifter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppenlinien mit Kopfzeilen verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unir las líneas de grupo a los encabezados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relier les lignes de groupe aux en-têtes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unisci le linee dei gruppi alle intestazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループの線を見出しにつなげる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់បន្ទាត់ក្រុមទៅក្បាលក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 선을 헤더에 연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble gruppelinjer til overskrifter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Łącz linie grup z nagłówkami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unir linhas dos grupos aos cabeçalhos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединять линии групп с заголовками"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมเส้นกลุ่มเข้ากับส่วนหัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grup çizgilerini başlıklara birleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поєднувати лінії груп із заголовками"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nối đường nhóm với tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将分组线连接到标题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將群組線連接到標題"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupLineJoinsHeader.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The line beside a group's workspaces runs into the group's header as one shape. Off, the line starts just below the header, with a small gap."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمتد الخط المجاور لمساحات عمل المجموعة إلى عنوان المجموعة كشكل واحد. عند الإيقاف، يبدأ الخط أسفل العنوان مباشرة بفجوة صغيرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linija pored radnih prostora grupe nastavlja se u zaglavlje grupe kao jedan oblik. Kada je isključeno, linija počinje odmah ispod zaglavlja, uz mali razmak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjen ved siden af en gruppes arbejdsområder løber ind i gruppens overskrift som én form. Slået fra starter linjen lige under overskriften med et lille mellemrum."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Linie neben den Arbeitsbereichen einer Gruppe geht als eine Form in die Kopfzeile der Gruppe über. Aus: Die Linie beginnt knapp unter der Kopfzeile, mit einer kleinen Lücke."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La línea junto a los espacios de trabajo de un grupo se une al encabezado del grupo como una sola forma. Desactivado, la línea empieza justo debajo del encabezado, con un pequeño espacio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ligne à côté des espaces de travail d'un groupe se prolonge dans l'en-tête du groupe en une seule forme. Désactivé, la ligne commence juste sous l'en-tête, avec un petit espace."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La linea accanto agli spazi di lavoro di un gruppo prosegue nell'intestazione del gruppo come un'unica forma. Se disattivato, la linea inizia appena sotto l'intestazione, con un piccolo spazio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループのワークスペースの横の線が、グループの見出しとひとつの形としてつながります。オフにすると、線は見出しのすぐ下から小さな隙間を空けて始まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាត់នៅក្បែរកន្លែងធ្វើការរបស់ក្រុមភ្ជាប់ទៅក្បាលក្រុមជារាងតែមួយ។ ពេលបិទ បន្ទាត់ចាប់ផ្ដើមនៅខាងក្រោមក្បាលក្រុមបន្តិច ដោយមានចន្លោះតូចមួយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹의 워크스페이스 옆 선이 그룹 헤더와 하나의 모양으로 이어집니다. 끄면 선이 헤더 바로 아래에서 작은 간격을 두고 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjen ved siden av en gruppes arbeidsområder går inn i gruppens overskrift som én form. Av: linjen starter rett under overskriften, med et lite mellomrom."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linia obok obszarów roboczych grupy przechodzi w nagłówek grupy jako jeden kształt. Po wyłączeniu linia zaczyna się tuż pod nagłówkiem, z małą przerwą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linha ao lado dos espaços de trabalho de um grupo se une ao cabeçalho do grupo como uma só forma. Desativado, a linha começa logo abaixo do cabeçalho, com um pequeno espaço."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Линия рядом с рабочими пространствами группы переходит в заголовок группы как одна фигура. Если выключено, линия начинается чуть ниже заголовка, с небольшим зазором."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เส้นข้างพื้นที่ทำงานของกลุ่มจะต่อเข้ากับส่วนหัวของกลุ่มเป็นรูปเดียวกัน เมื่อปิด เส้นจะเริ่มใต้ส่วนหัวโดยมีช่องว่างเล็กน้อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir grubun çalışma alanlarının yanındaki çizgi, grubun başlığıyla tek bir şekil olarak birleşir. Kapalıyken çizgi, başlığın hemen altında küçük bir boşlukla başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лінія поруч із робочими просторами групи переходить у заголовок групи як одна фігура. Якщо вимкнено, лінія починається трохи нижче заголовка, з невеликим проміжком."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đường bên cạnh các không gian làm việc của nhóm nối liền vào tiêu đề nhóm thành một hình. Khi tắt, đường bắt đầu ngay dưới tiêu đề, với một khoảng hở nhỏ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分组工作区旁的线与分组标题连成一个整体。关闭后，线从标题正下方开始，中间留一个小间隙。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群組工作區旁的線與群組標題連成一個整體。關閉後，線從標題正下方開始，中間留一個小間隙。"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {

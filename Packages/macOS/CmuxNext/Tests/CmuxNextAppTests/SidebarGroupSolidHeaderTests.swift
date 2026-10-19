@@ -112,6 +112,14 @@ import Testing
         #expect(abs(try Self.overlap(sidebar, name: "").overlap + SidebarStyle.groupLineCut) < 0.01, "turning the join off kept it joined")
     }
 
+    /// VoiceOver reads an unnamed group's header as a group, not ", 2 workspaces".
+    @Test func anUnnamedGroupHeaderReadsAsAGroup() throws {
+        let header = try Self.header(Self.sidebar(minimal: false, name: ""))
+        let label = try #require(header.accessibilityLabel())
+        #expect(!label.hasPrefix(","), "VoiceOver reads \"\(label)\"")
+        #expect(label.hasPrefix(Strings.unnamedGroup), "VoiceOver reads \"\(label)\"")
+    }
+
     /// The line's top end tucks into the bar, so the bar must draw over it: a header the list
     /// adds after the line exists (scrolled back into view, re-applied, a drag look) goes in
     /// where every row does, right above the decorations, and must still cover the line.

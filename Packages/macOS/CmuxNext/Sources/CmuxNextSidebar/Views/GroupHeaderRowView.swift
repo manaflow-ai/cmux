@@ -6,7 +6,8 @@ import QuartzCore
 /// Group header (Lawrence 2026-10-11, cx-qno.22: the solid color bar is
 /// back, over cx-25az's dot-only header and cx-fo2t's no-hover header): the
 /// cx-rcby colored pill chip, one full-width rounded bar in the group's
-/// color (Lawrence 2026-10-08), with the members' line joining it from below;
+/// color (Lawrence 2026-10-08), with the members' line in the same color just
+/// below it, a small cut apart or joined (`sidebar.groupLineJoinsHeader`);
 /// the name starts on the ungrouped rows' leading column (an icon there, the name
 /// where their text starts), one left edge for headers and ungrouped rows
 /// (cg-design-judge 2026-10-14). Every glyph on the bar (name, count, icon, pin,
@@ -131,7 +132,7 @@ final class GroupHeaderRowView: SidebarRowView {
         badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
-        setAccessibilityLabel("\(group.name), \(Strings.groupCount(row.childCount))")
+        setAccessibilityLabel("\(group.name.isEmpty ? Strings.unnamedGroup : group.name), \(Strings.groupCount(row.childCount))")
         setAccessibilityHelp(collapsed ? GroupEditorStrings.expand : GroupEditorStrings.collapse)
         setAccessibilityExpanded(!collapsed)
         needsLayout = true
@@ -299,7 +300,7 @@ final class GroupHeaderRowView: SidebarRowView {
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
                            width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
-        // The members' line joins this bar from below: one layer per group
+        // The members' line starts below this bar (or joins it): one view per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
     }

@@ -19,8 +19,8 @@ final class SidebarGroupLineViews {
     /// line whose group closed or left shrinks back up into its header.
     ///
     /// Lines go in under the decorations, so every row, whenever the list
-    /// adds it (right above the decorations), draws over every line: the
-    /// header bar covers the line's top end (`SidebarGroupLine.lines`). The
+    /// adds it (right above the decorations), draws over every line: a joined
+    /// line's top end tucks under the header bar (`SidebarGroupLine.lines`). The
     /// drag gap the decorations draw sits right of the members' gutter, so
     /// it never covers a line.
     func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, below decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
@@ -108,6 +108,6 @@ final class GroupLineView: NSView {
     }
 
     override func updateLayer() {
-        performWithTheme { layer?.backgroundColor = color.headerFill.cgColor }
+        performWithTheme { layer?.backgroundColor = color.lineFill.cgColor }
     }
 }

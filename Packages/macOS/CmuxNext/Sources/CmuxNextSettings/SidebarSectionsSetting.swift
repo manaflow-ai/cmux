@@ -23,6 +23,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
+    public static let groupLineJoinsHeaderPath = ["sidebar", "groupLineJoinsHeader"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
@@ -51,6 +52,15 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.detailedStatusIcons),
                           keywords: ["sidebar", "status", "icons", "badge", "working", "waiting", "input", "error", "done", "agent", "osc 7501"])
+    }
+
+    static func groupLineJoinsHeaderDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupLineJoinsHeaderPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupLineJoinsHeader", "Join Group Lines to Headers"),
+                          help: SettingsText.keyed("settings.sidebar.groupLineJoinsHeader.help",
+                                                   "The line beside a group's workspaces runs into the group's header as one shape. Off, the line starts just below the header, with a small gap."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.groupLineJoinsHeader),
+                          keywords: ["sidebar", "group", "groups", "line", "header", "join", "connect", "gap", "chrome"])
     }
 
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
@@ -191,6 +201,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
+        result.groupLineJoinsHeader = flag(root, groupLineJoinsHeaderPath, fallback: result.groupLineJoinsHeader, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
                 result.groupBy = groupBy

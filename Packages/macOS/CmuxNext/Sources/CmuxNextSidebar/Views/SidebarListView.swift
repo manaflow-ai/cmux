@@ -22,6 +22,9 @@ final class SidebarListView: NSView {
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
+    /// `sidebar.groupLineJoinsHeader`: a group's members' line runs into its header bar; off, it
+    /// starts a small cut below it (`SidebarGroupLine.lines`).
+    var groupLineJoinsHeader = false
     var sections: [SectionID: SidebarSection] = [:]
     /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.
     var blocks: SidebarListBlocks? {
