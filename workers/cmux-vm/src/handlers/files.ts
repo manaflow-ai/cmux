@@ -19,7 +19,7 @@ const NOT_RUNNING = "The VM is not running, or it stopped answering; retry once 
 export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers) =>
   handlers
     .handle("readFile", ({ path, urlParams, headers }) =>
-      audited("vm.files.read", auditableVmId(path.vmId), withOwnedVm(path.vmId, "vm:files", "files", (_caller, vm, proofs) =>
+      withOwnedVm(path.vmId, "vm:files", "files", (_caller, vm, proofs) =>
         Effect.gen(function* () {
           const upstream = yield* UpstreamClient;
           const file = yield* upstream.readFile(vm, proofs, urlParams.path, headers.range).pipe(
@@ -40,7 +40,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
             headers: responseHeaders,
           });
         }),
-      "files-read")),
+      "files-read"),
     )
     .handleRaw("writeFile", ({ path, urlParams, headers, request }) =>
       audited(
@@ -78,7 +78,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
       ),
     )
     .handle("listFiles", ({ path, urlParams }) =>
-      audited("vm.files.list", auditableVmId(path.vmId), withOwnedVm(path.vmId, "vm:files", "files", (_caller, vm, proofs) =>
+      withOwnedVm(path.vmId, "vm:files", "files", (_caller, vm, proofs) =>
         Effect.gen(function* () {
           const upstream = yield* UpstreamClient;
           const entries = yield* upstream.listFiles(vm, proofs, urlParams.path).pipe(
@@ -93,6 +93,6 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
             entries: entries.map((entry) => new FileEntry({ name: entry.name, kind: kindOf(entry.kind) })),
           });
         }),
-      "files-read")),
+      "files-read"),
     ),
 );

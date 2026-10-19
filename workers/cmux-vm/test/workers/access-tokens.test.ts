@@ -65,6 +65,7 @@ describe("access tokens", () => {
     expect(response.status).toBe(101);
     const call = h.s3a.requests.at(-1);
     expect(call === undefined ? null : new URL(call.url).searchParams.get("linuxUser")).toBe("cmux");
+    response.webSocket?.accept();
     response.webSocket?.close();
   });
 

@@ -118,12 +118,12 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
     .handle("listTerminals", ({ path, urlParams }) =>
       Effect.gen(function* () {
         const upstream = yield* UpstreamTerminals;
-        return yield* audited("terminal.list", path.vmId, withOwnedVm(path.vmId, "vm:terminal", "read", (_caller, vm, proofs) =>
+        return yield* withOwnedVm(path.vmId, "vm:terminal", "read", (_caller, vm, proofs) =>
           upstream.listTerminals(vm, proofs, urlParams.user).pipe(
             Effect.map((sessions) => new TerminalSessionList({ items: sessions.map(toSession) })),
             Effect.mapError((error) => (error.status === 404 ? vmNotFound() : unavailable())),
           ),
-          "pty-list"));
+          "pty-list");
       }),
     )
     .handle("closeTerminal", ({ path, urlParams }) =>
