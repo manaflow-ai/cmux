@@ -140,11 +140,31 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertNotEqual(group('main'), group('nightly-next'))
         self.assertFalse(job['concurrency']['cancel-in-progress'])
 
-    def test_a_build_replaced_by_a_newer_next_push_is_not_reported_as_a_failure(self):
+    def test_a_superseded_next_run_never_enters_the_build_slot(self):
+        # Job concurrency is decided when the job becomes ready, not in push order:
+        # an older run whose resolver finished late could otherwise replace the
+        # newer run's waiting build. The resolver re-reads nightly-next last.
+        resolver = DOC['jobs']['resolve-nightly-cmux-tui-client']
+        self.assertEqual(resolver['steps'][-1]['id'], 'superseded')
+        self.assertIn('git/ref/heads/nightly-next', resolver['steps'][-1]['run'])
+        self.assertIn('superseded', resolver['outputs'])
+        context = {'needs.decide.outputs.should_build': 'true', 'github.event_name': 'push',
+                   'needs.resolve-nightly-cmux-tui-client.outputs.already_published': 'false',
+                   'needs.decide.outputs.continue_only': 'false'}
+        for job in ('build-nightly-app', 'build-nightly-ghostty-cli-helper'):
+            build_if = parse_expression(DOC['jobs'][job]['if'])
+            with self.subTest(job=job):
+                self.assertTrue(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'false'}))
+                self.assertFalse(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'true'}))
+
+    def test_only_a_build_replaced_before_it_started_goes_unreported(self):
         script = next(step for step in DOC['jobs']['report-nightly-failure']['steps']
                       if step.get('name') == 'Open or update the nightly failure issue')['with']['script']
-        self.assertIn("results['build-nightly-app']?.result === 'cancelled'", script)
-        self.assertIn("heads/nightly-next", script)
+        # A replaced build never got a runner; a timed-out or cancelled one did.
+        self.assertIn("!build.runner_name && !(build.steps || []).length", script)
+        # Other failed jobs of the run still report.
+        self.assertIn("!(replaced && k === 'build-nightly-app')", script)
+        self.assertNotIn("getRef", script)
 
     def test_runner_guard_accepts_only_the_complete_nightly_capability_tuple(self):
         source = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
