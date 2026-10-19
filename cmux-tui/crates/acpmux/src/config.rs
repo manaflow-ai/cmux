@@ -199,12 +199,8 @@ pub fn socket_path() -> PathBuf {
 /// owned by `uid` that nobody else can enter.
 #[cfg(unix)]
 fn private_dir(dir: &Path, uid: u32) -> bool {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
-    match std::fs::symlink_metadata(dir) {
-        Ok(m) => m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0,
-        Err(_) => false,
-    }
+    // SAFETY: getuid has no preconditions.
+    uid == unsafe { libc::getuid() } && private_state_dir(dir).is_ok()
 }
 
 /// How acpmux talks to the agent process.

@@ -253,9 +253,9 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
             format!("{} is not a private directory", dir.display()),
         ));
     }
-    if !only_owner_reads(dir)? {
-        restrict(dir)?;
-    }
+    // Normalize even an owner-only but read-only legacy DACL: state
+    // directories must let this user create, replace and delete children.
+    restrict(dir)?;
     if !only_owner_reads(dir)? {
         return Err(io::Error::new(io::ErrorKind::PermissionDenied, "directory is not owner-only"));
     }

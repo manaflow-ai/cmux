@@ -279,15 +279,7 @@ pub fn socket_path(dir: &Path, session_id: &str) -> PathBuf {
 /// Create `dir` mode 0700 and check that only this user can enter it.
 #[cfg(unix)]
 pub fn ensure_private_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    let meta = std::fs::symlink_metadata(dir)?;
-    // SAFETY: getuid has no preconditions.
-    let uid = unsafe { libc::getuid() };
-    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
-        bail!("{} is not a private directory", dir.display());
-    }
-    Ok(())
+    crate::config::private_state_dir(dir)
 }
 /// Windows: an owner-only access list, made or checked (`owner_only.rs`).
 #[cfg(windows)]
