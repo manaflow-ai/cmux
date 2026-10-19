@@ -76,7 +76,18 @@ export interface MarkdownSettings {
   defaultMode?: "rich" | "source";
   /** `markdown.toolbar`: show the toolbar (file, save status, mode switch). Default true. */
   toolbar?: boolean;
-  font?: { family?: string; size?: number | string; weight?: number | string; lineHeight?: number | string };
+  /** `markdown.tables`: a wide table scrolls sideways in its own box (default) or wraps to the column. */
+  tables?: MarkdownTables;
+  /** `markdown.theme`: follow the app (default), or always light or always dark paper. */
+  theme?: MarkdownTheme;
+  font?: {
+    family?: string;
+    /** The body font when `family` is unset: the system font (default), a serif or the code font. */
+    preset?: MarkdownFontPreset;
+    size?: number | string;
+    weight?: number | string;
+    lineHeight?: number | string;
+  };
   headings?: {
     family?: string;
     weight?: number | string;
@@ -98,7 +109,15 @@ export interface MarkdownSettings {
     /** `"terminal"` (default: the terminal palette, as the diff viewer), a Shiki theme name, or one per scheme. */
     theme?: string | { light?: string; dark?: string };
   };
-  layout?: { maxWidth?: number | string; padding?: number | string };
+  layout?: {
+    /** The reading column in characters (the Reading Settings slider); wins over `maxWidth`. */
+    width?: number;
+    /** The column fills the pane; wins over `width` and `maxWidth`. */
+    fullWidth?: boolean;
+    maxWidth?: number | string;
+    padding?: number | string;
+  };
+  /** `paragraph` as a number is in em (the gap scales with the text); the others are pixels. */
   spacing?: { paragraph?: number | string; list?: number | string; listIndent?: number | string };
   colors?: {
     text?: MarkdownColor;
@@ -110,6 +129,80 @@ export interface MarkdownSettings {
     selection?: MarkdownColor;
     caret?: MarkdownColor;
     taskChecked?: MarkdownColor;
+  };
+}
+
+export type MarkdownTables = "scroll" | "wrap";
+export type MarkdownTheme = "app" | "light" | "dark";
+export type MarkdownFontPreset = "system" | "serif" | "mono";
+
+/** The body font stack of each preset (`markdown.font.preset`). */
+export const MARKDOWN_FONT_PRESETS: Record<MarkdownFontPreset, string> = {
+  system: MARKDOWN_STYLE_DEFAULTS["--cmux-md-font-family"],
+  serif: '"New York", ui-serif, "Iowan Old Style", Georgia, serif',
+  mono: "var(--cmux-md-code-font-family)",
+};
+
+/**
+ * The reading options the Reading Settings popover and the Settings window edit: each one's
+ * `markdown.*` key, default and range. The Swift schema (MarkdownViewerSettingsSchema) lists the
+ * same keys, defaults and ranges.
+ */
+export const MARKDOWN_READING = {
+  width: { key: "markdown.layout.width", default: 72, min: 40, max: 160, step: 2 },
+  fullWidth: { key: "markdown.layout.fullWidth", default: false },
+  fontSize: { key: "markdown.font.size", default: 16, min: 8, max: 40, step: 1 },
+  fontPreset: { key: "markdown.font.preset", default: "system" as MarkdownFontPreset },
+  lineHeight: { key: "markdown.font.lineHeight", default: 1.6, min: 1, max: 2.4, step: 0.05 },
+  paragraph: { key: "markdown.spacing.paragraph", default: 1, min: 0, max: 3, step: 0.1 },
+  codeSize: { key: "markdown.code.blockSize", default: 14, min: 8, max: 32, step: 1 },
+  tables: { key: "markdown.tables", default: "scroll" as MarkdownTables },
+  theme: { key: "markdown.theme", default: "app" as MarkdownTheme },
+} as const;
+
+export type MarkdownReadingOption = keyof typeof MARKDOWN_READING;
+
+/** One reading option's value now: the setting when valid, else its default. */
+export interface MarkdownReadingValues {
+  width: number;
+  fullWidth: boolean;
+  fontSize: number;
+  fontPreset: MarkdownFontPreset;
+  lineHeight: number;
+  paragraph: number;
+  codeSize: number;
+  tables: MarkdownTables;
+  theme: MarkdownTheme;
+}
+
+const numberIn = (value: unknown, option: { default: number; min: number; max: number }): number => {
+  const parsed = typeof value === "string" && /^\d+(\.\d+)?(px)?$/.test(value.trim()) ? Number.parseFloat(value) : value;
+  return typeof parsed === "number" && Number.isFinite(parsed)
+    ? Math.min(option.max, Math.max(option.min, parsed))
+    : option.default;
+};
+
+const oneOf = <T extends string>(value: unknown, choices: readonly T[], fallback: T): T =>
+  typeof value === "string" && (choices as readonly string[]).includes(value) ? (value as T) : fallback;
+
+/** The reading options as the popover shows them (a CSS string it cannot show reads as the default). */
+export function markdownReadingValues(settings: unknown): MarkdownReadingValues {
+  const root = object(settings);
+  const font = object(root.font);
+  const layout = object(root.layout);
+  const spacing = object(root.spacing);
+  const code = object(root.code);
+  const r = MARKDOWN_READING;
+  return {
+    width: numberIn(layout.width, r.width),
+    fullWidth: layout.fullWidth === true,
+    fontSize: numberIn(font.size, r.fontSize),
+    fontPreset: oneOf(font.preset, ["system", "serif", "mono"], r.fontPreset.default),
+    lineHeight: numberIn(font.lineHeight, r.lineHeight),
+    paragraph: numberIn(spacing.paragraph, r.paragraph),
+    codeSize: numberIn(code.blockSize, r.codeSize),
+    tables: oneOf(root.tables, ["scroll", "wrap"], r.tables.default),
+    theme: oneOf(root.theme, ["app", "light", "dark"], r.theme.default),
   };
 }
 
@@ -152,7 +245,8 @@ export function markdownStyleVariables(settings: unknown): Partial<Record<Markdo
   const put = (name: MarkdownStyleVariable, value: string | null) => {
     if (value !== null) out[name] = value;
   };
-  put("--cmux-md-font-family", cssValue(font.family));
+  const preset = typeof font.preset === "string" ? MARKDOWN_FONT_PRESETS[font.preset as MarkdownFontPreset] : undefined;
+  put("--cmux-md-font-family", cssValue(font.family) ?? (preset && font.preset !== "system" ? preset : null));
   put("--cmux-md-font-size", length(font.size));
   put("--cmux-md-font-weight", cssValue(font.weight));
   put("--cmux-md-line-height", cssValue(font.lineHeight));
@@ -181,9 +275,13 @@ export function markdownStyleVariables(settings: unknown): Partial<Record<Markdo
   put("--cmux-md-code-block-size", length(code.blockSize));
   put("--cmux-md-code-line-height", cssValue(code.lineHeight));
   put("--cmux-md-code-background", color(code.background));
-  put("--cmux-md-content-width", length(layout.maxWidth));
+  const width =
+    typeof layout.width === "number" && Number.isFinite(layout.width) && layout.width >= 20 && layout.width <= 400
+      ? `${layout.width}ch`
+      : null;
+  put("--cmux-md-content-width", layout.fullWidth === true ? "none" : (width ?? length(layout.maxWidth)));
   put("--cmux-md-page-padding", length(layout.padding));
-  put("--cmux-md-paragraph-spacing", length(spacing.paragraph));
+  put("--cmux-md-paragraph-spacing", length(spacing.paragraph, "em"));
   put("--cmux-md-list-spacing", length(spacing.list));
   put("--cmux-md-list-indent", length(spacing.listIndent));
   put("--cmux-md-text-color", color(colors.text));
@@ -200,10 +298,20 @@ export function markdownStyleVariables(settings: unknown): Partial<Record<Markdo
   return out;
 }
 
-/** The settings' default mode and toolbar flag. */
-export function markdownBehavior(settings: unknown): { defaultMode: "rich" | "source"; toolbar: boolean } {
+/** The settings' default mode, toolbar flag, table layout and paper theme. */
+export function markdownBehavior(settings: unknown): {
+  defaultMode: "rich" | "source";
+  toolbar: boolean;
+  tables: MarkdownTables;
+  theme: MarkdownTheme;
+} {
   const root = object(settings);
-  return { defaultMode: root.defaultMode === "source" ? "source" : "rich", toolbar: root.toolbar !== false };
+  return {
+    defaultMode: root.defaultMode === "source" ? "source" : "rich",
+    toolbar: root.toolbar !== false,
+    tables: oneOf(root.tables, ["scroll", "wrap"], "scroll"),
+    theme: oneOf(root.theme, ["app", "light", "dark"], "app"),
+  };
 }
 
 /** The code theme setting: `"terminal"` or Shiki theme names per scheme. */
@@ -244,7 +352,10 @@ export function applyMarkdownLook(settings: unknown, themeCSS: string | undefine
   styleElement(doc, SETTINGS_STYLE).textContent = body ? `:root {\n${body}\n}\n` : "";
   const theme = styleElement(doc, THEME_STYLE);
   if (themeCSS !== undefined) theme.textContent = themeCSS;
-  doc.documentElement.dataset.cmuxMdToolbar = String(markdownBehavior(settings).toolbar);
+  const behavior = markdownBehavior(settings);
+  doc.documentElement.dataset.cmuxMdToolbar = String(behavior.toolbar);
+  doc.documentElement.dataset.cmuxMdTables = behavior.tables;
+  doc.documentElement.dataset.cmuxMdTheme = behavior.theme;
 }
 
 /** The store surface `bindMarkdownLook` follows (MarkdownStore). */
