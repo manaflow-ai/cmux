@@ -8388,6 +8388,137 @@
         }
       }
     },
+    "agentChat.view.notAChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not a Claude Code or Codex chat. Name it as claude-code:<id> or codex:<id>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist kein Claude Code- oder Codex-Chat. Gib ihn als claude-code:<id> oder codex:<id> an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est pas une conversation Claude Code ou Codex. Indiquez-la sous la forme claude-code:<id> ou codex:<id>."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ليست محادثة Claude Code أو Codex. اكتبها بالشكل claude-code:<id> أو codex:<id>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no es un chat de Claude Code ni de Codex. Indícalo como claude-code:<id> o codex:<id>."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是 Claude Code 或 Codex 聊天。請以 claude-code:<id> 或 codex:<id> 指定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是 Claude Code 或 Codex 聊天。请以 claude-code:<id> 或 codex:<id> 指定。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) Claude Code 또는 Codex 채팅이 아닙니다. claude-code:<id> 또는 codex:<id> 형식으로 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は Claude Code または Codex のチャットではありません。claude-code:<id> または codex:<id> の形式で指定してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije Claude Code ili Codex chat. Navedite ga kao claude-code:<id> ili codex:<id>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke en Claude Code- eller Codex-chat. Angiv den som claude-code:<id> eller codex:<id>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è una chat di Claude Code o Codex. Indicala come claude-code:<id> o codex:<id>."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនមែនជាការជជែក Claude Code ឬ Codex ទេ។ សូមដាក់ឈ្មោះជា claude-code:<id> ឬ codex:<id>។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke en Claude Code- eller Codex-chat. Angi den som claude-code:<id> eller codex:<id>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie jest czatem Claude Code ani Codex. Podaj go jako claude-code:<id> lub codex:<id>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não é um chat do Claude Code ou do Codex. Indique-o como claude-code:<id> ou codex:<id>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — не чат Claude Code или Codex. Укажите его как claude-code:<id> или codex:<id>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่ใช่แชท Claude Code หรือ Codex ระบุเป็น claude-code:<id> หรือ codex:<id>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bir Claude Code veya Codex sohbeti değil. claude-code:<id> ya da codex:<id> olarak belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — не чат Claude Code або Codex. Укажіть його як claude-code:<id> або codex:<id>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không phải cuộc trò chuyện Claude Code hoặc Codex. Hãy ghi dưới dạng claude-code:<id> hoặc codex:<id>."
+          }
+        }
+      }
+    },
     "agentChat.mute.notAChat": {
       "extractionState": "manual",
       "localizations": {

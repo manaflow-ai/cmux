@@ -224,6 +224,7 @@ import { FolderChoice, showsFolderChoice } from "./FolderChoice";
 import { type FolderAsk, StartFolderAsk, WorktreeFailure, confirmFolder, newWorktree, pickFolder } from "./startFolder";
 import { MissingFolder, chooseChatFolder } from "./missingFolder";
 import { LiveChatChoice } from "./LiveChatChoice";
+import { WatchBanner } from "./WatchBanner";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -5242,8 +5243,9 @@ function AcpmuxPane() {
           onOpenInWindow={quick ? openInWindow : undefined}
           prompt={prompt}
           handle={composerRef}
-          // No prompt goes while a picked folder waits for the user's answer.
-          blocked={pendingFolder ? {} : trustAsk.blocked}
+          // No prompt goes while a picked folder waits for the user's answer, or while the chat only
+          // shows a session another app runs (WatchBanner).
+          blocked={pendingFolder ? {} : snapshot.summary?.watching ? { reason: "watch.composer" } : trustAsk.blocked}
           accessory={<DictationMic dictation={dictation} />}
           onImportFile={importFile}
           onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
@@ -5378,6 +5380,7 @@ function AcpmuxPane() {
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
               onOpen={(key) => void callNative("chats.open", { key }).catch(() => undefined)}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
+              onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
             />
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
@@ -5579,6 +5582,18 @@ function AcpmuxPane() {
                   <LiveChatChoice
                     {...snapshot.liveChat}
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
+                  />
+                )}
+                {snapshot.summary?.watching && !snapshot.liveTakeOver && (
+                  <WatchBanner
+                    family={snapshot.summary.watching}
+                    onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
+                  />
+                )}
+                {snapshot.liveTakeOver && (
+                  <LiveChatChoice
+                    {...snapshot.liveTakeOver}
+                    onChoose={(choice) => void directClient.current?.takeOver(choice).catch(() => undefined)}
                   />
                 )}
                 {!reviewing && snapshot.handoff?.error && (

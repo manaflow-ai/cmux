@@ -68,6 +68,7 @@ mod tags;
 mod tap;
 mod titles;
 mod tools;
+mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
@@ -512,6 +513,11 @@ impl Hub {
         self.mark_lost_waits(&waiting, &hosted);
         self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
+        // A watched chat goes on following its transcript where it stopped (`watch.rs`).
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let watched: Vec<_> = self.sessions.lock().unwrap().values().cloned().collect();
+            watched.iter().for_each(|s| self.start_watch(s));
+        }
     }
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {

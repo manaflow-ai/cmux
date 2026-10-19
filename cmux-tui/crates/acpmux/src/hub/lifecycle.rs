@@ -142,15 +142,7 @@ impl Hub {
         // A named route is checked before anything is created: it exists and
         // serves this chat's harness family.
         if let Some(route_id) = &route {
-            let (dir, _) = crate::routes::places(&*self.config.read().await);
-            let found = crate::routes::find(dir.as_deref(), route_id).map_err(|e| {
-                RpcError::invalid_params(format!("route {route_id}: {}", e.message()))
-            })?;
-            if !found.serves(&family) {
-                return Err(RpcError::invalid_params(format!(
-                    "route {route_id} does not serve the {family} harness"
-                )));
-            }
+            self.check_new_route(route_id, &family).await?;
         }
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
@@ -217,6 +209,10 @@ impl Hub {
             self.append(&session, "mux", "adopted", adopted);
         }
         self.note_preset_resolved(&session, preset_digest);
+        // A watch starts no harness: it shows and follows the transcript (`watch.rs`).
+        if let (Some(file), true) = (&adopted_file, adopt.as_ref().is_some_and(|a| a.watch)) {
+            return Ok(self.begin_watch(&session, &family, file.clone()));
+        }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
             Err(e) => Err(e),
