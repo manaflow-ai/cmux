@@ -19,6 +19,15 @@ struct Link {
     broker: UnixStream,
 }
 
+struct Client(Child);
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 impl Link {
     fn start() -> Self {
         let home = cmux_unix_socket::short_test_dir("cb");
@@ -84,16 +93,18 @@ impl Drop for Link {
 #[test]
 fn cloud_broker_inherited_channel_serves_the_real_link_and_parent_eof_stops_it() {
     let mut link = Link::start();
-    let client = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
-        .args(["link", "dial", "--host", HOST, "--service", "ssh", "--socket"])
-        .arg(&link.socket)
-        .env_clear()
-        .env("HOME", link.home.path())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut client = Client(
+        Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .args(["link", "dial", "--host", HOST, "--service", "ssh", "--socket"])
+            .arg(&link.socket)
+            .env_clear()
+            .env("HOME", link.home.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
     let mut line = String::new();
     BufReader::new(&link.broker).read_line(&mut line).unwrap();
     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
@@ -111,10 +122,12 @@ fn cloud_broker_inherited_channel_serves_the_real_link_and_parent_eof_stops_it()
         })
     )
     .unwrap();
-    let output = client.wait_with_output().unwrap();
-    assert_eq!(output.status.code(), Some(2));
+    let status = client.0.wait().unwrap();
+    let mut stderr = Vec::new();
+    client.0.stderr.take().unwrap().read_to_end(&mut stderr).unwrap();
+    assert_eq!(status.code(), Some(2));
     assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&output.stderr).unwrap()["error_code"],
+        serde_json::from_slice::<serde_json::Value>(&stderr).unwrap()["error_code"],
         "unknown_host"
     );
     link.broker.shutdown(Shutdown::Write).unwrap();

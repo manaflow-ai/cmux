@@ -5,6 +5,7 @@
 mod access_cli;
 mod agent_cli;
 mod cloud;
+mod cloud_broker;
 mod cloud_fs;
 mod control;
 mod dial;
@@ -185,7 +186,13 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             run_serve(
                 &flags(
                     &rest,
-                    &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
+                    &[
+                        "--state-dir",
+                        "--session-socket",
+                        "--server-config",
+                        "--ready-fd",
+                        "--cloud-broker-fd",
+                    ],
                 )?,
                 supervised,
             )
@@ -391,6 +398,11 @@ async fn reload(socket: &Path) -> bool {
 }
 
 fn run_serve(flags: &Flags, supervised: bool) -> anyhow::Result<()> {
+    if supervised && flags.contains_key("--cloud-broker-fd") {
+        bail!("cloud.broker.supervision_conflict");
+    }
+    let broker =
+        flags.get("--cloud-broker-fd").map(|fd| cloud_broker::inherited(fd)).transpose()?;
     let bootstrap = supervised.then(supervision::Bootstrap::receive).transpose()?;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
@@ -407,7 +419,7 @@ fn run_serve(flags: &Flags, supervised: bool) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served, bootstrap))
+    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served, bootstrap, broker))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -476,6 +488,7 @@ async fn serve(
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
     bootstrap: Option<supervision::Bootstrap>,
+    broker: Option<std::os::unix::net::UnixStream>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let private_key = state.private_key()?;
@@ -494,9 +507,15 @@ async fn serve(
         socket,
     )?;
     let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
-    // Cloud host ids resolve through the host credential relay, which is
-    // not served yet: Cloud dials report `unreachable` until it ships.
-    let resolver = Arc::new(cloud::CloudResolver::new(cloud::RelaySource));
+    let (source, broker) = match broker {
+        Some(stream) => {
+            stream.set_nonblocking(true)?;
+            let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
+            (cloud::CloudSource::Broker(source), Some(driver))
+        }
+        None => (cloud::CloudSource::Unavailable, None),
+    };
+    let resolver = Arc::new(cloud::CloudResolver::new(source));
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
@@ -527,6 +546,7 @@ async fn serve(
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
         () = supervision::parent_closed(lease) => Ok(()),
+        broker = cloud_broker::run(broker) => broker.map_err(anyhow::Error::from),
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);

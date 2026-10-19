@@ -95,11 +95,7 @@ impl Bootstrap {
         cmux_link::caller::verify(&stream)?;
         // An inherited socket pair names the daemon that created it. A peer
         // process cannot substitute a public endpoint or a claimed parent pid.
-        // SAFETY: getppid has no preconditions.
-        let parent = u32::try_from(unsafe { libc::getppid() })?;
-        if cmux_link::caller::peer_pid(stream.as_raw_fd())? != Some(parent) {
-            bail!("link.supervised.parent_refused");
-        }
+        cmux_link::caller::verify_inherited_parent(stream.as_raw_fd())?;
         let mut line = String::new();
         BufReader::new((&stream).take(4096)).read_line(&mut line)?;
         let config: Configuration = serde_json::from_str(&line)?;
