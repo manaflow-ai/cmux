@@ -168,7 +168,7 @@ test("token counts read as thousands", () => {
   expect([27183, 2047, 999, 1000, 412000].map(compactTokens)).toEqual(["27k", "2k", "999", "1k", "412k"]);
 });
 
-test("a compaction that never ended keeps its row; the next one gets its own", async () => {
+test("a compaction its turn ended without finishing settles as failed; the next one gets its own", async () => {
   const daemon = fakeDaemon(
     record([
       ["mux", "user_message", { text: "/compact" }],
@@ -185,7 +185,41 @@ test("a compaction that never ended keeps its row; the next one gets its own", a
       .filter((row) => row.kind === "compaction")
       .map((row) => [row.seq, row.compaction?.state]),
   ).toEqual([
-    [2, "running"],
+    [2, "failed"],
     [5, "completed"],
   ]);
+});
+
+test("a live compaction stops running when its turn ends or the next turn starts", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "/compact" }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running", reason: "account_switch" })],
+    ]),
+  );
+  const { rows } = await connect(daemon);
+  const states = () =>
+    rows()
+      .filter((row) => row.kind === "compaction")
+      .map((row) => row.compaction);
+  expect(states()).toEqual([{ state: "running", reason: "account_switch" }]);
+  // The agent process exits mid-compaction: acpmux ends the turn.
+  daemon.push(record([["mux", "turn_result", { status: "failed" }]], 4));
+  expect(states()).toEqual([{ state: "failed", reason: "account_switch" }]);
+
+  // A harness that starts the next turn without ending this one's compaction.
+  daemon.push(
+    record(
+      [
+        ["mux", "user_message", { text: "go on" }],
+        ["mux", "turn_started", {}],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+        ["mux", "user_message", { text: "and on", steer: true }],
+        ["mux", "turn_started", {}],
+      ],
+      5,
+    ),
+  );
+  expect(states()?.map((compaction) => compaction?.state)).toEqual(["failed", "failed"]);
 });
