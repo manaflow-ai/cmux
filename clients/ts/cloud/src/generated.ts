@@ -2235,6 +2235,15 @@ export interface CloudOps {
       readonly host: HostId
     }
   }
+  /** Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on. */
+  readonly "host.replica.purge": {
+    readonly params: {
+      readonly host: HostId
+    }
+    readonly result: {
+      readonly host: HostId
+    }
+  }
   /** Archive or unarchive a conversation; a new message unarchives it. */
   readonly "inbox.archive": {
     readonly params: {
@@ -3445,6 +3454,7 @@ export const cloudOpMeta = {
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "host.replica.purge": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "inbox.dm_peer": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "inbox.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
