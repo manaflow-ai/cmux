@@ -105,5 +105,4 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
   }
 }
 
-/** The model a Chief's turns use on O: the profile's model when the gateway serves it, else Claude Opus 5.5. */
-export const brainModel = (model: string): string => (model.startsWith("claude-") || model.startsWith("openrouter:") ? model : "claude-opus-5-5")
+export { brainModel } from "../model-gateway/routes.ts"
