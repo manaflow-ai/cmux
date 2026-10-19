@@ -4943,9 +4943,9 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Post-publication lane (cx-x7hwx): the build publish-nightly-identity-legacy
-  # copies, if any: the
-  # newest build on the cmux NEXT feed when it is newer than the old feed's.
+  # Post-publication lane (cx-x7hwx): picks the build publish-nightly-identity-legacy
+  # copies, if any: the newest build on the cmux NEXT feed when it is newer than
+  # the old feed's.
   # Linux, seconds; the macOS job starts only when there is work.
   legacy-identity-target:
     needs: [decide, publish-nightly, publish-release-notes]

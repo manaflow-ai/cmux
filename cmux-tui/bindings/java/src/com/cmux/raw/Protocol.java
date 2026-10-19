@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85";
+    public static final String IR_SHA256 = "2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -34,6 +34,7 @@ public final class Protocol {
             case "cloud-conversation-resynced" -> CloudConversationResyncedEvent.fromWire(value);
             case "cloud-conversation-run-changed" -> CloudConversationRunChangedEvent.fromWire(value);
             case "cloud-conversation-typing" -> CloudConversationTypingEvent.fromWire(value);
+            case "cloud-host-replica-needed" -> CloudHostReplicaNeededEvent.fromWire(value);
             case "cloud-inbox-changed" -> CloudInboxChangedEvent.fromWire(value);
             case "cloud-inbox-reset" -> CloudInboxResetEvent.fromWire(value);
             case "cloud-mux-resynced" -> CloudMuxResyncedEvent.fromWire(value);

@@ -91,7 +91,7 @@ web server, pid file and chat folder live in --out (the fake chats themselves st
 tag's acpmux home). The app is left running after the last
 relaunch (the caller quits it and releases the slot).
 """
-import argparse, atexit, glob, hashlib, http.server, json, os, re, shlex, signal, socket, subprocess, sys, threading, time
+import argparse, atexit, glob, hashlib, http.server, json, os, plistlib, re, shlex, signal, socket, subprocess, sys, threading, time
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -138,12 +138,6 @@ SIDEBAR_WIDTH = 312  # points: neither layout's default (208, 240), inside the 1
 FONT_STEPS = 2  # Cmd-+ steps on the counter's terminal
 PIDFILE = os.path.join(opts.out, f"counter-{RUN}.pid")
 
-
-def counter_pid():
-    try:
-        return int(open(PIDFILE).read().strip())
-    except (OSError, ValueError):
-        return None
 
 
 def say(*parts):
@@ -344,7 +338,9 @@ class App:
                 rpc("debug.quit", {"press": "keep" if "keep" in default else default}, timeout=10)
         ended = wait(lambda: not self.alive(), 60, 0.25)
         say(f"  app pid {self.pid} {'exited' if ended else 'is STILL RUNNING after 60 s'}")
+        self.rebooted = False
         if ended and variant == "reboot":
+            self.rebooted = True
             return self.power_off()
         return bool(ended)
 
@@ -367,22 +363,16 @@ class App:
             if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
                 procs.append((int(parts[0]), int(parts[1]), parts[2]))
         roots = {pid for pid, _, args in procs if args.startswith(self.bundle + "/") and pid != os.getpid()}
-        # Terminal hosts run from a copy of the daemon's executable under HOME (host_exe.rs), with
-        # launchd as their parent: on a capture slot every host under the slot's own HOME, and the
-        # host above each program the journey started (the seeded agents, the counter).
-        home = self.env.get("HOME", "")
-        if "/cmux-capture/slots/" in home:
-            roots |= {pid for pid, _, args in procs if "--bootstrap-stdio" in args and args.startswith(home + "/")}
-        parent = {pid: ppid for pid, ppid, _ in procs}
-        argv = {pid: args for pid, _, args in procs}
-        known = [e.get("pid") for e in agent_events()] + [counter_pid()]
-        for pid in known:
-            seen = 0
-            while isinstance(pid, int) and pid > 1 and seen < 20:
-                if "--bootstrap-stdio" in argv.get(pid, ""):
-                    roots.add(pid)
-                    break
-                pid, seen = parent.get(pid), seen + 1
+        # Terminal hosts run from a copy of the daemon's executable (host_exe.rs) with launchd as
+        # their parent and a bare `cmux-tui` argv[0]; each names its owner, this app's bundle id.
+        try:
+            with open(os.path.join(self.bundle, "Contents", "Info.plist"), "rb") as f:
+                bundle_id = plistlib.load(f).get("CFBundleIdentifier") or ""
+        except (OSError, plistlib.InvalidFileException):
+            bundle_id = ""
+        if bundle_id:
+            owner = f"--owner {bundle_id}:"
+            roots |= {pid for pid, _, args in procs if "--bootstrap-stdio" in args and owner in args}
         doomed, grew = set(roots), True
         while grew:
             more = {pid for pid, ppid, _ in procs if ppid in doomed and pid not in doomed and pid != os.getpid()}
@@ -521,6 +511,8 @@ class Acpmux:
         self.connect()
 
     def connect(self):
+        if getattr(self, "conn", None):
+            self.conn.close()
         self.conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.conn.settimeout(60)
         self.conn.connect(self.path)
@@ -532,18 +524,29 @@ class Acpmux:
         it), connect again once and resend."""
         try:
             answer = self.send(method, params, timeout)
+        except socket.timeout:
+            # A slow answer is not a closed connection: never send it again.
+            return {"error": {"message": f"no answer to {method} within {timeout} s"}}
         except OSError:
             answer = {"error": {"message": "closed"}}
         if answer.get("error", {}).get("message") != "closed":
             return answer
         self.reconnects += 1
         say(f"  acpmux connection closed; reconnecting ({self.reconnects})")
+
+        def connected():
+            # A killed acpmux leaves its socket file: retry the connect itself until one answers.
+            try:
+                self.connect()
+                return True
+            except OSError:
+                return False
+        if not wait(connected, 60, 0.5):
+            return {"error": {"message": "reconnect failed: acpmux did not answer within 60 s"}}
         try:
-            wait(lambda: os.path.exists(self.path), 30)
-            self.connect()
             return self.send(method, params, timeout)
         except OSError as error:
-            return {"error": {"message": f"reconnect failed: {error}"}}
+            return {"error": {"message": f"after reconnecting: {error}"}}
 
     def send(self, method, params, timeout=60):
         self.next += 1
@@ -950,7 +953,9 @@ CHAT_PROFILES = {
 CHAT_PICKS = {"rj-claude": {"model": "claude-sonnet-5-5"}, "rj-codex": {}}  # the test agent keeps picks only as Claude
 CLI_AGENTS = {
     "claude": {"account": "CLAUDE_CONFIG_DIR", "flags": "--dangerously-skip-permissions --model claude-sonnet-5-5"},
-    "codex": {"account": "CODEX_HOME", "flags": "--dangerously-bypass-approvals-and-sandbox -m gpt-5.5"},
+    # Without an approval bypass: its resume after a reboot runs by itself. Claude's has one: its
+    # resume is typed and waits for the person to confirm it.
+    "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
 }
 CHATS = []  # {"label", "harness", "session", "tab"}
 TAGENTS = []  # {"label", "provider", "terminal", "tab", "session", "flags", "account"}
@@ -965,14 +970,18 @@ def acpmux_client():
             return None
         ACPMUX.update(home=home, client=configure_fake(home))
     elif "client" not in ACPMUX:
-        # After a reboot: the relaunched app starts acpmux again with the run's config still in place.
-        if not wait(lambda: os.path.exists(acpmux_socket_of(ACPMUX["home"])) and acpmux_home(), 60):
+        # After a reboot: the relaunched app starts acpmux again with the run's config still in
+        # place. Its old socket file may still be there: retry the connect itself.
+        def connect():
+            try:
+                return Acpmux(acpmux_socket_of(ACPMUX["home"]))
+            except OSError:
+                return None
+        client = wait(connect, 60, 0.5)
+        if not client:
+            say("  acpmux did not answer within 60 s after the reboot")
             return None
-        try:
-            ACPMUX["client"] = Acpmux(acpmux_socket_of(ACPMUX["home"]))
-        except OSError as error:
-            say(f"  acpmux reconnect failed: {error}")
-            return None
+        ACPMUX["client"] = client
     return ACPMUX["client"]
 
 
@@ -1055,10 +1064,15 @@ def screen_text(term):
 
 def agent_events(session=None):
     """The terminal agents' own log (rj_fake_cli_agent.py, RJ_AGENT_LOG): every start and answer."""
+    events = []
     try:
         with open(os.path.join(opts.out, "rj-agents.jsonl")) as f:
-            events = [json.loads(line) for line in f if line.strip()]
-    except (OSError, ValueError):
+            for line in f:
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue  # a line an agent is still writing
+    except OSError:
         return []
     return [e for e in events if session is None or e.get("session") == session]
 
@@ -1126,7 +1140,8 @@ def seed_tagents():
             wait(lambda: any(e.get("event") == "answer" and e.get("text") == f"rj tturn {label} {RUN}" for e in agent_events(start["session"])), 15, 0.5)
             TAGENTS.append({"label": label, "provider": provider, "terminal": term, "tab": made.get("tab_id"),
                             "session": start["session"], "flags": start.get("flags"), "hook": start.get("hook"), "pid": start.get("pid")})
-    cli("tab", ws["tab_id"], "focus")
+    if ws.get("tab_id"):
+        cli("tab", ws["tab_id"], "focus")
 
 
 def chat_items(label, items, raw):
@@ -1189,10 +1204,23 @@ def tagent_items(label, items, raw):
         def current():
             starts = [e for e in agent_events(agent["session"]) if e.get("event") == "start"]
             return starts[-1] if starts and _pid_alive(starts[-1].get("pid")) else None
+        if getattr(APP, "rebooted", False) and "--dangerously" in (agent.get("flags") or ""):
+            # Started with an approval bypass: the resume is typed, not run, until the person
+            # confirms it (Return), which the journey then does.
+            early = wait(current, 15, 1)
+            RESULTS.append((f"{label}: {a} resume with an approval bypass waits for Return", not early,
+                            f"ran by itself: {early}" if early else "typed, not run", "terminal agent"))
+            if not early:
+                write(agent["terminal"], "\r")
         start = wait(current, 60, 1)
         raw[f"{a}.start"] = start
         raw[f"{a}.text"] = screen_text(agent["terminal"])[-4000:]
         items[f"{a}.running"] = bool(start) or f"no live agent; screen ends {raw[f'{a}.text'][-200:]!r}"
+        if start and getattr(APP, "rebooted", False):
+            # After a reboot the agent that runs is a new one, resumed into its session (the
+            # respawned terminal ran the resume command), not one that outlived the reboot.
+            items[f"{a}.running"] = (start.get("resumed") is True and start.get("pid") != agent.get("pid")) \
+                or f"the running agent was not resumed after the reboot: {start}"
         items[f"{a}.flags"] = start.get("flags") if start else None
         items[f"{a}.signed_in"] = bool(start) and start.get("signed_in") is True and not start.get("missing")
         # The seeded turn on screen (spaces out: a wrapped line loses the one at its break).
