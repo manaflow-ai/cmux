@@ -39,7 +39,7 @@ public nonisolated struct BrowserToolbarPolicy {
         case .favorites:
             return BrowserToolbarButtonState(icon: .bookmarkManager, label: hinted(Strings.toolbarFavorites))
         case .downloads:
-            return BrowserToolbarButtonState(icon: .actionDownload, label: hinted(Strings.toolbarDownloads),
+            return BrowserToolbarButtonState(icon: .browserToolbarDownloads, label: hinted(Strings.toolbarDownloads),
                                              isActive: facts.downloads.inProgress)
         case .designMode:
             return BrowserToolbarButtonState(icon: .theme,
