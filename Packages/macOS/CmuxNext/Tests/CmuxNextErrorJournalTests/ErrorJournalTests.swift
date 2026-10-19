@@ -104,7 +104,9 @@ struct ErrorJournalTests {
         let journal = ErrorJournal(directory: directory)
         let entry = try #require(await journal.entries().first)
         let memory = String(decoding: try JSONEncoder().encode(entry), as: UTF8.self)
-        let disk = try String(contentsOf: segment, encoding: .utf8)
+        let segments = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "ndjson" }
+        let disk = try segments.map { try String(contentsOf: $0, encoding: .utf8) }.joined()
         for value in values {
             #expect(!memory.contains(value))
             #expect(!disk.contains(value))

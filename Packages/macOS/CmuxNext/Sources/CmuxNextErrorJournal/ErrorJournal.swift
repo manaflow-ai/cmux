@@ -40,11 +40,38 @@ public actor ErrorJournal {
         self.limits = limits
         self.clock = clock
         self.now = now
-        normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)
-        redactor = ErrorRedactor()
+        let normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)
+        let redactor = ErrorRedactor()
+        self.normalizer = normalizer
+        self.redactor = redactor
         var store = ErrorSegmentStore(directory: directory, segmentBytes: limits.segmentBytes)
-        table = store.load()
+        var loaded = store.load()
+        var changed = false
+        for (fingerprint, var entry) in loaded {
+            let template = redactor.redact(entry.template).utf8Prefix(limits.maxMessageBytes)
+            let sample = redactor.redact(entry.sample).utf8Prefix(limits.maxMessageBytes)
+            let topFrame = entry.topFrame.map { redactor.redact($0).utf8Prefix(256) }
+            let context = entry.context.mapValues {
+                redactor.redact($0).utf8Prefix(limits.maxContextValueBytes)
+            }
+            if template != entry.template || sample != entry.sample
+                || topFrame != entry.topFrame || context != entry.context {
+                changed = true
+                entry.template = template
+                entry.sample = sample
+                entry.topFrame = topFrame
+                entry.context = context
+                loaded[fingerprint] = entry
+            }
+        }
+        var migrationError: String?
+        if changed {
+            do { try store.compact(loaded.values.sorted { $0.lastMs < $1.lastMs }) }
+            catch { migrationError = String(describing: error) }
+        }
+        table = loaded
         self.store = store
+        lastWriteError = migrationError
     }
 
     /// Folds one occurrence into its entry and schedules the write.

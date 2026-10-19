@@ -21,11 +21,11 @@ public struct ErrorRedactor {
             (#"(?i)\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+"#, "$1$2<redacted>"),
             // camelCase assignments such as `clientSecret` and
             // `secretAccessKey`; the capitalized component is the boundary.
-            (#"\b([a-z][A-Za-z0-9]*(?:Secret|Password|Passwd|Token|Credential|APIKey|ApiKey|AccessKey|PrivateKey)[A-Za-z0-9]*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}]+(?:\s+[^\s,;}]+)?)"#, "$1$2<redacted>"),
+            (#"\b([a-z][A-Za-z0-9]*(?:Secret|Password|Passwd|Pwd|Token|Credential|APIKey|ApiKey|AccessKey|PrivateKey)[A-Za-z0-9]*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}]+(?:\s+[^\s,;}]+)?)"#, "$1$2<redacted>"),
             // Header or assignment forms. The full identifier is retained so an
             // environment-style prefix (`AWS_SECRET_ACCESS_KEY`) cannot put the
             // credential marker behind an underscore word-boundary bypass.
-            (#"(?i)\b((?:[A-Za-z0-9]+[_-])*(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[_-]?key|access[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?key|client[_-]?secret|credentials?|secret|password|passwd|token|auth)(?:[_-][A-Za-z0-9]+)*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}]+(?:\s+[^\s,;}]+)?)"#, "$1$2<redacted>"),
+            (#"(?i)\b((?:[A-Za-z0-9]+[_-])*(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[_-]?key|access[_-]?key|private[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?key|client[_-]?secret|credentials?|secret|password|passwd|pwd|token|auth)(?:[_-][A-Za-z0-9]+)*)("?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}]+(?:\s+[^\s,;}]+)?)"#, "$1$2<redacted>"),
             (#"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+"#, "Bearer <redacted>"),
             (#"\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}"#, "<jwt>"),
             (#"\b(?:sk|pk|rk|ghp|gho|ghu|ghs|ghr|github_pat|xox[abprs]|AKIA|ASIA)[-_]?[A-Za-z0-9_-]{12,}"#, "<redacted>"),
