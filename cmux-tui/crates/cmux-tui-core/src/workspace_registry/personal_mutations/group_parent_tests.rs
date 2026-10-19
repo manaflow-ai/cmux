@@ -3,8 +3,9 @@
 //! and a nested registry keeps its nest across opens.
 
 use super::super::*;
+use std::{fs, path::Path};
 
-fn open(root: &std::path::Path) -> WorkspaceRegistry {
+fn open(root: &Path) -> WorkspaceRegistry {
     WorkspaceRegistry::open(root, "nest").unwrap()
 }
 
@@ -47,5 +48,5 @@ fn a_registry_from_before_the_nest_opens_flat_and_can_nest() {
     let registry = open(&root);
     assert_eq!(parent(&registry, "grp_b").as_deref(), Some("grp_a"), "the nest survives a reopen");
     drop(registry);
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&root);
 }
