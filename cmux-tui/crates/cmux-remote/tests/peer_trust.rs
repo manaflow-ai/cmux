@@ -74,7 +74,7 @@ fn a_symlink_out_of_the_allowlist_a_sibling_prefix_and_a_missing_folder_are_refu
     let mut book = PeerTrustBook::load(state.path()).unwrap();
     book.set(grant(&project, TrustTier::Folders)).unwrap();
 
-    for cwd in [project.join("escape"), sibling.clone(), project.join("missing")] {
+    for cwd in [project.join("escape"), sibling, project.join("missing")] {
         assert_eq!(
             book.admit(PEER, PeerAgent::Claude, &cwd, NOW),
             Admission::Refuse(RefuseReason::FolderNotAllowed),
