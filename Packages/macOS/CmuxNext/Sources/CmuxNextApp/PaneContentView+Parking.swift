@@ -4,60 +4,21 @@ import CmuxNextBrowser
 public import CmuxNextDesign
 import CmuxNextTerminal
 
-/// Content a pane keeps in place, out of sight, while another tab shows (browser
+/// Content a pane keeps in place, hidden, while another tab shows (browser
 /// perf phase 2, cx-asb1; terminals, perf-tabs I6). Taking a browser's chrome
 /// out of the window and back costs AppKit tens of ms on each tab switch (its
 /// constraints and controls leave and join the window's layout engine, and a
-/// Chromium page re-adds its child window). A parked view stops drawing, takes
+/// Chromium page re-adds its child window). A hidden view stops drawing, takes
 /// no events and is not in the accessibility tree; the content lifecycle
 /// (`TabContentCache.conceal`) stops the page or surface rendering.
 @MainActor
-protocol PaneParkableContent: NSView {
-    /// Parks the view in place or shows it again (`park`).
-    func setParked(_ parked: Bool)
-    /// Parked here now.
-    var isParkedInPane: Bool { get }
-}
-
-extension PaneParkableContent {
-    /// A web page hides for AppKit: its WebKit tracking areas, accessibility and key views are not
-    /// ours to switch off.
-    func setParked(_ parked: Bool) { isHidden = parked }
-    var isParkedInPane: Bool { isHidden }
-}
+protocol PaneParkableContent: NSView {}
 
 extension BrowserChromeView: PaneParkableContent {}
-/// A terminal parks by its layer (`LayerParkable`): an AppKit hidden-state change of content under
-/// the transparent titlebar re-sends the window's titlebar drag shapes, and the next commit waits on
-/// a window-server fence (cx-8w027.19, one per tab switch).
-/// A host that shows a control of its own (`parksByLayer` false) parks by AppKit's hidden state.
-extension TerminalHostView: PaneParkableContent {
-    func setParked(_ parked: Bool) { park(parked) }
-    var isParkedInPane: Bool { isParked || isHidden }
-}
+extension TerminalHostView: PaneParkableContent {}
 /// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits
 /// synchronously for its web process (170-215 ms on Cmd-W back to a New Tab page, #20516).
 extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
-
-/// The pane's content host: a parked subview (`LayerParkable`) is out of hit testing and out of the
-/// accessibility tree, as a hidden one is.
-final class PaneContentHostView: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, NSMouseInRect(point, frame, superview?.isFlipped ?? false) else { return nil }
-        let local = convert(point, from: superview)
-        for subview in subviews.reversed() where (subview as? LayerParkable)?.isParked != true {
-            if let hit = subview.hitTest(local) { return hit }
-        }
-        return self
-    }
-
-    override func accessibilityChildren() -> [Any]? {
-        super.accessibilityChildren()?.filter { child in
-            guard let view = child as? NSView else { return true }
-            return !view.isOutOfSight
-        }
-    }
-}
 
 /// One parked view, weak: the content cache owns it.
 struct ParkedContent {
@@ -78,7 +39,7 @@ extension PaneContentView {
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
             // Parked in the pane it came from.
-            (view as? PaneParkableContent)?.setParked(false)
+            if view is PaneParkableContent { view.parkInPlace(false) }
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
@@ -88,17 +49,17 @@ extension PaneContentView {
         // views stay where they are, so a switch moves no view.
         let subviews = contentHost.subviews
         if let mine = subviews.firstIndex(of: view),
-           let above = subviews.lastIndex(where: { !(($0 as? PaneParkableContent)?.isParkedInPane ?? $0.isHidden) && $0 !== view && $0 !== leaving }), above > mine {
+           let above = subviews.lastIndex(where: { !$0.isParkedOrHidden && $0 !== view && $0 !== leaving }), above > mine {
             contentHost.addSubview(view, positioned: .above, relativeTo: subviews[above])
         }
-        (view as? PaneParkableContent)?.setParked(false)
+        if view is PaneParkableContent { view.parkInPlace(false) }
     }
 
     /// The pane stops showing `view`: a terminal, browser or agent page stays here, hidden; other
     /// content leaves the pane. A view another pane took is not touched.
     func retire(_ view: NSView) {
         guard view.superview === contentHost else { return }
-        guard let parkable = view as? PaneParkableContent else {
+        guard view is PaneParkableContent else {
             view.removeFromSuperview()
             return
         }
@@ -109,7 +70,7 @@ extension PaneContentView {
             window.makeFirstResponder(nil)
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-        parkable.setParked(true)
+        view.parkInPlace(true) // a terminal parks by its layer (LayerParkable, cx-8w027.19)
         // A hidden agent page stays sized with the pane, so showing it again needs no redraw at a new
         // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
         // sets their frame.
