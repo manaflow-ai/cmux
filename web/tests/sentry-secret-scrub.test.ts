@@ -123,3 +123,36 @@ test("Sentry scrubs structured query strings and Pwd without hiding safe counter
     expect(serialized).toContain(safe);
   }
 });
+
+test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
+  const event = scrubSentryEvent({
+    request: {
+      url:
+        "https://example.test/callback?auth[token]=url-auth-secret&access_token[]=url-access-secret&X-Amz-Signature=url-signature-secret",
+      query_string:
+        "auth[token]=query-auth-secret&access_token[]=query-access-secret&X-Amz-Signature=query-signature-secret",
+    },
+    exception: {
+      values: [
+        {
+          type: "ProviderError",
+          value:
+            "provider escaped {\\\"details\\\":\\\"{\\\\\\\"password\\\\\\\":\\\\\\\"escaped-password-secret\\\\\\\"}\\\"}",
+        },
+      ],
+    },
+  } as Event);
+
+  const serialized = JSON.stringify(event);
+  for (const secret of [
+    "escaped-password-secret",
+    "url-auth-secret",
+    "url-access-secret",
+    "url-signature-secret",
+    "query-auth-secret",
+    "query-access-secret",
+    "query-signature-secret",
+  ]) {
+    expect(serialized).not.toContain(secret);
+  }
+});
