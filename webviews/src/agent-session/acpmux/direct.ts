@@ -716,6 +716,8 @@ export class AcpmuxDirectClient {
   private promptAccepts = new Map<string, () => void>();
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[] }>();
+  /// The promptIds a Retry sent: a refusal of one says "Still not sent".
+  private retriedPrompts = new Set<string>();
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
@@ -2458,15 +2460,19 @@ export class AcpmuxDirectClient {
       const row = this.rows.get(rowId);
       if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
-        // bubble says why it got no reply; a refusal for want of a gesture asks for Retry.
+        // bubble says why it got no reply, in the words of whoever refused it. A refusal for want
+        // of a gesture names that (the generic refusal's text is about a pick): posted input (a
+        // script, a computer-use agent) is never the person's (cx-ocdz), and the Retry click is
+        // (hq#2569 item 5). A Retry refused again says "Still", so the click visibly did something.
+        const reason =
+          code === "transport.gesture_required" ? translate("prompt.gestureReason") : errorMessage(error);
         this.rows.set(rowId, {
           ...row,
           pending: false,
           failed: true,
-          error:
-            code === "transport.gesture_required"
-              ? translate("prompt.notSentGesture")
-              : translate("prompt.notSent", { reason: errorMessage(error) }),
+          error: translate(this.retriedPrompts.has(promptId) ? "prompt.stillNotSent" : "prompt.notSent", {
+            reason: reason || translate("transport.refused"),
+          }),
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments });
@@ -2488,7 +2494,13 @@ export class AcpmuxDirectClient {
     this.failedPrompts.delete(rowId);
     this.rows.delete(rowId);
     this.emit();
-    return this.send(failed.input, failed.attachments);
+    const promptId = crypto.randomUUID();
+    this.retriedPrompts.add(promptId);
+    try {
+      return await this.send(failed.input, failed.attachments, promptId);
+    } finally {
+      this.retriedPrompts.delete(promptId);
+    }
   }
   /// What to send again with prompt row `rowId` (Retry, Edit): the attachments this page sent, else
   /// its images read back from acpmux (a prompt sent before a reload, or from another window).
