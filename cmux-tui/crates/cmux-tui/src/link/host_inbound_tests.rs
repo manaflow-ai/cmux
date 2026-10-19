@@ -5,7 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::stamp::LinkPeer;
-use cmux_link::token::{DenyAllTokens, Expected, TokenRefused, TokenVerifier};
+use cmux_link::token::{DenyAllTokens, Expected, TokenRefused, TokenVerifier, VerifiedToken};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use super::*;
@@ -14,11 +14,14 @@ use super::*;
 struct GoodToken;
 
 impl TokenVerifier for GoodToken {
-    fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<LinkPeer, TokenRefused> {
+    fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused> {
         if token != "good" || expected.host != "host_vm1" || expected.epoch != 4 {
             return Err(TokenRefused::Invalid);
         }
-        Ok(LinkPeer { install: "inst_mac".into(), user: "42".into(), team: "team_a".into() })
+        Ok(VerifiedToken {
+            peer: LinkPeer { install: "inst_mac".into(), user: "42".into(), team: "team_a".into() },
+            issued_at_ms: 1_700_000_000_000,
+        })
     }
 }
 
@@ -162,7 +165,7 @@ async fn token_issue_time_valid_daemon_hello_reaches_the_entry_as_the_token_inst
         lines.read_line(&mut stamp).await.unwrap();
         assert_eq!(
             stamp,
-            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"},\"check\":\"link_token\"}\n",
+            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"},\"check\":\"link_token\",\"check_issued_at_ms\":1700000000000}\n",
             "the accepted token is stamped as the stream's control-plane check"
         );
         drop(peer);
