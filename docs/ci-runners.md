@@ -19,9 +19,13 @@
 `gh pr merge --squash --match-head-commit <sha>` under that branch's merge rules
 is fine. When used there, the helper applies a fast gate by default. It waits up to
 `--wait` seconds (2400 by default) for path routing, the fast tier and the
-touched compiles on the exact head, then merges. It refuses a completed red in
-those lanes or in the web, app size, crash and lint families, conflict markers,
-and frozen paths. The full suites run after the merge. It prints one
+touched compiles on the exact head, then merges. It also waits for god-file,
+l10n and concurrency lint and `risk evidence`, and refuses a red one with no
+override or base excuse, as the full gate does. It refuses a completed red in
+the fast lanes, in the web, app size and crash families, or in `ci-status`,
+the Release compile or the swift test, unless the base has the same red. It
+refuses conflict markers and frozen paths. It skips the merged-head god-file
+and `vp check` run. The full suites run after the merge. It prints one
 `gh-merge-green:` line saying what it checked and how long it waited.
 
 `--full` keeps the wait for every check, as below; every base other than

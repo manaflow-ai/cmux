@@ -4,8 +4,9 @@
 # Optional helper: merges only when the PR head's checks are green.
 # Into feat-cmux-next it applies a FAST gate by default (scripts/ci/merge_fast_gate.py):
 # it waits up to --wait seconds (default 2400) for path routing, the fast tier and the touched
-# compiles on the exact head, and refuses a completed red in those or in the web, app size,
-# crash or lint families. It also checks conflict markers and freezes. The full suites run after
+# compiles on the exact head, waits for lint and risk evidence (a red one is never waived),
+# and refuses a completed red in those, in the web, app size or crash families, or in a
+# full-gate lane (ci-status, Release compile, swift test). It also checks conflict markers and freezes. The full suites run after
 # the merge; the culprit bot and the base sheriff revert or fix forward.
 # --full keeps the wait for every check (main, classic), as does every base other than
 # feat-cmux-next. One `gh-merge-green:` line at exit says what was checked and how long it waited.
@@ -38,9 +39,10 @@ trap on_error ERR
 case "${1:-}" in
   -h|--help)
     printf '%s\n' \
-      'usage: gh-merge-green OWNER/REPO#PR [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
+      'usage: gh-merge-green OWNER/REPO#PR [--full] [--wait SECONDS] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
       '       gh-merge-green --revert OWNER/REPO#PR' \
       'Merges only when the PR head'"'"'s required-in-practice checks are green.' \
+      'Into feat-cmux-next it waits only for the fast gate (scripts/ci/merge_fast_gate.py); --full waits for every check.' \
       "$repair_note"
     exit 0
     ;;
@@ -383,11 +385,8 @@ for name in open(sys.argv[2]).read().split():
 ' <(printf '%s' "$1") <(printf '%s\n' "$2")
 }
 
-# The full gate: every check (--full, and every base but feat-cmux-next). Its body
-# keeps the indentation it had before the fast gate split it out.
-full_gate() {
-# Require aggregate checks only when their workflow exists on the base. Otherwise
-# every reported exact-head check and status context must be completed successfully.
+# GitHub readers with their GraphQL and Git fallbacks (#21529), shared by both
+# gates and by the conflict-marker and freeze checks below.
 workflow_response=''
 graphql_workflow_response() {
   local file="$1" owner="${repo%/*}" name="${repo#*/}" response text
@@ -489,6 +488,11 @@ sys.exit(0 if re.search(r"(?m)^\s+[\x22\x27]?ci-status[\x22\x27]?\s*:", text) el
 ' <<<"$workflow_response"
 }
 
+# The full gate: every check (--full, and every base but feat-cmux-next). Its body
+# keeps the indentation it had before the fast gate split it out.
+full_gate() {
+# Require aggregate checks only when their workflow exists on the base. Otherwise
+# every reported exact-head check and status context must be completed successfully.
 has_ci=0
 has_app_compile=0
 if workflow_on_base ci.yml && reports_ci_status; then has_ci=1; fi
@@ -822,9 +826,12 @@ fast_gate() {
   local files workflow covered=x gate_out gate_err reds excuse_errors excused
   local covered_flag=()
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
-    refuse \
-      "not green: cannot list changed files for $ref" \
-      'restore GitHub API access, then retry the exact-head check'
+    if ! files=$(graphql_changed_files); then
+      refuse \
+        "not green: cannot list changed files for $ref" \
+        'restore GitHub API access or GraphQL access, then retry the exact-head check'
+    fi
+    echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
   fi
   # Fail closed: an unreadable filter counts as covered, so the gate waits for routing.
   if workflow=$(gh api "repos/$repo/contents/.github/workflows/cmux-next.yml?ref=$sha" \
@@ -850,15 +857,8 @@ fast_gate() {
   gate_checked="${gate_checked:-no fast lane reported}, conflict markers, freezes"
   reds=$(sed -n 's/^red=//p' <<<"$gate_out")
   [ -n "$reds" ] || return 0
-  # A red lint check is never waived or base-excused (see the full gate): it fails
-  # only on the change itself. Others may be waived by --override or the base.
-  local lint_reds
-  lint_reds=$(grep -iE 'god[ -]?files?|l10n|locali[sz]ation|concurrency' <<<"$reds" || true)
-  if [ -n "$lint_reds" ]; then
-    refuse \
-      "not green: $(paste -sd ';' - <<<"$lint_reds" | sed 's/;/; /g') red on $sha; --override cannot bypass god-file, l10n or concurrency lint" \
-      'fix what the lint check reports on the exact head, then retry'
-  fi
+  # merge_fast_gate.py itself refuses a red lint or risk evidence check, which is
+  # never waived or base-excused; the reds left may be waived by --override or the base.
   if [ -n "$override_reason" ]; then
     printf 'note: --override waives %s on %s\n' "$(paste -sd ';' - <<<"$reds" | sed 's/;/; /g')" "$sha" >&2
     return 0
