@@ -190,6 +190,10 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert!(plugin.join("skills/cmux-browser/references/repl-guide.md").is_file());
     let cua_skill = std::fs::read_to_string(plugin.join("skills/cmux-cua/SKILL.md")).unwrap();
     assert!(cua_skill.contains("disable-model-invocation: true"), "the consent rule stays");
+    // The acpmux CLI guide, pointing at the sub-session tools first.
+    let acpmux_skill = std::fs::read_to_string(plugin.join("skills/acpmux/SKILL.md")).unwrap();
+    assert!(acpmux_skill.contains("name: acpmux"), "{acpmux_skill}");
+    assert!(acpmux_skill.contains("cmux-subsessions") && acpmux_skill.contains("start_session"));
     let manifest: Value = serde_json::from_str(
         &std::fs::read_to_string(plugin.join(".claude-plugin/plugin.json")).unwrap(),
     )
