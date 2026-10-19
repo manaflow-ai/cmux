@@ -12,21 +12,21 @@ use super::conversation_tree::{TOKEN, Ws, ws_addr};
 use super::*;
 
 /// A JSON-lines client of the daemon's Unix socket.
-struct Unix {
+pub(super) struct Unix {
     reader: BufReader<Box<dyn transport::Stream>>,
     writer: Box<dyn transport::Stream>,
     next: u64,
 }
 
 impl Unix {
-    fn open(socket: &std::path::Path) -> Self {
+    pub(super) fn open(socket: &std::path::Path) -> Self {
         let stream = transport::connect(socket).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
         let writer = stream.try_clone_box().unwrap();
         Self { reader: BufReader::new(stream), writer, next: 1 }
     }
 
-    fn reply(&mut self, cmd: &str, params: Value) -> Value {
+    pub(super) fn reply(&mut self, cmd: &str, params: Value) -> Value {
         let id = self.next;
         self.next += 1;
         let mut body = params.as_object().cloned().unwrap_or_default();
@@ -43,7 +43,7 @@ impl Unix {
         }
     }
 
-    fn request(&mut self, cmd: &str, params: Value) -> Value {
+    pub(super) fn request(&mut self, cmd: &str, params: Value) -> Value {
         let value = self.reply(cmd, params);
         assert_eq!(value["ok"], true, "{cmd} failed: {value}");
         value["data"].clone()
@@ -51,7 +51,7 @@ impl Unix {
 }
 
 /// An agent connection bound as `participant`.
-fn bound(server: &HeadlessServer, home: &mut Unix, participant: &str) -> Unix {
+pub(super) fn bound(server: &HeadlessServer, home: &mut Unix, participant: &str) -> Unix {
     let token =
         home.request("conversation-agent-token", json!({"participant": participant}))["token"]
             .as_str()
@@ -72,11 +72,11 @@ fn run_event(page: &mut Ws) -> Value {
     }
 }
 
-fn append(conversation: &str, run: Value, steps: Value) -> Value {
+pub(super) fn append(conversation: &str, run: Value, steps: Value) -> Value {
     json!({"conversation": conversation, "run": run, "steps": steps})
 }
 
-fn refused(reply: &Value, reason: &str) {
+pub(super) fn refused(reply: &Value, reason: &str) {
     assert_eq!(reply["ok"], false, "{reply}");
     assert!(reply.to_string().contains(reason), "expected {reason}: {reply}");
 }

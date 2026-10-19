@@ -104,11 +104,4 @@ enum HomeStrings {
         }
     }
     static var conversations: String { String(localized: "home.list.title", defaultValue: "Conversations", bundle: .module) }
-
-    // The docked Home's header switch (HomeDockSwitchView).
-    static var dockMessages: String { String(localized: "homeDock.view.messages", defaultValue: "Messages", bundle: .module) }
-    static var dockChannels: String { String(localized: "homeDock.view.channels", defaultValue: "Channels", bundle: .module) }
-    static var dockSwitchHelp: String {
-        String(localized: "homeDock.switch.help", defaultValue: "Show Home as Messages or as Channels", bundle: .module)
-    }
 }

@@ -126,6 +126,7 @@ public struct SettingsSchemaExport {
         case .timeRange: row["kind"] = "time_range"
         case .theme: row["kind"] = "theme"
         case .fontFamily: row["kind"] = "font_family"
+        case .text: row["kind"] = "text"
         case .numberList(let number):
             row["kind"] = "number_list"
             row["range"] = range(number)

@@ -167,6 +167,63 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  "backdrops-pending": variant("appearance", {
+    options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
+    host: {
+      ...host,
+      backdrops: [
+        {
+          id: "system:/S/Sonoma.heic",
+          title: "Sonoma",
+          attribution: "macOS system wallpaper · Sonoma",
+          collection: "apple",
+          collection_title: "Apple Wallpapers",
+          downloaded: true,
+        },
+        {
+          id: "system:/S/Grid Green.madesktop",
+          title: "Grid Green",
+          attribution: "macOS system wallpaper · Grid Green",
+          collection: "apple",
+          collection_title: "Apple Wallpapers",
+          downloaded: false,
+        },
+      ],
+    },
+    backdropImages: {
+      "system:/S/Sonoma.heic":
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#8b9aae"/><circle cx="236" cy="58" r="34" fill="#f7e7bd"/><path d="M0 145L90 82L160 139L250 72L320 130V180H0Z" fill="#40526b"/></svg>',
+        ),
+      "system:/S/Grid Green.madesktop":
+        "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#263a32"/><path d="M0 180L108 58L186 180Z" fill="#6fa06c"/><path d="M128 180L233 38L320 180Z" fill="#9bcf8d"/></svg>',
+        ),
+    },
+    steps: [wait('[data-card="backdrop"]'), { selector: '[data-card="backdrop"] .backdrop-pending', action: "focus" }],
+    note: "Backgrounds while macOS is still downloading one wallpaper: the selected tile is ready and the pending tile stays visibly dimmed with its download affordance.",
+  }),
+  "backdrops-empty": variant("appearance", {
+    options: { values: { "appearance.background": "none" } },
+    host: { ...host, backdrops: [] },
+    steps: [wait('[data-card="backdrop"]')],
+    note: "Background picker with no artwork returned yet: the real empty state keeps the setting usable while the host list loads or is unavailable.",
+  }),
+  // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
+  "backdrops-link": variant("appearance", {
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] button[aria-expanded] ~ button[aria-expanded]'),
+      input('[data-card="backdrop-link"] input[type="url"]', "https://example.com/harbor.jpg"),
+    ],
+    note: "Add from a Link: an https image or movie downloads into the backgrounds folder and becomes the background.",
+  }),
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
   "backdrops-workspace": variant("appearance", {
     focus: "appearance.background",
@@ -662,24 +719,6 @@ Object.assign(variants, {
   }),
 } satisfies Record<string, SettingsPageVariant>);
 
-// The two overall looks for the chief's pick (layout.css): each on the Theme section with every
-// bundled theme, on General, and on Show Only Changed. Light and dark come from the gallery theme.
-for (const look of ["quiet", "dense"] as const) {
-  variants[`look-${look}-theme`] = variant("theme", { look, allThemes: true, note: `${look} look: Theme.` });
-  variants[`look-${look}-general`] = variant("general", { look, note: `${look} look: General.` });
-  variants[`look-${look}-browser`] = variant("browser", {
-    look,
-    options: { values: customValues },
-    note: `${look} look: Browser, customized, with an MDM lock.`,
-  });
-  variants[`look-${look}-changed`] = variant("general", {
-    look,
-    options: { values: customValues },
-    steps: [click("[data-changed-only]"), wait("[data-search-results]")],
-    note: `${look} look: Show Only Changed.`,
-  });
-}
-
 // The Reset control never moves the row (P1 fix, Lawrence 2026-10-07): for a row of each editor
 // kind, start customized and press its Reset; the matrix measures layout shift (strict 0) and the
 // anchors (the row's title, the next row's title) on each.
@@ -752,6 +791,7 @@ export default settingsPageEntry({
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
     "pages/settings/components/ArtBrowser.tsx",
+    "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
@@ -774,6 +814,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemeFiles.tsx",
     "pages/settings/components/ThemePicker.tsx",
     "pages/settings/components/ThemePreview.tsx",
+    "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",

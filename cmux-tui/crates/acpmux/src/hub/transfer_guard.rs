@@ -332,6 +332,7 @@ impl Hub {
         }
         meta.preset = None;
         meta.session_env.clear();
+        meta.workspace_id = None;
         meta.harness_roots.clear();
         meta.harness_argv.clear();
         meta.tags.clear();

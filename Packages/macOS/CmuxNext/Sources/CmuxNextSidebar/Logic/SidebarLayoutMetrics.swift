@@ -43,8 +43,8 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
-    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers (a
-    /// group header draws as a thin line there, `SidebarRow.isThinHeader`).
+    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers. A
+    /// group header keeps its solid bar in the group's color, only shorter (Lawrence 2026-10-18).
     public var minimal: SidebarLayoutMetrics {
         var m = self
         let step = (rowHeight * 0.17).rounded()
@@ -75,6 +75,15 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var excludedWorkspaces: Set<WorkspaceID> = []
     /// A group removed from the layout with its children (being dragged).
     public var excludedGroup: GroupID?
+    /// A listed document item removed from the layout (being dragged).
+    public var excludedItem: String?
+    /// The height of each document section's block (its items in its own arrangement), by section id.
+    public var blockHeights: [String: CGFloat] = [:]
+    /// Document sections folded by their header: their groups do not list.
+    public var collapsedDocSections: Set<String> = []
+    /// Document sections whose block draws no item (at most a title): during a drag (`showEmptyPinned`)
+    /// each opens a one-row drop zone under its title, so an empty section always takes a drop.
+    public var emptyDocSections: Set<String> = []
     /// When set, only these workspaces show; containers force-expand.
     public var filterMatches: Set<WorkspaceID>?
     /// Show the drop zone for an empty pinned section.

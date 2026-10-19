@@ -28,7 +28,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: streams require --jsonl, --quiet, or human output");
         return 2;
     }
-    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan.params) {
+    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan) {
         eprintln!("cmux: {error}");
         return 2;
     }
@@ -122,6 +122,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     }
     if notify_desktop::drop_unsupported(&mut reader, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
+        | list_order::apply(&mut plan, &mut request, &socket)
     {
         encoded = match encode_request(&request) {
             Ok(encoded) => encoded,
@@ -614,15 +615,15 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
     if code == 0 { success_exit_code(plan, &result) } else { code }
 }
 
-/// `terminal <id> screen wait` reports a timeout as a normal result with
-/// `matched: false`. The result is still printed, but the exit status is 1
-/// (spec/commands.md), so a script can tell a timeout from a match.
+/// A printed result that exits 1: a `terminal <id> screen wait` timeout
+/// (spec/commands.md) or an `agent message unsend` whose outcome is `failed`.
 fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
-    let unmatched_wait = matches!(
-        &plan.operation,
-        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
-    ) && result.get("matched") == Some(&Value::Bool(false));
-    i32::from(unmatched_wait)
+    use cmux_tui_core::resource::ResourceOperation as Op;
+    i32::from(match &plan.operation {
+        WireOperation::Typed(Op::TerminalWait) => result["matched"] == false,
+        WireOperation::Typed(Op::AgentMessageUnsend) => result["value"]["outcome"] == "failed",
+        _ => false,
+    })
 }
 
 /// What the human table shows for a result. `workspace list --order
@@ -658,7 +659,7 @@ fn is_closed_list(plan: &RequestPlan) -> bool {
     )
 }
 
-fn print_success(value: &Value, output: OutputMode) -> i32 {
+pub(super) fn print_success(value: &Value, output: OutputMode) -> i32 {
     let result = match output {
         OutputMode::Quiet => Ok(()),
         OutputMode::Json => write_json_line(value),
@@ -990,6 +991,7 @@ fn human_key_rank(key: &str) -> usize {
 
 mod closed_view;
 mod hints;
+mod list_order;
 mod notify_desktop;
 mod sanitize;
 mod socket;

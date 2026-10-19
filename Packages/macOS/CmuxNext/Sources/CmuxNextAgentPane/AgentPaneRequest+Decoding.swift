@@ -205,6 +205,12 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
+        case "pane.tabRowTools":
+            if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
+                self = .tabRowTools(width: width)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
@@ -299,6 +305,12 @@ extension AgentPaneRequest {
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)
+        case "dictation.audio":
+            if let enabled = params?["enabled"] as? Bool {
+                self = .dictation(.recordAudio(enabled))
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.openSettings":
             if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
                 self = .dictation(.openSettings(permission))

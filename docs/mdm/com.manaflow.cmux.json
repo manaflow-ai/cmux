@@ -95,6 +95,17 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.defaultPermissionMode" : {
+      "default" : "fullAccess",
+      "description" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+      "enum" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "title" : "Permission Mode for New Chats",
+      "type" : "string"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -584,7 +595,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "default",
+      "default" : "flat-sidebar-line",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
@@ -768,6 +779,34 @@
       "title" : "Sidebar Width",
       "type" : "number"
     },
+    "appearance.metrics.tabMaxWidth" : {
+      "description" : "Widest a tab gets when the strip has room.",
+      "maximum" : 320,
+      "minimum" : 120,
+      "title" : "Maximum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinActiveWidth" : {
+      "description" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.",
+      "maximum" : 320,
+      "minimum" : 32,
+      "title" : "Minimum Selected Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinInactiveWidth" : {
+      "description" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.",
+      "maximum" : 320,
+      "minimum" : 16,
+      "title" : "Minimum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabPinnedWidth" : {
+      "description" : "Width of a pinned tab.",
+      "maximum" : 120,
+      "minimum" : 24,
+      "title" : "Pinned Tab Width",
+      "type" : "number"
+    },
     "appearance.metrics.titlebarHeight" : {
       "description" : "appearance.metrics.titlebarHeight",
       "maximum" : 56,
@@ -791,6 +830,16 @@
         "separate"
       ],
       "title" : "Sidebar Background",
+      "type" : "string"
+    },
+    "appearance.statusIndicator.animation" : {
+      "default" : "animated",
+      "description" : "Static draws a still, distinct shape for each state. Reduce Motion always uses Static.",
+      "enum" : [
+        "animated",
+        "static"
+      ],
+      "title" : "Status Indicators",
       "type" : "string"
     },
     "appearance.statusIndicator.color" : {
@@ -1167,6 +1216,14 @@
       "title" : "New Tab Page",
       "type" : "string"
     },
+    "browser.omnibar.backgroundOpacity" : {
+      "default" : 0,
+      "description" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Address Bar Opacity",
+      "type" : "number"
+    },
     "browser.omnibar.calculator" : {
       "default" : true,
       "description" : "Shows the answer to arithmetic you type. Return copies it.",
@@ -1184,7 +1241,7 @@
       "type" : "string"
     },
     "browser.omnibar.glass" : {
-      "default" : "transparent",
+      "default" : "off",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
       "enum" : [
         "transparent",
@@ -1238,6 +1295,12 @@
       "default" : false,
       "description" : "A soft shadow under the glass address bar.",
       "title" : "Address Bar Shadow",
+      "type" : "boolean"
+    },
+    "browser.openLinksInCmuxBrowser" : {
+      "default" : true,
+      "description" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+      "title" : "Open Links in cmux Browser",
       "type" : "boolean"
     },
     "browser.openTerminalLinksInCmuxBrowser" : {
@@ -1317,7 +1380,7 @@
       "default" : [
 
       ],
-      "description" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
+      "description" : "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
       "items" : {
         "type" : "string"
       },
@@ -1470,6 +1533,12 @@
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
     },
+    "files.textEditor" : {
+      "default" : "",
+      "description" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.",
+      "title" : "Text Editor",
+      "type" : "string"
+    },
     "focus.inactiveTabStyle" : {
       "default" : "fade",
       "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.",
@@ -1568,6 +1637,12 @@
       "default" : false,
       "description" : "When off, location data is removed from photos and videos before they are attached.",
       "title" : "Keep Location in Photos and Videos",
+      "type" : "boolean"
+    },
+    "home.channelsEnabled" : {
+      "default" : false,
+      "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
+      "title" : "Channels",
       "type" : "boolean"
     },
     "labs.classicHome" : {
@@ -1896,6 +1971,17 @@
       "title" : "Unread Count on Dock Icon",
       "type" : "boolean"
     },
+    "notifications.dockBounce" : {
+      "default" : "once",
+      "description" : "When a notification alerts while cmux isn't the active app.",
+      "enum" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "title" : "Bounce Dock Icon",
+      "type" : "string"
+    },
     "notifications.mutedWorkspaces" : {
       "default" : [
 
@@ -2140,6 +2226,29 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "phone.allowConnections" : {
+      "default" : false,
+      "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers.",
+      "title" : "Let Your Phone Use This Mac",
+      "type" : "boolean"
+    },
+    "phone.keepAwake" : {
+      "default" : "pluggedIn",
+      "description" : "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep.",
+      "enum" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "title" : "Keep Mac Awake for Your Phone",
+      "type" : "string"
+    },
+    "phone.startSessions" : {
+      "default" : true,
+      "description" : "Off, your phone can still follow, type into and answer what's already running.",
+      "title" : "Let Your Phone Start New Workspaces",
+      "type" : "boolean"
+    },
     "picker.pinned" : {
       "default" : [
 
@@ -2155,6 +2264,17 @@
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
+    },
+    "sessions.keepAwake" : {
+      "default" : "pluggedIn",
+      "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
+      "enum" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "title" : "Keep Mac Awake While Agents Work",
+      "type" : "string"
     },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
@@ -2257,6 +2377,12 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
+    },
+    "sidebar.nowPlaying.enabled" : {
+      "default" : true,
+      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "title" : "Show Now Playing",
+      "type" : "boolean"
     },
     "sidebar.numbering" : {
       "default" : "allItems",
@@ -2881,6 +3007,16 @@
       "title" : "New Tab Template",
       "type" : "string"
     },
+    "tabs.overflow" : {
+      "default" : "shrink",
+      "description" : "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.",
+      "enum" : [
+        "shrink",
+        "scroll"
+      ],
+      "title" : "Tab Overflow",
+      "type" : "string"
+    },
     "tabs.plusButton" : {
       "default" : "hover",
       "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
@@ -2956,7 +3092,7 @@
       "type" : "boolean"
     },
     "ui.animations.newWorkspace" : {
-      "default" : false,
+      "default" : true,
       "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
       "title" : "Animate New Workspaces",
       "type" : "boolean"
@@ -2973,7 +3109,7 @@
       "type" : "string"
     },
     "ui.paneAnimations" : {
-      "default" : false,
+      "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
       "title" : "Animate Panes",
       "type" : "boolean"
@@ -3067,6 +3203,12 @@
       ],
       "title" : "Titlebar Buttons",
       "type" : "string"
+    },
+    "workspaces.autoName" : {
+      "default" : true,
+      "description" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.",
+      "title" : "Name Workspaces from Tabs",
+      "type" : "boolean"
     },
     "workspaces.newPlacement" : {
       "default" : "top",

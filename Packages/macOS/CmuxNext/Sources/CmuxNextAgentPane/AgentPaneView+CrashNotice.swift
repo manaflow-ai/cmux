@@ -26,7 +26,7 @@ extension AgentPaneView {
 
     private func showCrashNotice() {
         guard crashNotice == nil else { return }
-        let message = NSTextField(wrappingLabelWithString: Self.crashedMessage)
+        let message = ChromeLabel(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center
         let reload = ThemedBezelButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
         let notice = NSStackView(views: [message, reload])
@@ -52,7 +52,7 @@ extension AgentPaneView {
     func themeCrashNotice(_ tokens: ThemeTokens) {
         guard let notice = crashNotice else { return }
         notice.appearance = NSAppearance(named: tokens.isDark ? .darkAqua : .aqua)
-        for case let label as NSTextField in notice.subviews {
+        for case let label as ChromeLabel in notice.subviews {
             label.textColor = tokens.textSecondary.nsColor
         }
     }

@@ -22,6 +22,7 @@ use crate::surface::{
     TerminalStreamProgress, apply_clear_history_transition, replace_ghostty_cursor_defaults,
     write_clear_history_fallback,
 };
+pub use crate::terminal_activity::ShellActivitySnapshot;
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
     HostHello, HostIncarnation, HostReady, TerminalId,
@@ -31,12 +32,13 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
     FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PROGRAM_STATUS, FLAG_PTY_CUSTODY,
-    FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY,
-    Frame, HostLaunchFailure, HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN,
-    KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD,
-    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
-    TerminalExit, decode_host_launch_failure, decode_terminal_exit, encode_host_launch_failure,
-    encode_terminal_exit, read_frame, wait_for_native_child_status_with_reap_result, write_frame,
+    FLAG_SHELL_ACTIVITY, FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS,
+    FLAG_VIEWER_SIZE_PRIORITY, Frame, HostLaunchFailure, HostLaunchFailureKind,
+    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
+    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
+    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
+    encode_host_launch_failure, encode_terminal_exit, read_frame,
+    wait_for_native_child_status_with_reap_result, write_frame,
 };
 
 mod grant_failure;
@@ -189,6 +191,11 @@ pub struct TerminalHostRecord {
     /// ClientHello carrying `FLAG_PROGRAM_STATUS`.
     #[serde(default)]
     pub supports_program_status: bool,
+    /// Additive handshake capability (cx-6so.59). Missing/false records
+    /// belong to hosts that hand over no OSC 133 shell state and reject a
+    /// ClientHello carrying `FLAG_SHELL_ACTIVITY`.
+    #[serde(default)]
+    pub supports_shell_activity: bool,
     /// The orphan grace this host runs with, in seconds (cx-t2sqm D1): it
     /// ends its terminal after this long with no client. `None` (normal
     /// installs, and hosts from before this field): it never does; only a
@@ -217,6 +224,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_viewer_size_priority", &self.supports_viewer_size_priority)
             .field("supports_pty_custody", &self.supports_pty_custody)
             .field("supports_program_status", &self.supports_program_status)
+            .field("supports_shell_activity", &self.supports_shell_activity)
             .field("orphan_grace_secs", &self.orphan_grace_secs)
             .finish()
     }
@@ -280,6 +288,9 @@ pub struct HostSnapshot {
     /// The host's OSC 7501 records at the same boundary; `None` unless the
     /// client and host negotiate `FLAG_PROGRAM_STATUS`.
     pub program_status: Option<ProgramStatusSnapshot>,
+    /// The host's OSC 133 shell state at the same boundary; `None` unless
+    /// the client and host negotiate `FLAG_SHELL_ACTIVITY`.
+    pub shell_activity: Option<ShellActivitySnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

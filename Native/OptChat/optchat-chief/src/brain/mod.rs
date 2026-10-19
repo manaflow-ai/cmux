@@ -110,6 +110,11 @@ pub enum Input {
         tasks: Vec<String>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
+    /// A queued subagent's launch, saved in its record.
+    SubagentQueued {
+        id: String,
+        launch: crate::state::QueuedLaunch,
+    },
     /// A subagent's session exists (its prompt follows).
     SubagentStarted {
         id: String,
@@ -132,6 +137,24 @@ pub enum Input {
     SubagentAnswer {
         id: String,
         answer: Result<serde_json::Value, String>,
+    },
+    /// An auto-resume of subagent `id` is due (auto_resume.rs): its backoff
+    /// passed, or (`after_network`) the network came back (`online`) or
+    /// the wait for it ended (`!online`).
+    AutoResume {
+        id: String,
+        attempt: u32,
+        reason: String,
+        after_network: bool,
+        online: bool,
+    },
+    /// An agent CLI in a cmux terminal stopped on an error
+    /// (terminal_watch.rs): `[term_…] stopped: …`. Quiet ones (an
+    /// auto-resume is planned or done) are notices; the others reach the
+    /// Chief as a note.
+    TerminalStopped {
+        text: String,
+        quiet: bool,
     },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
@@ -431,6 +454,10 @@ pub struct Brain {
     draft_failed: bool,
     /// A run append failed once: later failures are not logged.
     run_failed: bool,
+    /// A live frame (`chief-live-v1`) failed once: later failures are not logged.
+    live_failed: bool,
+    /// What the owner took of each streamed step (renumbers, restarts after a failure).
+    live_streams: crate::run::LiveStreams,
     /// The attachments uploaded for the running turn's steps (turn key, step id):
     /// every later append of the step names them again (a step is replaced whole).
     run_attachments: HashMap<(String, String), Vec<serde_json::Value>>,
@@ -461,16 +488,25 @@ pub struct Brain {
     /// Where subagents' workspaces are renamed when they finish.
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
-    sub_starter: Option<Sender<String>>,
+    sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
+    /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
+    max_live: Option<usize>,
     /// A finished subagent's workspace closes instead of taking the done
     /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
     sub_close_on_finish: bool,
+    /// Auto-resume of subagents that stopped on an error (auto_resume.rs);
+    /// None: off (`OPTCHAT_AUTO_RESUME=off`).
+    resume_policy: Option<crate::auto_resume::ResumePolicy>,
+    /// Whether the model endpoint answers (a network stop waits for it).
+    reach: Arc<dyn crate::auto_resume::Reachability>,
     /// The previous turn's view, to measure how much of it stayed (cache).
     prev_view: Option<String>,
     /// When the current settle wait and turn began.
     settle_clock: Option<Instant>,
     /// Where a turn waiting for the compactor says how far it is.
     settle_status: Option<Arc<crate::settle_status::SettleStatus>>,
+    /// A Chief that is not the default: a compactor fault is also its message.
+    compactor_messages: bool,
     turn_clock: Option<Instant>,
     /// The running turn's view with its new messages, what a `spawn` in it
     /// gives its subagents (no wait for the compactor to summarize the
@@ -562,6 +598,8 @@ impl Brain {
             steer_seq: 0,
             draft_failed: false,
             run_failed: false,
+            live_failed: false,
+            live_streams: Default::default(),
             run_attachments: HashMap::new(),
             typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
@@ -580,10 +618,19 @@ impl Brain {
             trace: crate::trace::Trace::off(),
             workspaces: None,
             sub_starter: None,
+            max_live: None,
             sub_close_on_finish: false,
+            resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
+            reach: Arc::new(crate::auto_resume::TcpProbe::from_env(
+                |k| std::env::var(k).ok(),
+                std::env::var_os("HOME")
+                    .map(std::path::PathBuf::from)
+                    .as_deref(),
+            )),
             prev_view: None,
             settle_clock: None,
             settle_status: None,
+            compactor_messages: false,
             turn_clock: None,
             turn_view: None,
             turn_engine: None,
@@ -629,6 +676,13 @@ impl Brain {
         self
     }
 
+    /// A compactor fault is also posted as this Chief's message (a Chief whose
+    /// home the app does not watch for `state/compactor.json`).
+    pub fn with_compactor_messages(mut self, on: bool) -> Brain {
+        self.compactor_messages = on;
+        self
+    }
+
     pub fn with_trace(mut self, trace: crate::trace::Trace) -> Brain {
         self.trace = trace;
         self
@@ -649,9 +703,27 @@ impl Brain {
         self.sub_close_on_finish = close;
     }
 
+    /// Auto-resume of subagents that stop on an error (None: off), and the
+    /// probe a network stop waits on.
+    pub fn set_auto_resume(
+        &mut self,
+        policy: Option<crate::auto_resume::ResumePolicy>,
+        reach: Option<Arc<dyn crate::auto_resume::Reachability>>,
+    ) {
+        self.resume_policy = policy;
+        if let Some(reach) = reach {
+            self.reach = reach;
+        }
+    }
+
     /// Where queued subagents are started when a slot frees.
-    pub fn set_sub_starter(&mut self, starter: Option<Sender<String>>) {
+    pub fn set_sub_starter(&mut self, starter: Option<Sender<crate::subagents::QueuedStart>>) {
         self.sub_starter = starter;
+    }
+
+    /// Caps the subagents at work at once (None: no cap, the default).
+    pub fn set_max_live(&mut self, limit: Option<usize>) {
+        self.max_live = limit;
     }
 
     /// Renames subagents' workspaces when they finish (workspaces.rs).
@@ -751,6 +823,7 @@ impl Brain {
                 let plan = self.register_spawn(&tasks);
                 let _ = reply.send(plan);
             }
+            Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
             Input::SubagentStarted {
                 id,
                 session_id,
@@ -759,6 +832,20 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::TerminalStopped { text, quiet } => {
+                if quiet {
+                    self.notice(format!("notice:optchat:terminal-resume:{}", now_ms()), text);
+                } else {
+                    self.queue(text, Source::Note);
+                }
+            }
+            Input::AutoResume {
+                id,
+                attempt,
+                reason,
+                after_network,
+                online,
+            } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
             Input::TurnView { reply } => {
                 let _ = reply.send(self.turn_view.clone());
             }
@@ -814,15 +901,15 @@ impl Brain {
         self.post_notices();
     }
 
-    /// cx-1hpt: one failure notice in the conversation at a time, across
-    /// host starts (the state file keeps it); a good probe retracts it.
+    /// cx-oqnw3: a compactor fault is a system notice (the app reads
+    /// `state/compactor.json`), never a Chief message; a good probe removes
+    /// it, and retracts a notice an older build posted as a message (cx-1hpt).
     fn compactor_status(&mut self, status: Result<(), String>) {
+        if let Some(settle) = &self.settle_status {
+            settle.compactor_fault(status.as_ref().err().map(String::as_str));
+        }
         match status {
-            Err(text) => {
-                if self.state.compactor_notice.is_some() {
-                    (self.log)(&text);
-                    return;
-                }
+            Err(text) if self.compactor_messages && self.state.compactor_notice.is_none() => {
                 let key = format!("notice:optchat:compactor:{}", now_ms());
                 self.state.compactor_notice = Some(crate::state::PostedNotice {
                     key: key.clone(),
@@ -831,6 +918,7 @@ impl Brain {
                 self.save();
                 self.notice(key, text);
             }
+            Err(text) => (self.log)(&text),
             Ok(()) => {
                 let Some(posted) = self.state.compactor_notice.take() else {
                     return;

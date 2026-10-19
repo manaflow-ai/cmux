@@ -1,9 +1,13 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "../env.ts"
+import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
 import type { Step } from "../chief-brain/brain-runs.ts"
-import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
+import { signedFetch, turnsObject } from "../chief-brain/claude-auth.ts"
+import { claudeRoute, isMetered } from "../model-gateway/routes.ts"
+import { gatewayMessages } from "../model-gateway/http.ts"
+import { payerTeam } from "../credits.ts"
 import type { CpNote, CpRun, CpWake } from "./contract.ts"
 import { brainModel, hostCall, HostRefused, type Who } from "./host.ts"
 import { LiveRuns } from "./live-runs.ts"
@@ -133,6 +137,8 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (this.get("agent") !== w.agent) return { skipped: "other_chief" }
     this.set("owner", w.owner)
     const cursor = this.sql.exec<{ seq: number }>(`SELECT seq FROM oc_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq
+    // A resent wake whose message a later turn already read is answered: nothing to do (MuxDO redelivery).
+    if (cursor !== undefined && w.seq <= cursor) return { queued: 0 }
     // A conversation this brain never answered starts just before the wake: older history is context, not a question.
     if (cursor === undefined) this.sql.exec(`INSERT INTO oc_cursor (conversation, seq) VALUES (?, ?)`, w.conversation, w.seq - 1)
     const fresh = this.sql.exec(`INSERT INTO oc_wake (wake_id, conversation, seq, reason) VALUES (?, ?, ?, ?) ON CONFLICT (wake_id) DO NOTHING RETURNING n`, `${w.conversation}:${w.seq}`, w.conversation, w.seq, w.reason).toArray()
@@ -177,6 +183,14 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (row.tries >= MAX_ATTEMPTS) return this.endWake(row.n, run, "failed", "the brain did not finish the turn")
     const admitted = (await this.settings(agent).admit(agent, owner, row.tries === 0)) as Admission
     if (!admitted.ok) return void this.sql.exec(`UPDATE oc_wake SET state = 'skipped' WHERE n = ?`, row.n)
+    // A metered model counts against the deployment's daily Claude cap, as on P (the holder decides).
+    const model = brainModel(admitted.config.model)
+    if (row.tries === 0 && isMetered(model)) {
+      // The owner's turns object counts it (no global object; claude-auth.ts ownerTurn). Only "ok" runs.
+      const turns = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner)))
+      const verdict = await turns.claudeTurn(owner, model).catch(() => "unreachable")
+      if (verdict !== "ok") return this.endWake(row.n, run, "skipped", `no paid turn (${verdict})`)
+    }
     this.sql.exec(`UPDATE oc_wake SET state = 'running', run = ?, tries = tries + 1 WHERE n = ?`, run, row.n)
     // An eviction mid-turn loses the in-memory loop: the alarm picks the running row up again.
     await this.alarmAt(Date.now() + TURN_MS + 60_000)
@@ -383,18 +397,23 @@ export class OpencodeBrainDO extends DurableObject<Env> {
   }
 
   /**
-   * Stub of the host model gateway (Anthropic Messages in, SSE out) until the shared gateway lands:
-   * admission first (a Chief turned off stops spending at once), then the metered Claude route with
-   * the holder's sign-in, exactly the route P uses today. Credits (UsageMeterDO reserve/settle) go
-   * here, the one place every O model call passes.
+   * The container's model route (Anthropic Messages in, SSE out): admission first (a Chief turned off
+   * stops spending at once), then the host model gateway, the same allow-list, credits and Claude
+   * route P uses.
    */
   private async gateway(request: Request): Promise<Response> {
     const who = await this.who()
     if ("refused" in who) return Response.json({ type: "error", error: { type: "permission_error", message: who.refused } }, { status: 403 })
-    const holder = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
-    const url = `${(this.env.CHIEF_BRAIN_CLAUDE_URL || "https://chatmux.dev/api/claude-david").replace(/\/+$/, "")}/v1/messages`
-    const f = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate())
-    return f(url, { method: "POST", headers: request.headers, body: await request.text() }).catch((e: unknown) => Response.json({ type: "error", error: { type: "api_error", message: e instanceof Error ? e.message : "gateway failed" } }, { status: 502 }))
+    // The host model gateway (model-gateway/http.ts): allow-list, prepaid credits of the owner's team, the Claude route.
+    return gatewayMessages(this.env, { team: payerTeam(who.owner), chief: who.agent, owner: who.owner, run: "opencode" }, request)
+  }
+
+  /** Test-only (chief-fault.ts, CHIEF_FAULT_HOOKS, never staging or production): stop the container at once, as a crash. */
+  async fault(): Promise<{ stopped: boolean }> {
+    assertFaultHooks(this.env)
+    if (!this.ctx.container?.running) return { stopped: false }
+    this.ctx.container.signal(9)
+    return { stopped: true }
   }
 
   // ------------------------------------------------------------------ retries, turn guard and idle sleep

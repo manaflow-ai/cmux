@@ -13,7 +13,7 @@ export class OptChat {
     append(): number;
     /**
      * The compactor call for node (l, i) as JSON `{system, context, marks,
-     * step, cut, room}`: `marks` are byte offsets into the UTF-8 context
+     * step, cut, room}`: `marks` are JS string indices (UTF-16 code units) into the context
      * where a cached piece ends (section 8); send each piece as its own
      * block with a breakpoint. `cut` is null, or the prefix a too-long
      * message's line starts with: run the size loop with `sizeCheck(tries,
@@ -49,10 +49,17 @@ export class OptChat {
      */
     pump(store: any): string;
     /**
-     * The rendered view as JSON `{text, marks}` (marks are byte offsets into the UTF-8 text).
+     * The rendered view as JSON `{text, marks}` (marks are indices into the JS string `text`, UTF-16 code units).
      */
     renderView(store: any): string;
     settled(): boolean;
+    /**
+     * The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front, unbuilt, cuts}, rerendered, view: [piece],
+     * delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
+     * blocks. `frozen` is the JSON this returned last turn, or "" for none; `new` is how many of the
+     * log's last messages are this turn's new ones (never shown in a re-rendered view).
+     */
+    turnInput(store: any, frozen: string, _new: number): string;
     viewSize(): number;
     /**
      * The view parts as JSON `[{l, i, name}]`.
@@ -95,6 +102,7 @@ export interface InitOutput {
     readonly optchat_pump: (a: number, b: any) => [number, number, number, number];
     readonly optchat_renderView: (a: number, b: any) => [number, number, number, number];
     readonly optchat_settled: (a: number) => number;
+    readonly optchat_turnInput: (a: number, b: any, c: number, d: number, e: number) => [number, number, number, number];
     readonly optchat_view: (a: number) => [number, number];
     readonly optchat_viewSize: (a: number) => number;
     readonly optchat_zoom: (a: number, b: any, c: number, d: number) => [number, number, number, number];

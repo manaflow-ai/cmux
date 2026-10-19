@@ -411,6 +411,10 @@ CMUX_SHIM_EXPORT void cmux_shim_context_menu_done(int token, int command_id, int
 CMUX_SHIM_EXPORT void cmux_shim_set_popup_windows_enabled(int enabled);
 // Screen DIPs, top-left origin. Returns 0 when the window is unknown.
 CMUX_SHIM_EXPORT int cmux_shim_popup_window_bounds(int window_id, int* x, int* y, int* width, int* height);
+// DevTools device mode (fork API 24): the device's screen area the DevTools of
+// browser_id (the inspected page) asks for, DIPs from the DevTools view's
+// top-left corner. Returns 0 while device mode is off or on an older fork.
+CMUX_SHIM_EXPORT int cmux_shim_devtools_inspected_bounds(int browser_id, int* x, int* y, int* width, int* height);
 // Attaches the kept window over parent_view (NSView*); 1 on success. Call on a
 // later run loop turn than its event.
 CMUX_SHIM_EXPORT int cmux_shim_popup_window_attach(int window_id, void* parent_view, int width, int height);

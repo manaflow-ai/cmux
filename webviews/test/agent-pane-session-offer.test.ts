@@ -3,9 +3,10 @@
 // to a stand-in acpmux daemon that answers the way `hub/offers.rs` does.
 //
 // - With the session-offer experiment off, the offer draws nothing.
-// - With it on, the offer is a chip with its title. Start starts a new chat in the offer's folder
-//   on its agent, sends it the offer's prompt, and answers the offer with that chat; the pane
-//   keeps showing this chat. Dismiss answers the offer dismissed. acpmux's decision closes it.
+// - With it on, the offer is a card with its title (offer/SuggestedTasks.tsx). Start starts a new
+//   chat in the offer's folder on its agent, sends it the offer's prompt, and answers the offer
+//   with that chat; the pane keeps showing this chat, and the card becomes the started chat's row.
+//   Dismiss answers the offer dismissed, and acpmux's decision takes the card away.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -183,7 +184,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     for (let tries = 0; !done() && tries < 100; tries++) await Bun.sleep(50);
     expect(done()).toBe(true);
   }
-  const chip = (page: Page) => page.locator(".acpmux-session-offer");
+  const chip = (page: Page) => page.locator(".acpmux-tasks");
 
   describe("an agent's session offer", () => {
     test("with the experiment off, the offer draws nothing", async () => {
@@ -197,7 +198,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     test("Start starts the offered chat beside this one and answers the offer with it", async () => {
       const page = await openChat("on");
       await chip(page).getByText(offer.title).waitFor({ timeout: 10_000 });
-      await chip(page).getByRole("button", { name: "Start" }).click();
+      await chip(page).getByRole("button", { name: "Start", exact: true }).click();
       await chip(page).getByText("Started").waitFor({ timeout: 10_000 });
 
       const created = calls.find((c) => c.method === "session/new");
@@ -220,8 +221,8 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       expect(calls.find((c) => c.method === "_acpmux/attach" && c.params.sessionId === CHILD)?.params.visible).toBe(
         false,
       );
-      expect(await page.locator(".acpmux-session-offer-title").first().innerText()).toBe(offer.title);
-      expect(await chip(page).getByRole("button", { name: "Start" }).count()).toBe(0);
+      expect(await page.locator(".acpmux-task-row-title").first().innerText()).toBe(offer.title);
+      expect(await chip(page).getByRole("button", { name: "Start", exact: true }).count()).toBe(0);
       await page.close();
     });
 
@@ -229,14 +230,14 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       const page = await openChat("on", true);
       await page.getByText("Offered a parallel chat.").waitFor({ timeout: 10_000 });
       await chip(page).getByText(offer.title).waitFor({ timeout: 5_000 });
-      expect(await chip(page).getByRole("button", { name: "Start" }).isVisible()).toBe(true);
+      expect(await chip(page).getByRole("button", { name: "Start", exact: true }).isVisible()).toBe(true);
       await page.close();
     });
 
     test("Dismiss answers the offer dismissed and starts nothing", async () => {
       const page = await openChat("on");
       await chip(page).getByRole("button", { name: "Dismiss" }).click();
-      await chip(page).getByText("Dismissed").waitFor({ timeout: 10_000 });
+      await chip(page).waitFor({ state: "detached", timeout: 10_000 });
       const respond = calls.filter((c) => c.method === "_acpmux/offer_respond");
       expect(respond.map((c) => c.params)).toEqual([
         { sessionId: SESSION, offerId: offer.offerId, outcome: "dismissed" },

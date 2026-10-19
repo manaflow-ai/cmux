@@ -94,7 +94,7 @@
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
-# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | path [--tree|--pin] | key [--version v1|v2] [--rev <rev>]
+# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | fetch-acpmux | path [--tree|--pin] | key [--version v1|v2] [--rev <rev>]
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
@@ -184,9 +184,8 @@ download() {
 }
 
 # The tree key of <rev> (default HEAD) is derived from
-# cmux-tui-tree-inputs.txt. That one list is also the trusted workflow's PR
-# path filter, so changes such as the layout-reducer FFI build script cannot
-# silently reuse a stale publication.
+# cmux-tui-tree-inputs.txt, so changes such as the layout-reducer FFI build
+# script cannot silently reuse a stale publication.
 tree_key() {
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "${1:-HEAD}"
 }
@@ -713,17 +712,27 @@ refuse_unpushed_source() {
 }
 
 # True when a branch head on origin now (git ls-remote, no fetch) contains
-# <commit>. Heads this clone lacks the objects for are skipped. When origin
-# cannot be reached the answer is false: the local refs decide, as before.
+# <commit>. Only commits this clone already has count, and no head is looked up
+# by id: in a partial clone each lookup of a commit the clone lacks starts a
+# lazy fetch, and origin has thousands of heads (a per-head `cat-file -e` loop
+# took 111 min). One local walk lists the descendants of <commit> reachable from
+# the local refs and HEAD; a head counts when it is one of them (or <commit>
+# itself). The publishing branches are checked first. When origin cannot be
+# reached or the walk fails the answer is false: the local refs decide, as before.
 on_origin_branch() {
-  local commit="$1" heads sha
+  local commit="$1" heads descendants branch sha
   heads="$(git -C "$repo_root" ls-remote --heads origin 2>/dev/null)" || return 1
-  while read -r sha _; do
-    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
-    git -C "$repo_root" cat-file -e "$sha^{commit}" 2>/dev/null || continue
-    git -C "$repo_root" merge-base --is-ancestor "$commit" "$sha" 2>/dev/null && return 0
-  done <<<"$heads"
-  return 1
+  descendants="$(git -C "$repo_root" rev-list --ancestry-path "^$commit" --all HEAD 2>/dev/null)" || return 1
+  descendants+=$'\n'"$commit"
+  for branch in feat-cmux-next feat-cmux-next-acpmux; do
+    sha="$(awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }' <<<"$heads")"
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && grep -qxF "$sha" <<<"$descendants" && return 0
+  done
+  [[ -n "$heads" ]] || return 1
+  # Full SHAs only on both sides: an empty line must never match.
+  awk 'NR == FNR { if ($1 ~ /^[0-9a-f]{40}$/) local_desc[$1]; next }
+    $1 ~ /^[0-9a-f]{40}$/ && ($1 in local_desc) { found = 1; exit } END { exit !found }' \
+    <(printf '%s\n' "$descendants") <(printf '%s\n' "$heads")
 }
 
 # True when <binary> reports a build commit whose tree key is this
@@ -817,10 +826,16 @@ fetch_tree_windows_host() {
 }
 
 fetch_tree_companions() {
+  local companions="${3:-all}"
   # Windows has one companion, the terminal host; the Windows daemon has no
   # app, cloud or browser host.
   if [[ -n "$(exe_suffix)" ]]; then
+    [[ "$companions" == all ]] || { echo "error: acpmux-only fetch is only supported on macOS" >&2; exit 2; }
     fetch_tree_windows_host "$1" "$2"
+    return 0
+  fi
+  if [[ "$companions" == acpmux ]]; then
+    fetch_tree_companion "$1" "$2" acpmux acpmux
     return 0
   fi
   fetch_tree_companion "$1" "$2" app-host cmux-app-host
@@ -889,6 +904,53 @@ fetch_tree() {
   echo "fetched same-tree cmux-tui $key to $binary"
   echo "fetched cmux-tui tree $(tree_source_label "$published_key" "$key")"
   fetch_tree_companions "$key" "$dir"
+}
+
+# Fetch only the attested acpmux companion for the resolved macOS tree. The
+# app build calls this before build-acpmux.sh and does not need the daemon or
+# the app/cloud/browser/plugin companions, which are fetched later by the
+# bundle job. Keep the tree publication and source manifest checks from the
+# full fetch so a companion can never be accepted from an unverified owner.
+fetch_tree_acpmux() {
+  local key dir temp_dir owner manifest_sha published_sha source_file
+  key="$(checkout_tree_key)"
+  TARGET="$GATE_TARGET"
+  refuse_dirty_source
+  dir="$(tree_dir "$key")"
+  mkdir -p "$dir"
+  temp_dir="$(mktemp -d "$dir/.acpmux-fetch.XXXXXX")"
+  # shellcheck disable=SC2064 # expand now: the trap must remove this temp dir
+  trap "rm -rf '$temp_dir'" EXIT
+  refuse_unpushed_source
+  require_target_in_tree "$key" "$(checkout_legacy_tree_key)"
+  wait_for_tree "$key" "$temp_dir/sha256" "$(checkout_legacy_tree_key)"
+  published_sha="$published"
+  source_file="$dir/source.json"
+  download "$BASE/tree/$published_key/source.json" "$temp_dir/source.json" 2>/dev/null || {
+    echo "error: could not download $BASE/tree/$published_key/source.json" >&2
+    exit 1
+  }
+  owner="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$temp_dir/source.json" 2>/dev/null || true)"
+  [[ "$owner" =~ ^[0-9a-f]{40}$ ]] || {
+    echo "error: tree $key has no valid source commit in its attested source.json" >&2
+    exit 1
+  }
+  download "$BASE/$owner/manifest.json" "$temp_dir/manifest.json" 2>/dev/null || {
+    echo "error: could not download $BASE/$owner/manifest.json" >&2
+    exit 1
+  }
+  manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) or "")' "$temp_dir/manifest.json" "cmux-tui-$TARGET" 2>/dev/null || true)"
+  [[ "$manifest_sha" == "$published_sha" ]] || {
+    echo "error: $BASE/$owner/manifest.json does not attest cmux-tui-$TARGET for tree $key" >&2
+    exit 1
+  }
+  mv -f "$temp_dir/source.json" "$source_file"
+  fetch_tree_companions "$key" "$dir" acpmux
+  [[ -x "$dir/acpmux" && -f "$dir/acpmux.sha256" && "$(cat "$dir/acpmux.sha256")" != none ]] || {
+    echo "error: tree $key has no verified acpmux companion" >&2
+    exit 1
+  }
+  echo "using attested same-tree acpmux companion: $dir/acpmux"
 }
 
 # The cmux-next gate: waits for this checkout's tree like fetch, without
@@ -1358,6 +1420,10 @@ PY
     mode_from_args "$@"
     [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
     if [[ "$mode" == tree ]]; then fetch_tree; else fetch_pin; fi
+    ;;
+  fetch-acpmux)
+    [[ $# -eq 0 ]] || { echo "error: fetch-acpmux does not accept pin mode" >&2; exit 2; }
+    fetch_tree_acpmux
     ;;
   path)
     mode_from_args "$@"

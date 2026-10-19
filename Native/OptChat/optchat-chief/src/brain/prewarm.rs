@@ -70,16 +70,10 @@ impl Brain {
         if cached.is_some() {
             // The pooled Claude Code reads its cache settings when it
             // starts: the next turn's TTL, and whether that turn carries our
-            // mark (the view has a whole block now, so the next one will).
+            // marks (every turn input has them, spec 5a, unless Claude Code
+            // refused them lately).
             let ttl = self.turn_cache_ttl();
-            let view = self.chat.render_view();
-            let prev = self
-                .state
-                .last_mark
-                .as_ref()
-                .and_then(|m| m.prefix_of(&view.text));
-            let ours = !self.marker_refused.is_off()
-                && optchat_core::mark_piece(&view.text, prev).is_some();
+            let ours = !self.marker_refused.is_off();
             match crate::session_dir::set_session_cache(&self.settings.session_dir, ttl, ours) {
                 Ok(()) => {
                     self.prewarm_ttl = Some(ttl);

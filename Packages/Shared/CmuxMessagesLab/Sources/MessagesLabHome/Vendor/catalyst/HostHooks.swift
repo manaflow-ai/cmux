@@ -13,6 +13,29 @@ import AppKit
 //
 // Ask 9 (the status line under the transcript) is engine state, not a hook: the host dispatches `.setNotice(text)`
 // on the view's store (nil or "": no line); RowBuilder draws it as the last row.
+//
+// Ask 11 (a streaming bubble) is engine state too (Engine.swift, StreamBubble; no stream: nothing changes). The host
+// dispatches, per stream (its own id, StreamID; cmux: the reply's turn key):
+//   `.streamBegin(id, sender:, format:)`  the typing indicator (as `.typing(sender, true)`; Springs.typing).
+//   `.streamSet(id, text:, parts:, seq:)` the whole text so far; `parts` are how the host will show the final message
+//       (cmux: HomeMapping's parts of that text), nil: MessagesLab's own rule (TextParts.parts, as its send).
+//   `.streamAppend(id, text:, seq:)`      more text (MessagesLab's rule for the parts, also after a set with parts).
+//       With `seq`, a set or append whose seq is not above the stream's last one is ignored (out of order, repeated).
+//       The first text turns the indicator into the bubble as a received text arrives (typing.outOnReceive,
+//       received.textFade, the rows on transcript.receive); more text grows it in place, the rows (and the bubble's
+//       top) moving on transcript.receive, the curve every non-send row move of Messages shares (springs.json; no new
+//       constant). A stream with text hides its sender's typing indicator.
+//   `.streamEnd(id, replacedBy: final)`   the final message is received in the bubble's place: the window view gives
+//       it the bubble's rows (keys, cells, live motions; MessagesWindowView.renameStreamRows) before it compares rows,
+//       so nothing is removed, inserted or moved and the cell draws the final message's bitmap in the same commit.
+//       With the same parts and the same group (sender, thread, under a minute after the message above, as the
+//       stream's last text), the pixels are the same (self-test: 0 px). `replacedBy: nil`: the bubble fades out on
+//       typing.out and the rows close up on transcript.receive, as the typing indicator leaves. The host's own
+//       `.typing(sender, true)` stays: if it is still on, the indicator shows again (the host turns it off).
+//   Several streams show in begin order. The hand-off is in place for the last one with text; a final message for an
+//   earlier one is received after the loaded messages, above the streams still running, so the bubbles below it move.
+// The bubble is drawn as the message `StreamBubble.message` (id "%stream-<id>", the last change's time) after the newest
+// loaded message, only while the window shows the newest messages; it takes no click, menu or selection (`hit`).
 
 /// What the user is on in one transcript (ask 10): the host reads it to hand the selection to another view.
 struct HostSelection: Equatable {
@@ -42,6 +65,20 @@ struct HostHooks {
     /// Whether the host decides Edit and Undo Send (either hook set): then MessagesLab's own rule (15 and 2 minutes
     /// after sending, appkit-native Host.menu) is off and each item exists only through its hook.
     var ownsEditing: Bool { edit != nil || undoSend != nil }
+
+    // Thread slots and sheets (host-hooks-b, asks 6 and 7; ThreadHost.swift has the `ThreadMode` option).
+    /// Ask 6, `ThreadMode.tree` thread view: the header for the open thread (its root) and branch (the drill path,
+    /// empty: the whole thread). nil hook or nil result: today's header (the date row only). Asked again when the
+    /// view changes and after `MessagesWindowView.threadHeaderDidChange()`.
+    var threadHeader: ((_ root: PartRef, _ path: [PartRef]) -> ThreadHeaderContent?)?
+    /// Ask 6: a click on the header: the action, the thread root, and the clicked item's rect in the view's
+    /// coordinates (for a popover or an inline editor). The host changes its data and calls threadHeaderDidChange().
+    var threadHeaderAction: ((_ action: ThreadHeaderAction, _ root: PartRef, _ anchor: CGRect) -> Void)?
+    /// Ask 7: a sheet is presented (`MessagesWindowView.presentSheet`) or its frame moved (view size, field
+    /// height): the host places its own content view at this frame (the view's coordinates).
+    var layoutSheet: ((CGRect) -> Void)?
+    /// Ask 7: the sheet went away (`dismissSheet`, Esc, or a click outside it): the host removes its view.
+    var sheetDidDismiss: (() -> Void)?
 }
 
 /// A host action on one message, with its per-message availability (HostHooks.undoSend).
@@ -154,4 +191,32 @@ extension MessagesWindowView {
         l.add(a, forKey: "reveal")
         CATransaction.commit()
     }
+}
+
+// MARK: Thread header slot (ask 6; host-hooks-b)
+
+/// The host's thread header in a `.tree` thread view (ask 6): the data comes from the host (cmux:
+/// the daemon's thread object), MessagesLab only draws it and reports clicks.
+struct ThreadHeaderContent: Equatable {
+    enum Status: String, Equatable { case open, resolved }
+    var title: String
+    var status: Status
+    /// The owner's display name; nil: unassigned.
+    var owner: String?
+
+    init(title: String, status: Status, owner: String? = nil) {
+        self.title = title
+        self.status = status
+        self.owner = owner
+    }
+}
+
+/// A click on the host's thread header.
+enum ThreadHeaderAction: Equatable {
+    /// The status chip of an open thread / of a resolved one.
+    case resolve, reopen
+    /// The title.
+    case rename
+    /// The owner.
+    case assign
 }

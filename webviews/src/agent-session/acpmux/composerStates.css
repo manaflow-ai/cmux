@@ -51,6 +51,19 @@
 .acpmux-plan[aria-pressed="true"]:active {
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 28%, transparent);
 }
+/* A press shows at once (cg-composer click polish, as Codex's chips): the hover's ease below never
+   delays the tone under the button going down. */
+.acpmux-picker-button:active,
+.acpmux-plan:active,
+.acpmux-location-button:active {
+  transition-duration: 0s;
+}
+/* A menu takes focus when it opens so its keys work; a click on its chip never draws a ring around
+   it (WebKit draws one after typing, as keyboard focus). Its rows show the highlight instead. */
+.ui-popup.ui-menu:focus,
+.ui-popup.ui-menu:focus-visible {
+  outline: none;
+}
 
 /* Steer (or Interrupt) beside Send while a turn runs: a quiet chip, as Plan is; Send queues. */
 .acpmux-steer {
@@ -60,7 +73,9 @@
   border-radius: 6px;
   background: none;
   color: var(--agent-muted);
-  font: inherit;
+  /* Keep the running-turn action on the same control step as the other composer chips. */
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -73,14 +88,14 @@
   outline-offset: 2px;
 }
 
-/* Send is the one accent-filled control (the terminal theme's text color, or its own hue with
-   appearance.accent; never the ANSI blue); Stop is the same disc in the text color
-   (composerLocation.css). Each steps toward the base on hover and further on press. */
+/* Send is the one filled control, iMessage's blue (styles.css --acpmux-send-fill, never the ANSI
+   blue); Stop is the same disc in the text color (composerLocation.css). Each steps toward the
+   base on hover and further on press. */
 .acpmux-send.acpmux-send-ready:hover {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 88%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--acpmux-send-fill) 88%, var(--acpmux-base));
 }
 .acpmux-send.acpmux-send-ready:active {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--acpmux-send-fill) 76%, var(--acpmux-base));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
   background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
@@ -216,8 +231,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    (Lawrence, Leo 10-14): the same one-device-pixel rim, never a wider ring or the accent, and clear
    with appearance.borders none. Its tone steps 30% toward the text (--acpmux-composer-edge-focus):
    the earlier 8% step was below what an eye can see, so a focused composer was pixel-identical to an
-   idle one in every theme (cg-composer focus audit, 10-14). The location strip on the card's top
-   edge takes the same tone, so the focused rim stays one outline. Shell mode takes its own accent,
+   idle one in every theme (cg-composer focus audit, 10-14). The card's rim goes round the location
+   strip too (composerLocation.css), so the focused rim stays one outline. Shell mode takes its own accent,
    the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
 .acpmux-composer,
 .nt-composer {
@@ -226,16 +241,29 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 :root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
   --acpmux-composer-edge-focus: transparent;
 }
-.acpmux-composer-box:focus-within {
+.acpmux-composer-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-strip,
-.nt-composer:has(.nt-box:focus-within) .acpmux-composer-strip {
+/* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
+   by default the card's rim goes round the strip and takes the focused tone itself (below). */
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-strip,
+.nt-composer:has(.nt-box :focus-visible) .acpmux-composer-strip {
   --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
+}
+/* The location controls live beside the card, so focusing one does not make the card
+   :focus-within. Keep the footer's rim in the same focused tone as the prompt and chips. */
+.acpmux-composer > .acpmux-composer-strip:focus-within,
+.nt-composer .acpmux-composer-strip:focus-within {
+  --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
+}
+/* By default the card's one rim goes round the strip too (composerLocation.css), so a focused
+   location control lifts that rim, as the prompt and chips do. */
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-strip :focus-visible) > .acpmux-composer-box {
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
 /* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
    sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-queue {
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
   box-shadow:
     inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus),
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-composer-edge-focus),
@@ -254,22 +282,21 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
   outline-offset: 0;
 }
-/* Its ink steps up as on hover, so focus reads as hover with a ring (unrestricted access keeps its
-   warning color). */
-.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access:not(.acpmux-unrestricted)) .acpmux-picker-button:focus-visible {
+/* Its ink steps up as on hover, so focus reads as hover with a ring. */
+.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:focus-visible {
   color: var(--agent-text);
 }
 @media (prefers-contrast: more) {
   .acpmux-composer-bar .acpmux-picker-button:focus-visible { outline-offset: 2px; }
 }
-.acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+.acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
 }
 /* Under Increase Contrast the edge is already the text color, so the step above would not show:
    the box takes the shared focus ring, following its rounded corners. */
 @media (prefers-contrast: more) {
-  .acpmux-composer-box:focus-within,
-  .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
+  .acpmux-composer-box:has(:focus-visible),
+  .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
@@ -293,10 +320,11 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   opacity: 1;
 }
 .acpmux-queued-edit {
-  flex: 1;
+  grid-column: 2 / -1;
   min-width: 0;
   max-height: 88px;
-  margin: 2px 0;
+  /* Its text stays where the row's text was. */
+  margin: 2px 0 2px -6px;
   padding: 2px 6px;
   resize: none;
   line-height: 18px;
@@ -307,4 +335,89 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-base);
   color: var(--agent-text);
   font: inherit;
+}
+
+/* What the strip holds: "Queued" over prompts that wait for the turn to end, "Steering" on a
+   prompt sent now that stops the turn and runs next, above them (ComposerQueue.tsx). Every row
+   takes the queue's three columns (its mark, its text, its actions), so all the prompts' text
+   starts at one edge whichever kinds the queue holds; "Steering" leads its prompt's text. */
+.acpmux-queue-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 12px 0;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+}
+.acpmux-queued-kind {
+  flex: none;
+  color: var(--acpmux-composer-dim);
+  font-size: var(--text-detail);
+  font-weight: 600;
+  line-height: 18px;
+}
+.acpmux-queued-kind[data-kind="steer"] {
+  /* Inline before the prompt at its smaller size: top-aligned, so the line stays 18px. */
+  vertical-align: top;
+  margin-right: 6px;
+  color: var(--agent-accent);
+}
+.acpmux-queued-mark[data-kind="steer"] {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  color: var(--agent-accent);
+}
+
+/* A long queue's fold (ComposerQueue.tsx): one quiet line under the list, outside its scrolling,
+   its text at the prompts' edge: "N more queued" or "Show less". It opens and closes at once: no
+   motion. The list rests on whole rows: ComposerQueue sizes it to its rows (opened, to its first
+   three, so the chat above moves about a row) and opens it at its top, a scroll settles on a row's
+   top (the padding is the snap inset, so the header's top is scrollTop 0), and a focused row
+   scrolls in whole. Rows keep their own height in the capped grid (WebKit shrank
+   an opened row's track, its text then ran over the next row). The captures of 90721dc, 935dada and
+   436917b showed cut rows, a fold over an opened row, a 156 px jump and rows over a pinned header;
+   f1a737b opened on row 2 with blank slots. */
+.acpmux-composer-queue {
+  grid-auto-rows: max-content;
+}
+/* Only an opened long queue snaps: folded, a row opened whole re-snapped the list off its header. */
+.acpmux-composer-queue[data-unfolded] {
+  scroll-snap-type: y proximity;
+  scroll-padding-top: 4px;
+}
+.acpmux-composer-queue[data-unfolded] > li {
+  scroll-snap-align: start;
+}
+/* The fold's line continues the list's tray and side edges, down to the strip. */
+.acpmux-queue-foldbar {
+  display: flex;
+  min-width: 0;
+  padding: 0 8px 2px 34px;
+  box-sizing: border-box;
+  background: var(--acpmux-composer-tray);
+  box-shadow:
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge);
+}
+.acpmux-queue-fold {
+  height: 24px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--acpmux-composer-dim);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: default;
+}
+.acpmux-queue-fold:hover {
+  background: var(--agent-control-hover);
+  color: var(--agent-text);
+}
+.acpmux-queue-fold:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1px;
 }

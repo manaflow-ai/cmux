@@ -38,11 +38,11 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
-# The pane's strings (acpmux/Localizable.xcstrings -> generated/strings.json) must be current. The
+# The pane's strings (acpmux/Localizable.xcstrings -> generated/strings.json, build output). The
 # bundle does not inline them: they ship as locales/<code>.js beside index.html, and the <head>
 # loader runs English plus the app's language synchronously, before the module (no frame of
 # English, no fetch before first paint). The loader is a file too (locales/loader.js).
-bun scripts/pages/gen-strings.mjs --check agentPane
+bun scripts/pages/gen-strings.mjs agentPane
 LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.json" "$WORK/locales" __cmuxPaneStrings --loader-file)"
 
 # `shiki` resolves to a trimmed copy (acpmux/shiki): the JavaScript regex engine and
@@ -76,7 +76,7 @@ grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$SRC/acpmux/offer/suggestedTasks.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"
 # Every sheet the pane imports ships: a missing one renders its component unstyled in the app
 # only (the dev server loads imports), as New Tab's tools did.
 while IFS= read -r sheet; do

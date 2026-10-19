@@ -133,6 +133,19 @@ pub(super) async fn check(
     {
         return Err(crate::session_env::origin_refused());
     }
+    // So is a chat's route: it decides where the harness sends its model traffic.
+    if m == method::SESSION_NEW
+        && params
+            .pointer("/_meta/acpmux/route")
+            .or_else(|| params.get("route"))
+            .is_some_and(|v| !v.is_null())
+    {
+        return Err(RpcError::new(
+            -32602,
+            "a session route is accepted only over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "route.origin_refused"})));
+    }
     // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
     if m == method::SESSION_PROMPT
         && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))

@@ -1,16 +1,24 @@
 import type { Env } from "../env.ts"
 import { runChanged } from "../chief-brain/brain-io.ts"
+import { activityLine, chunks } from "../chief-brain/brain-stream.ts"
+import type { LiveFrame } from "../chief-brain/contract.ts"
 import { type Run, type Step, readSteps, upsertStep } from "../chief-brain/brain-runs.ts"
 import { type CpNote, type CpRun, decodeNote } from "./contract.ts"
 
 /**
  * The run side of OpencodeBrainDO: Chief Protocol notifications (run/start, run/step, run/delta,
  * run/activity, run/end) become the trajectory wire (cb_turn/cb_step rows in the P tables, read by
- * the same readers) and `conversation-run-changed` frames. run/delta is coalesced into the talk step
- * every 40 ms (no storage write). A run id maps to its wake row: the conversation of every run frame
- * is the host's, never the brain's. The reads behind GET /v1/chiefs/<agent>/runs are here too.
+ * the same readers) and `conversation-run-changed` frames. run/delta and run/activity become the
+ * contract's live frames (`step.delta`, `run.activity`, chief-brain/contract.ts) on ConversationDO,
+ * batched every 40 ms, `seq` per step from 0, at most 4096 units per frame; a step's Step row goes
+ * out after its last delta (`final`), on one ordered chain. Nothing live is stored. A run id maps to
+ * its wake row: the conversation of every frame is the host's, never the brain's. The reads behind
+ * GET /v1/chiefs/<agent>/runs are here too.
  */
 const DELTA_FLUSH_MS = 40
+/** One send on the chain waits at most this long, so a hung RPC never holds back later frames. */
+const SEND_MS = 10_000
+const conv = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as { agentFrame(entity: string, agent: string, f: { live: LiveFrame }): Promise<void> }
 
 export interface Live {
   readonly run: string
@@ -18,8 +26,9 @@ export interface Live {
   readonly done: Promise<CpNote | null>
   resolve(v: CpNote | null): void
   /** Pending talk/thought text per step id, flushed every 40 ms. */
-  readonly pending: Map<string, string>
-  readonly text: Map<string, string>
+  readonly pending: Map<string, { kind: "talk" | "thought"; text: string }>
+  /** Next `seq` per step. */
+  readonly seqs: Map<string, number>
   timer?: ReturnType<typeof setTimeout>
 }
 
@@ -35,7 +44,23 @@ export interface LiveRunsDeps {
 
 export class LiveRuns {
   private readonly live = new Map<string, Live>()
+  /** Live frames and run changes go out in order, one after another. */
+  private chain: Promise<void> = Promise.resolve()
   constructor(private readonly deps: LiveRunsDeps) {}
+
+  private enqueue(send: () => Promise<void>): void {
+    this.chain = this.chain
+      .then(() => {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        return Promise.race([send(), new Promise<void>((r) => (timer = setTimeout(r, SEND_MS)))]).finally(() => clearTimeout(timer))
+      })
+      .catch(() => undefined)
+    this.deps.waitUntil(this.chain)
+  }
+  private sendLive(live: Live, frame: LiveFrame): void {
+    const agent = this.deps.get("agent")
+    if (agent) this.enqueue(() => conv(this.deps.env, live.conversation).agentFrame(live.conversation, agent, { live: frame }))
+  }
 
   /** Every live run learns its stream ended (the turn loop then asks the brain `status`). */
   endAll(): void {
@@ -45,7 +70,7 @@ export class LiveRuns {
   track(run: string, conversation: string): Live {
     let resolve!: (v: CpNote | null) => void
     const done = new Promise<CpNote | null>((r) => (resolve = r))
-    const live: Live = { run, conversation, done, resolve, pending: new Map(), text: new Map() }
+    const live: Live = { run, conversation, done, resolve, pending: new Map(), seqs: new Map() }
     this.live.set(run, live)
     return live
   }
@@ -90,43 +115,49 @@ export class LiveRuns {
       case "run/step": {
         const s = note.params.step
         const step = upsertStep(this.deps.sql, runId, s as never, Date.now())
-        if (live && (s.kind === "talk" || s.kind === "thought")) {
-          live.pending.delete(s.id)
-          live.text.delete(s.id)
-        }
+        if (live && (s.kind === "talk" || s.kind === "thought")) this.flush(live, s.id)
         this.announce(agent, runId, [step])
         return
       }
       case "run/delta": {
-        if (!live) return
         const p = note.params
-        live.text.set(p.step, (live.text.get(p.step) ?? "") + p.text)
-        live.pending.set(p.step, p.kind)
+        if (!live || !p.text) return
+        const kind = p.kind === "thought" ? "thought" : "talk"
+        const cur = live.pending.get(p.step)
+        live.pending.set(p.step, { kind, text: (cur?.text ?? "") + p.text })
         if (!live.timer) live.timer = setTimeout(() => this.flush(live), DELTA_FLUSH_MS)
         return
       }
-      case "run/activity":
-        // Ephemeral: no frame for it on ConversationDO yet (the stream frame lands with hq-ec); kept for the run read while it runs.
-        this.deps.set(`activity:${runId}`, note.params.line.slice(0, 80))
+      case "run/activity": {
+        const line = activityLine(note.params.line)
+        if (!line) return
+        // Kept for the run read while it runs; members see it at once.
+        this.deps.set(`activity:${runId}`, line)
+        if (live) this.sendLive(live, { type: "run.activity", conversation: live.conversation, run: runId, line, since: note.params.since, at: Date.now() })
         return
+      }
     }
   }
 
-  /** Partial talk/thought text as a step (no storage write): the page streams it until the full step lands. */
-  private flush(live: Live): void {
+  /** Pending text as `step.delta` frames (no storage write); `finalStep`: that step's last frame carries `final`. */
+  private flush(live: Live, finalStep?: string): void {
     if (live.timer) clearTimeout(live.timer)
     live.timer = undefined
-    const agent = this.deps.get("agent")
-    if (!agent || live.pending.size === 0) return
-    const now = Date.now()
-    const steps = [...live.pending].map(([id, kind]) => ({ id, seq: 0, at: now, kind: kind === "thought" ? "thought" : "talk", text: live.text.get(id) ?? "" }) as Step)
+    for (const [step, p] of live.pending) {
+      const parts = chunks(p.text)
+      parts.forEach((text, i) => {
+        const seq = live.seqs.get(step) ?? 0
+        live.seqs.set(step, seq + 1)
+        this.sendLive(live, { type: "step.delta", conversation: live.conversation, run: live.run, step, kind: p.kind, seq, text, ...(step === finalStep && i === parts.length - 1 ? { final: true as const } : {}) })
+      })
+    }
     live.pending.clear()
-    this.announce(agent, live.run, steps)
   }
 
+  /** `conversation-run-changed`, behind the live frames it follows. */
   private announce(agent: string, runId: string, steps: ReadonlyArray<Step>): void {
     const run = this.readRun(agent, runId)
-    if (run) this.deps.waitUntil(runChanged(this.deps.env, run.conversation, agent, run, steps))
+    if (run) this.enqueue(() => runChanged(this.deps.env, run.conversation, agent, run, steps))
   }
 
   private readRun(agent: string, id: string): (Run & Record<string, unknown>) | null {

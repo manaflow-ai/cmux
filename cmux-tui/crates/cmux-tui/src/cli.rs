@@ -36,6 +36,8 @@ mod host_mount;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
+pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
+#[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
 mod machine_server;
@@ -58,6 +60,7 @@ mod status;
 mod surface;
 mod topology_help;
 mod wire;
+use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 
 use std::borrow::Cow;
@@ -95,17 +98,8 @@ const PUBLIC_SCOPES: &[&str] = &[
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
 /// (`raw command`, `session current snapshot`), the app's daemon launcher and
 /// SSH remotes run the binary as `cmux-tui`, so these keep working there.
-const CMUX_TUI_ONLY_SCOPES: &[&str] = &[
-    "machine",
-    "session",
-    "client",
-    "sidebar",
-    "pairing",
-    "projection",
-    "provider",
-    "raw",
-    "conversation",
-];
+const CMUX_TUI_ONLY_SCOPES: &[&str] =
+    &["session", "client", "sidebar", "pairing", "projection", "provider", "raw", "conversation"];
 
 const REMOTE_COMMANDS: &[&str] = &[
     "remote",
@@ -120,6 +114,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "remote-link",
     "remote-sidecar",
     "remote-stop",
+    "remote-update-need",
     "install-self",
     "wg",
 ];
@@ -137,6 +132,7 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
         "enroll" => Some("enroll"),
         "known-daemons" => Some("known-daemons"),
         "stop" => Some("remote-stop"),
+        "update-need" => Some("remote-update-need"),
         _ => None,
     }
 }
@@ -740,6 +736,7 @@ fn set_output_mode(
 fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
+        (Some("machine"), Surface::Cmux) => Cow::Borrowed(MACHINE_CATALOG_HELP),
         (Some(scope), _) => scope_help(scope),
         (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
         (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),

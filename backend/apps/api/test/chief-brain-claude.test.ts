@@ -3,6 +3,8 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
+import { forgetClaudeAuth } from "../src/chief-brain/claude-auth.ts"
+import { TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
 
 /**
  * A Cloud Chief on Claude through the metered route (chief-brain/claude-auth.ts, models.ts): the
@@ -55,7 +57,7 @@ const eventStream = (text: string): Uint8Array => {
   return out
 }
 
-interface Seen { readonly url: string; readonly stackAuth: { accessToken?: string; refreshToken?: string } | null; readonly apiKey: string | null; readonly beta: string | null; readonly body: any }
+interface Seen { readonly url: string; readonly stackAuth: { accessToken?: string; refreshToken?: string } | null; readonly apiKey: string | null; readonly beta: string | null; readonly cacheHeader: string | null; readonly body: any }
 /** The route and the refresh at their HTTP boundary; everything else goes to the real fetch. */
 const fakeRoute = (refresh: "ok" | "fail") => {
   const real = globalThis.fetch
@@ -74,7 +76,7 @@ const fakeRoute = (refresh: "ok" | "fail") => {
     if (req.url.startsWith("https://claude.test/")) {
       const raw = req.headers.get("x-stack-auth")
       const body = await req.json()
-      seen.push({ url: req.url, stackAuth: raw ? JSON.parse(raw) : null, apiKey: req.headers.get("x-api-key"), beta: req.headers.get("anthropic-beta"), body })
+      seen.push({ url: req.url, stackAuth: raw ? JSON.parse(raw) : null, apiKey: req.headers.get("x-api-key"), beta: req.headers.get("anthropic-beta"), cacheHeader: req.headers.get("x-cmux-cache-blocks"), body })
       return new Response(eventStream(`Opus answers turn ${seen.length}`), { headers: { "content-type": "application/vnd.amazon.eventstream" } })
     }
     return real(input, init)
@@ -83,9 +85,16 @@ const fakeRoute = (refresh: "ok" | "fail") => {
 }
 afterEach(() => vi.restoreAllMocks())
 
+/** Prepaid credits for the owner's personal team (Claude turns hold and charge credits; model-gateway/gateway.ts). */
+const grant = async (team: string, usd: number) => {
+  const meters = (env as unknown as { USAGE_METER_DO: DurableObjectNamespace }).USAGE_METER_DO
+  await (meters.get(meters.idFromName(team)) as unknown as { creditAdd(e: string, k: string, kind: string, m: number, a: string, r: string | null): Promise<unknown> }).creditAdd(team, `grant-${team}`, "grant", Math.round(usd * 1e6), "test", "claude test")
+}
 const ownerWithClaudeChief = async (sub: string) => {
   const token = await sessionToken(sub)
-  const user = (await op(token, "user.ensure", {})).value.id as string
+  const ensured = (await op(token, "user.ensure", {})).value
+  const user = ensured.id as string
+  await grant(ensured.personal_team as string, 5)
   const chief = (await op(token, "chief.create", { display_name: "Opus Chief" }, `chief-${sub}`)).value as { id: string; main_conversation: string }
   const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
   let on = { status: 0, json: {} as any, text: "" }
@@ -108,7 +117,8 @@ const replies = async (token: string, conversation: string, chief: string, n: nu
   }
   throw new Error(`no ${n} chief replies`)
 }
-const forgetRefreshed = () => runInDurableObject(testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName("claude-david-auth")), async (_i, state) => void state.storage.sql.exec("DELETE FROM cb_config WHERE name = 'claude.access'"))
+// The holder's stored token and this isolate's cached copy (claude-auth.ts claudeAuthFor) both go.
+const forgetRefreshed = () => (forgetClaudeAuth(), runInDurableObject(testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName("claude-david-auth")), async (_i, state) => void state.storage.sql.exec("DELETE FROM cb_config WHERE name = 'claude.access'")))
 
 describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }, () => {
   it("signs each streamed Opus request (Bedrock body, event stream answer) with a refreshed X-Stack-Auth and posts the answer; no token reaches a reply or run", async () => {
@@ -137,6 +147,26 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
       expect(s.beta).toBeNull()
       expect(JSON.stringify(s.body)).not.toContain(REFRESH)
     }
+    // The view is rendered for each turn (the reference client's Memory.view(mem, from)): every message
+    // before the turn's new ones is a view line, and after "</chat>" come only the new messages. Bedrock
+    // reads only at a mark, so each turn marks the view's last whole block (the header while there is
+    // none): turn 1 writes it, turn 2 starts with the same block and marks it again (reads it).
+    const blocksOf = (s: Seen) => (s.body.messages.find((m: { role: string }) => m.role === "user").content as Array<{ text: string; cache_control?: { ttl?: string } }>)
+    const [b1, b2] = [blocksOf(route.seen[0]!), blocksOf(route.seen[1]!)]
+    const end1 = b1.findIndex((x) => x.text.endsWith("</chat>"))
+    const end2 = b2.findIndex((x) => x.text.endsWith("</chat>"))
+    expect(end1).toBeGreaterThan(0)
+    expect(b1.slice(end1 + 1).map((b) => b.text)).toEqual([expect.stringMatching(/\|user: .*first question/)])
+    expect(b2.slice(end2 + 1).map((b) => b.text)).toEqual([expect.stringMatching(/\|user: .*second question/)])
+    const view2 = b2.slice(0, end2 + 1).map((b) => b.text).join("")
+    expect(view2).toContain("first question")
+    expect(view2).toContain("Opus answers turn 1")
+    expect(view2).not.toContain("second question")
+    expect(b2[0]!.text).toBe(b1[0]!.text)
+    expect(b1[end1 - 1]!.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    expect(b2[end2 - 1]!.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    // The mark indices travel to the body conversion only: the route never sees their header.
+    for (const s of route.seen) expect(s.cacheHeader).toBeNull()
     // The expired configured token was refreshed once; the second turn used the stored one.
     expect(route.refreshes()).toBe(1)
     expect(route.refreshHeaders).toEqual([REFRESH])
@@ -163,7 +193,7 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { compactor_model: "claude-opus-5-5" })).status).toBe(400)
   })
 
-  it("runs the turn on the fallback model when the sign-in refresh fails, logging no token bytes", async () => {
+  it("refuses the turn (no unmetered fallback for a paid Chief) when the sign-in refresh fails, tells the person once, logging no token bytes", async () => {
     await forgetRefreshed()
     const route = fakeRoute("fail")
     const logs: Array<string> = []
@@ -171,11 +201,15 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     const { token, chief } = await ownerWithClaudeChief("brain-claude-fail")
     expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "f1", parts: [{ type: "text", text: "anyone there?" }] }, "f1")).ok).toBe(true)
     const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
-    expect(reply.parts[0].text).toContain("[fake-echo] reply to:")
+    // A paid Chief never runs on an unmetered model instead: the turn fails and the Chief says so once.
+    expect(reply.parts[0].text).toBe(TURN_FAILED_NOTICE)
     expect(route.seen).toHaveLength(0)
     expect(route.refreshes()).toBeGreaterThanOrEqual(1)
-    const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${reply.parts[1].session}?conversation=${chief.main_conversation}`, token)
-    expect(run.json.value.run.model).toBe("fake")
+    const runId = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs[0].id as string
+    const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${runId}?conversation=${chief.main_conversation}`, token)
+    expect(run.json.value.run).toMatchObject({ model: "claude-opus-5-5", status: "failed" })
+    // The fallback's reason is on the run (a note step), not only in the Worker log.
+    expect(run.json.value.steps.find((s: { id: string }) => s.id === "note:model")?.text).toContain("claude-opus-5-5: auth_failed; no paid fallback")
     expect(logs).toContain("claude-david auth failed")
     for (const body of [...logs, run.text, JSON.stringify(reply)]) expect(body).not.toContain(REFRESH)
   })

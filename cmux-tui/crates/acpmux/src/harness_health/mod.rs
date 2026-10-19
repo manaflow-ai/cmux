@@ -11,6 +11,8 @@
 
 pub mod auto;
 pub mod channel;
+pub(crate) mod inventory;
+pub(crate) mod inventory_feed;
 pub mod latest;
 pub mod probe;
 
@@ -108,6 +110,7 @@ pub struct Settings {
 pub struct HealthService {
     settings: Mutex<Settings>,
     rows: Mutex<Vec<HarnessHealth>>,
+    inventory: inventory_feed::InventoryFeed,
     /// One check at a time.
     checking: tokio::sync::Mutex<()>,
     /// What auto-update ran, by harness id.
@@ -138,9 +141,15 @@ fn builtin_login(family: &str) -> Option<&'static str> {
 /// Sign-in evidence for a harness with no `auth.check` (one acpmux found on
 /// PATH), when its program is the agent itself (not a wrapper that runs it
 /// elsewhere) and its home is the one named here: Codex answers
-/// `codex login status` (also behind codex-acp); Claude's sign-in sources
-/// (`claude_auth`) only ever prove a sign-in, so none found stays unknown,
-/// never a guess from a missing file.
+/// `codex login status` (also behind codex-acp) when it keeps its login in
+/// a file; Claude's sign-in sources (`claude_auth`) only ever prove a
+/// sign-in, so none found stays unknown, never a guess from a missing file.
+///
+/// Never the login keychain (cx-hh0vu): this check runs on its own (daemon
+/// start, every few hours), and acpmux never asks the keychain on its own.
+/// Claude's keychain item is not read, and `codex login status` does not run
+/// when Codex keeps its login in the keychain (`cli_auth_credentials_store`
+/// `keyring` or `auto`): the sign-in stays unknown.
 fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
     // No credential read (Keychain, `codex login status`) while agent
     // launches are off (cx-9ettq): the sign-in stays unknown.
@@ -151,6 +160,9 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
     let home_named = |key: &str| !s.unresolved.iter().any(|k| k == key);
     match s.family.as_str() {
         "codex" if program.contains("codex") && home_named("CODEX_HOME") => {
+            if !codex_login_in_file(&s.env) {
+                return None;
+            }
             match probe::codex_login_status(&s.env)? {
                 true => Some((Auth::SignedIn, Some("`codex login status` passed".into()))),
                 false => {
@@ -159,10 +171,37 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
             }
         }
         "claude" if program.contains("claude") && home_named("CLAUDE_CONFIG_DIR") => {
-            let found = crate::claude_auth::find(&s.env, true);
+            let found = crate::claude_auth::find(&s.env);
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
         }
         _ => None,
+    }
+}
+
+/// Whether Codex keeps its login in `<CODEX_HOME>/auth.json`, so `codex
+/// login status` reads a file and never the keychain: its config's
+/// `cli_auth_credentials_store` is unset or `file` (Codex's default). A
+/// config that does not parse, `keyring`, `auto` or another value: false.
+fn codex_login_in_file(env: &BTreeMap<String, String>) -> bool {
+    let home = match env.get("CODEX_HOME").filter(|h| !h.is_empty()) {
+        Some(home) => PathBuf::from(home),
+        None => match env.get("HOME").filter(|h| !h.is_empty()) {
+            Some(home) => PathBuf::from(home).join(".codex"),
+            None => match dirs::home_dir() {
+                Some(home) => home.join(".codex"),
+                None => return false,
+            },
+        },
+    };
+    let text = match std::fs::read_to_string(home.join("config.toml")) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return true,
+        Err(_) => return false,
+    };
+    let Ok(config) = text.parse::<toml::Table>() else { return false };
+    match config.get("cli_auth_credentials_store") {
+        None => true,
+        Some(value) => value.as_str() == Some("file"),
     }
 }
 
@@ -189,8 +228,20 @@ impl HealthService {
             .as_deref()
             .and_then(|p| std::fs::read(p).ok())
             .and_then(|b| serde_json::from_slice::<Vec<HarnessHealth>>(&b).ok());
-        if let Some(rows) = saved {
-            *self.rows.lock().unwrap_or_else(PoisonError::into_inner) = rows;
+        if let Some(mut rows) = saved {
+            // A saved plan predates this binary's target binding. Keep its
+            // observations, but do not expose an unbound npm command to any
+            // consumer (including Settings' visible-terminal update path).
+            for row in &mut rows {
+                if row.channel == channel::Channel::Npm
+                    && row.update.as_ref().is_some_and(|plan| {
+                        !channel::npm_update_matches(plan, row.package.as_deref())
+                    })
+                {
+                    row.update = None;
+                }
+            }
+            self.replace_rows(rows);
         }
         *self.settings.lock().unwrap_or_else(PoisonError::into_inner) = settings;
     }
@@ -271,7 +322,7 @@ impl HealthService {
         if let Some(path) = settings.cache.as_deref() {
             save(path, &rows);
         }
-        *self.rows.lock().unwrap_or_else(PoisonError::into_inner) = rows.clone();
+        self.replace_rows(rows.clone());
         rows
     }
 }
@@ -340,5 +391,44 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         checked_at: now_ms(),
         auto_update: false,
         last_auto_update: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::codex_login_in_file;
+    use std::collections::BTreeMap;
+
+    fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {
+        let dir = std::env::temp_dir().join(format!("amx-codex-store-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        if let Some(text) = config {
+            std::fs::write(dir.join("config.toml"), text).unwrap();
+        }
+        let env = BTreeMap::from([("CODEX_HOME".to_owned(), dir.display().to_string())]);
+        (dir, env)
+    }
+
+    /// `codex login status` runs only when Codex keeps its login in a file
+    /// (cx-hh0vu): never when it may read the keychain.
+    #[test]
+    fn codex_login_status_runs_only_for_a_file_login() {
+        for (n, (config, file)) in [
+            (None, true),
+            (Some("model = \"o3\"\n"), true),
+            (Some("cli_auth_credentials_store = \"file\"\n"), true),
+            (Some("cli_auth_credentials_store = \"keyring\"\n"), false),
+            (Some("cli_auth_credentials_store = \"auto\"\n"), false),
+            (Some("cli_auth_credentials_store = 1\n"), false),
+            (Some("not toml ["), false),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let (dir, env) = home_with(n, config);
+            assert_eq!(codex_login_in_file(&env), file, "{config:?}");
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 }

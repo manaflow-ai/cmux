@@ -168,6 +168,7 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.painted":
     case "pane.checkpointAvailability":
     case "pane.renderRate":
+    case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":
     case "newTab.touched":

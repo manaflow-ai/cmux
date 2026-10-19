@@ -359,7 +359,7 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
         return;
     }
     if let Ok(session) = hub.resolve(&ev.session_id)
-        && let Some(change) = activity_change(&session)
+        && let Some(change) = activity_change(hub, &session)
     {
         conn.send(&Message::notification("_acpmux/chat_changed", change));
     }
