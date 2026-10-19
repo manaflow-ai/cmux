@@ -14,6 +14,7 @@ import { Compactor, type CallRecord } from "./compactor.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
 import { capText, type Kind, Memory, RETRY_MS } from "./memory.ts"
+import { meteredOwner } from "../model-gateway/routes.ts"
 import { brainModels, CLAUDE, compactorDefault, compactorModel, creditsCanStart, creditsNotice, FAKE, turnFailedNotice, gatewayOptions, isClaude, isMetered, liveOf, modelRefusal, pickTurnModel, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts, stripStaleThinking } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
@@ -186,7 +187,10 @@ export class ChiefBrainDO extends DurableObject<Env> {
       memory: this.memory,
       deps: () => {
         const set = this.config().compactor_model
-        const name = compactorModel(this.env, set, this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE)
+        const cfg = this.config()
+        const paid = compactorModel(this.env, set, this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE)
+        // A paid compactor only for an owner who may use paid models (as modelRefusal says); else the Chief's own unpaid turn model.
+        const name = isMetered(paid) && !meteredOwner(this.env, cfg.owner ?? null) ? (isMetered(cfg.model) ? FAKE : cfg.model || FAKE) : paid
         // Haiku at high (Lawrence, 2026-10-18: the compactor is Haiku 5.5 at high); Workers AI models stay at medium.
         return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : isClaude(name) ? "high" : "medium", prompt: "cmux", agent: AGENT, record: (_c: CallRecord) => undefined }
       },
