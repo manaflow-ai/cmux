@@ -1,0 +1,133 @@
+/* Gallery frames for the sync motion entry: a Mac window with a sidebar and an iPhone, side by side. */
+.sm-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  color: var(--cmux-text, #ddd);
+  font: 13px/1.3 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}
+.sm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sm-replay {
+  font: inherit;
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--cmux-hairline, #444);
+  background: var(--cmux-elevated-background, #2a2a2a);
+  color: inherit;
+}
+.sm-note {
+  color: var(--cmux-text-secondary, #999);
+}
+.sm-devices {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.sm-mac {
+  margin: 0;
+  width: 560px;
+  height: 520px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--cmux-hairline, #444);
+  background: var(--cmux-surface-solid, #1e1e1e);
+  display: flex;
+  flex-direction: column;
+}
+.sm-mac-titlebar {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--cmux-separator, #333);
+}
+.sm-light {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--cmux-hairline, #555);
+}
+.sm-mac-name {
+  margin-left: 8px;
+  color: var(--cmux-text-secondary, #999);
+}
+.sm-mac-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.sm-mac-sidebar {
+  width: 220px;
+  overflow-y: auto;
+  border-right: 1px solid var(--cmux-separator, #333);
+  padding: 6px;
+}
+.sm-mac-content {
+  flex: 1;
+}
+.sm-phone {
+  margin: 0;
+  width: 300px;
+  height: 600px;
+  border-radius: 44px;
+  border: 8px solid #111;
+  overflow: hidden;
+  background: var(--cmux-surface-solid, #1e1e1e);
+  display: flex;
+  flex-direction: column;
+}
+.sm-phone-island {
+  width: 90px;
+  height: 24px;
+  margin: 8px auto 4px;
+  border-radius: 12px;
+  background: #000;
+}
+.sm-phone-header {
+  font-size: 22px;
+  font-weight: 700;
+  padding: 8px 16px;
+}
+.sm-phone-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+.sm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.sm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 5px;
+  background: var(--cmux-surface-solid, #1e1e1e);
+}
+.sm-list-iphone .sm-row {
+  height: 44px;
+  font-size: 16px;
+  border-bottom: 1px solid var(--cmux-separator, #333);
+  border-radius: 0;
+}
+.sm-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--cmux-text-secondary, #888);
+}
+.sm-title {
+  flex: 1;
+  min-width: 0;
+}

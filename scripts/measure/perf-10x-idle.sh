@@ -37,19 +37,26 @@ status=0
 echo "PERF-IDLE-LOAD daemon $(uptime | sed 's/.*load averages*: //')"
 state_root="$(mktemp -d /private/tmp/pidl.XXXXXX)"
 trap 'rm -rf "$state_root"' EXIT
-python3 cmux-tui/scripts/bench-scale.py --bin "$tui" --counts "$counts" --busy-fraction 0 \
-  --per-workspace 1 --fill sequential --idle-seconds "$measure" --settle-seconds-min 15 \
-  --latency-samples 20 --latency-terminals 5 --topology-samples 20 \
-  --root-dir "$state_root" --out "$work/daemon.json" > "$work/daemon.log" 2>&1 || status=$?
-python3 - "$work/daemon.json" <<'PY' || status=$?
+# One daemon per count: bench-scale makes every workspace (one terminal each)
+# before its first step, so a single run with several counts measures the
+# largest count at every step.
+IFS=, read -r -a daemon_counts <<< "$counts"
+for n in "${daemon_counts[@]}"; do
+  python3 cmux-tui/scripts/bench-scale.py --bin "$tui" --counts "$n" --busy-fraction 0 \
+    --per-workspace 1 --fill sequential --idle-seconds "$measure" --settle-seconds-min 15 \
+    --latency-samples 20 --latency-terminals 5 --topology-samples 20 \
+    --root-dir "$state_root" --out "$work/daemon-$n.json" > "$work/daemon-$n.log" 2>&1 || status=$?
+done
+python3 - "$work"/daemon-*.json <<'PY' || status=$?
 import json, sys
-data = json.load(open(sys.argv[1]))
-for step in data.get("steps", []):
+for path in sys.argv[1:]:
+  data = json.load(open(path))
+  for step in data.get("steps", []):
     for role, t in (step.get("roles") or {}).items():
-        print(f"PERF-IDLE daemon N={step.get('target')} role={role} n={t.get('count')} cpu_pct={t.get('cpu_pct_window')} "
-              f"wakeups_per_s={t.get('wakeups_per_s')} rss_each_mb={round((t.get('rss_per') or 0) / 1048576, 2)} "
-              f"footprint_each_mb={round((t.get('pss_per') or t.get('footprint_per') or 0) / 1048576, 2)} threads={t.get('threads')}")
-print(f"PERF-IDLE-STOP daemon {data.get('stopped')} teardown={json.dumps(data.get('teardown') or {})[:300]}")
+      print(f"PERF-IDLE daemon N={step.get('target')} role={role} n={t.get('count')} cpu_pct={t.get('cpu_pct_window')} "
+            f"wakeups_per_s={t.get('wakeups_per_s')} rss_each_mb={round((t.get('rss_per') or 0) / 1048576, 2)} "
+            f"footprint_each_mb={round((t.get('pss_per') or 0) / 1048576, 2)} threads={t.get('threads')}")
+  print(f"PERF-IDLE-STOP daemon {path} {data.get('stopped')} teardown={json.dumps(data.get('teardown') or {})[:300]}")
 PY
 
 echo "PERF-IDLE-LOAD app $(uptime | sed 's/.*load averages*: //')"

@@ -31,12 +31,9 @@ public struct DaemonLanePolicy: Sendable {
     public static let startsSessions: Set<String> = Set(creationFields.keys)
         .union(["new-browser-tab", "reopen-saved-tab-group", "move-tab-to-new-workspace", "move-tab-group-to-new-workspace"])
 
-    /// Fields that choose a program, its environment or arguments, refused on every phone
-    /// command (remote-relay-authorization.md: command-bearing params stay denied). The
-    /// creation commands already take only their reviewed fields (`creationFields`); this
-    /// covers the rest, such as `move-tab-to-split` and `move-tab-to-column`, whose `respawn`
-    /// starts a fresh shell with its own `cwd`, `env` and `shell_args`.
-    public static let programFields: Set<String> = ["respawn", "env", "shell_args", "argv", "command"]
+    /// URL schemes a phone may open in a browser tab (`new-browser-tab`, `browser-navigate`, a split's
+    /// `url`): web pages only, never `file:` or another local scheme.
+    static let urlSchemes: Set<String> = ["http", "https"]
 
     /// Commands a phone may send. Grouped by purpose; every entry is a
     /// protocol-12 command the iOS `CmuxTUIControl` client or a reasonable
@@ -124,20 +121,21 @@ public struct DaemonLanePolicy: Sendable {
             return .refuse(Self.errorLine(id: id, code: "forbidden",
                                           message: "\(command) is not available to a phone"))
         }
-        let program = Set(object.keys).intersection(Self.programFields)
-        guard program.isEmpty else {
+        // Fields too are an allowlist per command: the reviewed creation fields, else the daemon's
+        // schema minus program-choosing fields (`commandFields`, generated). A field added later is refused.
+        let allowed = Self.creationFields[command] ?? Self.commandFields[command] ?? []
+        let extra = Set(object.keys).subtracting(allowed).subtracting(["id", "cmd"])
+        guard extra.isEmpty else {
             return .refuse(Self.errorLine(id: id, code: "forbidden",
-                                          message: "\(command) does not take \(program.sorted().joined(separator: ", ")) from a phone"))
+                                          message: "\(command) does not take \(extra.sorted().joined(separator: ", ")) from a phone"))
+        }
+        // A `url` that is not a string is refused too, rather than left to the daemon's typed decode.
+        if let value = object["url"], !(value is NSNull),
+           !Self.urlSchemes.contains((value as? String).flatMap { URLComponents(string: $0)?.scheme?.lowercased() } ?? "") {
+            return .refuse(Self.errorLine(id: id, code: "forbidden", message: "phones open only http and https pages"))
         }
         if Self.startsSessions.contains(command), !allowsStartingSessions() {
             return .refuse(Self.errorLine(id: id, code: "forbidden", message: PhoneAccessGate.startRefusal))
-        }
-        if let allowed = Self.creationFields[command] {
-            let extra = Set(object.keys).subtracting(allowed).subtracting(["id", "cmd"])
-            guard extra.isEmpty else {
-                return .refuse(Self.errorLine(id: id, code: "forbidden",
-                                              message: "\(command) does not take \(extra.sorted().joined(separator: ", ")) from a phone"))
-            }
         }
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return projectionVerdict(object, id: id, write: command == "put-frontend-projection")

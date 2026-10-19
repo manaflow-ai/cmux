@@ -214,7 +214,7 @@ impl Mux {
             last_reported_focus: Mutex::new(None),
             conversations: Default::default(),
             chiefs: Default::default(),
-            cloud_conversations: OnceLock::new(),
+            cloud: Default::default(),
             history_search: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
@@ -342,6 +342,8 @@ impl Mux {
             resource_creation_handoff: Mutex::new(()),
             initial_bootstrap: Mutex::new(()),
             resource_creation_execution: Mutex::new(()),
+            #[cfg(unix)]
+            agent_cli_job_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
             pending_terminals: Mutex::new(HashMap::new()),

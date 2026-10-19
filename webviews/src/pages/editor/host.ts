@@ -32,6 +32,9 @@ export const EDITOR_SET_PREFERENCE_OP = "cmux.editor.setPreference";
 export const EDITOR_RECENTS_OP = "cmux.editor.recents";
 export const EDITOR_CHOOSE_FILE_OP = "cmux.editor.chooseFile";
 export const EDITOR_OPEN_LINK_OP = "cmux.editor.openLink";
+/** `{pending}`: Monaco waits for the second key of a sequence (Cmd-K Cmd-0); the host's key
+ * dispatcher lets the next key reach the editor until `pending` is false (or 5 s pass). */
+export const EDITOR_KEY_SEQUENCE_OP = "cmux.editor.keySequence";
 export const EDITOR_FLUSH_OP = "cmux.editor.flush";
 /** Page to host: `{path, text, baseHash}` after an edit (the quit hook's unsaved state and draft). */
 export const EDITOR_EDITED_OP = "cmux.editor.edited";

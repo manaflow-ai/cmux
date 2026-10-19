@@ -18,8 +18,17 @@ enum BrowserPageScripts {
         const ref = raw.replace(/^@/, '');
         const el = /^e\\d+$/.test(ref) ? document.querySelector('[data-cmux-ref="' + ref + '"]') : document.querySelector(raw);
         if (!el) { return { error: 'Element not found: ' + raw }; }
+        \(measure)
         """
     }
+
+    /// `cmuxAt(el)`: an element's rect in viewport CSS px and whether it
+    /// hides its text, for the agent cursor (`BrowserPageAgentInput`).
+    static let measure = """
+        const cmuxAt = (e) => { try { const r = e.getBoundingClientRect(); const auto = String((e.getAttribute && e.getAttribute('autocomplete')) || '').toLowerCase(); \
+        let css = 'none'; try { css = getComputedStyle(e).webkitTextSecurity || 'none'; } catch (_) {} \
+        return { x: r.left, y: r.top, w: r.width, h: r.height, secret: String(e.type || '').toLowerCase() === 'password' || /password|one-time-code|cc-number|cc-csc/.test(auto) || css !== 'none' }; } catch (_) { return null; } };
+        """
 
     static func wrap(_ body: String) -> String { "(() => {\n\(body)\n})()" }
 
@@ -37,11 +46,11 @@ enum BrowserPageScripts {
     static let thrownKey = "__cmuxEvalError"
 
     static func click(_ selector: String, _ text: String?) -> String {
-        wrap(find(selector) + "el.scrollIntoView({block: 'center'}); el.click(); return { value: true };")
+        wrap(find(selector) + "el.scrollIntoView({block: 'center'}); const at = cmuxAt(el); el.click(); return { value: true, at };")
     }
 
     static func focus(_ selector: String, _ text: String?) -> String {
-        wrap(find(selector) + "el.focus(); return { value: true };")
+        wrap(find(selector) + "el.focus(); return { value: true, at: cmuxAt(el) };")
     }
 
     static func fill(_ selector: String, _ text: String?) -> String {
@@ -62,7 +71,7 @@ enum BrowserPageScripts {
         else if (el.isContentEditable) { el.textContent = next; } else { el.value = next; }
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { value: true };
+        return { value: true, at: cmuxAt(el) };
         """)
     }
 

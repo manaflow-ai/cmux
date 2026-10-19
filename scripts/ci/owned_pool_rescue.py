@@ -274,7 +274,6 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/terminal-hang-diagnostics.yml",
     ".github/workflows/test-feed-reply-providers.yml",
 })
-TRUSTED_TARGET_SIDE_PATHS = frozenset({".github/workflows/cmux-tui-artifacts.yml"})
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
@@ -283,7 +282,6 @@ CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
 # these is owned-eligible like a same-repository pull request. merge_group,
 # workflow_run and pull_request_target are not: they can carry fork code.
 TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
-TRUSTED_SIDE_TARGET_EVENTS = frozenset({"pull_request_target"})
 # The dispatch workflows' job that runs ios_runner_pool.py (or, in
 # iroh-release-gate.yml, e2e_runner_pool.py).
 E2E_PICKER_JOB = "runner"
@@ -825,10 +823,7 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     expected = "workflow_dispatch" if e2e else "pull_request"
     # A side lane's trusted non-PR run (push, schedule, dispatch) is watched too.
     side_trusted = side and run.get("event") in TRUSTED_SIDE_EVENTS
-    side_target = side and run.get("event") in TRUSTED_SIDE_TARGET_EVENTS
-    if side_target and path not in TRUSTED_TARGET_SIDE_PATHS:
-        return "pull_request_target events are not owned-code runs"
-    if run.get("event") != expected and not on_main and not ios_pull and not side_trusted and not side_target:
+    if run.get("event") != expected and not on_main and not ios_pull and not side_trusted:
         what = f"{expected} or a dispatch on {MAIN_BRANCH}" if path == CI_WORKFLOW_PATH else expected
         return f"a {run.get('event') or 'unknown'} run of {path}, not a {what}"
     head = (run.get("head_repository") or {}).get("full_name") or ""
