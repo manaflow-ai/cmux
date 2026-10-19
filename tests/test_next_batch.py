@@ -126,8 +126,10 @@ class OpenPrsQuery(unittest.TestCase):
 
         def graphql(query, **variables):
             if "pullRequests(" in query:
-                seen.append(("list", variables.get("after")))
-                return pages[sum(1 for kind, _ in seen if kind == "list") - 1]
+                after = variables.get("after")
+                seen.append(("list", after))
+                cursors = [None] + [page["repository"]["pullRequests"]["pageInfo"]["endCursor"] for page in pages]
+                return pages[cursors.index(after)]
             reply = {}
             for alias, node_id, rest in re.findall(r'^(p\d+): node\(id: "([^"]+)"\)(.*?)(?=^p\d+: |\Z)', query, re.S | re.M):
                 cursor = None
@@ -186,6 +188,35 @@ class OpenPrsQuery(unittest.TestCase):
             again = nb.open_prs(gh)
         self.assertEqual([item for item in seen if item[0] == "detail"], [])
         self.assertEqual(nb.red_fast_checks(again[0]), ["cmux-next fast tier"])
+
+    def test_a_red_count_fetches_checks_whatever_the_rollup_state(self):
+        rollup = {"state": "PENDING", "contexts": {"checkRunCountsByState": [{"state": "CANCELLED", "count": 1}]}}
+        self.assertTrue(nb.rollup_failing(rollup))
+        self.assertFalse(nb.rollup_failing({"state": "PENDING", "contexts": {
+            "checkRunCountsByState": [{"state": "FAILURE", "count": 0}, {"state": "IN_PROGRESS", "count": 3}]}}))
+
+    def test_a_full_cache_never_drops_a_hit_of_this_poll(self):
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(1), self.node(2)],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        gh, _ = self.fake(pages, {("PR_1", ""): (["a"], [], None), ("PR_2", ""): (["b"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            nb.open_prs(gh)
+            nb.DETAILS.update({(str(n), "x"): ([], []) for n in range(5001)})
+            moved = self.node(2)
+            moved["headRefOid"] = "f" * 40
+            pages[0]["repository"]["pullRequests"]["nodes"][1] = moved
+            prs = nb.open_prs(gh)
+        self.assertEqual([item.files for item in prs], [["a"], ["b"]])
+
+    def test_landing_rechecks_without_the_cache(self):
+        pages = [{"repository": {"pullRequests": {"nodes": [self.node(1)],
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        gh, seen = self.fake(pages, {("PR_1", ""): (["a"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            nb.open_prs(gh)
+            seen.clear()
+            nb.open_prs(gh, fresh=True)
+        self.assertEqual([item[0] for item in seen], ["list", "detail"])
 
     def test_the_detail_query_refuses_an_unexpected_id(self):
         with self.assertRaises(ValueError):
