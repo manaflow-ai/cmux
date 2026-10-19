@@ -1,42 +1,71 @@
 public import Foundation
 
-/// What a Mac Screen page tab shows: the home page (paired Macs, pairing,
-/// Share This Mac) or one paired Mac's screen. Its address, `cmux://mac-screen`
-/// or `cmux://mac-screen?mac=<id>`, typed in a browser's address bar, opens
-/// the page tab. The record holds only the saved Mac's id; its pairing secret
-/// stays in the Keychain (`MacScreenStore`), because routes persist and
-/// travel with the tree.
+/// What a Mac Screen page tab shows: the home page (the user's devices, and
+/// in DEV builds pairing and Share This Mac), one of the user's devices from
+/// the device hub, or (DEV builds) one Mac paired with a link. Its address,
+/// `cmux://mac-screen`, `cmux://mac-screen?device=<device id>` or
+/// `cmux://mac-screen?mac=<saved Mac id>`, typed in a browser's address bar,
+/// opens the page tab. The record holds only ids: a pairing secret stays in
+/// the Keychain (`MacScreenStore`) and a session's ticket in memory, because
+/// routes persist and travel with the tree.
 public nonisolated struct MacScreenRecord: Sendable, Hashable {
     public static let scheme = "cmux"
     public static let urlHost = "mac-screen"
     /// The home page.
     public static let homeURL = MacScreenRecord(macID: nil).url
 
-    /// The saved Mac this tab shows; nil for the home page.
+    /// The saved Mac (link pairing) this tab shows; nil otherwise.
     public var macID: UUID?
+    /// The device hub device this tab shows (its lowercase id); nil otherwise.
+    public var deviceID: String?
 
     public init(macID: UUID?) {
         self.macID = macID
+        deviceID = nil
     }
 
+    /// One of the user's devices (the device hub's id).
+    public init(deviceID: String) {
+        macID = nil
+        self.deviceID = Self.normalizedDeviceID(deviceID)
+    }
+
+    /// The home page: neither a Mac nor a device.
+    public var isHome: Bool { macID == nil && deviceID == nil }
+
     /// The record at `url`; nil for any other address. An unknown or malformed
-    /// `mac` opens the home page.
+    /// `mac` or `device` opens the home page; `device` wins over `mac`.
     public init?(url: URL) {
         guard Self.matches(url) else { return nil }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        if let device = items.first(where: { $0.name == "device" })?.value.flatMap(Self.normalizedDeviceID) {
+            macID = nil
+            deviceID = device
+            return
+        }
         macID = items.first { $0.name == "mac" }?.value.flatMap(UUID.init(uuidString:))
+        deviceID = nil
     }
 
     public var url: URL {
         var components = URLComponents()
         components.scheme = Self.scheme
         components.host = Self.urlHost
-        if let macID { components.queryItems = [URLQueryItem(name: "mac", value: macID.uuidString)] }
+        if let deviceID {
+            components.queryItems = [URLQueryItem(name: "device", value: deviceID)]
+        } else if let macID {
+            components.queryItems = [URLQueryItem(name: "mac", value: macID.uuidString)]
+        }
         return components.url!
     }
 
     public static func matches(_ url: URL?) -> Bool {
         guard let url else { return false }
         return url.scheme?.lowercased() == scheme && url.host?.lowercased() == urlHost
+    }
+
+    /// A device id as the hub writes it (a lowercase UUID); nil for anything else.
+    static func normalizedDeviceID(_ text: String) -> String? {
+        UUID(uuidString: text.trimmingCharacters(in: .whitespaces)).map { $0.uuidString.lowercased() }
     }
 }

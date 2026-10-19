@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextDevices
 import CmuxScreenKit
 import CoreImage.CIFilterBuiltins
 public import SwiftUI
@@ -10,18 +11,24 @@ public struct MacScreenHomeActions {
     public var open: (UUID) -> Void = { _ in }
     /// Show a saved Mac in a new tab.
     public var openInNewTab: (UUID) -> Void = { _ in }
+    /// Show one of the user's devices in this tab, asking the hub for the scope (nil: the Connect card).
+    public var openDevice: (String, SessionScope?) -> Void = { _, _ in }
+    /// Show one of the user's devices in a new tab.
+    public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
 
     public init() {}
 }
 
-/// Mac Screen's home page: the Macs this Mac can show, pairing a new one
-/// from its link, and Share This Mac with its permissions, link and QR code.
+/// Mac Screen's home page: the user's devices from the device hub and
+/// Allow Mac Screen on This Mac; in DEV builds also the Macs paired with a
+/// link, pairing a new one, and Share This Mac with its link and QR code.
 /// Drawn in the tab's theme (`MacScreenColors`, `MacScreenType`).
 public struct MacScreenHomeView: View {
     let store: MacScreenStore
     let host: MacScreenShareHost
     let actions: MacScreenHomeActions
     let systemShortcuts: MacScreenSystemShortcuts?
+    let devices: MacScreenHomeDevices?
     @State private var linkText = ""
     @State private var addError: MacScreenStore.AddError?
     @State private var renaming: SavedMac?
@@ -33,21 +40,34 @@ public struct MacScreenHomeView: View {
     @Environment(\.macScreenColors) private var colors
 
     public init(store: MacScreenStore, host: MacScreenShareHost, actions: MacScreenHomeActions,
-                systemShortcuts: MacScreenSystemShortcuts? = nil) {
+                systemShortcuts: MacScreenSystemShortcuts? = nil, devices: MacScreenHomeDevices? = nil) {
         self.store = store
         self.host = host
         self.actions = actions
         self.systemShortcuts = systemShortcuts
+        self.devices = devices
+    }
+
+    /// Pairing links (Your Macs, Pair a Mac, Share This Mac's link): DEV builds only.
+    static var showsLinkPairing: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
     }
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
-                macsSection
-                connectSection
+                if let devices { MacScreenHomeDeviceSections(devices: devices, host: host, actions: actions) }
+                if Self.showsLinkPairing {
+                    macsSection
+                    connectSection
+                }
                 if let systemShortcuts { keyboardSection(systemShortcuts) }
-                shareSection
+                if Self.showsLinkPairing { shareSection }
             }
             .frame(maxWidth: 620, alignment: .leading)
             .padding(.horizontal, 32)
@@ -118,7 +138,7 @@ public struct MacScreenHomeView: View {
     // MARK: Your Macs
 
     private var macsSection: some View {
-        section(L.t("macScreen.home.yourMacs", "Your Macs")) {
+        section(devices == nil ? L.t("macScreen.home.yourMacs", "Your Macs") : L.t("macScreen.home.linkedMacs", "Macs Paired with a Link")) {
             if store.macs.isEmpty {
                 Text(L.t("macScreen.home.noMacs", "No Macs yet. Pair one with its link below."))
                     .foregroundStyle(colors.secondary)

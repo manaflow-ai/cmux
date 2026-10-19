@@ -128,6 +128,21 @@ public final class MacScreenStore {
     nonisolated private struct File: Codable, Sendable {
         var macs: [SavedMac] = []
         var shareEnabled = false
+        /// The name this Mac registers with the device hub when the person renamed it.
+        var hubDeviceName: String?
+
+        init(macs: [SavedMac] = [], shareEnabled: Bool = false, hubDeviceName: String? = nil) {
+            self.macs = macs
+            self.shareEnabled = shareEnabled
+            self.hubDeviceName = hubDeviceName
+        }
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            macs = try c.decodeIfPresent([SavedMac].self, forKey: .macs) ?? []
+            shareEnabled = try c.decodeIfPresent(Bool.self, forKey: .shareEnabled) ?? false
+            hubDeviceName = try c.decodeIfPresent(String.self, forKey: .hubDeviceName)
+        }
     }
 
     public private(set) var macs: [SavedMac] = []
@@ -136,6 +151,8 @@ public final class MacScreenStore {
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     /// Share This Mac is on (the person turned it on and has not turned it off).
     public private(set) var shareEnabled = false
+    /// This Mac's name in the device hub when the person renamed it (Settings > Devices); nil: the computer name.
+    public private(set) var hubDeviceName: String?
     @ObservationIgnored private let file: URL
     @ObservationIgnored public let secrets: any MacScreenSecrets
     /// A saved Mac was renamed (open tabs take the new name).
@@ -163,6 +180,7 @@ public final class MacScreenStore {
                     // Anything added before the read finished stays.
                     macs = stored.macs + macs.filter { mac in !stored.macs.contains { $0.id == mac.id } }
                     shareEnabled = shareEnabled || stored.shareEnabled
+                    hubDeviceName = hubDeviceName ?? stored.hubDeviceName
                 }
                 isLoaded = true
             }
@@ -243,6 +261,15 @@ public final class MacScreenStore {
 
     static let hostAccount = "host"
 
+    /// Keeps the name this Mac registers with the device hub (nil: the computer name).
+    public func setHubDeviceName(_ name: String?) {
+        let name = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = name?.isEmpty == false ? name : nil
+        guard hubDeviceName != value else { return }
+        hubDeviceName = value
+        save()
+    }
+
     public func setShareEnabled(_ enabled: Bool) {
         guard shareEnabled != enabled else { return }
         shareEnabled = enabled
@@ -278,7 +305,7 @@ public final class MacScreenStore {
 
     /// Writes the list off the main thread, in order.
     private func save() {
-        guard let data = try? JSONEncoder().encode(File(macs: macs, shareEnabled: shareEnabled)) else { return }
+        guard let data = try? JSONEncoder().encode(File(macs: macs, shareEnabled: shareEnabled, hubDeviceName: hubDeviceName)) else { return }
         let file = file, previous = saveTask
         saveTask = Task.detached {
             await previous?.value

@@ -63,6 +63,9 @@ public final class ScreenSession {
     @ObservationIgnored private let endpoint: VNCEndpoint?
     /// Set for a Mac paired over WebRTC.
     @ObservationIgnored private let pairing: VNCPairing?
+    /// Set for a screen stream whose signaling the app supplies per connect
+    /// (a device hub session's ticket): nil when there is none to connect with.
+    @ObservationIgnored private let makeSignaling: (@MainActor () -> (any ScreenSignaling)?)?
     @ObservationIgnored private var demo: VNCDemoServer?
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
@@ -77,7 +80,7 @@ public final class ScreenSession {
     public private(set) var isReconnecting = false
     @ObservationIgnored private var reconnectAttempts = 0
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
-    public var isStream: Bool { pairing?.isStream == true }
+    public var isStream: Bool { pairing?.isStream == true || makeSignaling != nil }
     /// Screen streams use the TURN relay only (ICE policy `relay`), to check
     /// the relay path; applies from the next `connect()`. Off by default.
     @ObservationIgnored public var relayOnly = false
@@ -95,6 +98,7 @@ public final class ScreenSession {
         self.credentials = credentials
         self.preferences = preferences
         pairing = nil
+        makeSignaling = nil
     }
 
     /// A Mac paired over WebRTC: a screen stream host (`cmux-vnc-host
@@ -106,6 +110,22 @@ public final class ScreenSession {
         self.pairing = pairing
         self.credentials = credentials
         self.preferences = preferences
+        makeSignaling = nil
+    }
+
+    /// A screen stream whose signaling the app supplies: each `connect()`
+    /// asks `signaling` for the connection to use (a device hub session's
+    /// ``TicketSignaling``, which admits once). Nil fails the connect, so a
+    /// dropped session does not reconnect on its own unless the app has a
+    /// new one ready.
+    public init(title: String, preferences: ScreenPreferences = ScreenPreferences(),
+                signaling: @escaping @MainActor () -> (any ScreenSignaling)?) {
+        self.title = title
+        endpoint = VNCEndpoint(host: "webrtc", port: 1)
+        pairing = nil
+        credentials = VNCCredentials()
+        self.preferences = preferences
+        makeSignaling = signaling
     }
 
     /// "WebRTC" or "Direct", for the stats line.
@@ -118,6 +138,7 @@ public final class ScreenSession {
         credentials = VNCCredentials()
         preferences = demoPreferences
         pairing = nil
+        makeSignaling = nil
     }
 
     public var isDemo: Bool { endpoint == nil }
@@ -126,8 +147,16 @@ public final class ScreenSession {
     public func connect() {
         disconnect(silently: true)
         phase = .connecting
+        if let makeSignaling {
+            guard let signaling = makeSignaling() else {
+                phase = .failed(message: "There is no session to connect with.", needsSignIn: false)
+                return
+            }
+            connectStream(ScreenStreamViewer(signaling: signaling, relayOnly: relayOnly), name: title)
+            return
+        }
         if let pairing, pairing.isStream {
-            connectStream(pairing)
+            connectStream(ScreenStreamViewer(pairing: pairing, relayOnly: relayOnly), name: pairing.name)
             return
         }
         tasks.append(Task { [weak self] in
@@ -187,8 +216,7 @@ public final class ScreenSession {
 
     // MARK: Stream
 
-    private func connectStream(_ pairing: VNCPairing) {
-        let viewer = ScreenStreamViewer(pairing: pairing, relayOnly: relayOnly)
+    private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
         viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
         viewer.onDisplays = { [weak self] message in
@@ -211,7 +239,7 @@ public final class ScreenSession {
                 reconnectAttempts = 0
                 isReconnecting = false
                 viewer.setQuality(preferences.quality)
-                phase = .connected(VNCServerInfo(width: 0, height: 0, name: pairing.name, nativeFormat: .bgrx,
+                phase = .connected(VNCServerInfo(width: 0, height: 0, name: name, nativeFormat: .bgrx,
                                                  protocolMinor: 8, securityType: 0))
                 await pollStreamStats(viewer)
             } catch {

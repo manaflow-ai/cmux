@@ -32,6 +32,9 @@ public final class DeviceHub {
     /// Newest first, as last fetched by ``refreshAudit(limit:)``.
     public private(set) var audit: [AuditEntry] = []
     public private(set) var lastError: DeviceHubError?
+    /// Counts the pushes that changed something (every type but `pong`), so
+    /// a view can follow what the hub has no push for (the audit log).
+    public private(set) var pushCount = 0
 
     /// Session pushes (`session.*`) in the order they arrive, for the Mac Screen layer:
     /// a ticket starts signaling; a revocation or end closes the peer connection at once.
@@ -133,6 +136,7 @@ public final class DeviceHub {
         tickets = [:]
         audit = []
         lastError = nil
+        pushCount = 0
         let client = self.client
         Task { await client.signOut() } // task-owner: a one-shot reset of the client's cached session
     }
@@ -156,6 +160,7 @@ public final class DeviceHub {
     }
 
     func handle(_ push: DeviceHubPush) async {
+        if push != .pong { pushCount += 1 }
         switch push {
         case .devicesChanged:
             await refreshDevices()

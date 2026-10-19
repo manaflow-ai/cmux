@@ -32,6 +32,12 @@ final class SettingsPageProvider: PageProvider {
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
     var harnessesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > Devices (the device hub): its state, one gesture, and the
+    /// watch that keeps its history current while a page shows it; nil in
+    /// tests without an app.
+    var devicesState: (@MainActor () -> JSONValue)?
+    var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    var devicesWatching: (@MainActor (Bool) -> Void)?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -119,6 +125,12 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.state":
             guard let harnessesState else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
             return harnessesState()
+        case "cmux.settings.devices.state":
+            guard let devicesState else { throw PageError(code: "cmux.page.unavailable", message: "no devices") }
+            return devicesState()
+        case "cmux.settings.devices.run":
+            guard let devicesRun else { throw PageError(code: "cmux.page.unavailable", message: "no devices") }
+            return try await devicesRun(params)
         case "cmux.settings.harnesses.run":
             guard let harnessesRun else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
             return try await harnessesRun(params)
@@ -209,6 +221,16 @@ final class SettingsPageProvider: PageProvider {
             return PageSubscription {
                 watch.cancel()
                 Task { @MainActor in agents.endWatching() }
+            }
+        }
+        if stream == "cmux.settings.devices.changed", let devicesState {
+            // The history follows the hub's pushes only while a page shows the card.
+            devicesWatching?(true)
+            let watch = Self.watch(devicesState, onEvent: onEvent)
+            let watching = devicesWatching
+            return PageSubscription {
+                watch.cancel()
+                Task { @MainActor in watching?(false) }
             }
         }
         if stream == "cmux.settings.harnesses.changed", let harnessesState {

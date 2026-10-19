@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDevices
 import CmuxScreenKit
 import Observation
 import SwiftUI
@@ -50,6 +51,10 @@ final class MacScreenChromeActions {
     var refresh: () -> Void = {}
     var sendKeys: (MacScreenShortcut) -> Void = { _ in }
     var focusScreen: () -> Void = {}
+    /// A device hub tab: ask the host for a session of this scope.
+    var requestScope: (SessionScope) -> Void = { _ in }
+    /// A device hub tab: stop waiting for the host.
+    var cancelRequest: () -> Void = {}
 }
 
 /// The card shown over the screen, if any.
@@ -60,6 +65,16 @@ enum MacScreenCard: Equatable {
     case waitingForPicture
     case failed
     case ended
+    /// A device hub tab before a session: Connect with View Only or Full Control.
+    case hubConnect
+    /// The request is out, or approved and the ticket is coming.
+    case hubRequesting(SessionScope)
+    /// The host's person decides.
+    case hubWaiting(SessionScope)
+    case hubDeclined(SessionScope)
+    case hubRefused(MacScreenHubRefusal, requested: SessionScope)
+    case hubRevoked(MacScreenEndReason)
+    case hubEnded(MacScreenEndReason)
 }
 
 /// The toolbar and card hosting views, each in the tab's theme scope.
@@ -88,6 +103,7 @@ extension MacScreenPaneModel {
         case .missing: return .missing
         case .open: break
         }
+        if let hub, let card = Self.hubCard(hub.phase) { return card }
         guard let session else { return .missing }
         switch session.phase {
         case .connecting: return Self.connectingCard(isReconnecting: session.isReconnecting, everConnected: everConnected)
@@ -95,6 +111,29 @@ extension MacScreenPaneModel {
         case .failed: return .failed
         case .ended: return .ended
         }
+    }
+
+    /// A device hub tab's card for `phase`; nil while it streams (the
+    /// session's own phase decides then).
+    static func hubCard(_ phase: MacScreenHubPhase) -> MacScreenCard? {
+        switch phase {
+        case .idle: .hubConnect
+        case let .requesting(scope), let .approved(_, scope): .hubRequesting(scope)
+        case let .waitingForApproval(_, scope): .hubWaiting(scope)
+        case .streaming: nil
+        case let .declined(scope): .hubDeclined(scope)
+        case let .refused(refusal, requested): .hubRefused(refusal, requested: requested)
+        case let .revoked(reason): .hubRevoked(MacScreenEndReason(reason))
+        case let .ended(reason): .hubEnded(MacScreenEndReason(reason))
+        }
+    }
+
+    /// Whether the toolbar shows the stream's controls: a link-paired Mac's
+    /// always, a device hub tab's only while a session streams.
+    var showsStreamControls: Bool {
+        guard gate == .open else { return false }
+        guard let hub else { return true }
+        return hub.phase.streamingScope != nil
     }
 
     /// Every connect retries, so the reconnecting flag is set on a first
@@ -139,6 +178,16 @@ struct MacScreenToolbar: View {
                 .layoutPriority(-1)
             }
             Spacer(minLength: 8)
+            if model.viewOnly {
+                Label(L.t("macScreen.toolbar.viewOnly", "View Only"), systemImage: "eye")
+                    .font(MacScreenType.caption.weight(.semibold)).foregroundStyle(colors.attention).lineLimit(1)
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .background(colors.attention.opacity(0.14), in: Capsule())
+                    .fixedSize()
+                    .layoutPriority(3)
+                    .themedHelp(L.t("macScreen.toolbar.viewOnlyHelp", "You can see this Mac. Clicks, keys and scrolling stay on this Mac."))
+                    .accessibilityIdentifier("macScreen.viewOnly")
+            }
             if model.capturesKeyboard, model.isLive {
                 ViewThatFits(in: .horizontal) {
                     Label(L.t("macScreen.toolbar.releaseHint", "⌃⌥⎋ releases the keyboard"), systemImage: "keyboard")
@@ -149,7 +198,7 @@ struct MacScreenToolbar: View {
                 .layoutPriority(-2)
                 .themedHelp(L.t("macScreen.toolbar.keyboardHint", "Keyboard goes to this Mac · ⌃⌥⎋ to release"))
             }
-            if let session = model.session, model.gate == .open {
+            if let session = model.session, model.showsStreamControls {
                 HStack(spacing: 10) { controls(session) }
                     .fixedSize()
                     .layoutPriority(2)
@@ -215,9 +264,10 @@ struct MacScreenToolbar: View {
         } label: {
             Image(systemName: "command")
         }
-        .macScreenMenu(model.isLive ? colors.secondary : colors.tertiary)
-        .disabled(!model.isLive)
-        .themedHelp(L.t("macScreen.toolbar.sendKeys", "Send Keys"))
+        .macScreenMenu(model.isLive && !model.viewOnly ? colors.secondary : colors.tertiary)
+        .disabled(!model.isLive || model.viewOnly)
+        .themedHelp(model.viewOnly ? L.t("macScreen.toolbar.sendKeysViewOnly", "Send Keys is off in a View Only session")
+            : L.t("macScreen.toolbar.sendKeys", "Send Keys"))
         .accessibilityIdentifier("macScreen.sendKeys")
         Button(action: actions.refresh) { Image(systemName: "arrow.clockwise") }
             .buttonStyle(MacScreenButtonStyle(role: .icon)).disabled(!model.isLive)
@@ -235,6 +285,14 @@ struct MacScreenToolbar: View {
     }
 
     private var statusColor: Color {
+        if let hub = model.hub {
+            switch hub.phase {
+            case .requesting, .waitingForApproval, .approved: return colors.attention
+            case .declined, .refused, .revoked: return colors.danger
+            case .idle, .ended: return colors.tertiary
+            case .streaming: break
+            }
+        }
         guard model.gate == .open, let session = model.session else { return colors.tertiary }
         switch session.phase {
         case .connected: return session.isReconnecting ? colors.attention : colors.success
@@ -348,6 +406,138 @@ struct MacScreenCardView: View {
                     .buttonStyle(MacScreenButtonStyle(role: .primary))
                     .accessibilityIdentifier("macScreen.card.reconnect")
             }
+        case .hubConnect, .hubRequesting, .hubWaiting, .hubDeclined, .hubRefused, .hubRevoked, .hubEnded:
+            hubContent(card)
+        }
+    }
+
+    /// A device hub tab's cards: Connect, waiting, and every way a request or session ends.
+    @ViewBuilder
+    private func hubContent(_ card: MacScreenCard) -> some View {
+        switch card {
+        case .hubConnect:
+            glyph("desktopcomputer")
+            title(String(format: L.t("macScreen.hub.connectTitle", "Connect to %@"), model.name))
+            detail(L.t("macScreen.hub.connectBody", "View Only shows the screen. Full Control also sends your clicks and keys."))
+            scopeButtons(primary: .full)
+        case let .hubRequesting(scope):
+            ProgressView().controlSize(.regular)
+            title(String(format: L.t("macScreen.hub.requesting", "Connecting to %@…"), model.name))
+            detail(scope.title)
+            Button(L.t("macScreen.card.cancel", "Cancel"), action: actions.cancelRequest)
+                .buttonStyle(MacScreenButtonStyle())
+                .accessibilityIdentifier("macScreen.hub.cancel")
+        case let .hubWaiting(scope):
+            ProgressView().controlSize(.regular)
+            title(String(format: L.t("macScreen.hub.waitingTitle", "Waiting for %@ to approve…"), model.name))
+            detail(String(format: L.t("macScreen.hub.waitingBody", "You asked for %@. Someone at that Mac needs to allow it."), scope.title))
+            Button(L.t("macScreen.card.cancel", "Cancel"), action: actions.cancelRequest)
+                .buttonStyle(MacScreenButtonStyle())
+                .accessibilityIdentifier("macScreen.hub.cancel")
+        case let .hubDeclined(scope):
+            glyph("hand.raised", color: colors.attention)
+            title(L.t("macScreen.hub.declinedTitle", "Declined"))
+            detail(String(format: L.t("macScreen.hub.declinedBody", "%@ declined your request."), model.name))
+            HStack {
+                Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
+                Button(L.t("macScreen.hub.askAgain", "Ask Again")) { actions.requestScope(scope) }
+                    .buttonStyle(MacScreenButtonStyle(role: .primary))
+                    .accessibilityIdentifier("macScreen.hub.askAgain")
+            }
+        case let .hubRefused(refusal, requested):
+            refusedContent(refusal, requested: requested)
+        case let .hubRevoked(reason):
+            glyph("lock", color: colors.danger)
+            title(L.t("macScreen.hub.revokedTitle", "Access Removed"))
+            detail(reason.text)
+            HStack {
+                Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
+                Button(L.t("macScreen.hub.connectAgain", "Connect Again"), action: actions.connect)
+                    .buttonStyle(MacScreenButtonStyle(role: .primary))
+                    .accessibilityIdentifier("macScreen.hub.connectAgain")
+            }
+        case let .hubEnded(reason):
+            glyph("display")
+            title(L.t("macScreen.card.endedTitle", "Disconnected"))
+            detail(reason.text)
+            HStack {
+                Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
+                Button(L.t("macScreen.card.reconnect", "Reconnect"), action: actions.connect).keyboardShortcut(.defaultAction)
+                    .buttonStyle(MacScreenButtonStyle(role: .primary))
+                    .accessibilityIdentifier("macScreen.card.reconnect")
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func refusedContent(_ refusal: MacScreenHubRefusal, requested: SessionScope) -> some View {
+        switch refusal {
+        case .permissionNone:
+            glyph("nosign", color: colors.danger)
+            title(L.t("macScreen.hub.noneTitle", "No Access"))
+            detail(String(format: L.t("macScreen.hub.noneBody", "%@ does not allow this Mac to see its screen. Change its access to this Mac in Settings › Devices on either Mac."), model.name))
+            Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                .buttonStyle(MacScreenButtonStyle())
+        case .scopeExceeds:
+            glyph("eye", color: colors.attention)
+            title(L.t("macScreen.hub.viewOnlyTitle", "View Only Access"))
+            detail(String(format: L.t("macScreen.hub.viewOnlyBody", "This Mac may only view %@, not control it."), model.name))
+            HStack {
+                Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
+                Button(L.t("macScreen.hub.viewInstead", "View Instead")) { actions.requestScope(.view) }
+                    .buttonStyle(MacScreenButtonStyle(role: .primary))
+                    .accessibilityIdentifier("macScreen.hub.viewInstead")
+            }
+        case .hostOffline, .notShared, .notFound, .notSignedIn, .other:
+            glyph(refusal == .hostOffline ? "wifi.slash" : "exclamationmark.triangle", color: colors.attention)
+            title(refusedTitle(refusal))
+            detail(refusedBody(refusal))
+            HStack {
+                Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
+                Button(L.t("macScreen.card.retry", "Try Again")) { actions.requestScope(requested) }
+                    .buttonStyle(MacScreenButtonStyle(role: .primary))
+                    .accessibilityIdentifier("macScreen.card.retry")
+            }
+        }
+    }
+
+    private func refusedTitle(_ refusal: MacScreenHubRefusal) -> String {
+        switch refusal {
+        case .hostOffline: String(format: L.t("macScreen.hub.offlineTitle", "%@ Is Offline"), model.name)
+        case .notShared: L.t("macScreen.hub.notSharedTitle", "Not Shared")
+        case .notFound: L.t("macScreen.hub.notFoundTitle", "Not in Your Devices")
+        case .notSignedIn: L.t("macScreen.hub.signedOutTitle", "Not Signed In")
+        case .permissionNone, .scopeExceeds, .other: L.t("macScreen.card.failedTitle", "Couldn’t connect")
+        }
+    }
+
+    private func refusedBody(_ refusal: MacScreenHubRefusal) -> String {
+        switch refusal {
+        case .hostOffline: L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in.")
+        case .notShared: L.t("macScreen.hub.notSharedBody", "That Mac does not allow Mac Screen. Turn on Allow Mac Screen on this Mac in its Settings › Devices.")
+        case .notFound: L.t("macScreen.hub.notFoundBody", "This device was removed from your devices.")
+        case .notSignedIn: L.t("macScreen.hub.signedOutBody", "Sign in to cmux to see your devices.")
+        case .permissionNone, .scopeExceeds, .other: L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again.")
+        }
+    }
+
+    /// Connect with View Only or Full Control; `primary` is the default button.
+    private func scopeButtons(primary: SessionScope) -> some View {
+        HStack {
+            Button(L.t("macScreen.hub.view", "View Only")) { actions.requestScope(.view) }
+                .buttonStyle(MacScreenButtonStyle(role: primary == .view ? .primary : .plain))
+                .accessibilityIdentifier("macScreen.hub.connectView")
+            Button(L.t("macScreen.hub.control", "Full Control")) { actions.requestScope(.full) }
+                .buttonStyle(MacScreenButtonStyle(role: primary == .full ? .primary : .plain))
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("macScreen.hub.connectFull")
         }
     }
 }
