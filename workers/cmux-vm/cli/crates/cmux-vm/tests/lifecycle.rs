@@ -7,6 +7,34 @@ use wiremock::matchers::{body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
+async fn provider_free_server_enrollment_and_policy_use_their_own_routes() {
+    let server = MockServer::start().await;
+    let mesh = "mesh_00000000000000000000000000";
+    let id = "dev_00000000000000000000000000";
+    let install = "BGD+1LolWp0xyWHrdMY1bWjASbiSO2H6bOZpYi5g8p+2eQP+EAi4vJmkGunpVii8ZPLxsgwtfp9Rd6PClNRGIpk=";
+    let wg = "dGVzdC1kZXZpY2UtcHVibGljLWtleS0wMDAwMDAwMDE=";
+    let request = json!({"name":"server","wgPublicKey":wg,"installPublicKey":install,"signedAt":1792370000000_i64,"nonce":"AAECAwQFBgcICQoLDA0ODw","signature":"A".repeat(86)+"=="});
+    let dir = std::env::temp_dir().join(format!("cmux-overlay-server-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("enroll.json");
+    std::fs::write(&file, serde_json::to_vec(&request).unwrap()).unwrap();
+    let receipt = json!({"id":id,"meshId":mesh,"name":"server","wgPublicKey":wg,"installPublicKey":install,"createdAt":"2026-10-19T00:00:00Z","kind":"server","transport":"overlay"});
+    Mock::given(method("POST")).and(path(format!("/v1/meshes/{mesh}/overlay-servers"))).and(authorized()).and(body_json(&request))
+        .respond_with(ResponseTemplate::new(201).set_body_json(&receipt)).expect(1).mount(&server).await;
+    let output = cli(&server, &["--json", "device", "enroll-server", mesh, "--request", file.to_str().unwrap()]).await;
+    assert_eq!(output.code, exit::OK, "{}", output.stderr);
+    assert_eq!(json_stdout(&output), receipt);
+    let policy = json!({"tenantId":"team_alpha","deviceId":id,"meshId":mesh,"wgPublicKey":wg,"installPublicKey":install,"aclVersion":0,"policyDigest":"a".repeat(64),"peers":[]});
+    Mock::given(method("GET")).and(path(format!("/v1/overlay-servers/{id}/policy"))).and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(&policy)).expect(1).mount(&server).await;
+    let output = cli(&server, &["--json", "device", "server-policy", id]).await;
+    assert_eq!(output.code, exit::OK, "{}", output.stderr);
+    assert_eq!(json_stdout(&output), policy);
+    std::fs::remove_dir_all(dir).unwrap();
+    assert_eq!(server.received_requests().await.unwrap().len(), 2);
+}
+
+#[tokio::test]
 async fn device_overlay_policy_is_a_single_authorized_read_with_direction_preserved() {
     let server = MockServer::start().await;
     let device = "dev_00000000000000000000000000";
