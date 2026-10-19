@@ -40,7 +40,7 @@ export const hostNetworkExternal = async (d: NetworkIdentityDeps, p: Principal, 
     if (host.network && !sameServerNetwork(network, host.network)) return fail("auth.forbidden", "the host network binding cannot be retargeted")
     const read = await verifyNetworkIdentity(d.http, origin, "device", { ...network, wg: v.wg_public_key, point }, v.proof, d.now())
     if (!read.ok) return fail(read.code, read.message, read.retryable)
-    const operationKey = `host-network:${await sha256Hex(`${p.user}:${p.install}:${frame.idempotency_key}`)}`
+    const operationKey = `host-network-v2:${await sha256Hex(`${p.user}:${p.install}:${p.grant}:${frame.idempotency_key}`)}`
     const [currentTarget, currentKey] = await Promise.all([d.tenant(), d.key(p.user!, p.install!, p.grant!)])
     const current = ownHost(d, p, v.host)
     if (!tenantMatches(d, currentTarget) || currentTarget.tenant !== target.tenant || pointOf(currentKey) !== point || !current
@@ -48,7 +48,7 @@ export const hostNetworkExternal = async (d: NetworkIdentityDeps, p: Principal, 
       || (current.network && !sameServerNetwork(network, current.network))) return fail("auth.forbidden", "the host identity changed")
     // No await between the final live-host check and this synchronous commit.
     // Only stable business intent enters the ledger, so fresh-proof retries replay.
-    const params = { host: host.id, install: p.install, owner_user: p.user, wg_public_key: v.wg_public_key, network }
+    const params = { host: host.id, install: p.install, owner_user: p.user, grant: p.grant, wg_public_key: v.wg_public_key, network }
     const { frames } = d.submitSystem("host.network.bound", params, operationKey, frame.expected_revision)
     const rejected = frames.find((f): f is RejectFrame => f.t === "reject")
     if (rejected) return { ...base, ok: false, transaction: rejected.tx, replayed: rejected.replayed, error: { code: rejected.code, message: rejected.message, retryable: rejected.retryable } }

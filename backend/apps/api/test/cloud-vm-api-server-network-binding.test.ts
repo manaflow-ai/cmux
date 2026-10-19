@@ -1,3 +1,4 @@
+import { sha256Hex } from "../src/domains/pairing.ts"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { b64u, beginPairing, call, inDO, runAlarm, testEnv } from "./pairing-harness.ts"
 import { rolesTeam } from "./team-roles-support.ts"
@@ -87,6 +88,54 @@ const fixture = async (network = true) => {
 }
 
 describe("server network binding to the approved host and install", () => {
+  it("retains the actual daemon grant rather than a caller-supplied grant", async () => {
+    const f = await fixture()
+    const result = await f.confirm({ params: { install_grant: "grant_00000000000000000000" } })
+    expect(result.json.ok).toBe(true)
+    expect(result.json.value.network).toMatchObject({ install_grant: f.grant })
+    const host = (await f.directory()).hosts.find((h: { id: string }) => h.id === f.paired.host)
+    expect(host.network).toMatchObject({ install_grant: f.grant })
+  })
+
+  it("refreshes a legacy daemon receipt through fresh verification instead of replaying metadata without a grant", async () => {
+    const f = await fixture(), key = crypto.randomUUID()
+    const legacyKey = `server-network:${await sha256Hex(`${f.paired.user}:${f.paired.install}:${key}`)}`
+    const owner = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(f.team.team))
+    await inDO(owner, async (instance) => {
+      instance.submitSystem("server.network.confirmed", {
+        host: f.paired.host, install: f.paired.install, owner_user: f.paired.user,
+        wg_public_key: f.policy.wgPublicKey, network: f.reservation
+      }, legacyKey)
+    })
+    expect((await f.directory()).hosts.find((h: { id: string }) => h.id === f.paired.host).network).not.toHaveProperty("install_grant")
+    f.setStatus(503)
+    expect((await f.confirm({ key })).json.ok).toBe(false)
+    expect((await f.directory()).hosts.find((h: { id: string }) => h.id === f.paired.host).network).not.toHaveProperty("install_grant")
+    f.setStatus(200)
+    const refreshed = await f.confirm({ key }), retry = await f.confirm({ key })
+    expect(refreshed.json.ok).toBe(true)
+    expect(refreshed.json.value.network).toMatchObject({ install_grant: f.grant })
+    expect(refreshed.json.replayed).toBe(false)
+    expect(retry.json).toMatchObject({ ok: true, replayed: true, value: refreshed.json.value })
+    expect(f.nativeCalls).toHaveLength(4)
+  })
+
+  it("keeps the confirmed daemon grant when a historical command omits it", async () => {
+    const f = await fixture()
+    expect((await f.confirm()).json.ok).toBe(true)
+    const before = (await f.directory()).hosts.find((h: { id: string }) => h.id === f.paired.host).network
+    const owner = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(f.team.team))
+    await inDO(owner, async (instance) => {
+      instance.submitSystem("server.network.confirmed", {
+        host: f.paired.host, install: f.paired.install, owner_user: f.paired.user,
+        wg_public_key: f.policy.wgPublicKey, network: f.reservation
+      }, crypto.randomUUID())
+    })
+    const after = (await f.directory()).hosts.find((h: { id: string }) => h.id === f.paired.host).network
+    expect(after).toEqual(before)
+    expect(after.install_grant).toBe(f.grant)
+  })
+
   it("keeps the approved reservation in TeamDO after the temporary pairing owner expires", async () => {
     const f = await fixture()
     const pairing = testEnv.PAIRING_DO.get(testEnv.PAIRING_DO.idFromName(f.begun.res.json.code))

@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, ServerNetworkReservation, HostId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamMemberInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { GrantId, cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, ServerNetworkReservation, HostId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamMemberInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { HostNetworkBoundParams } from "./host-network-params.ts"
 
@@ -20,7 +20,7 @@ export const InstallRegisterServerParams = Schema.Struct({
   sso_seen_at: Schema.optionalKey(Schema.Int)
 })
 
-export const ServerNetworkConfirmedParams = Schema.Struct({ host: HostId, install: InstallId, owner_user: UserId, wg_public_key: WgPublicKey, network: ServerNetworkReservation })
+export const ServerNetworkConfirmedParams = Schema.Struct({ host: HostId, install: InstallId, owner_user: UserId, grant: Schema.optionalKey(GrantId), wg_public_key: WgPublicKey, network: ServerNetworkReservation })
 
 export const decodeParams = <T>(op: CloudOpDef, params: unknown): { ok: true; value: T } | ({ ok: false } & Reject) => {
   const exit = Schema.decodeUnknownExit(op.params as Schema.Codec<T, unknown>)(params ?? {})
