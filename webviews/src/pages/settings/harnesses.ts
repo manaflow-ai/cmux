@@ -4,7 +4,14 @@ import type { HarnessRow, HarnessesState } from "./ops";
 
 /** Rows the page can update with one click (outdated, and no sudo needed). */
 export function updatable(state: HarnessesState | null | undefined): HarnessRow[] {
-  return (state?.harnesses ?? []).filter((row) => row.outdated && row.update && !row.update.elevated);
+  return (state?.harnesses ?? []).filter(
+    (row) => row.outdated && row.update && !row.update.elevated && !updateUnsettled(state, row.id),
+  );
+}
+
+/** Creation and unknown outcomes cannot authorize a second update. */
+export function updateUnsettled(state: HarnessesState | null | undefined, id: string): boolean {
+  return (state?.jobs ?? []).some((job) => job.profiles.includes(id) && job.state !== "exited");
 }
 
 /** Whether Settings > Agents wants a look: a harness is outdated or signed out. */
