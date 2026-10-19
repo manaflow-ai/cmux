@@ -14,6 +14,8 @@ final class SidebarNeedsYouTrayView: NSView {
     private let header = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let count = SidebarRowView.label(font: SidebarStyle.badgeFont)
     private let countFill = CALayer()
+    /// An opaque sidebar-colored base under the tint: the tray floats over rows, which must not show through.
+    private let backing = CALayer(), tintFill = CALayer()
     private let footnote = TrayLine()
     private let rows = (0..<SidebarNeedsYouTrayView.shownItems).map { _ in TrayLine() }
 
@@ -21,6 +23,9 @@ final class SidebarNeedsYouTrayView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerRadius = Metrics.space3
+        layer?.masksToBounds = true
+        layer?.addSublayer(backing)
+        layer?.addSublayer(tintFill)
         layer?.addSublayer(countFill)
         ([header, count] as [NSView]).forEach(addSubview)
         (rows + [footnote]).forEach(addSubview)
@@ -79,7 +84,9 @@ final class SidebarNeedsYouTrayView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let blocked = !tray.items.isEmpty
-        layer?.backgroundColor = (blocked ? Palette.attention.withAlphaComponent(0.08) : Palette.badgeFill).cgColor
+        backing.backgroundColor = (Palette.sidebarBackground.usingColorSpace(.sRGB) ?? Palette.windowBackground).withAlphaComponent(1).cgColor
+        layer?.backgroundColor = nil
+        tintFill.backgroundColor = (blocked ? Palette.attention.withAlphaComponent(0.08) : Palette.badgeFill).cgColor
         layer?.borderColor = (blocked ? Palette.attention.withAlphaComponent(0.4) : Palette.separator).cgColor
         layer?.borderWidth = Metrics.lineWidth(1)
         header.setColor(blocked ? Palette.attention : Palette.textSecondary)
@@ -104,6 +111,7 @@ final class SidebarNeedsYouTrayView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        (backing.frame, tintFill.frame) = (bounds, bounds)
         let inset = SidebarStyle.horizontalInset, width = bounds.width - 2 * inset
         var y = Self.pad
         let h = header.intrinsicContentSize.height
