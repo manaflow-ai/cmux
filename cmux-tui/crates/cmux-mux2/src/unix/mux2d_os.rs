@@ -175,29 +175,86 @@ pub(super) fn environ_ptr() -> *const *mut libc::c_char {
     unsafe { environ }
 }
 
-pub(super) fn listen_socket(path: &std::path::Path) -> io::Result<RawFd> {
+/// Device and inode of the socket file, to tell our socket from a newer
+/// server's at the same path.
+pub(super) type SocketId = (u64, u64);
+
+pub(super) fn socket_id(path: &std::path::Path) -> Option<SocketId> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+/// Runs `f` holding an exclusive flock on `<socket>.lock`. Start-up and
+/// removal of the socket happen under it, so two servers started at once
+/// never both unlink and bind the path (the loser's terminals would be
+/// unreachable). The lock is released when the descriptor closes.
+fn with_socket_lock<T>(path: &std::path::Path, f: impl FnOnce() -> T) -> io::Result<T> {
+    let mut lock = path.as_os_str().to_owned();
+    lock.push(".lock");
+    let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).open(lock)?;
+    use std::os::fd::AsRawFd;
+    // SAFETY: flock on a descriptor we own; blocks only while another
+    // server is between its liveness check and listen(), or removing.
+    loop {
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            break;
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() != io::ErrorKind::Interrupted {
+            return Err(e);
+        }
+    }
+    Ok(f())
+}
+
+/// Listens on `path`. Returns `None` when a live server already accepts
+/// connections there: the caller exits and its client connects to that one.
+pub(super) fn listen_socket(path: &std::path::Path) -> io::Result<Option<RawFd>> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
         let cdir = CString::new(dir.as_os_str().as_bytes()).map_err(io::Error::other)?;
         // SAFETY: chmod on a directory we own.
         unsafe { libc::chmod(cdir.as_ptr(), 0o700) };
     }
-    let _ = std::fs::remove_file(path);
+    with_socket_lock(path, || {
+        if std::os::unix::net::UnixStream::connect(path).is_ok() {
+            return Ok(None);
+        }
+        let _ = std::fs::remove_file(path);
+        bind_listen(path).map(Some)
+    })?
+}
+
+/// Removes the socket at exit, unless a newer server owns the path now.
+pub(super) fn remove_socket_if_ours(path: &std::path::Path, ours: Option<SocketId>) {
+    let _ = with_socket_lock(path, || {
+        if ours.is_some() && socket_id(path) == ours {
+            let _ = std::fs::remove_file(path);
+        }
+    });
+}
+
+fn bind_listen(path: &std::path::Path) -> io::Result<RawFd> {
     // SAFETY: plain socket/bind/listen with a correctly built sockaddr_un.
     unsafe {
         let fd = cvt(libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0))?;
+        let fail = |e: io::Error| {
+            libc::close(fd);
+            e
+        };
         let mut addr: libc::sockaddr_un = std::mem::zeroed();
         addr.sun_family = libc::AF_UNIX as _;
         let bytes = path.as_os_str().as_bytes();
         if bytes.len() >= addr.sun_path.len() {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "socket path too long"));
+            return Err(fail(io::Error::new(io::ErrorKind::InvalidInput, "socket path too long")));
         }
         for (dst, src) in addr.sun_path.iter_mut().zip(bytes) {
             *dst = *src as libc::c_char;
         }
-        cvt(libc::bind(fd, (&raw const addr).cast(), size_of::<libc::sockaddr_un>() as u32))?;
-        cvt(libc::listen(fd, 1024))?;
-        set_nonblock_cloexec(fd)?;
+        cvt(libc::bind(fd, (&raw const addr).cast(), size_of::<libc::sockaddr_un>() as u32))
+            .map_err(fail)?;
+        cvt(libc::listen(fd, 1024)).map_err(fail)?;
+        set_nonblock_cloexec(fd).map_err(fail)?;
         Ok(fd)
     }
 }

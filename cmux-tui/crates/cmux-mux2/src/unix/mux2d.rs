@@ -147,6 +147,8 @@ struct Server {
     shutdown: bool,
     parse_batch: usize,
     read_spins: u32,
+    /// The last wait returned one event: read_pty may spin (READ_SPINS).
+    spin_ok: bool,
     /// Children of killed terminals not reaped yet; kept across upgrades.
     orphans: Vec<libc::pid_t>,
     /// Batches one terminal may have at its worker (MUX2_INFLIGHT_MAX).
@@ -160,6 +162,10 @@ impl Server {
         let mut events = Vec::with_capacity(256);
         while !self.shutdown {
             self.poll.wait(&mut events)?;
+            // Spinning on one PTY only pays when nothing else is ready:
+            // with several busy terminals it delays reading the others
+            // (8 floods on Linux: 83 MB/s spinning, 183 MB/s not).
+            self.spin_ok = events.len() == 1;
             for ev in events.drain(..) {
                 let (token, writable) = match ev {
                     Event::Read(token) => (token, false),
@@ -668,8 +674,8 @@ impl Server {
         // the answer, not writing, so spinning for more output only delays.
         let mut asked = false;
         let mut pause = false;
-        let (parse_batch, read_spins, inflight_max) =
-            (self.parse_batch, self.read_spins, self.inflight_max);
+        let (parse_batch, inflight_max) = (self.parse_batch, self.inflight_max);
+        let read_spins = if self.spin_ok { self.read_spins } else { 0 };
         while total < budget {
             // SAFETY: buf is valid for its length.
             let n =
@@ -876,13 +882,26 @@ pub fn main() {
             std::process::exit(1);
         }
         None => match listen_socket(&path) {
-            Ok(fd) => fd,
+            Ok(Some(fd)) => fd,
+            Ok(None) => {
+                // Another server won the start race: report ready so our
+                // client connects to it.
+                if let Some(fd) = ready_fd {
+                    // SAFETY: one byte to the inherited pipe, then close.
+                    unsafe {
+                        libc::write(fd, b"r".as_ptr().cast(), 1);
+                        libc::close(fd);
+                    }
+                }
+                std::process::exit(0);
+            }
             Err(e) => {
                 eprintln!("mux2d: cannot listen on {}: {e}", path.display());
                 std::process::exit(1);
             }
         },
     };
+    let sock_id = socket_id(&path);
     let poll = Poller::new().unwrap_or_else(|e| {
         eprintln!("mux2d: event loop: {e}");
         std::process::exit(1);
@@ -900,6 +919,7 @@ pub fn main() {
         shutdown: false,
         parse_batch: tunable("MUX2_PARSE_BATCH", PARSE_BATCH),
         read_spins: tunable("MUX2_READ_SPINS", READ_SPINS as usize) as u32,
+        spin_ok: false,
         orphans: Vec::new(),
         workers: spawn_parse_workers(),
         inflight_max: tunable("MUX2_INFLIGHT_MAX", INFLIGHT_MAX).max(1),
@@ -928,5 +948,5 @@ pub fn main() {
             unsafe { libc::kill(term.pid, libc::SIGHUP) };
         }
     }
-    let _ = std::fs::remove_file(&path);
+    remove_socket_if_ours(&path, sock_id);
 }
