@@ -20,11 +20,13 @@ const fixture = async (kind: "mac" | "cli" = "mac") => {
   })
   expect(registered.json.ok).toBe(true)
   const install = registered.json.value.id as string
-  const challenge = await call("/v1/auth/challenge", undefined, { user: team.creator.user, install })
+  const challenge = await call("/v1/auth/challenge", undefined, { user: team.creator.user, install, team: team.team })
   expect(challenge.status).toBe(200)
+  expect(challenge.json.message_prefix).toBe(`cmux-auth-team-v1\n${testEnv.ENVIRONMENT}\n${install}\n${team.team}\n`)
   const signed = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${challenge.json.message_prefix}${challenge.json.nonce}`))
   const tokenReply = await call("/v1/auth/token", undefined, { user: team.creator.user, install, nonce: challenge.json.nonce, signature: b64u(signed) })
   expect(tokenReply.status).toBe(200)
+  expect(tokenReply.json.team).toBe(team.team)
   const token = tokenReply.json.access_token as string, grant = tokenReply.json.grant as string
   const op = (name: string, params: unknown, key = crypto.randomUUID()) => call("/v1/ops", token, {
     op: name, params, idempotency_key: key, origin: "cli"
