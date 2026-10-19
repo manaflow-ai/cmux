@@ -90,6 +90,15 @@ class LeftSidebarCLITests(unittest.TestCase):
                     [["left_sidebar", "hide", f"--tab={WORKSPACE_ID}", f"--window={WINDOW_ID}"]],
                 )
 
+    def test_global_window_is_a_target_not_a_focus(self):
+        args = ["--socket", self.socket_path, "--window", WINDOW_ID, "left-sidebar", "hide"]
+        self.server.commands.clear()
+        self.server.v2_requests.clear()
+        result = subprocess.run([self.cli, *args], env=self.env, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.server.v2_requests, [])
+        self.assertEqual(self.server.commands, [["left_sidebar", "hide", f"--window={WINDOW_ID}"]])
+
     def test_rejected_input_never_reaches_the_socket(self):
         cases = [
             ([], "requires a subcommand"),
@@ -100,6 +109,9 @@ class LeftSidebarCLITests(unittest.TestCase):
             (["show", "--no-focus"], "left-sidebar: unknown flag '--no-focus'"),
             (["hide", "--window"], "left-sidebar: --window requires an id"),
             (["hide", "--workspace"], "left-sidebar: --workspace requires an id"),
+            (["hide", "--window", ""], "left-sidebar: --window requires an id"),
+            (["hide", "--window="], "left-sidebar: --window requires an id"),
+            (["hide", "--workspace", "  "], "left-sidebar: --workspace requires an id"),
         ]
         for args, message in cases:
             with self.subTest(args=args):
