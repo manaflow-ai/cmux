@@ -1,5 +1,5 @@
-import AppKit
-import CmuxNextBrowser
+public import AppKit
+public import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 
@@ -10,18 +10,18 @@ import CmuxNextDesign
 /// resizable frame. It is a child of the opener's window, so it moves,
 /// hides and minimizes with it. Escape the page did not use closes it
 /// (`onEscape`); closing it closes the page (`onClose`).
-final class BrowserPopupPanel: NSPanel {
+public final class BrowserPopupPanel: NSPanel {
     static let titleHeight: CGFloat = 28
 
-    let page: any BrowserTab
-    var onEscape: (() -> Void)?
-    var onClose: (() -> Void)?
+    public let page: any BrowserTab
+    public var onEscape: (() -> Void)?
+    public var onClose: (() -> Void)?
     private let titleLabel = ChromeLabel(labelWithString: "")
     private let originLabel = ChromeLabel(labelWithString: "")
     private var observation: Task<Void, Never>?
     private let separator = NSBox()
 
-    init(page: any BrowserTab, frame: CGRect) {
+    public init(page: any BrowserTab, frame: CGRect) {
         self.page = page
         super.init(contentRect: frame, styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                    backing: .buffered, defer: false)
@@ -32,7 +32,7 @@ final class BrowserPopupPanel: NSPanel {
         becomesKeyOnlyIfNeeded = false
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
-        standardWindowButton(.closeButton)?.themedToolTip = Strings.popupCloseHelp
+        standardWindowButton(.closeButton)?.themedToolTip = PopupStrings.popupCloseHelp
         minSize = CGSize(width: BrowserPopupPanelGeometry.minimumContent.width,
                          height: BrowserPopupPanelGeometry.minimumContent.height + Self.titleHeight)
         animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
@@ -55,7 +55,7 @@ final class BrowserPopupPanel: NSPanel {
 
     private func show(title: String?, url: URL?) {
         let origin = url.flatMap(Self.origin) ?? ""
-        let text = title.flatMap { $0.isEmpty ? nil : $0 } ?? (origin.isEmpty ? Strings.popupUntitled : origin)
+        let text = title.flatMap { $0.isEmpty ? nil : $0 } ?? (origin.isEmpty ? PopupStrings.popupUntitled : origin)
         titleLabel.stringValue = text
         originLabel.stringValue = origin
         originLabel.isHidden = origin.isEmpty || origin == text
@@ -130,11 +130,11 @@ final class BrowserPopupPanel: NSPanel {
     /// Escape reaches the panel only when the page did not handle it (a
     /// WebKit page passes unhandled keys up the responder chain; Chromium
     /// reports it through the shim as `.unhandledEscape`).
-    override func cancelOperation(_ sender: Any?) {
+    override public func cancelOperation(_ sender: Any?) {
         onEscape?()
     }
 
-    override func keyDown(with event: NSEvent) {
+    override public func keyDown(with event: NSEvent) {
         if event.keyCode == 53, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty {
             onEscape?()
             return
@@ -144,7 +144,7 @@ final class BrowserPopupPanel: NSPanel {
 
     /// Every close path (close button, Escape, `window.close()`, the opener
     /// window closing) ends here once.
-    override func close() {
+    override public func close() {
         observation?.cancel()
         observation = nil
         let closed = onClose
