@@ -7,7 +7,8 @@ export const TABLE_MEMBER_AUTHORITY = "member_authority"
 const GENERATION_KEY = "@generation"
 
 const generationOf = (rows?: RowReader): bigint => {
-  const value = rows?.get<{ generation: string }>(TABLE_MEMBER_AUTHORITY, GENERATION_KEY)?.row.generation ?? "0"
+  const stored = rows?.get<{ generation: string }>(TABLE_MEMBER_AUTHORITY, GENERATION_KEY)
+  const value = stored === undefined ? "0" : stored.row.generation
   if (typeof value !== "string" || !/^(0|[1-9][0-9]{0,63})$/.test(value)) throw new Error("invalid member authority generation")
   return BigInt(value)
 }
@@ -15,6 +16,7 @@ const generationOf = (rows?: RowReader): bigint => {
 /** One persistent clock survives member deletion and ledger pruning; unrelated members keep their own stamps. */
 export const memberAuthorityWrites = (user: string, ctx: ReduceContext): ReadonlyArray<RowWrite> => {
   const generation = (generationOf(ctx.rows) + 1n).toString()
+  if (generation.length > 64) throw new Error("member authority generation exhausted")
   return [
     { table: TABLE_MEMBER_AUTHORITY, op: "upsert", key: GENERATION_KEY, row: { generation } },
     { table: TABLE_MEMBER_AUTHORITY, op: "upsert", key: user, row: { incarnation: `generation:${generation}` } }
@@ -25,10 +27,11 @@ export const memberAuthorityWrites = (user: string, ctx: ReduceContext): Readonl
 export const teamAuthorityVersion = (team: string, user: string, role: string, kind: "personal" | "stack", policyVersion: number, rows?: RowReader): string => {
   // Personal ownership is implicit before its first write; creating that team
   // must not invalidate the operation that bootstraps it. Policy still fences it.
-  const incarnation = kind === "personal" ? "personal-owner" : rows?.get<{ incarnation: string }>(TABLE_MEMBER_AUTHORITY, user)?.row.incarnation ?? "legacy"
+  const stored = kind === "stack" ? rows?.get<{ incarnation: string }>(TABLE_MEMBER_AUTHORITY, user) : undefined
+  const incarnation = kind === "personal" ? "personal-owner" : stored === undefined ? "legacy" : stored.row.incarnation
   if (kind === "stack") {
     const generation = generationOf(rows)
-    if (typeof incarnation !== "string" || (incarnation.startsWith("generation:") && (!/^generation:[1-9][0-9]{0,63}$/.test(incarnation) || BigInt(incarnation.slice(11)) > generation))) throw new Error("invalid member authority incarnation")
+    if (typeof incarnation !== "string" || (stored !== undefined && (incarnation.startsWith("generation:") ? !/^generation:[1-9][0-9]{0,63}$/.test(incarnation) || BigInt(incarnation.slice(11)) > generation : !/^[A-Za-z0-9_-]{22}$/.test(incarnation)))) throw new Error("invalid member authority incarnation")
   }
   const grants = [...(ROLE_GRANTS[role as Role] ?? [])].sort()
   return createHash("sha256").update(JSON.stringify(["cmux-team-authority-v1", team, user, role, grants, incarnation, policyVersion])).digest("hex")
