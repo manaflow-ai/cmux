@@ -198,6 +198,25 @@ impl RemoteSession {
     }
 
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
+        if self.binary_frames.load(Ordering::Acquire) {
+            // The `send` request as one binary frame; its reply is drained
+            // and ignored like any no-wait reply.
+            if let Some(error) = self.request_shutdown_error() {
+                return Err(error.into());
+            }
+            let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+            let frame = cmux_tui_core::binary_frames::encode_input(id, surface, false, bytes);
+            let sequence = self
+                .interactive_writer
+                .enqueue_frame(frame, true)
+                .map_err(|error| self.classify_transport_error(error))?;
+            if self.shutdown.load(Ordering::Acquire) {
+                self.wait_for_ordered_write(sequence)
+                    .map_err(|error| self.classify_transport_error(error))?;
+                return Err(self.shutdown_error().into());
+            }
+            return Ok(());
+        }
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
         self.request_no_wait(json!({"cmd": "send", "surface": surface, "bytes": encoded}))
     }

@@ -122,6 +122,10 @@ impl OutboundByteBudget {
 
 pub(super) struct BudgetedText {
     pub(super) text: String,
+    /// A whole binary frame (`terminal-binary-frames-v1`) written instead of
+    /// a JSON line; `text` is then empty. Only the local socket's line
+    /// writer sends one (attach streams of a client that negotiated it).
+    pub(super) frame: Option<Vec<u8>>,
     pub(super) retained_bytes: usize,
     pub(super) budget: Arc<OutboundByteBudget>,
 }
@@ -131,6 +135,13 @@ impl Deref for BudgetedText {
 
     fn deref(&self) -> &Self::Target {
         &self.text
+    }
+}
+
+impl BudgetedText {
+    /// The bytes this item puts on the wire (without a JSON line's newline).
+    pub(super) fn wire_len(&self) -> usize {
+        self.frame.as_ref().map_or(self.text.len(), Vec::len)
     }
 }
 
@@ -221,7 +232,25 @@ impl BudgetedJsonWriter {
         self.retained_bytes = 0;
         self.reservation_bytes = 0;
         let text = String::from_utf8(bytes).expect("serde_json emits UTF-8");
-        Arc::new(BudgetedText { text, retained_bytes, budget: self.budget.clone() })
+        Arc::new(BudgetedText { text, frame: None, retained_bytes, budget: self.budget.clone() })
+    }
+
+    /// The written bytes as one binary frame (see [`crate::binary_frames`]).
+    pub(super) fn finish_frame(mut self) -> Arc<BudgetedText> {
+        let bytes = std::mem::take(&mut self.bytes);
+        let retained_bytes = bytes.capacity();
+        debug_assert!(retained_bytes <= self.retained_bytes);
+        if retained_bytes < self.retained_bytes {
+            self.budget.release(self.retained_bytes - retained_bytes);
+        }
+        self.retained_bytes = 0;
+        self.reservation_bytes = 0;
+        Arc::new(BudgetedText {
+            text: String::new(),
+            frame: Some(bytes),
+            retained_bytes,
+            budget: self.budget.clone(),
+        })
     }
 }
 
@@ -335,6 +364,11 @@ impl RenderService {
         frame: &AttachFrame,
         shape: AttachWireShape,
     ) -> std::io::Result<Arc<BudgetedText>> {
+        if shape.binary_frames
+            && let AttachFrame::Output(output) = frame
+        {
+            return self.serialize_output_frame(surface, None, output);
+        }
         let include_color_overrides = shape.color_overrides;
         let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
         match frame {
@@ -415,12 +449,67 @@ impl RenderService {
         Ok(writer.finish())
     }
 
+    /// The `output` event as a binary frame (`terminal-binary-frames-v1`):
+    /// the PTY bytes as they are, `position` on a snapshot attach.
+    pub(super) fn serialize_output_frame(
+        &self,
+        surface: SurfaceId,
+        position: Option<(u64, u64)>,
+        data: &[u8],
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        use crate::binary_frames as frames;
+        let len = frame_payload_len(frames::OUTPUT_PREFIX_BYTES, data.len())?;
+        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        writer.ensure_capacity(frames::HEADER_BYTES + len as usize)?;
+        let flags = if position.is_some() { frames::OUTPUT_FLAG_POSITION } else { 0 };
+        let (generation, offset) = position.unwrap_or_default();
+        writer.write_all(&frames::header(frames::KIND_OUTPUT, flags, len))?;
+        writer.write_all(&surface.to_le_bytes())?;
+        writer.write_all(&generation.to_le_bytes())?;
+        writer.write_all(&offset.to_le_bytes())?;
+        writer.write_all(data)?;
+        Ok(writer.finish_frame())
+    }
+
+    /// An event whose `data` field is bytes, as a binary frame: `value` is
+    /// the event without `data`, and `data` travels as it is.
+    pub(super) fn serialize_event_data_frame(
+        &self,
+        value: &serde_json::Value,
+        data: &[u8],
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        use crate::binary_frames as frames;
+        let json = serde_json::to_vec(value).map_err(json_error_to_io)?;
+        let json_len = u32::try_from(json.len()).map_err(|_| frame_too_large())?;
+        let len = frame_payload_len(4 + json.len(), data.len())?;
+        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        writer.ensure_capacity(frames::HEADER_BYTES + len as usize)?;
+        writer.write_all(&frames::header(frames::KIND_EVENT_DATA, 0, len))?;
+        writer.write_all(&json_len.to_le_bytes())?;
+        writer.write_all(&json)?;
+        writer.write_all(data)?;
+        Ok(writer.finish_frame())
+    }
+
     pub(super) fn reserved_control_writer(&self) -> std::io::Result<BudgetedJsonWriter> {
         BudgetedJsonWriter::with_reservation(
             self.control_budget.clone(),
             OUTBOUND_CONTROL_BYTE_RESERVE,
         )
     }
+}
+
+/// A frame's payload length: within what a client reads in one message.
+fn frame_payload_len(prefix: usize, data: usize) -> std::io::Result<u32> {
+    prefix
+        .checked_add(data)
+        .filter(|len| *len <= crate::binary_frames::MAX_DAEMON_FRAME_PAYLOAD_BYTES)
+        .and_then(|len| u32::try_from(len).ok())
+        .ok_or_else(frame_too_large)
+}
+
+fn frame_too_large() -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, "binary frame is too large")
 }
 
 pub(super) fn json_error_to_io(error: serde_json::Error) -> std::io::Error {

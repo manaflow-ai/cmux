@@ -462,6 +462,7 @@ pub(super) fn attach_surface(
         pending_sequence: mux
             .control_clients
             .supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
+        binary_frames: mux.control_clients.binary_frames(client),
     };
     let (replay, pending_sequence) = if shape.pending_sequence || attach.pending_sequence.is_empty()
     {

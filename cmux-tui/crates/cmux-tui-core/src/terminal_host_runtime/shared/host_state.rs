@@ -463,8 +463,7 @@ impl SmartRetention {
         let retained = retained_frame_bytes(&frame);
         self.bytes = self.bytes.saturating_add(retained);
         self.frames.push_back(frame);
-        while self.bytes > MAX_SMART_RETAINED_BYTES || self.frames.len() > MAX_SMART_RETAINED_FRAMES
-        {
+        while self.bytes > MAX_SMART_RETAINED_BYTES {
             let Some(frame) = self.frames.pop_front() else { break };
             self.bytes = self.bytes.saturating_sub(retained_frame_bytes(&frame));
             self.dropped_through = frame.sequence;
@@ -505,7 +504,9 @@ impl SmartReplayGap {
 }
 
 pub(crate) fn retained_frame_bytes(frame: &Frame) -> usize {
-    crate::terminal_host_protocol::HEADER_LEN.saturating_add(frame.payload.len())
+    crate::terminal_host_protocol::HEADER_LEN
+        .saturating_add(SMART_RETAINED_FRAME_OVERHEAD)
+        .saturating_add(frame.payload.len())
 }
 
 pub(crate) enum ParserCommand {

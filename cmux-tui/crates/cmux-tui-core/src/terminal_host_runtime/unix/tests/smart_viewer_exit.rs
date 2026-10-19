@@ -275,8 +275,9 @@ fn smart_attach_cannot_miss_exit_between_dead_check_and_subscribe() {
 #[test]
 fn smart_attach_reports_retention_gap_instead_of_silent_corruption() {
     let state = SmartStreamState::new();
-    for byte in 0..=MAX_SMART_RETAINED_FRAMES {
-        state.publish(Frame::new(MessageKind::Output, vec![byte as u8]));
+    // 64 KiB frames until the byte cap drops the first one.
+    while state.retained.lock().unwrap().dropped_through == 0 {
+        state.publish(Frame::new(MessageKind::Output, vec![7; 64 * 1024]));
     }
     let (host_socket, _client_socket) = UnixStream::pair().unwrap();
     let (sender, _receiver) = mpsc_channel();

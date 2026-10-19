@@ -239,7 +239,7 @@ fn resize_payload(t: u32) -> Vec<u8> {
 fn attach(s: UnixStream, t: u32) -> i32 {
     // SIGWINCH is handled by a sigwait thread; block it everywhere first.
     // SAFETY: building and applying a signal mask before threads exist.
-    let mut winch: libc::sigset_t = 0;
+    let mut winch: libc::sigset_t = unsafe { std::mem::zeroed() };
     unsafe {
         libc::sigemptyset(&mut winch);
         libc::sigaddset(&mut winch, libc::SIGWINCH);

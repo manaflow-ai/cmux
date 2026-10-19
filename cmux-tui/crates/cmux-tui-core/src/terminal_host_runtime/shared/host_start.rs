@@ -16,7 +16,8 @@ use cmux_pty::MasterPty;
 use ghostty_vt::Terminal;
 
 use super::super::sys::{
-    self, AcceptWaker, HostChild, HostStream, wait_for_pty_readable_or_forced_drain,
+    self, AcceptWaker, HostChild, HostStream, pty_readable_now,
+    wait_for_pty_readable_or_forced_drain,
 };
 #[cfg(unix)]
 use super::super::unix::session_cleanup;
@@ -180,7 +181,7 @@ pub(crate) fn start_host_runtime(
             &reader_host.force_pty_drain,
             &mut forced_at,
         ) {
-            let count = match pty_reader.read(&mut buffer) {
+            let mut count = match pty_reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(count) => count,
                 Err(error)
@@ -193,6 +194,16 @@ pub(crate) fn start_host_runtime(
                 }
                 Err(_) => break,
             };
+            // Bytes already queued in the PTY join this frame (a macOS PTY
+            // read returns at most 1 KiB): a flood becomes few large frames
+            // for every stage after this one, and a lone echo is published
+            // without waiting. The end of the PTY is seen by the next wait.
+            while count < buffer.len() && pty_readable_now(pty_poll_fd) {
+                match pty_reader.read(&mut buffer[count..]) {
+                    Ok(0) | Err(_) => break,
+                    Ok(more) => count += more,
+                }
+            }
             let bytes = buffer[..count].to_vec();
             let _source_order = reader_host.source_order_lock.lock().unwrap();
             reader_host.parser_budget.reserve(count);

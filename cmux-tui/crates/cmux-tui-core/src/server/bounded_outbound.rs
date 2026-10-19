@@ -160,7 +160,7 @@ impl BoundedOutbound {
         if !stream.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
         }
-        let bytes = text.len();
+        let bytes = text.wire_len();
         if bytes > OUTBOUND_BYTE_CAPACITY {
             Self::terminate_stream_locked(state, stream)?;
             return Err(std::io::Error::new(
@@ -277,7 +277,7 @@ impl BoundedOutbound {
         text: Arc<BudgetedText>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
-        let bytes = text.len();
+        let bytes = text.wire_len();
         if bytes > OUTBOUND_BYTE_CAPACITY {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
@@ -374,7 +374,7 @@ impl BoundedOutbound {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let bytes = text.len();
+        let bytes = text.wire_len();
         if state.control_messages >= OUTBOUND_CONTROL_RESERVE
             || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
         {
@@ -434,7 +434,7 @@ impl BoundedOutbound {
             return Some(match control {
                 ControlOutbound::Text(text) => {
                     state.control_messages = state.control_messages.saturating_sub(1);
-                    state.control_bytes = state.control_bytes.saturating_sub(text.len());
+                    state.control_bytes = state.control_bytes.saturating_sub(text.wire_len());
                     OutboundItem::Text(text)
                 }
                 ControlOutbound::Flush(flushed) => OutboundItem::Flush(flushed),
@@ -446,7 +446,7 @@ impl BoundedOutbound {
     }
 
     pub(super) fn record_stream_pop(state: &mut BoundedOutboundState, message: &RegularOutbound) {
-        let bytes = message.text.len();
+        let bytes = message.text.wire_len();
         state.regular_bytes = state.regular_bytes.saturating_sub(bytes);
         let remove = state.stream_usage.get_mut(&message.stream.id).is_some_and(|usage| {
             usage.messages = usage.messages.saturating_sub(1);
@@ -507,10 +507,14 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
     item: OutboundItem,
 ) -> std::io::Result<()> {
     match item {
-        OutboundItem::Text(text) => {
-            writer.write_all(text.as_bytes())?;
-            writer.write_all(b"\n")
-        }
+        OutboundItem::Text(text) => match text.frame.as_deref() {
+            // A binary frame carries its own length; no line delimiter.
+            Some(frame) => writer.write_all(frame),
+            None => {
+                writer.write_all(text.as_bytes())?;
+                writer.write_all(b"\n")
+            }
+        },
         OutboundItem::Flush(flushed) => {
             writer.flush()?;
             let _ = flushed.send(());

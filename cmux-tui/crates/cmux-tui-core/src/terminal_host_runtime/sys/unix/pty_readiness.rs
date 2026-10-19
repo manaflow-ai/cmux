@@ -78,3 +78,14 @@ pub(crate) fn wait_for_pty_readable_or_forced_drain(
         // window expires so late final bytes are still observed.
     }
 }
+
+/// Whether the PTY has bytes to read right now (`poll` with no timeout).
+/// The reader drains these into one output frame: a flood leaves bytes
+/// queued between reads, while a lone keystroke echo finds none and is
+/// published at once.
+pub(crate) fn pty_readable_now(pty_fd: RawFd) -> bool {
+    let mut poll_fd = libc::pollfd { fd: pty_fd, events: libc::POLLIN, revents: 0 };
+    // SAFETY: one initialized pollfd; the descriptor stays owned by the caller.
+    let ready = unsafe { libc::poll(&raw mut poll_fd, 1, 0) };
+    ready > 0 && poll_fd.revents & libc::POLLIN != 0
+}

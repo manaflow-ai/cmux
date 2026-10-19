@@ -166,7 +166,9 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 /// Every commit flushes the device cache on macOS (F_FULLFSYNC), so a crash or
-/// power loss keeps each acknowledged commit. Unit tests open hundreds of
+/// power loss keeps each acknowledged commit. The one exception is a journal
+/// batch of terminal output only, which commits unsynced and becomes durable
+/// with the next syncing commit (`RestoreFullSync` in writer_batch.rs). Unit tests open hundreds of
 /// throwaway registries in one process and never cut power: there, a plain
 /// fsync (synchronous=FULL stays) keeps every commit ordering and restart
 /// result they check, while F_FULLFSYNC serialized the device across all test

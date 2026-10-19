@@ -390,6 +390,10 @@ public struct DaemonCapabilities: Sendable {
     public let terminalSnapshotLocalHistory = "terminal-snapshot-local-history-v1"
     /// The Kitty image replay after a plain READY (S3k).
     public let terminalSnapshotImages = "terminal-snapshot-images-v1"
+    /// Attach output and snapshot data as binary frames with raw bytes, and
+    /// input as binary frames, on the local socket (`TerminalAttachment`,
+    /// `LineSplitter`; cmux-tui spec/transports.md "Binary frames").
+    public let terminalBinaryFrames = "terminal-binary-frames-v1"
     /// The OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`,
     /// `terminal-clipboard-reply` and the targeted read events
     /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
@@ -428,7 +432,7 @@ public struct DaemonCapabilities: Sendable {
                                             sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
-                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
+                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages, terminalBinaryFrames,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
@@ -454,7 +458,11 @@ public struct DaemonCapabilities: Sendable {
     /// `sharedSizing` is not either: the GUI only reads it from `identify`.
     public var advertised: [String] {
         // `placementShift` only with the sidebar document (`handshakeCapabilities`).
-        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration && $0 != placementShift && $0 != sharedSizing }
+        // `terminalBinaryFrames` only on a terminal attach to the daemon's own
+        // socket (`TerminalAttachment`): other connections read no frames.
+        (required + optional + unservedByBundledDaemon).filter {
+            $0 != terminalFrontendShellIntegration && $0 != placementShift && $0 != sharedSizing && $0 != terminalBinaryFrames
+        }
     }
 
     /// What a connection echoes in `set-client-info`.
