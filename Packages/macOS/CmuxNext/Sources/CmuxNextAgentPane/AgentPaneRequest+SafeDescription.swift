@@ -1,6 +1,6 @@
 extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     /// A log-safe case name that never includes request-associated user content.
-    public var description: String { "AgentPaneRequest.\(caseName)" }
+    public var description: String { caseName }
 
     /// The same log-safe case name used by ``description``.
     public var debugDescription: String { description }
