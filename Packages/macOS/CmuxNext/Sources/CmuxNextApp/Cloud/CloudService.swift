@@ -3,6 +3,8 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextHomeEngine
+import CmuxNextPhoneAccess
 import Foundation
 import Observation
 import os
@@ -86,9 +88,10 @@ final class CloudService {
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
-        hostReplica = CloudHostReplicaFollower(
-            identity: installIdentity, apiBaseURL: configuration.ownerAPIBaseURL(),
-            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+        hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()),
+            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+            installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
+            invalidate: { [installIdentity] in await installIdentity.invalidate() })
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
@@ -126,16 +129,7 @@ final class CloudService {
         link.isSignedIn = { [weak self] in self?.auth.isSignedIn ?? false }
     }
 
-    /// `cmux-<host>`, as the old app named its link device. Reads the kernel
-    /// hostname (`gethostname`): `ProcessInfo.hostName` resolves through DNS
-    /// and blocked the main thread for 35 s on launch.
-    static var deviceName: String {
-        let name = MacName().kernelHostName()
-        let host = name.isEmpty ? "mac" : name
-        let cleaned = host.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }
-        return "cmux-" + String(String(cleaned).prefix(40))
-    }
-
+    static var deviceName: String { MacName().linkDeviceName() }
     func localDeviceID() throws -> String { try paths.loadOrCreateDeviceID() }
 
     var isSignedIn: Bool { auth.isSignedIn }
@@ -378,6 +372,18 @@ final class CloudService {
         creations.machineRemoved(machineID)
         machines.remove(machineID)?.disconnect()
         logger.info("deleted machine \(machineID, privacy: .public)")
+    }
+
+    func pauseMachine(_ machineID: String) async throws {
+        try await api.pauseMachine(machineID)
+        await refresh()
+        logger.info("paused machine \(machineID, privacy: .public)")
+    }
+
+    func resumeMachine(_ machineID: String) async throws {
+        try await api.resumeMachine(machineID)
+        await refresh()
+        logger.info("resumed machine \(machineID, privacy: .public)")
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {

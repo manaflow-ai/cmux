@@ -1,10 +1,8 @@
-import CmuxNextCloud
 import CmuxNextCompat
-import CmuxNextDaemon
-import CmuxNextDaemonService
-import CmuxNextHomeEngine
-import CmuxNextSettings
-import Foundation
+public import CmuxNextDaemon
+public import CmuxNextDaemonService
+public import CmuxNextSettings
+public import Foundation
 import os
 
 /// Applies Settings > Accounts > Phone Access > `phone.cloudReplica`
@@ -17,9 +15,13 @@ import os
 /// `cloud-host-replica-needed`.
 ///
 /// Lease work runs one at a time, in the order it was asked for, so an
-/// older lease never lands after a newer one.
+/// older lease never lands after a newer one. The App supplies the install
+/// token (with its expiry), the Cloud origin and the account that may publish.
 @MainActor
-final class CloudHostReplicaFollower {
+public final class CloudHostReplicaFollower {
+    /// One install token and when it expires (Unix ms).
+    public typealias InstallToken = @Sendable () async throws -> (token: String, expiresAt: UInt64)
+
     nonisolated struct Want: Equatable, Sendable {
         var connection: DaemonConnection?
         /// The daemon process behind the connection: a restart on the same
@@ -42,8 +44,9 @@ final class CloudHostReplicaFollower {
     /// then means the purge is done.
     nonisolated static let purgeAskedKey = "cmux.cloudReplica.purgeAskedDaemon.v1"
 
-    private let identity: MacInstallIdentity
-    private let apiBaseURL: URL
+    private let installToken: InstallToken
+    private let invalidate: @Sendable () async -> Void
+    private let origin: String?
     private let clientVersion: String?
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud.replica")
@@ -52,24 +55,27 @@ final class CloudHostReplicaFollower {
     /// The newest lease work; the next waits for it.
     private var work: Task<Void, Never>?
 
-    init(identity: MacInstallIdentity, apiBaseURL: URL, clientVersion: String?, defaults: UserDefaults = .standard) {
-        self.identity = identity
-        self.apiBaseURL = apiBaseURL
+    /// `origin`: the Cloud API origin (`scheme://host[:port]`), nil when it has none.
+    public init(origin: String?, clientVersion: String?, defaults: UserDefaults = .standard,
+                installToken: @escaping InstallToken, invalidate: @escaping @Sendable () async -> Void) {
+        self.origin = origin
         self.clientVersion = clientVersion
         self.defaults = defaults
+        self.installToken = installToken
+        self.invalidate = invalidate
     }
 
     /// Follows the setting, the account and the local daemon connection.
-    func follow(_ settings: SettingsController, cloud: CloudService, local: DaemonService) {
+    /// `account`: the signed-in user's id while Cloud may be called, else nil.
+    public func follow(_ settings: SettingsController, local: DaemonService, account: @escaping @MainActor () -> String?) {
         observation?.cancel()
         // task-owner: lives as long as the settings controller; event-driven (Observation)
         observation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
             for await next in ObservationStream({ () -> Want in
                 let supported = local.supports(DaemonCapabilities.shared.cloudHostReplica)
-                let allowed = cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled
                 return Want(connection: supported ? local.connection : nil, daemon: supported ? local.identity?.pid : nil,
-                            userID: allowed ? cloud.auth.user?.id : nil, on: settings.snapshot.sessions.publishesCloudReplica)
+                            userID: account(), on: settings.snapshot.sessions.publishesCloudReplica)
             }) {
                 guard let self else { return }
                 self.want = next
@@ -80,13 +86,13 @@ final class CloudHostReplicaFollower {
 
     /// The install was registered (sign-in finished): a lease that failed
     /// for want of it can go now.
-    func installReady() {
+    public func installReady() {
         enqueue(renew: false)
     }
 
     /// `cloud-host-replica-needed`: the token expires soon or the cloud
     /// refused it. A purge in flight needs the new token too.
-    func needed(_ needed: CloudHostReplicaNeeded) {
+    public func needed(_ needed: CloudHostReplicaNeeded) {
         logger.info("host replica asks for a token: \(needed.reason, privacy: .public)")
         enqueue(renew: true)
     }
@@ -112,7 +118,7 @@ final class CloudHostReplicaFollower {
                 return
             }
             if want.on {
-                if renew { await identity.invalidate() }
+                if renew { await invalidate() }
                 try await lease(client, user: user)
             } else if defaults.string(forKey: Self.publishedKey) == user {
                 try await purge(client, user: user, daemon: want.daemon, renew: renew)
@@ -137,7 +143,7 @@ final class CloudHostReplicaFollower {
             defaults.removeObject(forKey: Self.purgeAskedKey)
             return
         }
-        if renew { await identity.invalidate() }
+        if renew { await invalidate() }
         // No lease went (no Cloud origin): a purge without a token cannot run.
         guard try await lease(client, user: user) else { return }
         _ = try await client.clear(purge: true)
@@ -147,9 +153,8 @@ final class CloudHostReplicaFollower {
     /// Gives the daemon this account's install token; false when no lease went.
     @discardableResult
     private func lease(_ client: CloudHostReplicaClient, user: String) async throws -> Bool {
-        let token = try await identity.installToken()
-        guard let origin = HomeCloudLease.origin(apiBaseURL) else { return false }
-        let expiresAt = HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())
+        let (token, expiresAt) = try await installToken()
+        guard let origin else { return false }
         // The daemon takes 1-64 Unicode scalars (cloud-host-replica-set).
         let name = await MacName().computerName().trimmingCharacters(in: .whitespacesAndNewlines)
         let hostName = name.isEmpty ? "Mac" : String(String.UnicodeScalarView(name.unicodeScalars.prefix(64)))
