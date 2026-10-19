@@ -4,7 +4,7 @@
 // transcript, in place below the line, in a small card, or as a step rail in the turn's gutter.
 // A finished turn keeps one quiet line ("Thought for 41s · 9 steps") only when Steps is on.
 import { useState } from "react";
-import { Chevron, GlassCircle, MacWindow, Phone, Shimmer, StatusMark, type Platform } from "./parts";
+import { Chevron, GlassCircle, MacWindow, Phone, SessionList, Shimmer, StatusMark, type Platform } from "./parts";
 import "./subagents.css";
 
 export type ThinkingDesign = "side" | "inline" | "card" | "rail";
@@ -135,36 +135,40 @@ export function ThinkingSteps({ platform, design, expanded = false, steps = fals
             <GlassCircle glyph="more" label="More" />
           </>
         }
+        bottom={
+          <div className="sa-phone-composer">
+            <span className="sa-muted">Follow up</span>
+            {settingsToggle}
+            <span className="sa-send" data-stop={phase === "working" || undefined} aria-hidden="true" />
+          </div>
+        }
+        overlay={
+          sheet && (
+            <div className="sa-phone-sheet" aria-label="Steps">
+              <div className="sa-sheet-grabber" aria-hidden="true" />
+              <header className="sa-sheet-header">
+                <strong>Steps</strong>
+                <span className="sa-muted">
+                  {visible.length} · {total}s
+                </span>
+                <span className="sa-spacer" />
+                <button type="button" className="sa-text-button" onClick={() => setOpen(false)}>
+                  Done
+                </button>
+              </header>
+              {details}
+            </div>
+          )
+        }
       >
         <div className="sa-chat" data-platform="iphone">
           {turn}
         </div>
-        <div className="sa-phone-composer">
-          <span className="sa-muted">Follow up</span>
-          {settingsToggle}
-          <span className="sa-send" data-stop={phase === "working" || undefined} aria-hidden="true" />
-        </div>
-        {sheet && (
-          <div className="sa-phone-sheet" aria-label="Steps">
-            <div className="sa-sheet-grabber" aria-hidden="true" />
-            <header className="sa-sheet-header">
-              <strong>Steps</strong>
-              <span className="sa-muted">
-                {visible.length} · {total}s
-              </span>
-              <span className="sa-spacer" />
-              <button type="button" className="sa-text-button" onClick={() => setOpen(false)}>
-                Done
-              </button>
-            </header>
-            {details}
-          </div>
-        )}
       </Phone>
     );
   }
   return (
-    <MacWindow title="cnx-ios" sidebarWidth={220} sidebar={<div className="sa-sidebar-placeholder" />}>
+    <MacWindow title="cnx-ios" sidebarWidth={220} sidebar={<SessionList />}>
       <div className="sa-split" data-open={(open && design === "side") || undefined}>
         <div className="sa-chat" data-platform="mac">
           <div className="sa-chat-toolbar">{settingsToggle}</div>

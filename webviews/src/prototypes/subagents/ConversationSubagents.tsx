@@ -4,7 +4,7 @@
 // click opens the child in place, with its parent as the back target.
 import { useMemo, useState } from "react";
 import { ago, buildForest, childrenOf, descendants, HARNESS_LABEL, stateCounts, STATE_LABEL, type AgentNode, type AgentState } from "./hierarchy";
-import { Chevron, GlassCircle, HarnessMark, MacWindow, Phone, Shimmer, StatusMark, type Platform } from "./parts";
+import { Chevron, GlassCircle, HarnessMark, MacWindow, Phone, SessionList, Shimmer, StatusMark, type Platform } from "./parts";
 import "./subagents.css";
 
 export type InlineDesign = "chips" | "cards" | "line" | "tree" | "toolrows";
@@ -52,39 +52,24 @@ export function ConversationSubagents({ platform, design, count, phase = "live",
             <GlassCircle glyph="more" label="More" />
           </>
         }
+        bottom={
+          <div className="sa-phone-composer">
+            <span className="sa-muted">Follow up</span>
+            <span className="sa-send" aria-hidden="true" />
+          </div>
+        }
       >
         <div className="sa-chat" data-platform="iphone">
           {transcript}
         </div>
-        <div className="sa-phone-composer">
-          <span className="sa-muted">Follow up</span>
-          <span className="sa-send" aria-hidden="true" />
-        </div>
       </Phone>
     );
   return (
-    <MacWindow title={parent.workspace} sidebarWidth={220} sidebar={<MiniSidebar nodes={nodes} current={open ?? parent} />}>
+    <MacWindow title={parent.workspace} sidebarWidth={220} sidebar={<SessionList nodes={nodes} current={(open ?? parent).id} />}>
       <div className="sa-chat" data-platform="mac">
         {transcript}
       </div>
     </MacWindow>
-  );
-}
-
-/** A plain session list for context (the sidebar layouts are their own entry). */
-function MiniSidebar({ nodes, current }: { nodes: readonly AgentNode[]; current: AgentNode }) {
-  return (
-    <div className="sa-tree" data-platform="mac">
-      {childrenOf(nodes, null).map((root) => (
-        <div key={root.id} className="sa-row" data-platform="mac" data-selected={root.id === current.id || current.id.startsWith(`${root.id}.`) || undefined}>
-          <StatusMark state={root.state} />
-          <span className="sa-row-text">
-            <span className="sa-row-title">{root.name}</span>
-          </span>
-          <span className="sa-row-meta">{descendants(nodes, root.id).length || ""}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 

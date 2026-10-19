@@ -56,7 +56,7 @@ export default componentEntry<SubagentSidebarProps>({
     },
     "columns-deep": {
       note: "Ten levels: only the newest three show in full.",
-      props: { platform: "mac", layout: "columns", fanout: 12, depth: 10 },
+      props: { platform: "mac", layout: "columns", fanout: 12, depth: 10, focusDepth: 10 },
     },
     tree: {
       note: "Indented tree; the running path opens; 8 children per level, then Show more.",
@@ -64,7 +64,7 @@ export default componentEntry<SubagentSidebarProps>({
     },
     "tree-deep": {
       note: "Past level 6 the indent stops and the level is written (L7).",
-      props: { platform: "mac", layout: "tree", fanout: 12, depth: 10 },
+      props: { platform: "mac", layout: "tree", fanout: 12, depth: 10, focusDepth: 10 },
     },
     "grouped-status": {
       note: "The whole family flat, by status; Done folds by default.",
@@ -93,7 +93,7 @@ export default componentEntry<SubagentSidebarProps>({
     },
     "at-depth-limit": {
       note: "The family wants 12 levels; the session allows 10.",
-      props: { platform: "mac", layout: "tree", fanout: 5, depth: 12 },
+      props: { platform: "mac", layout: "tree", fanout: 5, depth: 12, focusDepth: 12 },
     },
     "settings-defaults": {
       note: "Settings › Agents › Subagents: the defaults for new sessions.",

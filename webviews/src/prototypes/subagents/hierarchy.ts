@@ -103,6 +103,9 @@ const SPLITS: { name: string; kind: AgentKind; event: string }[][] = [
     { name: "Patch file", kind: "implement", event: "Edited retry.ts +6 −2" },
     { name: "Verify", kind: "test", event: "Ran tsc --noEmit" },
     { name: "Second opinion", kind: "review", event: "Agreed with the patch" },
+    { name: "Trace a bug", kind: "explore", event: "Read the crash log (3 frames)" },
+    { name: "Fix lint", kind: "implement", event: "Edited 2 files +4 −4" },
+    { name: "Read docs", kind: "research", event: "Read the SQLite WAL page" },
   ],
 ];
 
@@ -137,7 +140,7 @@ function hash(text: string): number {
 export function buildForest(options: ForestOptions): AgentNode[] {
   const nodes: AgentNode[] = [];
   const limits = options.limits ?? DEFAULT_LIMITS;
-  const inner = options.innerFanout ?? 3;
+  const inner = options.innerFanout ?? 4;
   const add = (
     parent: AgentNode | null,
     root: (typeof ROOTS)[number],
@@ -148,7 +151,11 @@ export function buildForest(options: ForestOptions): AgentNode[] {
     spine: boolean,
   ): AgentNode => {
     const pool = SPLITS[Math.min(depth - 1, SPLITS.length - 1)] ?? SPLITS[0]!;
-    const pick = parent ? pool[index % pool.length]! : undefined;
+    // Offset each parent's picks so a child never repeats its parent's or its siblings' task.
+    const offset = parent ? hash(parent.id) % pool.length : 0;
+    let slot = (index + offset) % pool.length;
+    if (parent && pool[slot]!.name === parent.name.replace(/ \d+$/, "")) slot = (slot + 1) % pool.length;
+    const pick = parent ? pool[slot]! : undefined;
     const id = parent ? `${parent.id}.${index + 1}` : `s${ROOTS.indexOf(root) + 1}`;
     const seed = hash(id);
     const round = Math.floor(index / pool.length);

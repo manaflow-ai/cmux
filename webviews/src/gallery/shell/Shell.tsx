@@ -536,6 +536,7 @@ function EntryView({ entry, address, status }: { entry: GalleryEntry; address: A
                     view: search.view,
                     compare: search.compare,
                     tune: search.tune,
+                    opts: search.opts,
                     browse: search.browse,
                   },
                 },

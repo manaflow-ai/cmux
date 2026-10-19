@@ -3,7 +3,7 @@
 // while it streams, while it runs a tool, and when it is done. Five designs: three crisp dots, a
 // shimmer word with elapsed time (cnx-ios WorkingLabel), a Messages typing bubble, a block caret,
 // and a status line attached to the composer.
-import { GlassCircle, MacWindow, Phone, Shimmer, type Platform } from "./parts";
+import { GlassCircle, MacWindow, Phone, SessionList, Shimmer, type Platform } from "./parts";
 import "./subagents.css";
 
 export type TypingDesign = "dots" | "shimmer" | "bubble" | "caret" | "composer";
@@ -116,19 +116,23 @@ export function TypingIndicator({ platform, design, phase, who = "chief", elapse
             <GlassCircle glyph="compose" label="New thread" />
           </>
         }
+        bottom={
+          <>
+            {composerLine && <div className="sa-phone-composer-status">{composerLine}</div>}
+            <div className="sa-phone-composer">
+              <span className="sa-muted">Message</span>
+              <span className="sa-send" data-stop={phase !== "done" || undefined} aria-hidden="true" />
+            </div>
+          </>
+        }
       >
         <div className="sa-chat" data-platform="iphone" data-who={who}>
           {body}
         </div>
-        {composerLine && <div className="sa-phone-composer-status">{composerLine}</div>}
-        <div className="sa-phone-composer">
-          <span className="sa-muted">Message</span>
-          <span className="sa-send" data-stop={phase !== "done" || undefined} aria-hidden="true" />
-        </div>
       </Phone>
     );
   return (
-    <MacWindow title={who === "chief" ? "Home" : "cnx-ios"} sidebarWidth={220} sidebar={<div className="sa-sidebar-placeholder" />}>
+    <MacWindow title={who === "chief" ? "Home" : "cnx-ios"} sidebarWidth={220} sidebar={<SessionList />}>
       <div className="sa-chat" data-platform="mac" data-who={who}>
         {body}
         <div className="sa-mac-composer">

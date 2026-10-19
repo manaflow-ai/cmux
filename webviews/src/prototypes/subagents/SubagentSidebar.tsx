@@ -36,6 +36,8 @@ export type SubagentSidebarProps = {
   limitDepth?: number;
   limitsOpen?: boolean;
   settings?: boolean;
+  /** How deep the first selection goes (default: the visible columns, or the deepest live agent). */
+  focusDepth?: number;
 };
 
 const SIDEBAR_WIDTH: Record<SidebarLayout, number> = {
@@ -58,12 +60,17 @@ export function SubagentSidebar({
   limitDepth = 10,
   limitsOpen = false,
   settings = false,
+  focusDepth,
 }: SubagentSidebarProps) {
   const nodes = useMemo(
     () => buildForest({ children: fanout, depth, limits: { width: limitWidth, depth: limitDepth } }),
     [fanout, depth, limitWidth, limitDepth],
   );
-  const [path, setPath] = useState<AgentNode[]>(() => deepestRunningPath(nodes));
+  // Columns start on the widest levels (the root's children in the first full column); a deep
+  // variant asks for more with focusDepth.
+  const [path, setPath] = useState<AgentNode[]>(() =>
+    deepestRunningPath(nodes).slice(0, focusDepth ?? (layout === "columns" || layout === "tree" ? visibleColumns : 99)),
+  );
   const [panel, setPanel] = useState(limitsOpen);
   const root = path[0] ?? nodes[0]!;
   const family = descendants(nodes, root.id);

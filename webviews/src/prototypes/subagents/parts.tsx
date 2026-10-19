@@ -6,7 +6,7 @@
 import type { ReactNode } from "react";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import type { StatusGlyphName } from "../../ui/statusGlyphs.generated";
-import { HARNESS_LABEL, STATE_LABEL, type AgentState, type Harness } from "./hierarchy";
+import { buildForest, childrenOf, descendants, HARNESS_LABEL, STATE_LABEL, type AgentNode, type AgentState, type Harness } from "./hierarchy";
 
 export type Platform = "mac" | "iphone";
 
@@ -95,7 +95,19 @@ export function MacWindow({
 }
 
 /** An iPhone 17 Pro (402 x 874 pt): status bar, then the screen. */
-export function Phone({ children, toolbar }: { children: ReactNode; toolbar?: ReactNode }) {
+export function Phone({
+  children,
+  toolbar,
+  bottom,
+  overlay,
+}: {
+  children: ReactNode;
+  toolbar?: ReactNode;
+  /** Pinned under the screen (the composer). */
+  bottom?: ReactNode;
+  /** Over everything (a sheet). */
+  overlay?: ReactNode;
+}) {
   return (
     <div className="sa-phone-stage">
       <div className="sa-phone">
@@ -106,6 +118,8 @@ export function Phone({ children, toolbar }: { children: ReactNode; toolbar?: Re
         </div>
         {toolbar && <div className="sa-phone-toolbar">{toolbar}</div>}
         <div className="sa-phone-screen">{children}</div>
+        {bottom}
+        {overlay}
         <span className="sa-phone-home" aria-hidden="true" />
       </div>
     </div>
@@ -136,5 +150,29 @@ export function Chevron({ open }: { open: boolean }) {
     <svg className="sa-chevron" data-open={open || undefined} viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
       <path d="M4 2.5 7.5 6 4 9.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+const CONTEXT = buildForest({ children: 8, depth: 2 });
+
+/** The session list for context in the Mac sidebar (the sidebar layouts are their own entry). */
+export function SessionList({ nodes = CONTEXT, current = "s1" }: { nodes?: readonly AgentNode[]; current?: string }) {
+  return (
+    <div className="sa-tree" data-platform="mac">
+      {childrenOf(nodes, null).map((root) => (
+        <div
+          key={root.id}
+          className="sa-row"
+          data-platform="mac"
+          data-selected={root.id === current || current.startsWith(`${root.id}.`) || undefined}
+        >
+          <StatusMark state={root.state} />
+          <span className="sa-row-text">
+            <span className="sa-row-title">{root.name}</span>
+          </span>
+          <span className="sa-row-meta">{descendants(nodes, root.id).length || ""}</span>
+        </div>
+      ))}
+    </div>
   );
 }
