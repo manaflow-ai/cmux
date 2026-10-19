@@ -17,10 +17,18 @@ fn write_tool(dir: &Path, name: &str, body: &str) {
 }
 
 fn doctor(tools: &Path, args: &[&str]) -> Output {
+    doctor_with_app_cli(tools, &tools.join("no-tailscale-app"), args)
+}
+
+/// `app_cli` stands in for the Tailscale app's bundled CLI, which the doctor
+/// tries when `tailscale` isn't on PATH. Without it a runner with the app
+/// installed would answer for the real tailnet.
+fn doctor_with_app_cli(tools: &Path, app_cli: &Path, args: &[&str]) -> Output {
     Command::new(bin())
         .args(["remote", "doctor"])
         .args(args)
         .env("PATH", tools)
+        .env("CMUX_REMOTE_DOCTOR_TAILSCALE_APP_CLI", app_cli)
         .env("LC_ALL", "C")
         .env("LC_MESSAGES", "C")
         .env("LANG", "C")
@@ -75,6 +83,23 @@ fn remote_doctor_reports_not_on_tailnet_when_tailscale_is_missing() {
 
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["tailnet"], "unavailable", "{report}");
+}
+
+#[test]
+fn remote_doctor_falls_back_to_the_tailscale_app_cli_off_path() {
+    let tools = tempfile::tempdir().unwrap();
+    let app = tempfile::tempdir().unwrap();
+    write_tool(app.path(), "Tailscale", "echo 'pong from peer (100.64.0.9) via DERP(sfo) in 40ms'");
+    let port = closed_port().to_string();
+
+    let output = doctor_with_app_cli(
+        tools.path(),
+        &app.path().join("Tailscale"),
+        &["127.0.0.1", "--port", &port, "--json"],
+    );
+
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["tailnet"], "reachable", "{report}");
 }
 
 #[test]
