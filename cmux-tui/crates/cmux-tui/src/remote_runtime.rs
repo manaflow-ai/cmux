@@ -5842,8 +5842,7 @@ mod tests {
             app: "cmux-tui".into(),
             version: crate::distribution::DISTRIBUTION_VERSION.into(),
             distribution_version: Some(crate::distribution::DISTRIBUTION_VERSION.into()),
-            npm_bootstrap_version: crate::distribution::NPM_BOOTSTRAP_VERSION
-                .map(str::to_owned),
+            npm_bootstrap_version: crate::distribution::NPM_BOOTSTRAP_VERSION.map(str::to_owned),
             build_identity: Some(cmux_build_identity::BUILD_IDENTITY.into()),
             remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
             os: "test".into(),
