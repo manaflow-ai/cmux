@@ -174,6 +174,18 @@ impl Conn {
     }
 }
 
+/// A snapshot of one terminal building on its parse worker.
+struct SnapJob {
+    slot: SnapshotSlot,
+    /// Stale viewers to resync with it.
+    clients: Vec<u32>,
+    /// What must be unchanged when it is ready for it to be current. A
+    /// resize of `t` resyncs every stale viewer of `t` at once, so these
+    /// are the only checks needed.
+    bytes_in: u64,
+    size: (u16, u16),
+}
+
 struct Server {
     poll: Poller,
     /// Handed to parse workers so a finished batch wakes the loop.
@@ -194,6 +206,10 @@ struct Server {
     snapshot_len: HashMap<u32, usize>,
     /// Stale connections that drained during the current event.
     refresh: Vec<u32>,
+    /// Per terminal: a snapshot being built on its parse worker.
+    snap_jobs: HashMap<u32, SnapJob>,
+    /// Builds optional snapshots off the loop (None: inline).
+    snapshotter: Option<std::sync::mpsc::Sender<SnapshotJob>>,
     terms: HashMap<u32, Term>,
     conns: HashMap<u32, Conn>,
     next_term: u32,
@@ -332,6 +348,7 @@ impl Server {
                     self.snapshot_to(t, c);
                 }
                 self.snapshot_len.remove(&t);
+                self.snap_jobs.remove(&t);
                 if let Some(term) = self.terms.remove(&t) {
                     if term.exit.is_none() {
                         // SAFETY: signalling our own, not yet reaped child.
@@ -652,10 +669,97 @@ impl Server {
         self.read_pty(t, READ_BUDGET, true);
     }
 
-    /// A worker finished a batch of `t`: write any reply it produced, and
-    /// resume reading the PTY if it was paused at INFLIGHT_MAX.
+    /// Refreshes stale viewer `c` of `t` with a snapshot built on the
+    /// snapshot thread, so the build (tens of milliseconds for a few MB of
+    /// scrollback) does not stall every other terminal's echo. Reads of `t`
+    /// pause until it is done, so the replay is exactly the state the stream
+    /// continues from; it is discarded and built on the loop if bytes were
+    /// read (an exit drain) or `t` changed size meanwhile. A request that
+    /// must read `t`'s parser meanwhile waits for the build (correct, but
+    /// that one stall stays).
+    fn snapshot_async(&mut self, t: u32, c: u32) {
+        if let Some(job) = self.snap_jobs.get_mut(&t) {
+            if !job.clients.contains(&c) {
+                job.clients.push(c);
+            }
+            return;
+        }
+        if self.workers.is_empty() || self.snapshotter.is_none() {
+            return self.snapshot_to(t, c);
+        }
+        let Some(term) = self.terms.get_mut(&t) else { return };
+        // Pending bytes go to the parser first (inline, under the lock).
+        flush_parse(term);
+        let slot = SnapshotSlot::default();
+        let job = SnapshotJob {
+            parser: term.parser.clone(),
+            inflight: term.inflight.clone(),
+            slot: slot.clone(),
+            waker: self.waker.clone(),
+            term: t,
+        };
+        if self.snapshotter.as_ref().is_some_and(|tx| tx.send(job).is_err()) {
+            self.snapshotter = None;
+            return self.snapshot_to(t, c);
+        }
+        let (bytes_in, size) = (term.bytes_in, (term.cols, term.rows));
+        if term.pty_open && !term.read_paused {
+            term.read_paused = true;
+            let master = term.master;
+            self.poll.set_read_enabled(master, KIND_PTY | u64::from(t), false);
+        }
+        self.flush_replies(t);
+        self.snap_jobs.insert(t, SnapJob { slot, clients: vec![c], bytes_in, size });
+    }
+
+    /// Hands a finished worker snapshot of `t` to the viewers waiting for it.
+    fn snapshot_ready(&mut self, t: u32) {
+        let done =
+            self.snap_jobs.get(&t).is_some_and(|job| job.slot.lock().expect("slot").is_some());
+        if !done {
+            return;
+        }
+        let Some(job) = self.snap_jobs.remove(&t) else { return };
+        let Some(term) = self.terms.get(&t) else { return };
+        let built = job.slot.lock().expect("slot").take().flatten();
+        let current = term.bytes_in == job.bytes_in && (term.cols, term.rows) == job.size;
+        let waiting: Vec<u32> = job
+            .clients
+            .into_iter()
+            .filter(|c| {
+                self.conns.get(c).is_some_and(|conn| conn.stale && conn.attached == Some(t))
+            })
+            .collect();
+        match built {
+            Some(replay) if current => {
+                let mut p = Vec::with_capacity(replay.len() + 4);
+                p.extend_from_slice(&job.size.0.to_le_bytes());
+                p.extend_from_slice(&job.size.1.to_le_bytes());
+                p.extend_from_slice(&replay);
+                self.snapshot_len.insert(t, p.len());
+                for c in waiting {
+                    self.resync(c, &p);
+                }
+            }
+            // Stale state, or the build failed: the loop builds it now.
+            _ => {
+                for c in waiting {
+                    self.snapshot_to(t, c);
+                }
+            }
+        }
+    }
+
+    /// A worker finished a batch of `t`, or the snapshot thread a snapshot:
+    /// write any reply, hand out the snapshot, and resume reading the PTY if
+    /// it was paused (INFLIGHT_MAX or a snapshot) and may go on.
     fn batch_done(&mut self, t: u32) {
         self.flush_replies(t);
+        self.snapshot_ready(t);
+        if self.snap_jobs.contains_key(&t) {
+            // Reads stay paused until the snapshot is out.
+            return;
+        }
         let Some(term) = self.terms.get_mut(&t) else { return };
         let below = *term.inflight.count.lock().expect("inflight") < self.inflight_max;
         if term.read_paused && below && term.pty_open {
@@ -811,6 +915,8 @@ pub fn main() {
         resyncs: 0,
         snapshot_len: HashMap::new(),
         refresh: Vec::new(),
+        snap_jobs: HashMap::new(),
+        snapshotter: spawn_snapshot_thread(),
         terms: HashMap::new(),
         conns: HashMap::new(),
         next_term: 1,

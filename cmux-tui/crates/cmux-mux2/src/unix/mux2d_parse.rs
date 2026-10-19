@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// Where a worker leaves a replay it built: `Some(None)` when the build
+/// failed.
+pub(super) type SnapshotSlot = Arc<Mutex<Option<Option<Vec<u8>>>>>;
+
 #[derive(Default)]
 pub(super) struct Inflight {
     pub(super) count: Mutex<usize>,
@@ -35,6 +39,38 @@ impl Term {
         self.inflight.wait_idle();
         self.parser.lock().expect("parser")
     }
+}
+
+/// One snapshot for the snapshot thread.
+pub(super) struct SnapshotJob {
+    pub(super) parser: Arc<Mutex<Terminal>>,
+    pub(super) inflight: Arc<Inflight>,
+    pub(super) slot: SnapshotSlot,
+    pub(super) waker: Waker,
+    pub(super) term: u32,
+}
+
+/// The thread that builds optional snapshots off the loop. It has its own
+/// queue, so a snapshot never waits behind another terminal's batches; it
+/// first waits for its own terminal's batches (reads of that terminal are
+/// paused, so no new ones start), then builds under the parser lock.
+pub(super) fn spawn_snapshot_thread() -> Option<std::sync::mpsc::Sender<SnapshotJob>> {
+    let (tx, rx) = std::sync::mpsc::channel::<SnapshotJob>();
+    std::thread::Builder::new()
+        .name("mux2-snapshot".into())
+        .spawn(move || {
+            for job in rx {
+                let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    job.inflight.wait_idle();
+                    job.parser.lock().expect("parser").vt_replay_bytes().ok()
+                }));
+                // A panic leaves `None`: the loop builds the snapshot itself.
+                *job.slot.lock().expect("snapshot slot") = Some(built.ok().flatten());
+                job.waker.wake(job.term);
+            }
+        })
+        .ok()?;
+    Some(tx)
 }
 
 pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {

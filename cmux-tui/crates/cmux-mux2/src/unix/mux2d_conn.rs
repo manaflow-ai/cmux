@@ -269,7 +269,7 @@ impl Server {
             return;
         }
         match conn.attached {
-            Some(t) => self.snapshot_to(t, c),
+            Some(t) => self.snapshot_async(t, c),
             None => {
                 if let Some(conn) = self.conns.get_mut(&c) {
                     conn.stale = false;
