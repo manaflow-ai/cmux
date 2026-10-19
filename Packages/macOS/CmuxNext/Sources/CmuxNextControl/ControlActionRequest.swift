@@ -9,6 +9,9 @@ public struct ControlActionRequest: Sendable, Hashable {
     /// `action.run` `origin` (`user`, `cli`, `mcp`, `script`, `remote`);
     /// absent means `cli`.
     public var origin: String
+    /// Native-provider app attribution, independent of the gesture's origin.
+    /// Never populated from action params or interpreted as an execution grant.
+    public var callerApp: String?
     /// `action.run` `focus: true`: change this client's view anyway.
     public var focus: Bool
     /// The router aimed this run at the column right of its agent caller's

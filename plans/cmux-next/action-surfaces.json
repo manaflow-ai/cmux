@@ -28836,7 +28836,17 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "k",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : null,
