@@ -57,6 +57,7 @@ export function FileViewer({
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the viewer from any control in it.
     <section className="acpmux-diff-panel acpmux-file-viewer" aria-label={name} onKeyDown={onKeyDown}>
       <header className="acpmux-diff-header">
+        {/* tooltip-allow: the label shows the file's name; the tooltip reveals its full path, like FolderPopover */}
         <span className="acpmux-file-viewer-name" title={file.path}>
           {name}
         </span>

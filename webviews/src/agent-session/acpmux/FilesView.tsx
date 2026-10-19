@@ -129,6 +129,7 @@ export function FilesView({
       onKeyDown={onKeyDown}
     >
       <header className="acpmux-diff-header">
+        {/* tooltip-allow: the label shows the folder relative to the project; the tooltip reveals its full path, like FolderPopover */}
         <span className="acpmux-file-viewer-name" title={folder}>
           {inside ? `${name}/${inside}` : name}
         </span>
