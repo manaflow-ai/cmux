@@ -2269,6 +2269,32 @@
         "Clients never read or expand $SHELL. To choose an executable, send argv [executable, \"-lc\", script]."
       ]
     },
+    "MachinePlatform": {
+      "kind": "object",
+      "fields": {
+        "os": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "arch": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
     "MachineSnapshot": {
       "kind": "object",
       "fields": {
@@ -2291,7 +2317,10 @@
           "type": {
             "kind": "enum",
             "values": [
-              "local"
+              "local",
+              "cloud",
+              "ssh",
+              "server"
             ]
           }
         },
@@ -2339,12 +2368,33 @@
             }
           },
           "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+        },
+        "platform": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "MachinePlatform"
+            }
+          }
+        },
+        "capabilities": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
         }
       },
       "extra": false,
       "constraints": [
-        "This endpoint returns the one local machine that owns its mux session.",
-        "Cross-machine discovery, lifecycle, and provider metadata are reserved for a later broker protocol."
+        "The native local owner remains first and authoritative.",
+        "A verified app may publish a bounded, connection-scoped projection of its admitted remote routes. Catalog membership does not confer session or execution authority.",
+        "Optional platform and capability metadata is non-secret. Legacy owners may omit it."
       ]
     },
     "SessionSnapshot": {
@@ -20988,7 +21038,13 @@
         "selectors": {
           "machine": "required"
         },
-        "fields": {},
+        "fields": {
+          "catalog": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "boolean"},
+            "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -21011,7 +21067,13 @@
       "ancestors": [],
       "params": {
         "selectors": {},
-        "fields": {},
+        "fields": {
+          "catalog": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "boolean"},
+            "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
+          }
+        },
         "extra": false
       },
       "result": {

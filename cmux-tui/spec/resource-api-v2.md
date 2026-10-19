@@ -31,10 +31,12 @@ without closing the terminal. `terminal.project` adds another view, and only
 single-view tab content. Sidebar extensions are session-scoped auxiliary
 resources and cannot become tabs.
 
-One `cmux.protocol/2` endpoint describes exactly one local mux session. Its
-machine and session resources provide stable routing handles for that local
-session. Cross-machine discovery, aggregation, and provider lifecycle are
-reserved for a later broker protocol.
+One `cmux.protocol/2` endpoint executes session operations on exactly one local
+mux session. Its machine and session resources provide stable routing handles
+for that owner. Explicit catalog reads may also expose a bounded metadata
+projection of admitted remote owners; they provide no remote carrier or session
+authority. Cross-machine execution, aggregation of session state, and provider
+lifecycle remain reserved for a later broker protocol.
 
 All public IDs are JSON strings with one registered prefix and 128 bits of
 lowercase hexadecimal entropy:
@@ -1136,9 +1138,42 @@ its platform default shell and `-lc`; SDKs never inspect or expand `$SHELL`.
 To choose a specific executable, callers send
 `argv: [executable, "-lc", script]`.
 
-`machine.list` returns one local machine, and `machine.get` resolves only that
-machine. Its origin is always `local`. `session.list`, `session.get`, and
-`session.open` operate only on the mux session owned by this endpoint.
+By default, `machine.list/get` preserve the original local-only machine shape,
+without top-level platform or capability fields. `identify` advertises
+`machine-catalog-read-v1` when the endpoint accepts the optional boolean
+`catalog` parameter on these two operations. Only `catalog:true` opts this
+request into the extended shape. Omitted or false stays legacy-compatible,
+including after a prior opt-in on the same connection. `session.snapshot` always
+embeds the original machine shape. Unsupported endpoints may reject the new
+parameter; callers can check the advertised capability before opting in.
+
+With `catalog:true`, `machine.list` returns the authoritative local machine first,
+followed by remote metadata published by its verified local app. The local origin is
+`local`; projected origins are `cloud`, `ssh`, or `server`. `machine.get` resolves
+the local machine or one unambiguous published record. Use canonical machine IDs
+to distinguish owners; a display name is not an identity. Without a live, admitted
+publisher, discovery still returns only the local owner. An unopted `machine.get`
+cannot resolve a projected remote record. See
+[machine catalog publication](commands.md#machine-catalog-publication) for the
+negotiation, owner fence, bounds and connection-owned lease.
+
+Machine snapshots may include `platform: {os?, arch?}` and machine-level
+`capabilities`. These are non-secret observations from the selected owner, separate
+from protocol feature negotiation. Omitted legacy metadata remains unknown.
+Capability tokens and `connectable` describe the existing route; they are not
+credentials, enrollment, or permission to execute. Reading the catalog never
+opens a target connection. A remote record disappears when its publication is
+withdrawn or its publishing connection closes.
+
+Catalog projection does not extend session routing: `session.list`, `session.get`,
+and `session.open` operate only on the mux session owned by this endpoint. A
+projected remote ID cannot select a local session or supply a remote carrier.
+Callers need that owner's separately authenticated transport for session work.
+
+`machine.list` accepts no ancestor selectors. `machine.get` accepts its machine
+selector, and `session.list` accepts only its machine ancestor. Clients must not
+add a session default to these reads; explicit unsupported fields remain native
+validation errors.
 
 Sidebar plugin installation and selection are local filesystem operations.
 Transported sidebar view operations never send a `sidebar_plugin_` ID.
@@ -1439,7 +1474,10 @@ use the nested `sidebar view` and `sidebar plugin` grammars.
 Hyphenated action-first commands are usage errors with exit code 2.
 
 Global routing flags are `--machine`, `--session`, and advanced `--socket`.
-They select the one local machine and mux session exposed by the endpoint.
+`--session` and `--socket` select the endpoint. Session-scoped operations remain
+owned by that endpoint's native machine and session; selecting a remote metadata
+record does not reroute execution. For `machine.list/get`, an endpoint-selection
+flag is not serialized as an unsupported session ancestor.
 
 Human output follows the selected locale, currently English and Japanese.
 `--json` prints one result object. `--jsonl` prints one object per result or
@@ -1485,4 +1523,5 @@ the workspace tree. Split IDs appear only in raw layout documents.
 Terminal-host, machine-agent, and machine-provider transports keep separate
 version numbers. The machine-provider protocol remains an internal transport.
 A future cross-machine broker must define a later public protocol instead of
-extending this one-session endpoint implicitly.
+extending this endpoint's session execution authority implicitly. The explicit
+catalog metadata opt-in does not supply that authority.
