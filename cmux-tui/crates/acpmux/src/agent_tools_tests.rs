@@ -29,6 +29,7 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         acpmux: None,
         secrets: false,
         offers: false,
+        subsessions: false,
         displays: None,
     }
 }

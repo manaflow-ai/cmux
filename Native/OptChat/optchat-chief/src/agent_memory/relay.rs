@@ -437,6 +437,31 @@ fn last_line(text: &str) -> &str {
 mod tests {
     use super::*;
 
+    /// Writes an executable fake. Another test's child forked while the
+    /// write was open holds the file until it execs, and running the fake
+    /// then fails with ETXTBSY: wait (by trying) until no child holds it.
+    fn install(path: &std::path::Path, script: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, script).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for _ in 0..10_000 {
+            match Command::new(path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(mut child) => {
+                    let _ = child.wait();
+                    return;
+                }
+                Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) => std::thread::yield_now(),
+                Err(e) => panic!("{}: {e}", path.display()),
+            }
+        }
+        panic!("{} stayed busy", path.display());
+    }
+
     #[test]
     fn owner_argv_appends_the_server_verb() {
         assert_eq!(owner_argv(&[])[..2], ["/bin/sh", "-c"]);
@@ -459,9 +484,7 @@ mod tests {
     fn relays_one_call_through_a_fake_cmux() {
         let dir = tempfile::tempdir().unwrap();
         let fake = dir.path().join("cmux");
-        std::fs::write(&fake, FAKE_CMUX).unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        install(&fake, FAKE_CMUX);
         let mut relay = Relay::new(
             "ssh://owner".into(),
             vec![],
@@ -480,13 +503,10 @@ mod tests {
     fn a_dead_route_is_an_error_with_its_reason() {
         let dir = tempfile::tempdir().unwrap();
         let fake = dir.path().join("cmux");
-        std::fs::write(
+        install(
             &fake,
             "#!/bin/sh\necho 'ssh: connect to host owner: refused' >&2\nexit 1\n",
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
         let mut relay = Relay::new("ssh://owner".into(), vec![], vec![], fake);
         let error = relay.call(&json!({"id": 1})).unwrap_err();
         assert!(error.contains("refused"), "{error}");
@@ -508,9 +528,7 @@ mod tests {
             ),
         );
         assert_ne!(script, FAKE_CMUX);
-        std::fs::write(&fake, script).unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        install(&fake, &script);
         let mut relay = Relay::new("ssh://owner".into(), vec![], vec!["owner".into()], fake);
         let message = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call"});
         relay.call(&message).unwrap();
@@ -533,9 +551,7 @@ mod tests {
             "    elif t == \"wait-process\":\n        import time; time.sleep(30)\n",
         );
         assert_ne!(script, FAKE_CMUX);
-        std::fs::write(&fake, script).unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        install(&fake, &script);
         let mut relay = Relay::new("ssh://owner".into(), vec![], vec!["owner".into()], fake);
         relay.budget = Duration::from_secs(2);
         let started = Instant::now();
