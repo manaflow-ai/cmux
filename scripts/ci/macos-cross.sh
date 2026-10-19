@@ -255,7 +255,10 @@ cmd_bins() {
     local start; start=$(date +%s)
     (cd "$repo_root/cmux-tui"
       export CMUX_TUI_BUILD_COMMIT=$sha CMUX_TUI_GHOSTTY_COMMIT=$ghostty CMUX_TUI_DISTRIBUTION_VERSION=$version
-      cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target "$t"
+      cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target "$t"
+      # Its own command: cmuxterm-hq's build-cmux-tui-source.sh pins the text
+      # of cmd_bins up to the line above for its cmux-tui-only fast path.
+      cargo build -p cmux-tui --bin cmux-tui-host --release --locked --target "$t"
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
       cargo build -p acpmux --bin acpmux --release --locked --target "$t")
