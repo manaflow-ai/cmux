@@ -67,8 +67,11 @@ pub(crate) fn harness_command(
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
     // The daemon's own prompt-cache switches are never the agent's (a
-    // daemon started from inside a Claude Code turn can carry them); the
-    // login env and the profile env below may still set them.
+    // daemon started from inside a Claude Code turn can carry them). The
+    // profile, preset and session env below may still set them; so may the
+    // login shell, but only for a daemon started inside a Claude Code turn
+    // (`nested_overrides`), because a key the daemon's env has hides the
+    // login value (`login_env::for_children`).
     for k in crate::config::inherited_prompt_cache_keys() {
         cmd.env_remove(k);
     }

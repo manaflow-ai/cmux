@@ -45,11 +45,6 @@ pub async fn spawn_within(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(false);
-    // The host passes its agent only `spec.env`; it does not keep the
-    // daemon's prompt-cache switches either (config::is_prompt_cache_key).
-    for k in crate::config::inherited_prompt_cache_keys() {
-        cmd.env_remove(k);
-    }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {
