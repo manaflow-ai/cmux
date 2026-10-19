@@ -176,6 +176,7 @@ class GroupBisectAndLand(unittest.TestCase):
         item.base_moved_onto = lambda old, new, files: base_moved
         item.fresh_members = lambda prs: {target.number: target for target in prs}
         item.member_files = lambda target, base: list(target.files)
+        item.merge_green = lambda: Path("/opt/gh-merge-green")
 
         refusals = list(getattr(self, "refusals", []))
 
@@ -190,11 +191,12 @@ class GroupBisectAndLand(unittest.TestCase):
             outcome = item.run_group("ui", members)
         return outcome, comments, merges
 
-    def test_a_green_reviewed_group_merges_in_order_without_its_own_ci(self):
+    def test_a_green_reviewed_group_merges_in_order_through_gh_merge_green(self):
         outcome, comments, merges = self.run_group([pr(1), pr(2), pr(3)], red_member=None)
-        self.assertEqual([command[3] for command in merges], ["1", "2", "3"])
-        for command in merges:
-            self.assertEqual(command[:3], ["gh", "pr", "merge"])
+        self.assertEqual([command[1] for command in merges], ["o/r#1", "o/r#2", "o/r#3"])
+        for number, command in zip((1, 2, 3), merges):
+            self.assertEqual(command[0], "/opt/gh-merge-green")  # its base-red rule decides, as for any merge
+            self.assertEqual(command[command.index("--match-head-commit") + 1], pr(number).sha)
             self.assertIn("--squash", command)
             self.assertIn("--match-head-commit", command)
             self.assertNotIn("--admin", command)
@@ -203,7 +205,7 @@ class GroupBisectAndLand(unittest.TestCase):
     def test_a_red_group_bisects_names_the_culprit_and_lands_the_rest(self):
         outcome, comments, merges = self.run_group([pr(1), pr(2), pr(3), pr(4)], red_member=3)
         self.assertIn((3, "culprit"), comments)
-        self.assertEqual([command[3] for command in merges], ["1", "2", "4"])
+        self.assertEqual([command[1] for command in merges], ["o/r#1", "o/r#2", "o/r#4"])
         self.assertEqual(dict((target.number, text) for target, text in outcome)[3], "culprit")
 
     def test_an_unreviewed_group_validates_nothing_and_merges_nothing(self):
@@ -231,7 +233,14 @@ class GroupBisectAndLand(unittest.TestCase):
         with mock.patch.object(nb.time, "sleep"):
             outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None)
         self.assertEqual([text for _, text in outcome], ["landed", "landed"])
-        self.assertEqual([command[3] for command in merges], ["1", "1", "2"])
+        self.assertEqual([command[1] for command in merges], ["o/r#1", "o/r#1", "o/r#2"])
+
+    def test_a_member_gh_merge_green_refuses_stops_the_rest(self):
+        self.refusals = ["not green: 'web / react-apps-check (1)' on abc1234, not excused by feat-cmux-next"]
+        outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None)
+        self.assertEqual([command[1] for command in merges], ["o/r#1"])
+        self.assertTrue(outcome[0][1].startswith("not landed: not green"))
+        self.assertEqual(outcome[1][1], "not landed: #1 did not land")
 
     def test_a_dry_run_merges_nothing(self):
         outcome, comments, merges = self.run_group([pr(1), pr(2)], red_member=None, dry_run=True)
@@ -347,6 +356,16 @@ class GroupCycle(unittest.TestCase):
             item.run_groups(prs, None, {})
             item.run_groups(prs, None, {})
         self.assertEqual(ran, ["a", "a"])
+
+    def test_each_batch_uses_the_current_gh_merge_green(self):
+        shown = []
+        first, second = controller(), controller()
+        for item in (first, second):
+            item.git = lambda *args, cwd=None: shown.append(args[0]) or "#!/bin/sh\n"
+            item.merge_green()
+            item.merge_green()
+        self.assertEqual(shown.count("show"), 2)  # once per batch, never a stale copy from an earlier one
+        self.assertNotEqual(first.merge_green(), second.merge_green())
 
     def test_lanes_use_each_members_full_diff(self):
         item = controller()
