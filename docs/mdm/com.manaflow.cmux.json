@@ -2387,6 +2387,12 @@
       "title" : "Show Tips",
       "type" : "boolean"
     },
+    "sidebar.cloudGroup" : {
+      "default" : true,
+      "description" : "A new Cloud workspace goes into the sidebar's Cloud group, unless you picked a group for it. A workspace you move out stays where you put it.",
+      "title" : "Put Cloud Workspaces in a Cloud Group",
+      "type" : "boolean"
+    },
     "sidebar.cmd9" : {
       "default" : "last",
       "description" : "Goes to the last item, as in browsers, or to the ninth.",
