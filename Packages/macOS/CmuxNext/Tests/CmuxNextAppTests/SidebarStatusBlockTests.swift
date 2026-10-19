@@ -87,6 +87,8 @@ struct SidebarStatusBlockTests {
         #expect(pills[1].layer?.backgroundColor != nil)
         #expect(pills[2].isHidden)
         #expect(labels[0].frame.width < view.bounds.width)
+        // The pill label is wide enough for its text, so nothing truncates.
+        #expect(labels[0].frame.width >= ceil(labels[0].cell?.cellSize.width ?? 0))
         // A pill keeps the plain status line height, so rows do not grow.
         #expect(labels[0].frame.height == labels[2].frame.height)
     }
