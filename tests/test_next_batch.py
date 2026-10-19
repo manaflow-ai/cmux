@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -467,6 +468,7 @@ class BaseReds(unittest.TestCase):
         controller.base_failures = None
         controller.base_probe = None
         controller.base_probe_result = {}
+        controller.base_probe_stop = threading.Event()
         controller.base_sha = "b" * 40
         controller.batch_id = "local-1"
         return controller
@@ -507,6 +509,16 @@ class BaseReds(unittest.TestCase):
         ]}
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug)"})
         self.assertIn("event=push", controller.gh.runs.call_args.args[1])
+
+    def test_a_cancelled_probe_is_never_rerun(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        controller.wait_run = lambda run_id, timeout: {"status": "completed", "conclusion": "cancelled"}
+        controller.failed_jobs = lambda run_id: ["cmux-next swift test"]
+        controller.probe_base()
+        self.assertNotIn("rerun", [call.args[0] for call in controller.gh.gh.call_args_list])
+        self.assertNotIn("failed", controller.base_probe_result)
 
     def test_a_batch_that_ends_first_cancels_the_probes_run(self):
         controller = self.controller()

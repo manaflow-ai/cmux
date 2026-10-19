@@ -874,6 +874,7 @@ class Controller:
         # would find red on the base.
         self.base_probe: threading.Thread | None = None
         self.base_probe_result: dict = {}
+        self.base_probe_stop = threading.Event()
 
     # git in the trusted checkout. The token goes on the command line of this
     # process only, never into .git/config, which the generators could read.
@@ -988,6 +989,8 @@ class Controller:
             if run["status"] != "completed":
                 raise RuntimeError("the base probe did not finish")
             failed = self.failed_jobs(heavy["id"])
+            if self.base_probe_stop.is_set() or run.get("conclusion") == "cancelled":
+                return  # the batch ended and cancelled it: no rerun, no result
             if failed:
                 self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
                 time.sleep(30)
@@ -1021,6 +1024,7 @@ class Controller:
 
     def stop_base_probe(self) -> None:
         """A batch that ends before its probe does cancels the probe's run."""
+        self.base_probe_stop.set()
         if self.base_probe is not None and self.base_probe.is_alive() and self.base_probe_result.get("run"):
             self.gh.gh("run", "cancel", str(self.base_probe_result["run"]), "-R", self.args.repo, check=False)
 
@@ -1480,7 +1484,6 @@ class Controller:
                 self.delete_branch(validation.branch)
         self.stop_base_probe()
         if self.base_probe_result.get("branch") and not self.args.keep_branches:
-            # A probe still running keeps its run; only the branch goes.
             self.delete_branch(self.base_probe_result["branch"])
         text = self.report(eligible, skipped, landed, culprits)
         write_summary(text)
