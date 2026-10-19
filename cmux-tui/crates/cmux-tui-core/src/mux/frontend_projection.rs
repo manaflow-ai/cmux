@@ -7,6 +7,12 @@ impl Mux {
         self.workspace_registry.lock().unwrap().terminal_snapshot()
     }
 
+    /// The terminal registry revision; `identify` and `list-workspaces`
+    /// report it on every call and need no terminal rows.
+    pub fn terminal_registry_revision(&self) -> anyhow::Result<u64> {
+        self.workspace_registry.lock().unwrap().terminal_revision()
+    }
+
     pub fn terminal_registry_events_page(
         &self,
         revision: u64,
