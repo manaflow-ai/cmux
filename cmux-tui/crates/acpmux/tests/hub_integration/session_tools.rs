@@ -127,9 +127,9 @@ async fn an_agent_starts_reads_lists_and_messages_another_session() {
     let root = crate::daemon_env::home(&scratch).join(".cmux/worktrees/shop-app/child-task");
     assert_eq!(started["structuredContent"]["worktree"]["root"], json!(root), "{started}");
     assert_eq!(started["structuredContent"]["worktree"]["branch"], "cmux/child-task");
-    let cwd = started["structuredContent"]["cwd"].as_str().unwrap();
+    let child_cwd = started["structuredContent"]["cwd"].as_str().unwrap();
     let canonical = |p: &std::path::Path| std::fs::canonicalize(p).unwrap();
-    assert_eq!(canonical(cwd.as_ref()), canonical(&root), "{started}");
+    assert_eq!(canonical(child_cwd.as_ref()), canonical(&root), "{started}");
     let base = std::process::Command::new("git")
         .arg("-C")
         .arg(&repo)
