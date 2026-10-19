@@ -4,10 +4,17 @@
 set -euo pipefail
 
 derived_data="${1:?usage: clear-stale-scheme-build-state.sh DERIVED_DATA}"
-case "$derived_data" in
-  /tmp/*|/private/tmp/*|*/Library/Caches/cmux-next-ci/*) ;;
-  *) echo "refusing unexpected DerivedData path: $derived_data" >&2; exit 2 ;;
-esac
+# release-derived-data-path.sh gives runners outside the glaeda pools
+# $RUNNER_TEMP/cmux-next-<lane>, which is not under /tmp on hosted macOS runners
+# (/Users/runner/_work/_temp). Refusing it failed every Release compile there.
+if [[ -n "${RUNNER_TEMP:-}" && "$derived_data" == "$RUNNER_TEMP"/cmux-next-* ]]; then
+  :
+else
+  case "$derived_data" in
+    /tmp/*|/private/tmp/*|*/Library/Caches/cmux-next-ci/*) ;;
+    *) echo "refusing unexpected DerivedData path: $derived_data" >&2; exit 2 ;;
+  esac
+fi
 
 # Everything derived goes except the package checkouts: a retry that kept
 # Build/Products failed again on the same missing PCM. SourcePackages only
