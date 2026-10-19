@@ -969,7 +969,7 @@ merged_head_checks() {
     strings_inputs+=(schemas/settings)
   fi
   if ! git -C "$repo_dir" archive "$merged_tree" -- \
-      Packages/macOS/CmuxNext webviews "${strings_inputs[@]}" scripts/cmux-next/check-no-godfiles.sh \
+      Packages/macOS/CmuxNext webviews ${strings_inputs[@]+"${strings_inputs[@]}"} scripts/cmux-next/check-no-godfiles.sh \
       scripts/cmux-next/godfile-baseline.tsv | tar -x -C "$merged"; then
     rm -rf "$tmp"
     refuse \
