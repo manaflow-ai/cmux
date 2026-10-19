@@ -34,6 +34,9 @@ final class NotificationCenterService {
     /// Bumped when a window's settled focus changes: the viewed-tab rules
     /// (`followViewedProgramStatus`) re-read which tabs are viewed.
     private(set) var viewedRevision: UInt64 = 0
+    /// The tabs viewed at the last viewed-tab pass: a tab marked unread
+    /// (Mark Tab Unread) clears when it comes into view, not while it stays.
+    @ObservationIgnored var viewedTabIDs: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()

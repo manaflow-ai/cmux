@@ -14,6 +14,9 @@ export type DictationUpdate = {
   /// The session's recording (a WAV file, base64), on the update that ends a session the host
   /// recorded because the chat's harness takes voice input (`dictation.audio`).
   audio?: { mimeType: string; data: string };
+  /// Why such a session's recording was left out (it ran past two minutes, or the mic was
+  /// narrowband): its prompt goes as text alone.
+  audioOmitted?: "tooLong" | "narrowband";
 };
 
 /// Where one session's text sits in the prompt. The session owns `value[start, start + length)`;

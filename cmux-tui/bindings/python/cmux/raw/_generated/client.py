@@ -144,8 +144,20 @@ class GeneratedClientMixin:
     def cloud_conversation_thread(self, conversation: str, root: str, *, after_seq: Union[int, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-conversation-thread', CloudConversationThreadRequest(conversation=conversation, root=root, after_seq=after_seq, limit=limit))
 
+    def cloud_conversation_typing(self, conversation: str, on: bool) -> JsonValue:
+        return self._invoke_command('cloud-conversation-typing', CloudConversationTypingRequest(conversation=conversation, on=on))
+
     def cloud_conversation_unsubscribe(self, conversation: str) -> JsonValue:
         return self._invoke_command('cloud-conversation-unsubscribe', CloudConversationUnsubscribeRequest(conversation=conversation))
+
+    def cloud_host_replica_clear(self, *, purge: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-host-replica-clear', CloudHostReplicaClearRequest(purge=purge))
+
+    def cloud_host_replica_set(self, api_base_url: str, expires_at: int, host_name: str, install_token: str, *, client_version: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-host-replica-set', CloudHostReplicaSetRequest(api_base_url=api_base_url, expires_at=expires_at, host_name=host_name, install_token=install_token, client_version=client_version))
+
+    def cloud_host_replica_status(self) -> JsonValue:
+        return self._invoke_command('cloud-host-replica-status', CloudHostReplicaStatusRequest())
 
     def cloud_inbox_list(self, *, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(include_archived=include_archived, limit=limit))
@@ -876,7 +888,11 @@ GeneratedClientMixin.cloud_conversation_runs.__cmux_command__ = COMMANDS['cloud-
 GeneratedClientMixin.cloud_conversation_snapshot.__cmux_command__ = COMMANDS['cloud-conversation-snapshot']
 GeneratedClientMixin.cloud_conversation_subscribe.__cmux_command__ = COMMANDS['cloud-conversation-subscribe']
 GeneratedClientMixin.cloud_conversation_thread.__cmux_command__ = COMMANDS['cloud-conversation-thread']
+GeneratedClientMixin.cloud_conversation_typing.__cmux_command__ = COMMANDS['cloud-conversation-typing']
 GeneratedClientMixin.cloud_conversation_unsubscribe.__cmux_command__ = COMMANDS['cloud-conversation-unsubscribe']
+GeneratedClientMixin.cloud_host_replica_clear.__cmux_command__ = COMMANDS['cloud-host-replica-clear']
+GeneratedClientMixin.cloud_host_replica_set.__cmux_command__ = COMMANDS['cloud-host-replica-set']
+GeneratedClientMixin.cloud_host_replica_status.__cmux_command__ = COMMANDS['cloud-host-replica-status']
 GeneratedClientMixin.cloud_inbox_list.__cmux_command__ = COMMANDS['cloud-inbox-list']
 GeneratedClientMixin.cloud_inbox_op.__cmux_command__ = COMMANDS['cloud-inbox-op']
 GeneratedClientMixin.cloud_inbox_subscribe.__cmux_command__ = COMMANDS['cloud-inbox-subscribe']
