@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
-@@ -8,6 +8,13 @@
+@@ -8,6 +8,16 @@
      var onSend: () -> Void = {}
      var onEscape: () -> Void = {}
      var onPasteImage: (NSImage) -> Void = { _ in }
@@ -11,10 +11,13 @@
 +    /// A plain-text NSTextView enables Paste only for text types, so a
 +    /// picture alone (a copied screenshot) left Cmd+V disabled.
 +    var acceptsPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
++    /// cmux: a drop on the field that the host's intake takes (the paste's
++    /// type rule). A plain-text NSTextView would type a dropped file's path.
++    var onDropPasteboard: (NSPasteboard) -> Bool = { _ in false }
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -183,11 +190,13 @@
+@@ -183,11 +193,13 @@
      /// not depend on the blink's phase at the grab (Messages' still references show it solid).
      static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
  
@@ -30,7 +33,7 @@
          let a = CAKeyframeAnimation(keyPath: "opacity")
          a.calculationMode = .discrete
          // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
-@@ -231,6 +240,7 @@
+@@ -231,6 +243,7 @@
          if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
      }
      override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
@@ -38,7 +41,7 @@
          if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
              (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
              return true
-@@ -424,6 +434,7 @@
+@@ -424,9 +437,27 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -46,7 +49,27 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -940,11 +951,11 @@
++
++    // cmux: files and pictures dropped on the field go to the host's intake
++    // (Home's type rule, as paste); text drags keep NSTextView's own handling.
++    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
++        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingEntered(sender)
++    }
++    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
++        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingUpdated(sender)
++    }
++    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
++        acceptsPastePasteboard(sender.draggingPasteboard) || super.prepareForDragOperation(sender)
++    }
++    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
++        let pb = sender.draggingPasteboard
++        if acceptsPastePasteboard(pb) { return onDropPasteboard(pb) }
++        return super.performDragOperation(sender)
++    }
+ }
+ 
+ /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
+@@ -940,11 +971,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in

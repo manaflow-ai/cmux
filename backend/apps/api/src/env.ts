@@ -263,6 +263,8 @@ export interface Env {
   readonly CHIEF_BRAIN_SETTLE_MS?: string
   /** The most a compaction waits for another call writing its prefix (ms; default 20000, "0": never waits). Staging A/B knob. */
   readonly CHIEF_BRAIN_PREFIX_WAIT_MS?: string
+  /** The Claude compactor's effort: "low" or "medium" (default "high"). Staging A/B knob. */
+  readonly CHIEF_BRAIN_COMPACT_EFFORT?: string
   /** Prompt cache TTL on the Claude route (default "1h"; "5m" keeps the short default). */
   readonly CHIEF_BRAIN_CACHE_TTL?: string
   /** Secret: OpenRouter key for `openrouter:<id>` Chief models; OPENROUTER_BASE_URL overrides the endpoint. */
