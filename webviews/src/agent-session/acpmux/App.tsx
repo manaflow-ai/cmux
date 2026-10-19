@@ -209,6 +209,7 @@ import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
+import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
@@ -2839,6 +2840,26 @@ function AcpmuxPane() {
       },
     }),
     [signedOut, snapshot.summary?.cwd],
+  );
+  // The composer's Account menu: this Mac's acpmux routes for the chat (acpmux refuses them to Web
+  // and peer connections), read when the menu opens.
+  const chatAccounts = useMemo<ChatAccounts | undefined>(
+    () =>
+      connected && healthLocal
+        ? {
+            list: async (sessionId) => {
+              const client = directClient.current;
+              if (!client) throw new Error("acpmux.notConnected");
+              return readChatAccounts(await client.routes(sessionId));
+            },
+            set: async (sessionId, routeId) => {
+              const client = directClient.current;
+              if (!client) throw new Error("acpmux.notConnected");
+              await client.setChatRoute(sessionId, routeId);
+            },
+          }
+        : undefined,
+    [connected, healthLocal],
   );
   const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
@@ -6095,5 +6116,9 @@ function AcpmuxPane() {
       </section>
     </ShortcutsContext.Provider>
   );
-  return <SignInContext.Provider value={signIn}>{pane}</SignInContext.Provider>;
+  return (
+    <SignInContext.Provider value={signIn}>
+      <ChatAccountsContext.Provider value={chatAccounts}>{pane}</ChatAccountsContext.Provider>
+    </SignInContext.Provider>
+  );
 }

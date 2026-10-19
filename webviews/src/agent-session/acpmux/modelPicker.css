@@ -95,3 +95,118 @@
     box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
+
+/* The compact model menu (QuickModelMenu.tsx, Claude Code's look, Leo 2026-10-18): a short rounded
+   menu with no boxes inside it. Rows are one line; the chosen row's check and the other rows' number
+   keys share the trailing edge; Effort and Account name their value in secondary text before the
+   chevron. Theme tokens only. */
+.acpmux-quick-menu {
+  width: max-content;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 6px;
+  border: 0;
+  border-radius: 12px;
+  background-color: var(--surface-popup);
+  box-shadow: var(--acpmux-popup-elevation);
+}
+.acpmux-quick-menu .ui-menu-group-label {
+  display: block;
+  padding: 4px var(--ui-row-padding-inline) 2px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.acpmux-quick-menu .ui-separator {
+  height: 0;
+  margin: 4px var(--ui-row-padding-inline);
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+.ui-menu-item.acpmux-quick-item {
+  gap: 8px;
+  height: var(--ui-row-height);
+  min-height: 0;
+  padding-block: 0;
+  border-radius: 8px;
+  color: var(--agent-text);
+  font-size: var(--text-control);
+}
+.ui-menu-item.acpmux-quick-item[data-highlighted],
+.ui-menu-item.acpmux-quick-item[data-popup-open] {
+  background: var(--acpmux-menu-hover);
+  box-shadow: none;
+}
+.acpmux-quick-item .acpmux-menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The check moves to the trailing edge, where the other rows show their number key. */
+.acpmux-quick-item .ui-menu-check {
+  order: 2;
+  width: auto;
+  margin-inline-start: auto;
+  padding-inline-start: 20px;
+  color: var(--agent-accent, var(--agent-text));
+  font-weight: 600;
+}
+.acpmux-quick-item .ui-menu-check:empty { display: none; }
+.acpmux-quick-item .ui-menu-shortcut { order: 3; color: var(--agent-muted); }
+.acpmux-quick-sub .acpmux-quick-value {
+  margin-inline-start: auto;
+  padding-inline-start: 20px;
+  color: var(--agent-muted);
+}
+.acpmux-quick-sub .acpmux-quick-value + .ui-submenu-chevron { margin-inline-start: 6px; }
+.acpmux-quick-sub .ui-submenu-chevron { margin-inline-start: auto; }
+.acpmux-quick-note.ui-menu-item[data-disabled] {
+  opacity: 1;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+
+/* The harness rail beside the compact list (Leo 2026-10-18): Starred, then each harness, as round
+   icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
+.acpmux-quick-railed { max-width: min(360px, calc(100vw - 24px)); padding: 0; }
+.acpmux-quick-layout { display: flex; align-items: stretch; }
+.acpmux-quick-rail {
+  flex: none;
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  padding: 6px;
+  border-inline-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+.acpmux-quick-rail { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.acpmux-quick-rail-tab {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-quick-rail-tab:hover,
+.acpmux-quick-rail-tab[aria-pressed="true"] {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+.acpmux-quick-rail-initial { font-size: var(--text-control); font-weight: 600; }
+.acpmux-quick-body { flex: 1; min-width: 200px; padding: 6px; }
+/* A filtered row names its harness in secondary text. */
+.acpmux-quick-item:not(.acpmux-quick-sub) .acpmux-quick-value {
+  padding-inline-start: 12px;
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+
+/* The compact menu's chip is a quiet label: the model, then its effort in secondary ink. */
+.acpmux-model .acpmux-model-detail {
+  color: var(--agent-muted);
+  white-space: nowrap;
+}

@@ -84,6 +84,20 @@ public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIte
     }
 }
 
+/// What a click on the composer's model chip opens. `compact` is the short Claude Code style menu
+/// (numbered models, Effort, Account, More models); `full` opens the harness rail and search at once.
+public nonisolated enum AgentPaneModelMenuStyle: String, Sendable, CaseIterable, TunableChoice {
+    case compact
+    case full
+
+    public var tunableTitle: String {
+        switch self {
+        case .compact: "Compact (default)"
+        case .full: "Full picker (harness rail and search)"
+        }
+    }
+}
+
 /// Visual treatments for the session sidebar's latest-reply hover preview.
 public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIterable, TunableChoice {
     /// The elevated card used by the current sidebar.
@@ -291,6 +305,13 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the opt-in reasoning slider: today's accent treatment or a quieter outlined thumb.",
         default: .accent, code: "AgentPaneTunables.reasoningSliderStyle")
 
+    /// What the composer's model chip opens. It applies live, as the `composer` event's
+    /// `modelMenu` (AgentPaneComposerSetting, webviews composerSettings.ts).
+    public static let modelMenu = Tunable<AgentPaneModelMenuStyle>.choice(
+        "agent.modelMenu", PageTunables.section, "Composer model menu",
+        help: "Compact: a short menu of numbered models with Effort, Account and More models. Full: the harness rail and search.",
+        default: .compact, code: "AgentPaneTunables.modelMenu")
+
     /// The session sidebar's latest-reply hover preview treatment. User layout customization may
     /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
     public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
@@ -305,6 +326,7 @@ public nonisolated struct AgentPaneTunables {
             composerPlainFooter.descriptor,
             foldLongThoughts.descriptor,
             liveThoughtViewport.descriptor,
+            modelMenu.descriptor,
             newTabWidgets.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,
