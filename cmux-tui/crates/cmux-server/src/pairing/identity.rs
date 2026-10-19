@@ -1,6 +1,6 @@
 //! One private, locked enrollment record. Public status never serializes it.
 
-use std::fs::{File, OpenOptions, TryLockError};
+use std::fs::{OpenOptions, TryLockError};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -164,7 +164,7 @@ fn invalid() -> Error {
 
 pub(super) struct Store {
     path: PathBuf,
-    _lock: File,
+    _lock: fsx::FileLock,
 }
 
 fn check_private(meta: &std::fs::Metadata, directory: bool) -> Result<()> {
@@ -256,8 +256,8 @@ impl Store {
         }
         let file = options.open(parent.join(".pair.lock")).map_err(|_| invalid())?;
         check_private(&file.metadata().map_err(|_| invalid())?, false)?;
-        match file.try_lock() {
-            Ok(()) => Ok(Self { path: path.into(), _lock: file }),
+        match fsx::FileLock::try_acquire(file) {
+            Ok(lock) => Ok(Self { path: path.into(), _lock: lock }),
             Err(TryLockError::WouldBlock) => Err(Error::unreachable("server.pair.busy")),
             Err(_) => Err(invalid()),
         }

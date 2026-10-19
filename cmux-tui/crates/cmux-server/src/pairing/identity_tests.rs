@@ -11,7 +11,18 @@ use std::time::Duration;
 fn server_pairing_lock_release_does_not_wait_for_an_inherited_child_fd() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("pairing/identity.json");
-    let store = Store::acquire(&path).unwrap();
+    inherited_lock_release(|| Store::acquire(&path));
+}
+
+#[test]
+fn server_pairing_package_lock_release_does_not_wait_for_an_inherited_child_fd() {
+    let dir = tempfile::tempdir().unwrap();
+    inherited_lock_release(|| crate::store::state::StoreLock::acquire(dir.path()));
+}
+
+fn inherited_lock_release<G>(acquire: impl Fn() -> Result<G>) {
+    let store = acquire().unwrap();
+    assert!(acquire().is_err(), "a live guard must still exclude a second operation");
     let (mut parent, child) = UnixStream::pair().unwrap();
     parent.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     let parent_fd = parent.as_raw_fd();
@@ -40,7 +51,7 @@ fn server_pairing_lock_release_does_not_wait_for_an_inherited_child_fd() {
     let signaled = parent.read_exact(&mut ready);
     drop(store);
     // The child is still alive and holds its inherited file descriptor.
-    let next = Store::acquire(&path);
+    let next = acquire();
     // Reap the child before asserting the regression, including on old code.
     let _ = parent.write_all(b"X");
     let mut status = 0;

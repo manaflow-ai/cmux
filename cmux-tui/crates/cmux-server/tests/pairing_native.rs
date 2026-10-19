@@ -329,11 +329,14 @@ fn server_pairing_native_lost_backend_reply_retries_fresh_proof_after_invitation
     assert_eq!(state.backend_calls.len(), 6);
     assert_eq!(state.begins, 1);
     assert_eq!(state.waits, 1);
-    for secret in
-        [CODE, SECRET, "fixture-daemon-access", "fixture-must-not-persist", "signature", "nonce"]
-    {
+    for secret in [CODE, SECRET, "fixture-daemon-access", "fixture-must-not-persist"] {
         assert!(!after.to_string().contains(secret));
         assert!(!result.to_string().contains(secret));
+    }
+    for field in ["signature", "nonce", "access_token", "accountCredential"] {
+        let key = format!("\"{field}\":");
+        assert!(!after.to_string().contains(&key));
+        assert!(!result.to_string().contains(&key));
     }
 }
 
