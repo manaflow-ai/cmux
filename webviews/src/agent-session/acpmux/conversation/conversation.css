@@ -132,6 +132,21 @@
     )
     0 0 / 12px 12px;
 }
+.cv-user__image-placeholder {
+  display: block;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 24%, transparent);
+  outline-offset: -1px;
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
+      transparent 0 50%
+    )
+    0 0 / 12px 12px;
+  opacity: 0.55;
+}
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
 .cv-user__context {
@@ -1475,6 +1490,17 @@ pre.cv-math-source {
   font-family: var(--cv-font);
   font-size: 13px;
 }
+/* Debug Settings `agentPane.debug.turnActionsPlacement`: keep the default desktop placement on
+   the right, while allowing a left action rail for people who scan the footer from the transcript
+   edge. The action group leads the row when left, followed by the quiet time label. */
+:root[data-turn-actions-placement="left"] .cv-turn-actions {
+  justify-content: flex-start;
+  padding-right: 0;
+  padding-left: 2px;
+}
+:root[data-turn-actions-placement="left"] .cv-turn-actions .cv-turn-action-group {
+  order: -1;
+}
 .cv-turn-action-group {
   display: inline-flex;
   align-items: center;
@@ -1735,6 +1761,13 @@ pre.cv-math-source {
   object-fit: contain;
   margin: 6px 0;
   border-radius: 8px;
+}
+/* Loaded reply images replace a compact placeholder asynchronously.  Fade only
+ * opacity so the image cannot introduce a second layout shift during decode. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-img--enter {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
 }
 /* A reply image that opens the image viewer (ImageViewer.tsx). */
 .cv-img-open {
