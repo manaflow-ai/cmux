@@ -78,3 +78,16 @@ existing artifact loaders. The host discovers Claude Code, Codex, and OpenCode
 sessions through its existing hook/transcript registry; OpenCode remains a
 generic `ChatAgentKind.other("opencode")` value so older hosts continue to
 decode it.
+
+History and live events share one native model. Pending sends, queued prompts,
+approval answers, and session launches belong to the current host connection;
+replacing that connection invalidates their completions. Provider transcript
+events remain authoritative for completed turns and regeneration state.
+
+The current host transport controls terminal-owned provider processes. It can
+send prompts and attachments, interrupt turns, and answer supported requests.
+It cannot change a running process's model, permissions, sandbox, or plan mode.
+Those controls are therefore not advertised, and explicit control updates fail
+instead of acknowledging a metadata-only change. Local session fork, resume,
+and reopen use provider launch commands; remote-tmux fork and reopen remain
+unsupported.
