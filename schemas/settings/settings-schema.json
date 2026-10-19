@@ -4016,7 +4016,7 @@
       },
       "help" : {
         "key" : "settings.phone.allowConnections.help",
-        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
+        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.allowConnections",
@@ -29318,7 +29318,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9989d4acc39a68b97c8c4c91b4bea8c9253be5bcaf57e0cd2b132c357ffa920b",
+  "schema_hash" : "e6d508aefe157d2041d5d108b5014d2b7537d52185b2e68f4eb2d647bf74976e",
   "sections" : [
     {
       "id" : "general",
