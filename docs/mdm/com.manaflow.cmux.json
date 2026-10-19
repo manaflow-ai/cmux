@@ -566,6 +566,12 @@
       "title" : "Background",
       "type" : "string"
     },
+    "appearance.backgroundAvoidPanes" : {
+      "default" : true,
+      "description" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them.",
+      "title" : "Keep Paintings Clear of Panes",
+      "type" : "boolean"
+    },
     "appearance.backgroundBlur" : {
       "description" : "Unset, the window follows Ghostty's background-opacity and background-blur.",
       "enum" : [
@@ -583,6 +589,27 @@
       "minimum" : 0,
       "title" : "Opacity",
       "type" : "number"
+    },
+    "appearance.backgroundVideo" : {
+      "default" : "play",
+      "description" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion.",
+      "enum" : [
+        "play",
+        "whenActive",
+        "still"
+      ],
+      "title" : "Video Background",
+      "type" : "string"
+    },
+    "appearance.backgroundVideoOnBattery" : {
+      "default" : "play",
+      "description" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it.",
+      "enum" : [
+        "play",
+        "pause"
+      ],
+      "title" : "On Battery",
+      "type" : "string"
     },
     "appearance.borders" : {
       "default" : "default",
@@ -1645,6 +1672,17 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefPictureMotion" : {
+      "default" : "hover",
+      "description" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame.",
+      "enum" : [
+        "always",
+        "hover",
+        "never"
+      ],
+      "title" : "Animated Pictures",
+      "type" : "string"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
@@ -1841,6 +1879,14 @@
       "description" : "Team id (team_...) that manages this device.",
       "title" : "ManagedTeam",
       "type" : "string"
+    },
+    "markdown.font.size" : {
+      "default" : 16,
+      "description" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size.",
+      "maximum" : 40,
+      "minimum" : 8,
+      "title" : "Default Font Size",
+      "type" : "number"
     },
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",

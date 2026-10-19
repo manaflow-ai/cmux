@@ -14,6 +14,8 @@ public extension BackdropCatalog {
             }
             if choice.isVideo {
                 row["video"] = .bool(true)
+                // An aerial macOS lists but has not downloaded: a cloud tile that opens the Wallpaper pane.
+                if case .system(let path) = choice, AppleWallpapers.isPending(path) { row["downloaded"] = .bool(false) }
             } else if case .system(let path) = choice {
                 row["downloaded"] = .bool(appleWallpapers[path]?.isDownloaded ?? true)
             }
