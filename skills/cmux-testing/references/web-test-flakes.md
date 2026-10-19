@@ -7,6 +7,9 @@ command before rerunning, de-flaking or holding the merge:
 python3 scripts/ci/web_test_verdict.py --pr 21651
 ```
 
+The CI failure attribution comment names this command, with the test file,
+when a red web test isn't one of the PR's files.
+
 On Linux it reads the PR's code only inside a sandbox (see [What runs](#what-runs)). It prints one line per failed test file, for example:
 
 > `tests/vm-route-deadlines.test.ts`: **also red on main**. 1 other failure in 7 days (1 on main, 0 other PR branches); vm-route-deadlines.test.ts imports 1 changed file(s); 2 of 2 failure(s) here passed on a re-run of the same SHA
