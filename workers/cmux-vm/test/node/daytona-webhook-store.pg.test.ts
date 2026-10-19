@@ -24,4 +24,3 @@ describe("Daytona webhook delivery store", () => {
     expect(rows.rows[0]?.count).toBe("1");
   });
 });
-
