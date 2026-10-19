@@ -20,8 +20,9 @@ public nonisolated struct TooltipSurface: Hashable, Sendable {
     public static let blurRadius: Double = 24
     /// The least tint alpha (pages' fallback without the host's tint:
     /// `--tooltip-tint`): dense enough that the glass reads as a surface,
-    /// light enough that the backdrop's color shows.
-    public static let minimumTintAlpha: Double = 0.86
+    /// light enough that the backdrop's color shows. The 4.5:1 rule decides
+    /// above it (about 0.7 dark, 0.6 light; Leo 2026-10-18: tooltips were too opaque at 0.86).
+    public static let minimumTintAlpha: Double = 0.6
     /// The shadow: elevation 1, small and tight (`--elevation-1` in pages).
     @MainActor public static var shadow: Elevation { PopupStyle.elevation1 }
 

@@ -18,10 +18,11 @@ function sources(dir: string): string[] {
   });
 }
 
-test("generated/strings.json is fresh (gen-strings --check)", () => {
-  const { json, errors } = generate(PAGES.settings);
-  expect(errors).toEqual([]);
-  expect(readFileSync(path.join(here, "generated/strings.json"), "utf8")).toBe(json);
+// The table is build output (#21946) that the test preload writes, so comparing it with the
+// generator would compare the generator with itself. What can fail is the catalogs: every key the
+// schema names must be translated in all 21 locales.
+test("the settings strings generate with no missing translation", () => {
+  expect(generate(PAGES.settings).errors).toEqual([]);
 });
 
 test("every key the page uses exists in all 21 locales", () => {
