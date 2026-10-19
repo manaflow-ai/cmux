@@ -179,12 +179,20 @@ struct AgentPaneProjectIconTests {
         #expect(await icons.icon(for: fixture.home + "/code/site") == "data:image/svg+xml;base64," + Self.svg.base64EncodedString())
     }
 
+    /// The same request from a chat on another machine is answered with no icon; from this Mac's
+    /// chat, the real reader answers.
     @MainActor
-    @Test func aRemoteChatAsksThisMacForNoIcon() async {
-        let model = AgentPaneModel(host: NoHost())
-        model.remoteChat = true
-        let reply = await model.respond(to: .projectIcon("/Users/me/site"))
-        #expect((reply["value"] as? [String: Any])?["src"] == nil)
+    @Test func aRemoteChatAsksThisMacForNoIcon() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(Self.png, "code/site/favicon.png")
+        let folder = fixture.home + "/code/site"
+        let remote = AgentPaneModel(host: NoHost())
+        remote.remoteChat = true
+        #expect((await remote.respond(to: .projectIcon(folder))["value"] as? [String: Any])?["src"] == nil)
+        let local = AgentPaneModel(host: NoHost())
+        #expect((await local.respond(to: .projectIcon(folder))["value"] as? [String: Any])?["src"] as? String
+            == "data:image/png;base64," + Self.png.base64EncodedString())
     }
 
     private actor NoHost: AgentPaneHostProviding {

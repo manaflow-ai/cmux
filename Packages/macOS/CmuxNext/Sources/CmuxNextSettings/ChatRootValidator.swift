@@ -49,7 +49,9 @@ public nonisolated struct ChatRootValidator: Sendable {
     /// True when `path` or a folder on its way is a protected folder by identity (device and inode),
     /// whatever its spelling: the disk matches `Documentſ` to Documents, and
     /// `/System/Volumes/Data/Users/…` is the home folder by another path. Only `lstat`, which raises
-    /// no privacy prompt; the walk stops at the first protected folder and never looks inside it.
+    /// no privacy prompt (protected-folders.json: a stat does not, opening does); the walk stops at
+    /// the first protected folder. A path through a link into one lstats below it and still opens
+    /// nothing: callers check the resolved path again before they read.
     public func reachesProtectedFolder(_ path: String) -> Bool {
         let guarded = Set((homes.flatMap { home in ProtectedFolderEntry.inHome.map { home + "/" + $0.path } }
             + ProtectedFolderEntry.roots.map(\.path)).compactMap(Self.identity))

@@ -6,14 +6,16 @@ import CmuxNextSettings
 /// file (CSP `img-src data:`), so the host looks for a few well-known icon files in the folder and
 /// answers a small data URL.
 ///
-/// Never a look inside a privacy-protected folder (LAUNCH-NO-TCC-PROMPTS): the folder and every
+/// Never a read inside a privacy-protected folder (LAUNCH-NO-TCC-PROMPTS): the folder and every
 /// candidate go through `ChatRootValidator` first, which checks the spelling, then resolves links
 /// with `readlink` only, and refuses `/`, the home folder, other volumes and the protected folders
 /// of the one list (cmux-tui/crates/acpmux/data/protected-folders.json). The disk matches names
 /// more loosely than a spelling check (`Documentſ`, `/System/Volumes/Data/Users/…`), so each path,
 /// before and after its links are resolved, must also reach no protected folder by identity
-/// (`reachesProtectedFolder`, `lstat` only). A refused path is never stat'ed or read, so a favicon
-/// linked into Documents is no icon; one linked elsewhere in the project is read at its target.
+/// (`reachesProtectedFolder`, `lstat` only). Resolving can lstat or readlink through a protected
+/// folder, which raises no prompt; a refused path is never stat'ed for its contents, opened or read,
+/// so a favicon linked into Documents is no icon. One linked elsewhere in the project is read at its
+/// target.
 nonisolated struct AgentPaneProjectIcon: Sendable {
     /// Larger files are skipped: a tile is 20pt, and the answer crosses the bridge as base64.
     static let maximumBytes = 64 * 1024
