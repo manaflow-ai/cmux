@@ -130,9 +130,6 @@ public struct DaemonCapabilities: Sendable {
     public let frontendBrowserActivate = "frontend-browser-activate-v1"
     /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
     public let frontendBrowserInsertAfter = "frontend-browser-insert-after-v1"
-    /// `idempotency_key` on `new-frontend-browser-tab`: a retry with the key
-    /// answers the tab the first request made (`DaemonConnection.newFrontendBrowserTab`).
-    public let frontendBrowserTabKeys = "frontend-browser-tab-keys-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"

@@ -197,30 +197,10 @@ extension DaemonConnection {
     }
 
     /// App-rendered browser tab (`frontend-browser-tabs-v1`); `activate: false` keeps the pane's active tab, `after` puts it right after that tab.
-    ///
-    /// The daemon answers after the tab's record is durable on disk (a full
-    /// device flush). Under heavy disk load that took longer than the 2 s
-    /// request deadline: the request failed, the late reply was dropped, and
-    /// the app never opened the page of the tab the daemon made. A daemon with
-    /// `frontend-browser-tab-keys-v1` gets an idempotency key (derived from the
-    /// action's key when it has one), and a missed deadline asks again with
-    /// the same key until ``lateCreateReplyBudget`` passes: the retry waits
-    /// behind the first request on this connection and answers the same tab.
     @discardableResult
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
                                       activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        var request = NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after)
-        guard identity?.supports(DaemonCapabilities.shared.frontendBrowserTabKeys) == true else { return try await self.request(request) }
-        request.idempotencyKey = (DaemonCommandScope.current?.nextDerivedUUID("frontend-browser-tab") ?? UUID()).uuidString.lowercased()
-        let giveUp = ContinuousClock.now + Self.lateCreateReplyBudget
-        // wakeup-allow: each pass waits for one reply or its deadline; the keyed retry ends at the budget, on a reply, or on another error
-        while true {
-            do {
-                return try await self.request(request)
-            } catch DaemonError.timedOut(let what) where ContinuousClock.now < giveUp && !Task.isCancelled {
-                logger.info("\(NewFrontendBrowserTabRequest.command, privacy: .public): \(what, privacy: .public); asking again with its key")
-            }
-        }
+        try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after).send(on: self)
     }
 
     @discardableResult

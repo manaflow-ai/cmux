@@ -46,7 +46,7 @@ public actor DaemonConnection {
     let configuration: Configuration
     private let endpointProvider: EndpointProvider
     let clock: any Clock<Duration>
-    let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
     private var phase: Phase = .idle
     private(set) var serial: UInt64 = 0
     /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
@@ -131,10 +131,6 @@ public actor DaemonConnection {
     /// Control requests that start a terminal use this plus 1 s
     /// (`ControlRouter.terminalStartDeadline`).
     public static let defaultSpawnTimeout: Duration = .seconds(5)
-    /// How long a keyed create asks again after a missed reply deadline
-    /// (`newFrontendBrowserTab`): a disk under heavy load can hold the
-    /// daemon's durable commit past the control-plane deadline.
-    public static let lateCreateReplyBudget: Duration = .seconds(10)
 
     /// Sends one command and decodes its response. Fails with
     /// `DaemonError.timedOut` after `timeout` (default: the configured
