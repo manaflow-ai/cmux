@@ -190,10 +190,8 @@ class SidebarItemRowView: NSView {
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: style == .chip ? Metrics.space2 : inset * 2, y: (b.height - side) / 2, width: side, height: side)
-        // Icon-only items keep their selection and hover pill around the glyph.
-        // A full-width fill makes a compact sidebar read like a selected row.
-        // The profile avatar owns the whole square row, so its hover and
-        // press target covers the same density-scaled area as the control.
+        // Icon-only items keep their pill around the glyph (a full-width fill reads
+        // as a selected row); the profile avatar's pill and click fill its square.
         let pillFrame = style.isIconOnly ? (showsAvatar ? b : iconFrame)
             : style == .chip ? b
             : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
