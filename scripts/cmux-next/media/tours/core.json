@@ -19,6 +19,16 @@
     {"title": "Agent chat", "cmux": ["agent", "new-chat"], "wait": 4,
      "optional": "agent chat views are not ported yet"},
     {"title": "Session tree: keycaps on the first rows", "cmux": ["settings", "set", "sidebar.sessionTree", "true"], "wait": 2,
-     "optional": "an app from before sidebar.sessionTree"}
+     "optional": "an app from before sidebar.sessionTree"},
+    {"title": "Session tree, Keep Rows in Place: a notified row stays where it is", "daemon": true,
+     "cmux": ["notify", "--title", "Tour", "--body", "Rows hold their places"], "wait": 2,
+     "optional": "an app from before sidebar.rowOrder"},
+    {"title": "Session tree, Move Sessions That Need You: the same notice moves its row", "cmux": ["settings", "set", "sidebar.rowOrder", "attention"],
+     "shot": false, "optional": "an app from before sidebar.rowOrder"},
+    {"title": "Session tree, Move Sessions That Need You: a notified row moves to the top", "daemon": true,
+     "cmux": ["notify", "--title", "Tour", "--body", "Rows move when they need you"], "wait": 2,
+     "optional": "an app from before sidebar.rowOrder"},
+    {"title": "Back to Keep Rows in Place", "cmux": ["settings", "set", "sidebar.rowOrder", "stable"], "shot": false,
+     "optional": "an app from before sidebar.rowOrder"}
   ]
 }
