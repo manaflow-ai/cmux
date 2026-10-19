@@ -3,7 +3,7 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The lower part of the suggestion card: flush under the bar, as wide as
-/// the card top (`OmnibarCardTopView`), rounded at the bottom only, with
+/// the bar (`OmnibarCardTopView`), rounded at the bottom only, with
 /// 28 pt rows whose icon and text line up with the bar's chip and text.
 /// It draws on the window's overlay host in the `.pane` layer, clipped to
 /// the browser pane (plans/cmux-next/overlay-host.md), so it stays above
@@ -142,7 +142,6 @@ final class SuggestionCardView: NSView {
         wantsLayer = true
         layer?.masksToBounds = false
         card.wantsLayer = true
-        card.layer?.cornerRadius = OmnibarStyle.cardCornerRadius
         card.layer?.cornerCurve = .continuous
         card.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         card.layer?.masksToBounds = false
@@ -159,6 +158,8 @@ final class SuggestionCardView: NSView {
     override func layout() {
         super.layout()
         card.frame = cardFrame
+        // The bar's corner (it follows the look live).
+        card.layer?.cornerRadius = OmnibarStyle.cardCornerRadius
         refresh()
     }
 

@@ -81,10 +81,7 @@ BUDGET = {
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
-KNOWN = {
-    # Per restored pane (the relaunch budget scales with the grid's panes).
-    ("relaunch", "pane_snapshots"): (12, "cx-8w027.23: the restore maps each pane several more times as the live tree replaces the launch snapshot"),
-}
+KNOWN = {}
 FRAME_BUDGET_MS = 1000 / 60
 # Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
 TAB_APPLY_BUDGET_MS = 4
