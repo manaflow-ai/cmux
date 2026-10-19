@@ -7,6 +7,7 @@ knowledge_base:
     filePatterns:
       - "AGENTS.md"
       - "CLAUDE.md"
+      - "REVIEW.md"
       - ".github/review-bot-rules/*.md"
 
 reviews:
