@@ -95,6 +95,7 @@ export default defineConfig({
           STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key",
           // Chief brains (chief-brain/brain-do.ts): wakes reach the brain; the fake model (no AI binding in tests).
           CHIEF_BRAIN_ENABLED: "1",
+          HANDS_ENABLED: "1",
           // The opencode brain (O) is selectable; no container binds here, so an O Chief falls back to P (chief-brain-opencode-route.test.ts).
           CHIEF_OPENCODE_ENABLED: "1",
           // Test-only fault hooks (chief-fault.ts): evict a brain object in the middle of a turn.
