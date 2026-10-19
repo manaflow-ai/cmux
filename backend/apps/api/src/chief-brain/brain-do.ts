@@ -14,6 +14,7 @@ import { Compactor, type CallRecord } from "./compactor.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
 import { capText, type Kind, Memory, RETRY_MS } from "./memory.ts"
+import { meteredOwner } from "../model-gateway/routes.ts"
 import { brainModels, CLAUDE, compactorDefault, compactorModel, creditsCanStart, creditsNotice, FAKE, turnFailedNotice, gatewayOptions, isClaude, isMetered, liveOf, modelRefusal, pickTurnModel, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts, stripStaleThinking } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
@@ -186,8 +187,12 @@ export class ChiefBrainDO extends DurableObject<Env> {
       memory: this.memory,
       deps: () => {
         const set = this.config().compactor_model
-        const name = compactorModel(this.env, set, this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE)
-        return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : "medium", prompt: "cmux", agent: AGENT, record: (_c: CallRecord) => undefined }
+        const cfg = this.config()
+        const paid = compactorModel(this.env, set, this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE)
+        // A paid compactor only for an owner who may use paid models (as modelRefusal says); else the Chief's own unpaid turn model.
+        const name = isMetered(paid) && !meteredOwner(this.env, cfg.owner ?? null) ? (isMetered(cfg.model) ? FAKE : cfg.model || FAKE) : paid
+        // Haiku at high (Lawrence, 2026-10-18: the compactor is Haiku 5.5 at high); Workers AI models stay at medium.
+        return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : isClaude(name) ? "high" : "medium", prompt: "cmux", agent: AGENT, record: (_c: CallRecord) => undefined }
       },
       onBuilt: () => undefined,
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_brain.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
@@ -498,8 +503,10 @@ export class ChiefBrainDO extends DurableObject<Env> {
   async handFoundInTurn(action: string, result = ""): Promise<void> {
     const turn = this.turnId
     const foundNow = await this.refreshHands()
-    // A list continues the run only when this call found the first hand; new_sandbox also when the turn-start check did.
-    if (action === "list" && !foundNow) return
+    // A list continues the run when this call found the first hand, or when it shows a hand that the turn-start check
+    // found in the background (a sandbox made or a machine paired just before the message): else the turn would end
+    // with no agent tool. new_sandbox continues also when the turn-start check found it first.
+    if (action === "list" && !foundNow && handOfResult(action, result) === null) return
     const v = (k: string) => this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
     // A hand exists now while this turn runs with the compact tools (also when the turn-start check found it first).
     if (turn && v("hands_full") === "1" && v("hands_turn_mode") === "0" && v(`hands_cont:${turn}`) === undefined) {
