@@ -250,6 +250,10 @@ mod tests {
             "gh pr create --title x --body \"$(cat <<'EOF'\nSummary | with; a pipe && more\n\"quoted\"\nEOF\n)\"",
             "gh pr create --title 'a && b' --body 'x; y | z'",
             "gh pr create --body \"$(printf 'a)b')\" --title \"x && y\"",
+            "gh pr create --fill 2>&1",
+            "gh pr create --fill &>/tmp/pr.log",
+            "git push && gh pr create --fill",
+            "git add -A && git commit -m 'x; y' && git push -u origin HEAD && gh pr create --fill 2>&1",
         ] {
             assert!(is_gh_pr_create(yes), "{yes}");
         }
@@ -259,7 +263,10 @@ mod tests {
             "gh pr create --fill && gh pr view 9",
             "gh pr create --fill | tee out",
             "gh pr create --body \"$(cat body.md)\" && gh pr view 9",
-            "git push && gh pr create --fill",
+            "git push; gh pr create --fill",
+            "git push || gh pr create --fill",
+            "git push | gh pr create --fill",
+            "sleep 9 & gh pr create --fill",
             "gh pr view 9",
             "",
         ] {
