@@ -223,6 +223,43 @@ export default agentPaneEntry({
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
       snapshot: footerChat("full-access"),
     },
+    // Leo 2026-10-19: no composer button draws a pill at rest, the bolt on included
+    // (test/composer-quiet-chips.test.ts).
+    "quiet-chips": {
+      note: "Every footer button at rest: +, the model, effort and mode chips and the fast bolt on. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
+      snapshot: withSummary(chat(finished, { title: "Quiet chips" }), {
+        modes: {
+          currentModeId: "default",
+          availableModes: [
+            { id: "default", name: "Default", description: "Ask before sensitive actions." },
+            { id: "full-access", name: "Full access", description: "Run actions without asking." },
+          ],
+        },
+        configOptions: [
+          {
+            id: "effort",
+            name: "Reasoning",
+            category: "thought_level",
+            currentValue: "medium",
+            options: [
+              { value: "low", name: "Low" },
+              { value: "medium", name: "Medium" },
+              { value: "high", name: "High" },
+            ],
+          },
+          {
+            id: "fast-mode",
+            name: "Fast mode",
+            category: "model_config",
+            currentValue: "on",
+            options: [
+              { value: "off", name: "Off" },
+              { value: "on", name: "On" },
+            ],
+          },
+        ],
+      }),
+    },
     idle: {
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),

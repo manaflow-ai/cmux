@@ -80,11 +80,12 @@ await requireBrowserLane("no-system-blue.test.ts", async () => {
         );
         const plan = await tab.$eval("#plan", (node) => {
           const style = getComputedStyle(node);
-          return { color: style.color, edge: style.boxShadow };
+          return { color: style.color, fill: style.backgroundColor, edge: style.boxShadow };
         });
         expect(plan.color).toBe(IRIS);
-        // Pressed reads apart from hover even when the accent is the text color: an accent edge.
-        expect(plan.edge).toMatch(/196|0\.76/);
+        // On is accent ink alone, with no pill at rest (Leo 2026-10-19: the Claude app's chips).
+        expect(plan.fill).toBe("rgba(0, 0, 0, 0)");
+        expect(plan.edge).toBe("none");
         await tab.close();
       });
     });

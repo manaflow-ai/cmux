@@ -107,7 +107,9 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useSessionRail } from "./summary/SessionRail";
-import { pendingToolCalls } from "./summary/SubagentStatusList";
+import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
+import { AgentsPill } from "./subagents/AgentsPill";
+import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatGallery } from "./summary/chatGallery";
 import {
@@ -150,6 +152,7 @@ import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import {
   clearFindHighlights,
+  FIND_ACTIVE_HIGHLIGHT,
   FindReveal,
   findRowIndex,
   isFindRow,
@@ -164,6 +167,7 @@ import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
+  earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
@@ -201,7 +205,7 @@ import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } 
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
-import { sideChatRow } from "./header/sideChatRow";
+import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
@@ -1160,6 +1164,22 @@ function scrollRangeIn(scroller: HTMLElement, range: Range) {
 /// the frames it has left once shown.
 const FIND_REVEAL_MS = 600;
 const FIND_REVEAL_FRAMES = 36;
+/// ...and until the match has not moved for this many frames: on a starved page the fold it opened
+/// measures for seconds, each measure pushing the match down.
+const FIND_REVEAL_STILL_FRAMES = 12;
+/// A layout that never settles (a reply streaming above the match) ends the hold after this many.
+const FIND_REVEAL_MAX_FRAMES = 600;
+/// The current Find match's range, if it is drawn.
+function findActiveRange(): Range | undefined {
+  const highlights = (globalThis.CSS as unknown as { highlights?: Map<string, Set<Range>> } | undefined)?.highlights;
+  return [...(highlights?.get(FIND_ACTIVE_HIGHLIGHT) ?? [])][0];
+}
+/// Where the current Find match sits in `scroller`'s content, if it is drawn.
+function findMatchOffset(scroller: HTMLElement): number | undefined {
+  const range = findActiveRange();
+  if (!range) return undefined;
+  return range.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+}
 /// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
 export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
@@ -1965,6 +1985,16 @@ export function VirtualTranscript({
         : undefined,
     [drawnId, drawnCard, findQuery],
   );
+  // Find's scroll is the reader's: it stops following now, not when the browser reports the
+  // scroll a frame later, or a re-measure before then puts the view back at the latest row.
+  // It reads the latest layout, since the reveal hold calls it from frames after this render.
+  const findTotalHeight = useRef(layout.totalHeight);
+  findTotalHeight.current = layout.totalHeight;
+  const findMoved = useCallback((node: HTMLDivElement) => {
+    scrolledTo.current = scrollPosition(node, findTotalHeight.current);
+    followingRef.current = scrolledTo.current.atLatest;
+    setFollowing(scrolledTo.current.atLatest);
+  }, []);
   // The current match's reveal window: 0 until it starts, then the window's own number.
   const revealWindow = useRef(0);
   const revealWindows = useRef(0);
@@ -1977,6 +2007,7 @@ export function VirtualTranscript({
     const bottom = top + layout.heights[findIndex];
     if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight) return;
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
+    findMoved(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
   }, [targetKey]);
   // A row the running line's count names scrolls in once the transcript draws it (its fold may
@@ -2022,10 +2053,29 @@ export function VirtualTranscript({
       const opened = (revealWindow.current = ++revealWindows.current);
       const start = performance.now();
       let frames = 0;
+      let still = 0;
+      let placed: number | undefined;
       const tick = () => {
         if (revealWindow.current !== opened) return;
+        // The reader's own scroll, click or key ends the hold: the match is theirs to leave.
+        if (readerAt.current > start) {
+          revealing.current = undefined;
+          return;
+        }
+        // Where the match sits in the transcript's content: it moves while what is above it measures,
+        // and a move with no render (a block that grew) is brought back here, not only on a commit.
+        const range = findActiveRange();
+        if (range && range.getBoundingClientRect().height > 0) {
+          const before = node.scrollTop;
+          scrollRangeIn(node, range);
+          if (node.scrollTop !== before) findMoved(node);
+        }
+        const at = findMatchOffset(node);
+        still = at !== undefined && placed !== undefined && Math.abs(at - placed) < 0.5 ? still + 1 : 0;
+        placed = at;
         const elapsed = performance.now() - start;
-        if (++frames >= FIND_REVEAL_FRAMES && elapsed >= FIND_REVEAL_MS) revealing.current = undefined;
+        const settled = frames >= FIND_REVEAL_FRAMES && elapsed >= FIND_REVEAL_MS && still >= FIND_REVEAL_STILL_FRAMES;
+        if (settled || ++frames >= FIND_REVEAL_MAX_FRAMES) revealing.current = undefined;
         else requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -2035,7 +2085,9 @@ export function VirtualTranscript({
     for (let box = current.startContainer.parentElement; box && box !== node; box = box.parentElement)
       if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
         scrollRangeIn(box, current);
+    const before = node.scrollTop;
     scrollRangeIn(node, current);
+    if (node.scrollTop !== before) findMoved(node);
     // Rows are immutable snapshots, so their identity changes when streamed text or a revealed
     // fold changes. The mounted-range signature catches virtualization entering/leaving rows.
   }, [
@@ -2043,6 +2095,7 @@ export function VirtualTranscript({
     drawnId,
     findQuery,
     findTargetOccurrence,
+    findMoved,
     findTargetRowId,
     mountedRangeKey,
     revealed,
@@ -2158,6 +2211,10 @@ export function VirtualTranscript({
   const jumpToLatest = (focused: boolean) => {
     const node = ref.current;
     if (!node) return;
+    // Jump to latest is the reader leaving the Find match: end its hold, or the next tick pulls the
+    // view back to the match and stops following again.
+    revealing.current = undefined;
+    revealWindow.current = 0;
     follow(true);
     if (focused) focusComposer?.();
     const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -3424,6 +3481,27 @@ function AcpmuxPane() {
     (id) => showSubagent(id, false),
     snapshot.clockOffsetMs ?? 0,
   );
+  // The agents pill (subagents/AgentsPill.tsx) and each subagent's color (agentTones.ts), which
+  // the pill's list and the transcript's subagent rows share. A streamed chunk makes a new list of
+  // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
+  // streams text redraws neither the pill nor a subagent row.
+  const freshAgents = useMemo(
+    () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
+    [snapshot.rows, snapshot.subagentViews],
+  );
+  const agentsKey = freshAgents
+    .map((agent) => [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? ""].join("\u0000"))
+    .join("\u0001");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes
+  const chatAgents = useMemo(() => freshAgents, [agentsKey]);
+  const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
+  const freshWaiting = useMemo(
+    () => (chatAgents.some(running) ? waitingSubagents(askedToolCalls, snapshot.subagentViews) : new Set<string>()),
+    [chatAgents, askedToolCalls, snapshot.subagentViews],
+  );
+  const waitingKey = [...freshWaiting].sort().join(" ");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new set only when its agents change
+  const waitingAgents = useMemo(() => freshWaiting, [waitingKey]);
   /// The summary card's subagents: the shown one, and a row's click shows its view.
   const cardSubagents = useMemo(
     () => ({
@@ -4765,9 +4843,20 @@ function AcpmuxPane() {
     t,
   );
   opensSideChat.current = sideChat !== undefined;
+  // New terminal and New browser (the chat menu, the summary panel): another one beside the chat on
+  // every click, whatever the header's Terminal and Browser buttons do.
+  const newTerminal = () => runSplitAction(HEADER_ACTIONS.terminal, localCwd, "open");
+  const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
-    const copy = copyRow({ link, rows: snapshot.rows }, (text) => ignoreFailure(copyText(text)), t);
+    const copy = copyRow(
+      { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
+      (text) => ignoreFailure(copyText(text)),
+      t,
+    );
+    // Fork › From here (the last turn), then, for a harness that forks at any turn, the earlier
+    // prompts, newest first (ChatGPT's "from a message"); otherwise one Fork row.
+    const forkPrompts = forksAnyTurn(summary?.family) ? earlierForkPrompts(snapshot.rows) : [];
     const fork: ChatMenuItem[] =
       forkable && lastForkSeq !== undefined
         ? [
@@ -4775,10 +4864,27 @@ function AcpmuxPane() {
               key: "fork",
               label: t("chatMenu.fork"),
               icon: "agent.fork",
-              onSelect: () => turnActions.fork?.(lastForkSeq),
+              ...(forkPrompts.length > 0
+                ? {
+                    children: [
+                      {
+                        key: "forkHere",
+                        label: t("chatMenu.forkFromHere"),
+                        onSelect: () => turnActions.fork?.(lastForkSeq),
+                      },
+                      ...forkPrompts.map((prompt) => ({
+                        key: `fork-${prompt.seq}`,
+                        label: prompt.text,
+                        onSelect: () => turnActions.fork?.(prompt.seq),
+                      })),
+                    ],
+                  }
+                : { onSelect: () => turnActions.fork?.(lastForkSeq) }),
             },
           ]
         : [];
+    // New side chat, New terminal and New browser: something new beside the chat, every time.
+    const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
     const continueIn: ChatMenuItem[] =
       snapshot.canHandoff && handoffTargets.length > 0
         ? [
@@ -4862,7 +4968,7 @@ function AcpmuxPane() {
           onSelect: () => runHeaderAction(HEADER_ACTIONS.pin),
         },
       ],
-      [...(sideChat ? [sideChat] : []), ...fork, ...continueIn],
+      [...opensBeside, ...fork, ...continueIn],
       copy ? [copy] : [],
       [
         {
@@ -5404,6 +5510,17 @@ function AcpmuxPane() {
           }}
         />
       )}
+      {/* The agents pill (subagents/AgentsPill.tsx): in the bottom stack, right above the composer,
+          while the turn works; an agent a cancel or a reconnect left "running" shows none. */}
+      {!quick && !freshView && snapshot.isWorking && chatTones && chatAgents.some(running) && (
+        <AgentsPill
+          key={shownSessionId}
+          agents={chatAgents}
+          waiting={waitingAgents}
+          tones={chatTones}
+          onOpen={showSubagent}
+        />
+      )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
       <ImageViewerContext.Provider value={openImage}>
         <Composer
@@ -5638,16 +5755,22 @@ function AcpmuxPane() {
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
   const summaryPanel = (
-    <SummaryCard
-      key={snapshot.sessionId}
-      card={summaryCard}
-      rows={snapshot.rows}
-      changes={quick ? undefined : lastChanges}
-      onOpenChanges={toggleLastChanges}
-      onOpenOutput={quick ? undefined : openOutput}
-      onOpenImage={quick ? undefined : openImage}
-      subagents={cardSubagents}
-    />
+    // Its Subagents tab draws the transcript's subagent rows, avatars carrying the harness's mark and
+    // a running one's stop button.
+    <SubagentStopContext.Provider value={stopSubagent}>
+      <SubagentHarnessContext.Provider value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}>
+        <SummaryCard
+          key={snapshot.sessionId}
+          card={summaryCard}
+          rows={snapshot.rows}
+          changes={quick ? undefined : lastChanges}
+          onOpenChanges={toggleLastChanges}
+          onOpenOutput={quick ? undefined : openOutput}
+          onOpenImage={quick ? undefined : openImage}
+          subagents={cardSubagents}
+        />
+      </SubagentHarnessContext.Provider>
+    </SubagentStopContext.Provider>
   );
   const pane = (
     <ShortcutsContext.Provider value={shortcuts}>
@@ -5922,7 +6045,7 @@ function AcpmuxPane() {
                 ) : freshView ? (
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
-                  transcript
+                  <AgentTonesContext.Provider value={chatTones}>{transcript}</AgentTonesContext.Provider>
                 )}
                 {inspectorOpen && (
                   <Inspector
