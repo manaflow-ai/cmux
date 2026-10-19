@@ -60524,7 +60524,7 @@
       }
     },
     "composer.placeholderQueued": {
-      "comment": "Agent pane: the prompt's placeholder while a turn runs; what is sent waits for the turn to end",
+      "comment": "Agent pane: the prompt's placeholder while a turn runs in the Quick Composer, or with only attachments staged (elsewhere it names the ↵ and ⌘↵ keys); what is sent waits for the turn to end",
       "extractionState": "manual",
       "localizations": {
         "ar": {
