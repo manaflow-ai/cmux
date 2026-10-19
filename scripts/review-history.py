@@ -66,11 +66,10 @@ def graphql(query: str, variables: dict) -> dict:
         if value is None:
             continue
         args += ["-F" if isinstance(value, int) else "-f", f"{key}={value}"]
-    out = subprocess.run(args, check=True, capture_output=True, text=True).stdout
-    payload = json.loads(out)
-    if payload.get("errors"):
-        raise RuntimeError(json.dumps(payload["errors"])[:500])
-    return payload["data"]
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:  # gh exits nonzero on GraphQL errors; the cursor resumes the run
+        raise SystemExit(f"GraphQL request failed: {result.stderr.strip()[:500]}")
+    return json.loads(result.stdout)["data"]
 
 
 def addressed_comments(pr: dict) -> list[dict]:
@@ -109,6 +108,8 @@ def collect(args: argparse.Namespace) -> int:
     cache = Path(args.cache)
     cursor_file = cache.with_suffix(cache.suffix + ".cursor")
     state = cursor_file.read_text().split() if cursor_file.exists() and not args.restart else []
+    if state and state[0] != args.since:
+        print(f"resuming the saved cursor at {state[0]}, not --since {args.since}; pass --restart to start over", file=sys.stderr)
     if args.restart:
         cache.write_text("")
     start = date.fromisoformat(state[0]) if state else date.fromisoformat(args.since)
@@ -243,13 +244,16 @@ def first_sentence(text: str, limit: int = 220) -> str:
 
 
 def cluster(args: argparse.Namespace) -> int:
-    comments, prs = [], 0
+    # The last line per PR wins: a rerun without --restart, or a crash between
+    # a page's write and its cursor, appends PRs that are already cached.
+    rows: dict[int, dict] = {}
     with open(args.cache) as handle:
         for line in handle:
-            if not line.strip():
-                continue
-            prs += 1
-            comments.extend(json.loads(line)["comments"])
+            if line.strip():
+                row = json.loads(line)
+                rows[row["number"]] = row
+    prs = len(rows)
+    comments = [comment for row in rows.values() for comment in row["comments"]]
     compiled = [(name, re.compile(pattern, re.IGNORECASE)) for name, pattern in TOPICS]
     buckets: dict[str, list[dict]] = collections.defaultdict(list)
     for comment in comments:
