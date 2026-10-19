@@ -10,12 +10,21 @@ import os
 /// Each buffer is downmixed to its first channel and box-averaged to 16 kHz in
 /// the tap, so the session holds 32 KB a second, never the input's rate.
 /// Past ``maximumDuration``, or from input below 16 kHz, it keeps nothing
-/// more and ``wav()`` returns nil: that session goes as its transcript alone.
+/// more and ``wav()`` returns nil: that session goes as its transcript alone,
+/// and ``omission`` says why.
 ///
 /// The tap is a synchronous real-time audio callback, so it cannot hop to an
 /// actor; one unfair lock guards the state, and each tap holds it for one
 /// buffer's append.
 public final class DictationAudioRecording: Sendable {
+    /// Why a session's audio was left out of its prompt.
+    public enum Omission: String, Equatable, Sendable {
+        /// Ran past ``DictationAudioRecording/maximumDuration``.
+        case tooLong
+        /// The input came in below 16 kHz (a narrowband headset).
+        case narrowband
+    }
+
     public static let sampleRate: Double = 16_000
     /// Two minutes: 3.84 MB of PCM, about 5 MB as the base64 a prompt carries.
     public static let maximumDuration: Double = 120
@@ -23,12 +32,12 @@ public final class DictationAudioRecording: Sendable {
     private struct State {
         var samples: [Int16] = []
         /// Ran past ``maximumDuration`` or came in below 16 kHz.
-        var discarded = false
+        var omitted: Omission?
         /// The input summed toward the next output sample, and how much of it.
         var pending: (sum: Double, count: Double) = (0, 0)
 
-        mutating func discard() {
-            discarded = true
+        mutating func discard(_ why: Omission) {
+            omitted = why
             samples = []
         }
     }
@@ -52,8 +61,8 @@ public final class DictationAudioRecording: Sendable {
         let limit = Int(Self.sampleRate * Self.maximumDuration)
         // The closure runs before withLockUnchecked returns, so the buffer is still valid in it.
         state.withLockUnchecked { state in
-            guard !state.discarded else { return }
-            guard sampleRate >= Self.sampleRate else { return state.discard() }
+            guard state.omitted == nil else { return }
+            guard sampleRate >= Self.sampleRate else { return state.discard(.narrowband) }
             // Input samples per output sample.
             let step = sampleRate / Self.sampleRate
             for value in input {
@@ -65,7 +74,7 @@ public final class DictationAudioRecording: Sendable {
                     state.pending.count += take
                     left -= take
                     guard state.pending.count >= step - 1e-9 else { continue }
-                    guard state.samples.count < limit else { return state.discard() }
+                    guard state.samples.count < limit else { return state.discard(.tooLong) }
                     let mean = max(-1, min(1, state.pending.sum / step))
                     state.samples.append(Int16(mean * Double(Int16.max)))
                     state.pending = (0, 0)
@@ -74,10 +83,13 @@ public final class DictationAudioRecording: Sendable {
         }
     }
 
+    /// Why ``wav()`` has nothing, when the session's audio was left out rather than silent.
+    public var omission: Omission? { state.withLock { $0.omitted } }
+
     /// The recording as a WAV file, or nil when it is empty, ran past ``maximumDuration`` or came
     /// in below 16 kHz.
     public func wav() -> Data? {
-        let samples = state.withLock { $0.discarded ? [] : $0.samples }
+        let samples = state.withLock { $0.omitted == nil ? $0.samples : [] }
         guard !samples.isEmpty else { return nil }
         let rate = UInt32(Self.sampleRate)
         let bytes = UInt32(samples.count * MemoryLayout<Int16>.size)

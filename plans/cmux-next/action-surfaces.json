@@ -8378,7 +8378,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Mark Tab as Unread",
+      "title" : "Mark Tab Unread",
       "title_key" : "action.palette.toggleTabUnread",
       "title_table" : "ActionCatalog"
     },
@@ -12934,7 +12934,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "=",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -18032,7 +18043,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Unread",
+      "title" : "Toggle Tab Unread",
       "title_key" : "action.toggleUnread",
       "title_table" : "ActionCatalog"
     },
@@ -28836,7 +28847,17 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "k",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "paletteOpen"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : null,
