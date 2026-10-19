@@ -11,11 +11,11 @@ import Testing
     @Test func galleryOfEachChoice() async throws {
         guard let out = ProcessInfo.processInfo.environment["CMUX_GLASS_LEGIBILITY_GALLERY"] else { return }
         _ = NSApplication.shared
-        let art = try #require(BackdropArt.allCases.first { $0.isBundled }, "no art ships in the app")
         let images = BackdropImageStore(maxPixelSize: 1600)
-        _ = try #require(await images.image(.art(art)), "the bundled art does not decode")
         let tokens = ThemeTokens.derive(from: .ghosttyDefault)
         var notes: [String] = []
+        for art in [BackdropArt.friedrichWanderer, .vermeerPearlEarring] {
+        _ = try #require(await images.image(.art(art)), "the bundled art does not decode")
         for legibility in ArtLegibility.allCases {
             let frame = NSRect(x: 0, y: 0, width: 1200, height: 750)
             let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -57,11 +57,12 @@ import Testing
             ctx.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
             layer.render(in: ctx)
             let image = try #require(ctx.makeImage())
-            let url = URL(fileURLWithPath: out).appending(path: "glass-legibility-\(legibility.rawValue).png")
+            let url = URL(fileURLWithPath: out).appending(path: "glass-legibility-\(art.rawValue)-\(legibility.rawValue).png")
             let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
             CGImageDestinationAddImage(dest, image, nil)
             #expect(CGImageDestinationFinalize(dest))
             notes.append("\(legibility.rawValue): art \(art.rawValue), floor \(state.legibleTintOpacity), tint \(state.tintOpacity)")
+        }
         }
         try notes.joined(separator: "\n").write(to: URL(fileURLWithPath: out).appending(path: "glass-legibility.txt"),
                                                 atomically: true, encoding: .utf8)
