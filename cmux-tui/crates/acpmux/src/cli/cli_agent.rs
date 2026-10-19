@@ -106,19 +106,18 @@ pub fn strip_ansi(text: &str) -> String {
     out
 }
 
-/// The reply part of a program's output, line by line. Without `after_echo`
-/// every line is reply. With it, lines are held back until a box frame
-/// (`╭ … ╰`) whose text starts like the prompt has closed; the lines after it
-/// are the reply, without the indent they share. When the output ends and
-/// no such frame came, everything held back is the reply, so nothing is lost.
+/// The reply part of a program's output. Without `after_echo` every line is
+/// reply and streams at once. With it, the output is kept until it ends
+/// (a chat CLI such as unii prints its recent history, then the prompt in a
+/// box frame `╭ … ╰`, then the reply, all at the end); the reply is what
+/// follows the LAST frame whose text starts like the prompt (the history can
+/// hold the same prompt), without the indent its lines share. With no such
+/// frame the whole output is the reply, so nothing is lost.
 #[derive(Debug)]
 pub struct ReplyFilter {
     after_echo: bool,
     needle: String,
-    held: Vec<String>,
-    in_frame: bool,
-    frame_text: String,
-    replying: bool,
+    lines: Vec<String>,
 }
 
 /// The leading text of `prompt` an echo frame is matched by: its first
@@ -136,50 +135,51 @@ fn frame_inner(line: &str) -> &str {
 
 impl ReplyFilter {
     pub fn new(prompt: &str, after_echo: bool) -> ReplyFilter {
-        ReplyFilter {
-            after_echo,
-            needle: echo_needle(prompt),
-            held: Vec::new(),
-            in_frame: false,
-            frame_text: String::new(),
-            replying: !after_echo,
-        }
+        ReplyFilter { after_echo, needle: echo_needle(prompt), lines: Vec::new() }
     }
 
-    /// One output line (without its newline): the reply text it releases,
-    /// each piece ending in a newline.
+    /// One output line (without its newline): the reply text it releases
+    /// now, ending in a newline (only without `after_echo`).
     pub fn push(&mut self, line: &str) -> Option<String> {
         let line = strip_ansi(line);
-        if self.replying {
-            let line = if self.after_echo { dedent(&line) } else { &line };
+        if !self.after_echo {
             return Some(format!("{line}\n"));
         }
-        self.held.push(line.clone());
-        let t = line.trim_start();
-        if t.starts_with('╭') {
-            self.in_frame = true;
-            self.frame_text.clear();
-        } else if self.in_frame && t.starts_with('╰') {
-            self.in_frame = false;
-            let text = self.frame_text.split_whitespace().collect::<Vec<_>>().join(" ");
-            if !self.needle.is_empty() && text.starts_with(&self.needle) {
-                self.replying = true;
-                self.held.clear();
-            }
-        } else if self.in_frame {
-            self.frame_text.push(' ');
-            self.frame_text.push_str(frame_inner(&line));
-        }
+        self.lines.push(line);
         None
     }
 
-    /// The output ended: whatever is still held back, when no echo came.
+    /// The output ended: the reply still kept back.
     pub fn finish(&mut self) -> Option<String> {
-        if !self.after_echo || self.held.is_empty() {
+        if !self.after_echo || self.lines.is_empty() {
             return None;
         }
-        let text: String = self.held.drain(..).map(|l| format!("{l}\n")).collect();
-        Some(text)
+        let lines = std::mem::take(&mut self.lines);
+        let mut start = 0;
+        let mut frame: Option<String> = None;
+        for (i, line) in lines.iter().enumerate() {
+            let t = line.trim_start();
+            if t.starts_with('╭') {
+                frame = Some(String::new());
+            } else if t.starts_with('╰') {
+                if let Some(text) = frame.take() {
+                    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+                    if !self.needle.is_empty() && text.starts_with(&self.needle) {
+                        start = i + 1;
+                    }
+                }
+            } else if let Some(text) = frame.as_mut() {
+                text.push(' ');
+                text.push_str(frame_inner(line));
+            }
+        }
+        let echoed = start > 0;
+        let text: String = lines[start..]
+            .iter()
+            .map(|l| format!("{}\n", if echoed { dedent(l) } else { l }))
+            .collect();
+        let text = if echoed { text.trim_start_matches('\n').to_owned() } else { text };
+        (!text.is_empty()).then_some(text)
     }
 }
 
@@ -562,12 +562,16 @@ mod tests {
     }
 
     #[test]
-    fn after_echo_keeps_only_the_reply() {
+    fn after_echo_keeps_only_the_reply_after_the_last_echo() {
         let out = [
             "  ╭─ result ───╮",
             "  │ 1 5536+0|user: earlier │",
             "  ╰──────────────╯",
-            "  An earlier answer.",
+            "  ╭──────────────────────╮",
+            "  │ Reply with exactly:  │",
+            "  │ PONG                 │",
+            "  ╰──────────────────────╯",
+            "  An earlier PONG.",
             "  ╭──────────────────────╮",
             "  │ Reply with exactly:  │",
             "  │ PONG                 │",
@@ -576,9 +580,8 @@ mod tests {
             "  PONG",
         ];
         let mut f = ReplyFilter::new("Reply with exactly: PONG", true);
-        let got: String = out.iter().filter_map(|l| f.push(l)).collect();
-        assert_eq!(got, "\nPONG\n");
-        assert_eq!(f.finish(), None);
+        assert!(out.iter().all(|l| f.push(l).is_none()));
+        assert_eq!(f.finish().as_deref(), Some("PONG\n"));
     }
 
     #[test]
