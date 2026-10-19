@@ -22,7 +22,9 @@ Verdicts:
   but the lines haven't all landed. A lead, not proof.
 - list "stale, red or conflicting": no push and no human comment for
   STALE_DAYS, and its checks are red or it conflicts with its base.
-- list "security" or "stacked on X": never closed by this script.
+- list "security", or "stacked on deleted X" when a stacked PR's base branch
+  is gone: never closed by this script. A stacked PR whose base still exists
+  is left to its base PR.
 - skip: a keep label (KEEP_LABELS), a last human comment that hands a
   decision to someone by @-mention, or any push or human
   comment in the last 12 hours (re-read right before closing, since other
@@ -196,10 +198,16 @@ def skip_reason(pr: dict, now: dt.datetime) -> str | None:
     return None
 
 
-def list_only_reason(pr: dict) -> str | None:
-    """PRs a human always decides: listed, never closed."""
+def list_only_reason(pr: dict, live_branches: set[str] | None = None) -> str | None:
+    """PRs a human always decides: listed, never closed.
+
+    A stacked PR is left alone while its base branch exists; once the base is
+    deleted (merged or abandoned) it is listed for a human to retarget or close.
+    """
     if pr["baseRefName"] not in BASES:
-        return f"stacked on {pr['baseRefName']}"
+        if live_branches is not None and pr["baseRefName"] in live_branches:
+            return "stacked"
+        return f"stacked on deleted {pr['baseRefName']}"
     if SECURITY.search(pr["title"]) or any("security" in n["name"].lower() for n in pr["labels"]["nodes"]):
         return "security"
     return None
@@ -212,15 +220,18 @@ def red_or_conflicting(pr: dict) -> bool:
     return any(state in {"FAILURE", "ERROR"} for state in states)
 
 
-def classify(pr: dict, *, now: dt.datetime, score: Score | None, successor: int | None, stale_days: int, landed_idle_days: int) -> Verdict:
+def classify(pr: dict, *, now: dt.datetime, score: Score | None, successor: int | None, stale_days: int, landed_idle_days: int,
+             live_branches: set[str] | None = None) -> Verdict:
     idle = (now - last_activity(pr)).days
     verdict = Verdict(pr["number"], pr["title"], "keep", "active", idle, successor)
     reason = skip_reason(pr, now)
     if reason:
         verdict.action, verdict.reason = "skip", reason
         return verdict
-    reason = list_only_reason(pr)
-    if reason:
+    reason = list_only_reason(pr, live_branches)
+    if reason == "stacked":
+        pass  # base branch still exists: its own PR decides
+    elif reason:
         verdict.action, verdict.reason = "list", reason
     elif score and score.landed and idle >= landed_idle_days:
         verdict.action, verdict.reason = "close", "landed"
@@ -296,6 +307,14 @@ def base_sha(base: str) -> str:
     return subprocess.run(["git", "rev-parse", f"origin/{base}"], check=True, capture_output=True, text=True).stdout.strip()
 
 
+def remote_branches(names: set[str]) -> set[str]:
+    """Which of these branch names exist on origin (one ls-remote, no API quota)."""
+    if not names:
+        return set()
+    out = subprocess.run(["git", "ls-remote", "--heads", "origin", *sorted(names)], check=True, capture_output=True, text=True).stdout
+    return {line.split("refs/heads/", 1)[1] for line in out.splitlines() if "refs/heads/" in line}
+
+
 def still_quiet(repo: str, number: int, since: dt.datetime) -> bool:
     """Re-read the PR right before closing: another session may have touched it."""
     pr = gh_json("pr", "view", str(number), "-R", repo, "--json", "state,commits,comments")
@@ -320,6 +339,7 @@ def main() -> int:
     merged = search(MERGED_QUERY, f"repo:{repo} is:pr is:merged merged:>={since} in:body supersedes OR replaces OR re-cut")
     successor_of = successors(merged, repo)
     heads = {base: base_sha(base) for base in BASES}
+    live = remote_branches({pr["baseRefName"] for pr in open_prs} - set(BASES))
 
     verdicts = []
     for pr in sorted(open_prs, key=lambda p: p["number"]):
@@ -332,7 +352,7 @@ def main() -> int:
             else:
                 result = score(files, {f["filename"]: base_file(pr["baseRefName"], f["filename"]) for f in files})
         verdicts.append((pr, classify(pr, now=now, score=result, successor=successor_of.get(pr["number"]),
-                                      stale_days=stale_days, landed_idle_days=landed_idle_days)))
+                                      stale_days=stale_days, landed_idle_days=landed_idle_days, live_branches=live)))
 
     closed = 0
     lines = [

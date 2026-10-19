@@ -82,8 +82,12 @@ class ClassifyTests(unittest.TestCase):
                 v = classify(p, score=LANDED)
                 self.assertEqual((v.action, v.reason), ("skip", reason))
 
-    def test_security_and_stacked_are_listed_never_closed(self):
-        for reason, p in {"security": pr(title="fix: ACL check in relay"), "stacked on claude/base": pr(base="claude/base")}.items():
+    def test_stacked_on_a_live_base_is_left_to_its_base(self):
+        v = module.classify(pr(base="claude/base"), now=NOW, score=LANDED, successor=None, stale_days=14, landed_idle_days=3, live_branches={"claude/base"})
+        self.assertEqual(v.action, "keep")
+
+    def test_security_and_dead_stacks_are_listed_never_closed(self):
+        for reason, p in {"security": pr(title="fix: ACL check in relay"), "stacked on deleted claude/base": pr(base="claude/base")}.items():
             with self.subTest(reason=reason):
                 v = classify(p, score=LANDED)
                 self.assertEqual((v.action, v.reason), ("list", reason))

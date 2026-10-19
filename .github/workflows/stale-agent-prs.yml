@@ -38,7 +38,8 @@ jobs:
       contents: read
       pull-requests: write
     runs-on: ${{ contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
-    timeout-minutes: 30
+    # A full pass reads every scored PR's files: about 12 minutes for 300 PRs locally.
+    timeout-minutes: 45
     steps:
       - name: Check out trusted workflow code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
