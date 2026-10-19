@@ -74,7 +74,12 @@ impl Client {
     }
 
     async fn new_session(&mut self, harness: &str) -> String {
-        let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
+        self.new_session_with(json!({"harness": harness})).await
+    }
+
+    async fn new_session_with(&mut self, meta: Value) -> String {
+        let params =
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": meta}});
         let (reply, _) = self.call_text("session/new", params).await;
         assert!(reply.get("error").is_none(), "{reply}");
         reply["result"]["sessionId"].as_str().unwrap().to_owned()
@@ -151,6 +156,15 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     }
     assert!(sub_env.contains(&id), "{servers}");
     assert_eq!(servers[4]["args"], json!(["mcp", "serve"]), "{servers}");
+    // No allowlist: the cmux server speaks code mode.
+    assert!(!servers[4]["env"].to_string().contains("CMUX_MCP_TOOLS"), "{servers}");
+
+    // A client cannot set the list on its session: only a preset (the
+    // Chief's turns, `chief_builtin_presets.rs`) does.
+    let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fake", "env": {"CMUX_MCP_TOOLS": "render"}}}});
+    let (refused, _) = local.call_text("session/new", params).await;
+    assert_eq!(refused["error"]["data"]["reason"], "env.key_refused", "{refused}");
 
     // Claude Code: the same servers in --mcp-config, the skills as a plugin.
     let id = local.new_session("fakeclaude").await;
