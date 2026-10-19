@@ -51,6 +51,7 @@ function walk(fiber: Fiber | null): void {
   },
 };
 
+// The scratch bench branch flips this default (the fleet step takes no env).
 const enabled = process.env.CMUX_SETTINGS_BENCH === "1";
 const iterations = Number(process.env.CMUX_SETTINGS_BENCH_N ?? 40);
 
@@ -134,7 +135,8 @@ function stats(name: string, samples: Sample[]) {
     settingRowsRendered: pick("rows"),
     settingsListReads: pick("lists"),
   };
-  console.log(`SETTINGS_BENCH ${JSON.stringify(out)}`);
+  // A notice line: run-webviews-tests.sh shows a passing file's notices.
+  console.log(`::notice::SETTINGS_BENCH ${JSON.stringify(out)}`);
   return out;
 }
 
@@ -197,50 +199,56 @@ function sectionPath(key: string): string {
   return `/settings/${homes.get(key)!.category}`;
 }
 
-test.skipIf(!enabled)("settings perf bench", async () => {
-  // Cold open: a new store and page (start, first read, first render) per sample.
-  for (const section of ["general", "appearance", "theme"]) {
-    const samples: Sample[] = [];
-    for (let index = 0; index < iterations; index += 1) {
-      const before = renderMs;
-      const start = performance.now();
-      const page = await mount(`/settings/${section}`);
-      samples.push({
-        wall: performance.now() - start,
-        react: renderMs - before,
-        rendered: 0,
-        rows: 0,
-        lists: page.lists(),
-      });
-      expect(page.container.querySelector("[data-row-key]") ?? page.container.querySelector(".section")).not.toBeNull();
-      page.unmount();
+test.skipIf(!enabled)(
+  "settings perf bench",
+  async () => {
+    // Cold open: a new store and page (start, first read, first render) per sample.
+    for (const section of ["general", "appearance", "theme"]) {
+      const samples: Sample[] = [];
+      for (let index = 0; index < iterations; index += 1) {
+        const before = renderMs;
+        const start = performance.now();
+        const page = await mount(`/settings/${section}`);
+        samples.push({
+          wall: performance.now() - start,
+          react: renderMs - before,
+          rendered: 0,
+          rows: 0,
+          lists: page.lists(),
+        });
+        expect(
+          page.container.querySelector("[data-row-key]") ?? page.container.querySelector(".section"),
+        ).not.toBeNull();
+        page.unmount();
+      }
+      stats(`open.${section}`, samples);
     }
-    stats(`open.${section}`, samples);
-  }
 
-  // Search: one keystroke at a time through "font size", then clearing it.
-  const query = "font size";
-  await scenario("search.keystroke", "/settings/general", (page, index) => {
-    const field = page.container.querySelector<HTMLInputElement>(".search-input")!;
-    const step = index % (query.length + 1);
-    setInput(field, step === query.length ? "" : query.slice(0, step + 1));
-  });
+    // Search: one keystroke at a time through "font size", then clearing it.
+    const query = "font size";
+    await scenario("search.keystroke", "/settings/general", (page, index) => {
+      const field = page.container.querySelector<HTMLInputElement>(".search-input")!;
+      const step = index % (query.length + 1);
+      setInput(field, step === query.length ? "" : query.slice(0, step + 1));
+    });
 
-  // A switch on the General page (59 rows): click, optimistic value, write, re-read.
-  const toggleKey = "tabs.cmdWClosesPinnedTabs";
-  await scenario("toggle.bool", sectionPath(toggleKey), (page) => {
-    page.container.querySelector<HTMLButtonElement>(`[data-row-key="${toggleKey}"] [role="switch"]`)!.click();
-  });
+    // A switch on the General page (59 rows): click, optimistic value, write, re-read.
+    const toggleKey = "tabs.cmdWClosesPinnedTabs";
+    await scenario("toggle.bool", sectionPath(toggleKey), (page) => {
+      page.container.querySelector<HTMLButtonElement>(`[data-row-key="${toggleKey}"] [role="switch"]`)!.click();
+    });
 
-  // Font size on its page: the write the field commits.
-  const fontKey = "terminal.fontSize";
-  await scenario("set.fontSize", sectionPath(fontKey), async (page, index) => {
-    await page.store.set(fontKey, 12 + (index % 6));
-  });
+    // Font size on its page: the write the field commits.
+    const fontKey = "terminal.fontSize";
+    await scenario("set.fontSize", sectionPath(fontKey), async (page, index) => {
+      await page.store.set(fontKey, 12 + (index % 6));
+    });
 
-  // Theme pick on the Theme page.
-  const themes = ["Dracula", "Nord", "Gruvbox Dark", "Solarized Dark Higher Contrast"];
-  await scenario("set.theme", "/settings/theme", async (page, index) => {
-    await page.store.set(THEME_KEY, themes[index % themes.length]);
-  });
-});
+    // Theme pick on the Theme page.
+    const themes = ["Dracula", "Tokyo Night", "Gruvbox Dark", "Catppuccin Mocha"];
+    await scenario("set.theme", "/settings/theme", async (page, index) => {
+      await page.store.set(THEME_KEY, themes[index % themes.length]);
+    });
+  },
+  600_000,
+);

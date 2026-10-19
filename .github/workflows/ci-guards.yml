@@ -633,6 +633,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate published-in PR comments
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_published_in_comments.py
+
       - name: Validate merge receipts
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
@@ -1345,6 +1349,10 @@ jobs:
       - name: Validate Sparkle appcast generation without previous archives
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_sparkle_generate_appcast_no_deltas.sh
+
+      - name: Validate Sparkle key export permissions
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_sparkle_generate_keys_permissions.sh
 
       - name: Validate Sparkle appcast macOS floor
         if: ${{ matrix.group == 'release-notary' }}
