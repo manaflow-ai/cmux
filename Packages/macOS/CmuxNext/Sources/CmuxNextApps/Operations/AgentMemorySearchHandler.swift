@@ -6,7 +6,11 @@ import Foundation
 /// has the index tool; otherwise the op stays `operation.unsupported`, and the
 /// app searches the file names and texts it already read. The app's `roots`
 /// are accepted and not used: the index is one root, `agent-memory`, and it
-/// never reads a path the app names. Other `memory.*` ops stay unsupported.
+/// never reads a path the app names. Only the first-party Agent Memory app
+/// (`cmux/memory`) reads the index: it also holds saved notes, the
+/// `agents.memory.sources` folders and the owner machine's memory, more than
+/// the `memory:read` consent names, so another app holding that scope gets
+/// `operation.unsupported`. Other `memory.*` ops stay unsupported.
 public nonisolated struct AgentMemorySearchHandler: AppHostCapabilityHandler {
     private let enabled: @MainActor @Sendable () -> Bool
     private let index: (any AgentMemoryIndex)?
@@ -17,6 +21,8 @@ public nonisolated struct AgentMemorySearchHandler: AppHostCapabilityHandler {
     static let maximumLimit = 200
     /// The longest query, in UTF-8 bytes.
     static let maximumQueryBytes = 1024
+    /// The one app that reads the index.
+    static let memoryApp = "cmux/memory"
 
     /// The capability family supplied on the verified-app provider channel.
     public var families: Set<String> { ["memory"] }
@@ -36,7 +42,7 @@ public nonisolated struct AgentMemorySearchHandler: AppHostCapabilityHandler {
     /// - Throws: `operation.unsupported` while memory is off or for other ops,
     ///   `validation.invalid` for malformed params, or the index's failure.
     public func handle(_ request: AppHostCapabilityRequest) async throws(AppHostCapabilityError) -> AppJSON {
-        guard request.op == "memory.search" else { throw .unsupported(request.op) }
+        guard request.op == "memory.search", request.app == Self.memoryApp else { throw .unsupported(request.op) }
         guard await enabled(), let index else { throw .unsupported(request.op) }
         let (query, limit) = try Self.parse(request.params)
         let hits = try await index.search(query: query, limit: limit)

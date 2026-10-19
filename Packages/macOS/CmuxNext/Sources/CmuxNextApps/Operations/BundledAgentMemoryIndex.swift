@@ -25,11 +25,13 @@ public nonisolated struct BundledAgentMemoryIndex: AgentMemoryIndex {
         self.timeout = timeout
     }
 
-    /// The tool in this app bundle's `Contents/Resources/bin`, or nil without a resource folder.
+    /// The tool in this app bundle's `Contents/Resources/bin`, or nil when the build ships none (Release, RC).
     /// - Parameter resources: The bundle's resource folder.
-    /// - Returns: An index over `bin/optchat-chief`; Release builds that ship no tool answer unsupported.
+    /// - Returns: An index over `bin/optchat-chief` when that file is executable.
     public static func bundled(resources: URL? = Bundle.main.resourceURL) -> BundledAgentMemoryIndex? {
-        resources.map { BundledAgentMemoryIndex(executable: $0.appendingPathComponent("bin", isDirectory: true).appendingPathComponent(toolName)) }
+        guard let tool = resources?.appendingPathComponent("bin", isDirectory: true).appendingPathComponent(toolName),
+              FileManager.default.isExecutableFile(atPath: tool.path) else { return nil }
+        return BundledAgentMemoryIndex(executable: tool)
     }
 
     public func search(query: String, limit: Int) async throws(AppHostCapabilityError) -> [AgentMemoryHit] {
@@ -41,12 +43,20 @@ public nonisolated struct BundledAgentMemoryIndex: AgentMemoryIndex {
                                                  arguments: ["agent-memory", "search", "--json", "--limit", String(limit), "--", query],
                                                  environment: nil, timeout: timeout, clock: ContinuousClock())
         } catch {
+            if Task.isCancelled { throw cancelled() }
             throw unavailable(retryable: true)
         }
+        // A cancelled call's child is killed; that exit is the cancellation, not an outage.
+        if Task.isCancelled { throw cancelled() }
         guard result.status == 0, let hits = try? JSONDecoder().decode([AgentMemoryHit].self, from: result.stdout) else {
             throw unavailable(retryable: result.status != 0)
         }
         return hits
+    }
+
+    private func cancelled() -> AppHostCapabilityError {
+        AppHostCapabilityError(code: "operation.cancelled",
+                               message: String(localized: "apps.memory.search.cancelled", defaultValue: "The memory search was cancelled", bundle: .module))
     }
 
     private func unavailable(retryable: Bool) -> AppHostCapabilityError {
