@@ -188,7 +188,7 @@ class GroupBisectAndLand(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 1, "", refusals.pop(0))
             return subprocess.CompletedProcess(command, 0, "", "")
 
-        with mock.patch.object(nb.subprocess, "run", fake_run), \
+        with mock.patch.object(nb.subprocess, "run", fake_run), mock.patch.object(nb, "now", return_value=NOW), \
                 mock.patch.object(nb, "landing_refusal", return_value=refusal):
             outcome = item.run_group("ui", members)
         return outcome, comments, merges

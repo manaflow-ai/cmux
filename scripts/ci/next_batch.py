@@ -478,11 +478,14 @@ def red_fast_checks(pr: PullRequest) -> list[str]:
                    if status == "completed" and conclusion in RED and name not in HEAVY_CHECKS | fixable})
 
 
-def group_red_heavy(pr: PullRequest) -> str | None:
-    """A group member's red heavy-tier check. The batch's waiver covers only a
-    stack's last PR, so gh-merge-green would refuse a middle member for it."""
-    red = sorted({name for name, status, conclusion in pr.checks
-                  if status == "completed" and conclusion in RED and name in HEAVY_CHECKS})
+def group_hold(pr: PullRequest) -> str | None:
+    """Why a group member can't land with the rest: any failed check of its own,
+    heavy tier and trusted `queue: known base red` included. Each member lands
+    through gh-merge-green, which judges those checks; one refused after the
+    members before it landed would strand the group, and the batch's waiver
+    covers only a stack's last PR. A red the base shares holds the group until
+    the base is fixed (gh-merge-green has no check-only mode to ask first)."""
+    red = sorted({name for name, status, conclusion in pr.checks if status == "completed" and conclusion in RED})
     return "red check " + ", ".join(red) if red else None
 
 
@@ -2103,6 +2106,12 @@ class Controller:
             return [(pr, f"not landed: {BASE} changed the group's files since validation; {REVALIDATE}")
                     for pr in included]
         fresh = self.fresh_members(included)
+        # Validation takes hours: a check pending at selection may be red by now.
+        late = {pr.number: why for pr in included if (current := fresh.get(pr.number)) is not None
+                and (why := ineligible_reason(current, now()) or group_hold(current))}
+        if late:
+            why = "; ".join(f"#{number} {text}" for number, text in late.items())
+            return [(pr, f"not landed: {why}") for pr in included]
         helper = self.merge_green()
         outcome: list[tuple[PullRequest, str]] = []
         for index, pr in enumerate(included):
@@ -2151,7 +2160,7 @@ class Controller:
             members = [pr for pr in members if not self.reported(pr, ("culprit", "conflict", "refused"))]
             # Own checks count: each member lands through gh-merge-green, which judges them,
             # and a red one found only at landing would strand the members before it.
-            reasons = {pr.number: ineligible_reason(pr, now()) or group_red_heavy(pr) for pr in members}
+            reasons = {pr.number: ineligible_reason(pr, now()) or group_hold(pr) for pr in members}
             if not members or any(reasons.values()):
                 why = "; ".join(f"#{number} {reason}" for number, reason in reasons.items() if reason) or "no member left"
                 log(f"group {name}: waiting ({why})")
