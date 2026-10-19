@@ -1,5 +1,5 @@
 import CmuxNextDesign
-public import CmuxNextDevices
+import CmuxNextDevices
 import Foundation
 import SwiftUI
 

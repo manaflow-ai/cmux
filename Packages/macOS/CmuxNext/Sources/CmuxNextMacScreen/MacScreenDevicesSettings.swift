@@ -1,7 +1,7 @@
 import CmuxNextCompat
-public import CmuxNextDevices
+import CmuxNextDevices
 import CmuxScreenKit
-public import Foundation
+import Foundation
 public import Observation
 
 /// Settings > Devices (the React Settings page's `devices` card): the state
@@ -95,6 +95,25 @@ public final class MacScreenDevicesSettings {
             var sharesText: String?
             var access: String?
             var removeConfirm: Confirm
+
+            enum CodingKeys: String, CodingKey {
+                case id, name, platform, fingerprint, online, presence, thisDevice, sharesText, access, removeConfirm
+            }
+
+            /// The page reads null for an absent value, never a missing key.
+            public func encode(to encoder: any Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(id, forKey: .id)
+                try c.encode(name, forKey: .name)
+                try c.encode(platform, forKey: .platform)
+                try c.encode(fingerprint, forKey: .fingerprint)
+                try c.encode(online, forKey: .online)
+                try c.encode(presence, forKey: .presence)
+                try c.encode(thisDevice, forKey: .thisDevice)
+                try c.encode(sharesText, forKey: .sharesText)
+                try c.encode(access, forKey: .access)
+                try c.encode(removeConfirm, forKey: .removeConfirm)
+            }
         }
 
         public struct Permission: Encodable, Equatable, Sendable {
@@ -126,6 +145,24 @@ public final class MacScreenDevicesSettings {
             var hasSecret: Bool
             var checking: Bool
             var check: Check?
+
+            enum CodingKeys: String, CodingKey {
+                case id, name, urls, mode, modeText, enabled, priority, hasSecret, checking, check
+            }
+
+            public func encode(to encoder: any Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(id, forKey: .id)
+                try c.encode(name, forKey: .name)
+                try c.encode(urls, forKey: .urls)
+                try c.encode(mode, forKey: .mode)
+                try c.encode(modeText, forKey: .modeText)
+                try c.encode(enabled, forKey: .enabled)
+                try c.encode(priority, forKey: .priority)
+                try c.encode(hasSecret, forKey: .hasSecret)
+                try c.encode(checking, forKey: .checking)
+                try c.encode(check, forKey: .check)
+            }
         }
 
         public struct HistoryRow: Encodable, Equatable, Sendable {

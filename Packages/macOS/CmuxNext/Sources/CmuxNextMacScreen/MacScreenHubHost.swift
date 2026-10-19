@@ -1,5 +1,5 @@
 public import CmuxNextDevices
-public import CmuxScreenKit
+import CmuxScreenKit
 import Foundation
 public import Observation
 import os

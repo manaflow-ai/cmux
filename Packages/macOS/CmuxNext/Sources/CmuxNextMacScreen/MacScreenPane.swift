@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxScreenKit
-public import CmuxNextDevices
+import CmuxNextDevices
 import CmuxNextRemoteView
 import CmuxNextWakeups
 public import Observation
