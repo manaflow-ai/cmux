@@ -200,6 +200,27 @@ class Sandbox(unittest.TestCase):
             result = touches.run_bun(["-e", script], Path(tmp), Path(tmp), sandbox=True)
         self.assertEqual(result.stdout.split(), ["0", "no-net"], result.stderr)
 
+    def test_bun_can_write_only_in_the_work_directory(self):
+        # Root inside the namespace tries to undo the read-only mounts first, then to write.
+        script = ("const fs = require('fs');"
+                  "Bun.spawnSync(['mount', '-o', 'remount,bind,rw', '/']);"
+                  "Bun.spawnSync(['mount', '-o', 'remount,bind,rw', '/tmp']);"
+                  "for (const p of process.argv.slice(1)) {"
+                  "  try { fs.writeFileSync(p, 'x'); console.log('wrote'); } catch { console.log('refused'); } }")
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            work, outside = Path(tmp, "work"), Path(tmp, "outside")
+            work.mkdir()
+            outside.mkdir()
+            in_tmp = Path("/tmp", f"{Path(tmp).name}-planted")
+            targets = [in_tmp, outside / "planted", work / "ok", work / "home" / "ok"]
+            try:
+                result = touches.run_bun(["-e", script, *map(str, targets)], work, work, sandbox=True)
+                self.assertEqual(result.stdout.split(), ["refused", "refused", "wrote", "wrote"], result.stderr)
+                self.assertFalse(in_tmp.exists())
+                self.assertFalse((outside / "planted").exists())
+            finally:
+                in_tmp.unlink(missing_ok=True)
+
 
     def test_test_paths(self):
         self.assertEqual(touches.test_path("tests/a.test.ts"), "web/tests/a.test.ts")
