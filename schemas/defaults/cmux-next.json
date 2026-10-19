@@ -462,7 +462,6 @@
     "setting.sidebar.hoverCards.enabled": true,
     "setting.sidebar.minimal": false,
     "setting.sidebar.minimalMode": "off",
-    "setting.sidebar.nowPlaying.enabled": true,
     "setting.sidebar.numbering": "allItems",
     "setting.sidebar.pinnedBandsScroll": true,
     "setting.sidebar.sectionLook": "quiet",

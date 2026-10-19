@@ -2378,12 +2378,6 @@
       "title" : "Hide Bands Until Hover",
       "type" : "string"
     },
-    "sidebar.nowPlaying.enabled" : {
-      "default" : true,
-      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
-      "title" : "Show Now Playing",
-      "type" : "boolean"
-    },
     "sidebar.numbering" : {
       "default" : "allItems",
       "description" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
