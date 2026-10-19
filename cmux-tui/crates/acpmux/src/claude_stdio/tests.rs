@@ -127,3 +127,65 @@ async fn a_local_command_result_ends_the_prompt() {
     let msgs = t.inbound(&local_result("")).await;
     assert!(!answered(&msgs, 3), "startup noise ended the prompt: {msgs:?}");
 }
+
+/// Claude Code 2.1.303's `/compact`, as it streams it: the compacting status,
+/// the boundary, the summary as a synthetic user line, the command's stdout,
+/// and a result with no turn and no API time. The prompt ends (before, that
+/// result read as startup noise and the chat stayed running), the chat gets a
+/// running and a completed `compaction` update, and the summary becomes a
+/// `compaction_summary` update. A wrapper's `compact_metadata.reason` is kept.
+#[tokio::test]
+async fn compact_ends_its_prompt_and_reports_the_compaction() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = Message::request(
+        4,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "/compact"}]}),
+    );
+    let Outbound::Lines(_) = t.outbound(&prompt).await else { panic!() };
+    let lines = [
+        json!({"type": "system", "subtype": "status", "status": "compacting", "session_id": "s"}),
+        json!({"type": "system", "subtype": "status", "status": null, "compact_result": "success", "session_id": "s"}),
+        json!({"type": "system", "subtype": "compact_boundary", "session_id": "s", "compact_metadata": {"trigger": "manual", "pre_tokens": 27183, "post_tokens": 2047, "reason": "account_switch"}}),
+        json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isReplay": false, "isSynthetic": true, "message": {"role": "user", "content": "This session is being continued from a previous conversation. Summary: PLUM-42"}}),
+        json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isReplay": false, "message": {"role": "user", "content": "<local-command-stdout>Compacted </local-command-stdout>"}}),
+        json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "local_command": "compact", "result": ""}),
+    ];
+    let mut updates = Vec::new();
+    let mut ended = false;
+    for line in &lines {
+        for m in t.inbound(line).await {
+            match m {
+                Message::Notification { params, .. } => {
+                    if let Some(u) = params.as_ref().and_then(|p| p.get("update")) {
+                        updates.push(u.clone());
+                    }
+                }
+                Message::Response { id, result: Some(r), .. } if id == Value::from(4) => {
+                    ended = r["stopReason"] == "end_turn";
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(ended, "/compact left its prompt open: {updates:?}");
+    let kinds: Vec<&str> = updates.iter().filter_map(|u| u["sessionUpdate"].as_str()).collect();
+    assert_eq!(kinds, ["compaction", "compaction", "compaction_summary"], "{updates:?}");
+    assert_eq!(updates[0]["state"], "running");
+    assert_eq!(
+        updates[1],
+        json!({"sessionUpdate": "compaction", "state": "completed", "trigger": "manual", "reason": "account_switch", "preTokens": 27183, "postTokens": 2047})
+    );
+    assert_eq!(
+        updates[2]["text"],
+        "This session is being continued from a previous conversation. Summary: PLUM-42"
+    );
+
+    // A synthetic user line after the compaction's result is not a summary.
+    let later = json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isSynthetic": true, "message": {"role": "user", "content": "hook text"}});
+    let msgs = t.inbound(&later).await;
+    assert!(
+        !msgs.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction_summary")))),
+        "{msgs:?}"
+    );
+}
