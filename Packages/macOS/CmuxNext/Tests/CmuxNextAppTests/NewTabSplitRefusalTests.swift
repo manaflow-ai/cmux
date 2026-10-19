@@ -6,7 +6,8 @@ import CmuxNextBridge
 import Foundation
 import Testing
 
-/// cx-zloqa: Split Right from a page opens the New Tab page in the new pane, and keys typed
+/// cx-zloqa: Split Right from a page opens the New Tab page in the new pane (here a daemon
+/// without `conversation-tab-split-v1`: the page is made hidden, then moved), and keys typed
 /// meanwhile wait for its field (cx-kql5h). When the store refuses the page's tab after the
 /// split started (the reply fails, or the creation is cancelled), the held keys stayed held
 /// until the hold's own limit ran out, four seconds of typing that went nowhere. The refusal
@@ -39,7 +40,8 @@ import Testing
         // The store takes the creation, then refuses it (or the creation is cancelled) after the split started.
         tabs.create = { _, _, _, _, _, _ in
             await Task.yield()
-            throw cancelled ? CancellationError() : Refused()
+            if cancelled { throw CancellationError() }
+            throw Refused()
         }
         let model = try #require(store.workspaces.first?.screens.first?.panes.first)
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
