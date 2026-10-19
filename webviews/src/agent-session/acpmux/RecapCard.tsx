@@ -101,7 +101,8 @@ export function useRecapCard({
 const withKey = (keys: readonly string[], key: string) => [...keys.filter((kept) => kept !== key), key].slice(-KEPT);
 
 /// The card: summary (muted, at most three lines), the question, then Yes and Not now.
-/// `keyHint`: ⌘Return on the composer answers yes (not in the Quick Composer, whose ⌘Return opens a window).
+/// `keyHint`: ⌘Return on the composer answers yes (not in the Quick Composer, whose ⌘Return opens a window,
+/// nor in shell mode).
 export function RecapCard({
   recap,
   onReply,

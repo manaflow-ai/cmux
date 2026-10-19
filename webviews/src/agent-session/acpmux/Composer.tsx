@@ -226,6 +226,8 @@ type Props = {
   /// ⌘Return on an empty prompt while no turn runs (where it does nothing else): the recap card's
   /// yes (RecapCard.tsx). Set only while that card shows.
   onEmptyCommandReturn?(): void;
+  /// Shell mode (`!` first) on or off: its ⌘Return answers no recap card, so the card drops its key.
+  onShellChange?(shell: boolean): void;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
@@ -271,6 +273,7 @@ export function Composer({
   onMode,
   onOpenInWindow,
   onEmptyCommandReturn,
+  onShellChange,
   handle,
   sessionId,
   switching,
@@ -304,7 +307,13 @@ export function Composer({
   textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
-  const [shell, setShell] = useState(false);
+  const [shell, setShellState] = useState(false);
+  const shellChange = useRef(onShellChange);
+  shellChange.current = onShellChange;
+  const setShell = (on: boolean) => {
+    setShellState(on);
+    shellChange.current?.(on);
+  };
   const [shellText, setShellText] = useState("");
   const shellRef = useRef({ shell, shellText });
   shellRef.current = { shell, shellText };
@@ -813,6 +822,7 @@ export function Composer({
     if (
       commandReturn &&
       onEmptyCommandReturn &&
+      !shell &&
       remote.canSend &&
       !snapshot.isWorking &&
       !text.trim() &&

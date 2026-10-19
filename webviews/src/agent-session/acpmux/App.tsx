@@ -3568,6 +3568,8 @@ function AcpmuxPane() {
   /// The composer itself, which takes back prompts a harness switch held; prompts handed back
   /// while it is not mounted (a handoff review) go in when it mounts.
   const composerHandle = useRef<ComposerHandle | null>(null);
+  /// The composer is in shell mode, whose ⌘Return answers no recap card (RecapCard.tsx `keyHint`).
+  const [composerShell, setComposerShell] = useState(false);
   const heldBack = useRef<{ text: string; attachments: ComposerAttachment[] }[] | undefined>(undefined);
   /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
@@ -3575,6 +3577,8 @@ function AcpmuxPane() {
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
+    // A composer that goes takes its shell mode with it.
+    if (!handle) setComposerShell(false);
     if (handle && pendingWake.current) {
       handle.wake(pendingWake.current);
       pendingWake.current = undefined;
@@ -5278,7 +5282,12 @@ function AcpmuxPane() {
     <>
       <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
       {recapCard.recap && (
-        <RecapCard recap={recapCard.recap} onReply={recapCard.reply} onDismiss={recapCard.dismiss} keyHint={!quick} />
+        <RecapCard
+          recap={recapCard.recap}
+          onReply={recapCard.reply}
+          onDismiss={recapCard.dismiss}
+          keyHint={!quick && !composerShell}
+        />
       )}
       <DictationNotice dictation={dictation} />
       {importError && (
@@ -5544,6 +5553,7 @@ function AcpmuxPane() {
           upload={uploadFiles}
           onOpenInWindow={quick ? openInWindow : undefined}
           onEmptyCommandReturn={recapCard.recap ? recapCard.reply : undefined}
+          onShellChange={setComposerShell}
           prompt={prompt}
           handle={composerRef}
           // No prompt goes while a picked folder waits for the user's answer.
