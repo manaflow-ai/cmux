@@ -7,7 +7,7 @@ export interface DaytonaCall {
 
 interface FakeSandbox {
   readonly id: string;
-  state: "started" | "stopped";
+  state: "started" | "stopped" | "paused";
   cpu: number;
   memory: number;
   disk: number;
@@ -100,7 +100,7 @@ export function makeFakeDaytona() {
         return Response.json({ id: snapshot.id, name: snapshot.name, state: snapshot.state });
       }
     }
-    const match = /^\/sandbox\/([^/]+)(?:\/(start|stop|resize|snapshot|toolbox-proxy-url))?$/.exec(path);
+    const match = /^\/sandbox\/([^/]+)(?:\/(start|stop|pause|resize|snapshot|toolbox-proxy-url))?$/.exec(path);
     if (path === "/sandbox" && request.method === "POST") {
       const body = jsonObject(await json(request));
       if (typeof body.snapshot === "string" && ("cpu" in body || "memory" in body || "disk" in body)) {
@@ -144,6 +144,11 @@ export function makeFakeDaytona() {
       sandbox.updatedAt = "2026-10-18T00:00:02.000Z";
       return Response.json(bodyFor(sandbox));
     }
+    if (request.method === "POST" && operation === "pause") {
+      sandbox.state = "paused";
+      sandbox.updatedAt = "2026-10-18T00:00:03.000Z";
+      return Response.json(bodyFor(sandbox));
+    }
     if (request.method === "POST" && operation === "resize") {
       const body = jsonObject(await json(request));
       if (typeof body.cpu === "number") sandbox.cpu = body.cpu;
@@ -178,7 +183,16 @@ export function makeFakeDaytona() {
     const path = url.searchParams.get("path") ?? "";
     const key = `${sandboxId}\u0000${path}`;
     if (operation === "files/upload-v2" && request.method === "POST") {
-      files.set(key, new Uint8Array(await request.clone().arrayBuffer()));
+      const contentType = request.headers.get("content-type") ?? "";
+      if (!contentType.startsWith("multipart/form-data;")) return Response.json({ message: "multipart required" }, { status: 400 });
+      const boundary = /boundary=([^;]+)/u.exec(contentType)?.[1];
+      if (boundary === undefined) return Response.json({ message: "boundary required" }, { status: 400 });
+      const bytes = new Uint8Array(await request.clone().arrayBuffer());
+      const text = new TextDecoder().decode(bytes);
+      const start = text.indexOf("\r\n\r\n");
+      const end = text.lastIndexOf(`\r\n--${boundary}`);
+      if (start < 0 || end < start) return Response.json({ message: "file part required" }, { status: 400 });
+      files.set(key, bytes.slice(start + 4, end));
       return Response.json({ name: path.split("/").at(-1) ?? path, path, type: "file" });
     }
     if (operation === "files/download" && request.method === "GET") {

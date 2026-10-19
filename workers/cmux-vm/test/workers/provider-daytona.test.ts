@@ -72,11 +72,14 @@ describe("Daytona provider adapter", () => {
           const write = yield* scopeOf(caller, "vm:write");
           const create = yield* client.createVm(caller, { cmuxId: vmId, idleTimeoutSeconds: 120, environment: "test", size: { vcpus: 2, memoryMib: 4096, diskMib: 8192 } }, { mayCreate: decision.proof, scope: write });
           const createCall = fake.calls.find((call) => call.method === "POST" && call.url.pathname.endsWith("/sandbox"));
-          expect(createCall?.body).toMatchObject({ image: "ubuntu:22.04", cpu: 2, memory: 4, disk: 8 });
+          expect(createCall?.body).toMatchObject({ buildInfo: { dockerfileContent: "FROM ubuntu:22.04\n" }, cpu: 2, memory: 4, disk: 8 });
           expect(createCall?.body && typeof createCall.body === "object" && "snapshot" in createCall.body).toBe(false);
           const unsupported = yield* Effect.either(client.createVm(caller, { cmuxId: newVmId(), idleTimeoutSeconds: 120, maxRunSeconds: 3600, environment: "test" }, { mayCreate: decision.proof, scope: write }));
           expect(unsupported._tag).toBe("Left");
-          if (unsupported._tag === "Left") expect(unsupported.left.status).toBe(409);
+          if (unsupported._tag === "Left") {
+            expect(unsupported.left.status).toBe(400);
+            expect(unsupported.left.unsupported).toContain("maxRunSeconds");
+          }
           proofs.resources.push({ tenantId: tenant, kind: "vm", cmuxId: vmId, upstreamId: create.upstreamId, createdBy: "test", createdAt: new Date(), displayName: null, labels: {} });
           expect(create.vm).toMatchObject({ state: "running", resources: { cpu: 2, memory: 4096, storage: 8192 }, idleTimeoutSeconds: 120 });
           return yield* name(vmId, (vm) =>
@@ -91,6 +94,9 @@ describe("Daytona provider adapter", () => {
               const output = yield* client.exec(vm, { owns, scope: exec }, { command: "echo ok" });
               const outputText = yield* Effect.promise(() => new Response(output).text());
               expect(JSON.parse(outputText)).toEqual({ exitCode: 0, stdout: "ran: echo ok\n", stderr: "" });
+              const userRefusal = yield* Effect.either(client.exec(vm, { owns, scope: exec }, { command: "id", linuxUser: "root" }));
+              expect(userRefusal._tag).toBe("Left");
+              if (userRefusal._tag === "Left") expect(userRefusal.left.unsupported).toContain("Linux user");
               const content = new TextEncoder().encode("hello daytona");
               yield* client.writeFile(vm, { owns, scope: files }, { path: "workspace/hello.txt", mode: 0o644, body: new ReadableStream({ start(controller) { controller.enqueue(content); controller.close(); } }), length: content.length });
               const file = yield* client.readFile(vm, { owns, scope: files }, "workspace/hello.txt", undefined);
@@ -107,7 +113,7 @@ describe("Daytona provider adapter", () => {
                   const snapshotOwns = yield* tenantOwnsSnapshot(caller, snapshotNamed).pipe(Effect.provide(proofs.ownership));
                   if (snapshotOwns === null) return yield* Effect.die("test snapshot ownership proof missing");
                   expect(yield* client.deleteSnapshot(snapshotNamed, { owns: snapshotOwns, scope: write })).toBe("deleted");
-                  expect((yield* client.pauseVm(vm, { owns, scope: write })).state).toBe("stopped");
+                  expect((yield* client.pauseVm(vm, { owns, scope: write })).state).toBe("paused");
                   expect((yield* client.startVm(vm, { owns, scope: write })).state).toBe("running");
                   yield* client.shutdownVm(vm, { owns, scope: write });
                   expect(yield* client.deleteVm(vm, { owns, scope: write })).toBe("deleted");
@@ -175,12 +181,13 @@ describe("Daytona lifecycle webhooks", () => {
     const deliveries = new Map<string, boolean>();
     const handler = makeDaytonaWebhookHandler({
       secret,
+      organizationId: "org-test",
       nowMs: () => 1792281600000,
       resolveSandbox: async () => ({ tenantId: "tenant_daytona", vcpus: 2, memoryMb: 4096, storageMb: 8192 }),
       recorder: { record: (event) => Effect.sync(() => void recorded.push(event)) },
       deliveries: {
-        processed: (id) => Effect.succeed(deliveries.has(id)),
-        record: (id) => Effect.sync(() => void deliveries.set(id, true)),
+        claim: (id) => Effect.sync(() => { if (deliveries.has(id)) return false; deliveries.set(id, true); return true; }),
+        release: (id) => Effect.sync(() => void deliveries.delete(id)),
       },
     });
     const valid = await run(handler(await signedRequest("daytona-message-1")));
@@ -191,6 +198,9 @@ describe("Daytona lifecycle webhooks", () => {
     expect(await replay.json()).toEqual({ ok: true, duplicate: true });
     const tampered = await run(handler(await signedRequest("daytona-message-2", payload.replace("stopped", "destroyed"), payload)));
     expect(tampered.status).toBe(401);
+    const wrongOrgPayload = payload.replace('"org-test"', '"other-org"');
+    const wrongOrg = await run(handler(await signedRequest("daytona-wrong-org", wrongOrgPayload)));
+    expect(wrongOrg.status).toBe(401);
   });
 
   it("does not mark a delivery until recording succeeds", async () => {
@@ -198,17 +208,39 @@ describe("Daytona lifecycle webhooks", () => {
     let attempts = 0;
     const handler = makeDaytonaWebhookHandler({
       secret,
+      organizationId: "org-test",
       nowMs: () => 1792281600000,
       resolveSandbox: async () => ({ tenantId: "tenant_daytona", vcpus: 1, memoryMb: 1024, storageMb: 3072 }),
       recorder: { record: () => { attempts += 1; return attempts === 1 ? Effect.fail(new Error("temporary")) : Effect.void; } },
       deliveries: {
-        processed: (id) => Effect.succeed(deliveries.has(id)),
-        record: (id) => Effect.sync(() => void deliveries.set(id, true)),
+        claim: (id) => Effect.sync(() => { if (deliveries.has(id)) return false; deliveries.set(id, true); return true; }),
+        release: (id) => Effect.sync(() => void deliveries.delete(id)),
       },
     });
     await run(Effect.either(handler(await signedRequest("daytona-retry"))));
     const second = await run(handler(await signedRequest("daytona-retry")));
     expect(second.status).toBe(200);
     expect(attempts).toBe(2);
+  });
+
+  it("claims concurrent deliveries once and rejects another organization", async () => {
+    const deliveries = new Map<string, boolean>();
+    let attempts = 0;
+    const handler = makeDaytonaWebhookHandler({
+      secret,
+      organizationId: "org-test",
+      nowMs: () => 1792281600000,
+      resolveSandbox: async () => ({ tenantId: "tenant_daytona", vcpus: 1, memoryMb: 1024, storageMb: 3072 }),
+      recorder: { record: () => Effect.sync(() => { attempts += 1; }) },
+      deliveries: {
+        claim: (id) => Effect.sync(() => { if (deliveries.has(id)) return false; deliveries.set(id, true); return true; }),
+        release: (id) => Effect.sync(() => void deliveries.delete(id)),
+      },
+    });
+    const responses = await Promise.all([signedRequest("daytona-concurrent"), signedRequest("daytona-concurrent")].map((request) => run(handler(request))));
+    expect(responses.filter((response) => response.status === 200)).toHaveLength(2);
+    expect(attempts).toBe(1);
+    const wrongOrg = await run(handler(await signedRequest("daytona-org-mismatch", payload.replace("org-test", "other-org"))));
+    expect(wrongOrg.status).toBe(401);
   });
 });

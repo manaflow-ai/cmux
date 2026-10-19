@@ -14,6 +14,7 @@ export interface DaytonaUsageResource {
 
 export interface DaytonaWebhookConfig {
   readonly secret: Redacted.Redacted<string>;
+  readonly organizationId: string;
   /** Resolves the ownership row and current resources without trusting webhook tenant fields. */
   readonly resolveSandbox: (upstreamVmId: string) => Promise<DaytonaUsageResource | null>;
   readonly recorder?: { readonly record: (event: UsageEvent) => Effect.Effect<void, unknown> };
@@ -88,7 +89,6 @@ export const makeDaytonaWebhookHandler = (config: DaytonaWebhookConfig) => {
       const nowMs = config.nowMs?.() ?? Date.now();
       const signature = yield* Effect.tryPromise(() => verifyWebhookSignature(config.secret, request.headers, body, nowMs));
       if (!signature.ok) return response(401, { _tag: "Unauthorized", message: "Invalid webhook signature" });
-      if (yield* config.deliveries.processed(signature.messageId)) return response(200, { ok: true, duplicate: true });
       let parsed: unknown;
       try {
         parsed = JSON.parse(body);
@@ -100,12 +100,15 @@ export const makeDaytonaWebhookHandler = (config: DaytonaWebhookConfig) => {
       if (stringField(payload, "event") !== "sandbox.state.updated") return response(200, { ok: true, ignored: true });
       const upstreamVmId = stringField(payload, "id");
       if (upstreamVmId === null) return response(400, { _tag: "BadRequest", message: "Malformed sandbox event" });
+      if (stringField(payload, "organizationId") !== config.organizationId) return response(401, { _tag: "Unauthorized", message: "Invalid webhook organization" });
       const resource = yield* Effect.tryPromise(() => config.resolveSandbox(upstreamVmId));
       if (resource === null) return response(200, { ok: true, ignored: true });
       const event = eventFor(payload, resource, eventAt(payload, nowMs));
       if (event === null) return response(200, { ok: true, ignored: true });
-      if (config.recorder !== undefined) yield* config.recorder.record(event);
-      yield* config.deliveries.record(signature.messageId, "sandbox.state.updated", new Date(nowMs));
+      if (!(yield* config.deliveries.claim(signature.messageId))) return response(200, { ok: true, duplicate: true });
+      if (config.recorder !== undefined) {
+        yield* config.recorder.record(event).pipe(Effect.tapError(() => config.deliveries.release(signature.messageId)));
+      }
       return response(200, { ok: true, recorded: event.kind });
     });
 };

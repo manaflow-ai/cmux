@@ -31,7 +31,10 @@ import type { MeshConfig } from "./mesh/config.ts";
 import type { UpstreamMesh } from "./upstream/mesh.ts";
 import type { MembershipCache } from "./auth/membership-cache.ts";
 import type { WebhookDeliveryStore } from "./db/identity.ts";
+import type { DaytonaWebhookDeliveryStore, DaytonaWebhookDeliveryStoreService } from "./db/identity.ts";
 import { handleStackWebhook, STACK_WEBHOOK_PATH } from "./handlers/stack-webhook.ts";
+import { handleDaytonaWebhook, type DaytonaUsageResource } from "./providers/daytona/webhook.ts";
+import type { UsageEvent } from "./metering/recorder.ts";
 
 export type Services =
   | OwnershipStore
@@ -48,13 +51,14 @@ export type Services =
   | MeshServices;
 
 /** Mesh experiment (cx-0op); the membership cache and webhook deliveries are M4 (cx-0op.6, cx-0op.7). */
-type MeshServices = MeshStore | UpstreamMesh | MeshConfig | MembershipCache | WebhookDeliveryStore;
+type MeshServices = MeshStore | UpstreamMesh | MeshConfig | MembershipCache | WebhookDeliveryStore | DaytonaWebhookDeliveryStore;
 
 /** Snapshots and terminals (slice S3a). */
 type S3aServices = SnapshotStore | UpstreamSnapshots | UpstreamTerminals | ApiKeyAdminStore | TeamAdmin;
 
 /** JSON request bodies above this are refused with 413 before any handler runs. File uploads have their own limit. */
 export const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
+export const DAYTONA_WEBHOOK_PATH = "/v1/webhooks/daytona";
 
 const UPLOAD_PATH = /^\/v1\/vms\/[^/]+\/files\/content$/u;
 
@@ -85,6 +89,13 @@ export interface WebHandlerOptions {
   readonly perWebhook?: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
   /** The Stack webhook signing secret (Worker secret STACK_WEBHOOK_SECRET); absent: the webhook answers 503. */
   readonly stackWebhookSecret?: Redacted.Redacted<string>;
+  readonly daytonaWebhook?: {
+    readonly secret: Redacted.Redacted<string>;
+    readonly organizationId: string;
+    readonly resolveSandbox: (upstreamVmId: string) => Promise<DaytonaUsageResource | null>;
+    readonly deliveries: DaytonaWebhookDeliveryStoreService;
+    readonly record?: (event: UsageEvent) => Effect.Effect<void, unknown>;
+  };
 }
 
 export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHandlerOptions = {}) => {
@@ -115,6 +126,13 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     runtime.runPromise(perWebhook(handleStackWebhook(request, options.stackWebhookSecret))).catch(() =>
       Response.json({ _tag: "ServiceUnavailable", message: "Webhook failed; retry" }, { status: 503 }),
     );
+  const daytonaWebhook = (request: Request): Promise<Response> => {
+    const config = options.daytonaWebhook;
+    if (config === undefined) return Promise.resolve(Response.json({ _tag: "ServiceUnavailable", message: "Daytona webhooks are not configured" }, { status: 503 }));
+    return runtime.runPromise(handleDaytonaWebhook(request, { ...config, ...(config.record === undefined ? {} : { recorder: { record: config.record } }) })).catch(() =>
+      Response.json({ _tag: "ServiceUnavailable", message: "Webhook failed; retry" }, { status: 503 }),
+    );
+  };
   return {
     dispose: async () => {
       await web.dispose();
@@ -123,6 +141,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     /** Refuses oversized JSON bodies, then serves the API. Uploads stream untouched to their handler. */
     handler: (request: Request): Promise<Response> => {
       if (new URL(request.url).pathname === STACK_WEBHOOK_PATH) return webhook(request);
+      if (new URL(request.url).pathname === DAYTONA_WEBHOOK_PATH) return daytonaWebhook(request);
       if (request.body === null || UPLOAD_PATH.test(new URL(request.url).pathname)) return web.handler(request);
       const declared = request.headers.get("content-length");
       if (declared !== null && Number(declared) > MAX_JSON_BODY_BYTES) return Promise.resolve(tooLarge());

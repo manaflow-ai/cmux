@@ -25,10 +25,10 @@ describe("Daytona webhook delivery store", () => {
     const layer = sqlDaytonaWebhookDeliveryStoreLayer.pipe(Layer.provide(sql));
     const run = <A, E>(effect: Effect.Effect<A, E, DaytonaWebhookDeliveryStore>) => Effect.runPromise(Effect.provide(effect, layer));
     const delivery = "daytona-message-1";
-    expect(await run(Effect.flatMap(DaytonaWebhookDeliveryStore, (store) => store.processed(delivery)))).toBe(false);
-    await run(Effect.flatMap(DaytonaWebhookDeliveryStore, (store) => store.record(delivery, "sandbox.state.updated", new Date())));
-    await run(Effect.flatMap(DaytonaWebhookDeliveryStore, (store) => store.record(delivery, "sandbox.state.updated", new Date())));
-    expect(await run(Effect.flatMap(DaytonaWebhookDeliveryStore, (store) => store.processed(delivery)))).toBe(true);
+    expect(await run(Effect.flatMap(DaytonaWebhookDeliveryStore, (store) => store.claim(delivery)))).toBe(true);
+    expect(await run(Effect.flatMap(DaytonaWebhookDeliveryStore, (store) => store.claim(delivery)))).toBe(false);
+    await run(Effect.flatMap(DaytonaWebhookDeliveryStore, (store) => store.release(delivery)));
+    expect(await run(Effect.flatMap(DaytonaWebhookDeliveryStore, (store) => store.claim(delivery)))).toBe(true);
     const rows = await db.query<{ count: string }>("SELECT count(*)::text AS count FROM cmux_vm.daytona_webhook_deliveries");
     expect(rows.rows[0]?.count).toBe("1");
   });
