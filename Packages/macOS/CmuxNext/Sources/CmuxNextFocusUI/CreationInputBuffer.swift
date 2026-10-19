@@ -3,7 +3,8 @@ public import AppKit
 /// The keys of one window's pending creations or awaited surface, in typing order.
 @MainActor
 public final class CreationInputBuffer {
-    public struct Ticket: Hashable { fileprivate let id: Int }
+    /// A ticket names its buffer too: a buffer flushed early never takes a later buffer's ticket of the same number.
+    public struct Ticket: Hashable { fileprivate let id: Int; fileprivate let owner: ObjectIdentifier }
 
     private var events: [NSEvent] = []
     private var pending: [Int: UInt64] = [:]
@@ -31,7 +32,7 @@ public final class CreationInputBuffer {
         pending[nextID] = generation
         if let earlyTab { earlyTabs[nextID] = earlyTab }
         if let tab { tabs[nextID] = tab }
-        return Ticket(id: nextID)
+        return Ticket(id: nextID, owner: ObjectIdentifier(self))
     }
 
     /// The person closed the creation of `tab` before it existed: it waits for nothing more, and
@@ -45,7 +46,7 @@ public final class CreationInputBuffer {
             earlyTabs[id] = nil
             pending[id] = nil
         }
-        if pending.isEmpty { events.removeAll() }
+        if pending.isEmpty, awaited.isEmpty { events.removeAll() }
         return true
     }
 
@@ -55,6 +56,7 @@ public final class CreationInputBuffer {
     /// `awaitsFocus`: the creation asked for focus under its generation; the keys wait until that
     /// expectation landed or was replaced. A failed creation asked for nothing.
     public func resolve(_ ticket: Ticket, awaitsFocus: Bool) {
+        guard ticket.owner == ObjectIdentifier(self) else { return }
         earlyTabs[ticket.id] = nil
         tabs[ticket.id] = nil
         guard let generation = pending.removeValue(forKey: ticket.id) else { return }

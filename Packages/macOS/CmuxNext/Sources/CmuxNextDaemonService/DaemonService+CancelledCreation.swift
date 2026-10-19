@@ -4,6 +4,9 @@ extension DaemonService {
     /// Cancels the creation that shows provisional tab `id` (``CancelledCreationClose``); false for any other tab.
     public func cancelCreation(tab id: String) -> Bool { CancelledCreationClose(daemon: self).cancel { $0.cancel(tab: id) } }
 
+    /// Cancels the pending split whose provisional pane shows tab `id` (Close Pane while its focus is on its way).
+    public func cancelSplit(showing id: String) -> Bool { CancelledCreationClose(daemon: self).cancel { $0.cancel(splitShowing: id) } }
+
     /// Cancels the split that shows provisional pane `handle`; false for any other pane.
     public func cancelCreation(pane handle: PaneID) -> Bool { CancelledCreationClose(daemon: self).cancel { $0.cancel(pane: handle) } }
 }

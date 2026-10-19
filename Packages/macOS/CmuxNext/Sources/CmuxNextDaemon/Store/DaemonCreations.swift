@@ -14,6 +14,15 @@ import Foundation
         return true
     }
 
+    /// A close of a pane while the focus names tab `id`: cancels only a pending split showing it
+    /// (a Close Pane right after Cmd-T keeps the pane). False otherwise.
+    public func cancel(splitShowing id: String) -> Bool {
+        guard let transaction = CancelledCreation.transaction(showingTab: id, in: store),
+              store.intentLog.entries.contains(where: { if case .splitPane = $0.kind { $0.transaction == transaction } else { false } }) else { return false }
+        CancelledCreation.cancel(transaction, in: store)
+        return true
+    }
+
     /// The same for the provisional pane `handle` of a pending split.
     public func cancel(pane handle: PaneID) -> Bool {
         guard let transaction = CancelledCreation.transaction(showingPane: handle, in: store) else { return false }

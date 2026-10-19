@@ -42,7 +42,7 @@ extension PaneHandlers {
         registry.bind("closePane", invoke: { invocation in
             // While the focus a split asked for is on its way, the focused pane is its new pane: the
             // split is cancelled, never the old pane closed (CancelledCreation); so is a provisional pane named.
-            if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
+            if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
             guard let pane = ctx.daemonPane(invocation), !ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) else { return }
             let handle = pane.handle
             ctx.send("close-pane") { try await $0.closePane(handle) }
