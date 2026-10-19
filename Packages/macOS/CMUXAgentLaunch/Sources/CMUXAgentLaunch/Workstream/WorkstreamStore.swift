@@ -341,12 +341,24 @@ public final class WorkstreamStore {
     private func bumpRevision() {
         revision += 1
         onRevisionChange?(revision)
+        persistRevision()
     }
 
     /// The latest append in the ordered write chain. Each append waits for
     /// the one before it, so the log replays mutations in the order the store
     /// applied them (latest version of an item wins on restart).
     private var persistenceTail: Task<Void, Never>?
+    private var revisionPersistenceTail: Task<Void, Never>?
+
+    private func persistRevision() {
+        guard let persistence else { return }
+        let previous = revisionPersistenceTail
+        let value = revision
+        revisionPersistenceTail = Task { [persistence] in
+            await previous?.value
+            try? await persistence.recordRevision(value)
+        }
+    }
 
     private func persist(_ item: WorkstreamItem) {
         guard let persistence else { return }
@@ -361,6 +373,7 @@ public final class WorkstreamStore {
     /// (and tests) that must read the log back.
     public func flushPersistence() async {
         await persistenceTail?.value
+        await revisionPersistenceTail?.value
     }
 
     private func insert(_ item: WorkstreamItem) {

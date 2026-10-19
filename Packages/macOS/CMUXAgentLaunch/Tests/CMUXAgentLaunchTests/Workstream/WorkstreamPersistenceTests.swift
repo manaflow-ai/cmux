@@ -4,6 +4,27 @@ import Testing
 
 @Suite("WorkstreamPersistence")
 struct WorkstreamPersistenceTests {
+    @Test("Revision high-water survives a restart without a JSONL append")
+    func revisionHighWaterSurvivesRestart() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-revision-floor-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(at: tmp.appendingPathExtension("revision"))
+        }
+
+        let first = WorkstreamPersistence(fileURL: tmp)
+        try await first.recordRevision(41)
+
+        let restarted = WorkstreamPersistence(fileURL: tmp)
+        #expect(try await restarted.loadRevision() == 41)
+        try await restarted.recordRevision(7)
+        #expect(try await restarted.loadRevision() == 41)
+
+        try await restarted.clear()
+        #expect(try await restarted.loadRevision() == 0)
+    }
+
     @Test("Append + loadRecent round-trips items oldest-first")
     func appendAndLoad() async throws {
         let tmp = FileManager.default.temporaryDirectory

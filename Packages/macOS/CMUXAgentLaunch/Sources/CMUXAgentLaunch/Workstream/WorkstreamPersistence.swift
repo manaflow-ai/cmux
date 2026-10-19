@@ -68,6 +68,7 @@ public actor WorkstreamPersistence {
     }
 
     private let fileURL: URL
+    private let revisionURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var handle: FileHandle?
@@ -79,6 +80,7 @@ public actor WorkstreamPersistence {
 
     public init(fileURL: URL) {
         self.fileURL = fileURL
+        self.revisionURL = fileURL.appendingPathExtension("revision")
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         self.encoder = enc
@@ -241,8 +243,32 @@ public actor WorkstreamPersistence {
     /// revision below the phone's last-known snapshot and hide a reply or
     /// resolution behind a stale `feed.changed` event.
     public func loadRevision() throws -> Int {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return 0 }
-        return Int(min(try fileSize(), UInt64(Int.max)))
+        let fileRevision = try fileSize()
+        let durableRevision: UInt64
+        if let data = FileManager.default.contents(atPath: revisionURL.path),
+           let text = String(data: data, encoding: .utf8),
+           let value = UInt64(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            durableRevision = value
+        } else {
+            durableRevision = 0
+        }
+        return Int(min(max(fileRevision, durableRevision), UInt64(Int.max)))
+    }
+
+    /// Persists a feed revision high-water mark independently of JSONL rows.
+    /// This covers state transitions such as startup recovery and history
+    /// paging that change the remote validator without appending an item.
+    public func recordRevision(_ revision: Int) throws {
+        guard revision > 0 else { return }
+        let current = try loadRevision()
+        let next = max(current, revision)
+        guard UInt64(next) > current else { return }
+        let data = Data(String(next).utf8)
+        try FileManager.default.createDirectory(
+            at: revisionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: revisionURL, options: .atomic)
     }
 
     private struct Tail {
@@ -442,9 +468,19 @@ public actor WorkstreamPersistence {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain,
                nsError.code == NSFileNoSuchFileError {
-                return
+                // The revision sidecar still needs to be removed below.
+            } else {
+                throw error
             }
-            throw error
+        }
+        do {
+            try FileManager.default.removeItem(at: revisionURL)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain != NSCocoaErrorDomain ||
+               nsError.code != NSFileNoSuchFileError {
+                throw error
+            }
         }
     }
 
