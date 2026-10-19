@@ -3,6 +3,7 @@
 // the mode and model chips, the location row, Send and Stop), through the pane's own inputs: the
 // `ready` answer's draft and new-chat fields, and the snapshot.
 import { agentPaneEntry } from "../../gallery/format";
+import { minutesAgo } from "../../gallery/clock";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
@@ -27,6 +28,42 @@ const finished = [
   assistant("Done: GETs retry, POSTs only with a policy.", 9),
   summary(9, { status: "completed" }),
 ];
+
+// A chat beside others, for the @ picker (Leo's Claude desktop screenshot, 2026-10-19): what
+// `@proje` finds among chats, folders and the chat folder's files.
+function mentionChat() {
+  const base = chat(finished);
+  return {
+    ...base,
+    sessions: [
+      ...base.sessions,
+      session({
+        sessionId: "0cfd5322-a913-4e01-b71c-aaf0edfb4de8",
+        title: "Resume: projects-70 coordinator (0cfd5322)",
+        cwd: "/Users/you/Projects",
+        updatedAt: minutesAgo(12),
+      }),
+      session({
+        sessionId: "ccd31935-1f2e-4a5b-8c7d-6e5f4a3b2c1d",
+        title: "Resume: parity + mg-lint session (ccd31935)",
+        cwd: "/Users/you/code/mg-lint",
+        updatedAt: minutesAgo(30),
+      }),
+      session({ sessionId: "7d1c2b3a-4e5f-4061-8a9b-0c1d2e3f4a5b", title: "Fix the dock", updatedAt: minutesAgo(3) }),
+    ],
+  };
+}
+const MENTION_FILES = {
+  root: CWD,
+  results: [
+    { path: "terminal-lab/ios/project.yml", matches: [17, 18, 19, 20, 21] },
+    { path: "tools/cmux-backlog/.project-number", matches: [20, 21, 22, 23, 24] },
+    { path: "tools/cmux-backlog/sync_project.py", matches: [24, 25, 26, 27, 28] },
+    { path: "plans/feat-resume/claude/projects/a5107a2b.jsonl", matches: [25, 26, 27, 28, 29] },
+    { path: "cmux-code/python/pyproject.toml", matches: [19, 20, 21, 22, 23] },
+    { path: "cmux-lite/CmuxTransport/Sources/JSONValue.swift", matches: [] },
+  ],
+};
 
 const composerControls = {
   configOptions: [
@@ -884,6 +921,58 @@ export default agentPaneEntry({
         await ctx.type("mail me@rea");
         await new Promise((resolve) => setTimeout(resolve, 300));
         if (ctx.document.querySelector(".acpmux-mention-row")) throw new Error("an @ inside a word opened the picker");
+      },
+    },
+    "mention-mixed": {
+      note: "Play: type @proje; other chats list first with their project muted, then folders, then the chat folder's files, matched letters bold.",
+      snapshot: mentionChat(),
+      native: { "file.search": MENTION_FILES },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("hey @proje");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row[data-mention-kind='file']") !== null);
+        const kinds = Array.from(
+          ctx.document.querySelectorAll<HTMLElement>(".acpmux-mention-row"),
+          (row) => row.dataset.mentionKind,
+        );
+        if (kinds.join(",") !== "session,folder,file,file,file,file,file,file")
+          throw new Error(`the picker listed ${kinds.join(",")}`);
+      },
+    },
+    "mention-session-pick": {
+      note: "Play: type @coord and press Return; the chat's title and id replace the @word, which an agent looks up with cmux.",
+      snapshot: mentionChat(),
+      native: { "file.search": { root: CWD, results: [] } },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("Read @coord");
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".acpmux-mention-row[data-mention-kind='session']") !== null,
+        );
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
+        const written = ctx.find(prompt).textContent ?? "";
+        if (
+          !written.includes(
+            'Read cmux session "Resume: projects-70 coordinator (0cfd5322)" (0cfd5322-a913-4e01-b71c-aaf0edfb4de8)',
+          )
+        )
+          throw new Error(`the chat pick wrote ${written}`);
+      },
+    },
+    "mention-recent-chats": {
+      note: "Play: a bare @ lists the most recent other chats before a word is typed.",
+      snapshot: mentionChat(),
+      native: { "file.search": MENTION_FILES },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("@");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row") !== null);
+        const first = ctx.document.querySelector(".acpmux-mention-row .acpmux-slash-name")?.textContent;
+        if (first !== "Fix the dock") throw new Error(`the newest other chat is not first: ${first}`);
       },
     },
     "slash-fork": {
