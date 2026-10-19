@@ -137,7 +137,21 @@ public actor WorkstreamPersistence {
         budgetNanoseconds: UInt64? = nil
     ) throws -> StartupSnapshot {
         let started = DispatchTime.now().uptimeNanoseconds
-        guard limit > 0, FileManager.default.fileExists(atPath: fileURL.path) else {
+        guard limit > 0 else {
+            let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
+            return StartupSnapshot(
+                items: [],
+                revision: 0,
+                page: empty,
+                diagnostics: StartupDiagnostics(
+                    elapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - started,
+                    fileBytes: 0,
+                    exceededBudget: false,
+                    missingFile: false
+                )
+            )
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
             let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
             return StartupSnapshot(
                 items: [],
