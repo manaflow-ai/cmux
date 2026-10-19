@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
+import { useChatAccounts } from "./chatAccounts";
+import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
 import {
   isDefaultChoice,
@@ -134,8 +136,6 @@ type Props = {
   signIn?: SignIn;
   /// acpmux has answered with its harnesses: only then does an empty catalog mean none is installed.
   harnessesListed?: boolean;
-  /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
-  measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
   showPlan?: boolean;
   /** Host-backed catalog refresh; transport stays outside the picker UI. */
@@ -177,7 +177,6 @@ export function ComposerPickers({
   folder,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
-  measurePickerRoom,
   showPlan = true,
   catalogRefresh,
   pickerCatalog,
@@ -186,7 +185,10 @@ export function ComposerPickers({
   const t = useT();
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts);
   // the reasoning menu draws a slider when the person opted in (the Debug Settings toggle agent.reasoningSlider).
-  const { showContextUsage, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
+  const { showContextUsage, reasoningSlider, reasoningSliderStyle, modelMenu } = useComposerSettings();
+  // The compact model menu carries Effort and Account, so the row has no effort chip of its own.
+  const compact = modelMenu === "compact";
+  const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
@@ -592,6 +594,51 @@ export function ComposerPickers({
       }
     : undefined;
   const effortShort = !ultracodeOn && effortChoice ? shortLevel(effortChoice, t) : undefined;
+  // The compact menu's Effort rows: the reported levels (Ultracode last, where the model offers it),
+  // else the held ones before the session reports, picked the same way as their chips pick them.
+  const quickEffort: QuickMenuExtras["effort"] =
+    effort && efforts.length > 1
+      ? {
+          levels: ultracode ? [...efforts, { id: "ultracode", name: ultracode.title }] : efforts,
+          current: ultracodeOn ? "ultracode" : effortValue,
+          onPick: (value) => {
+            pending.current = undefined;
+            onEffort(effort.id, value);
+          },
+        }
+      : heldLevels.length > 1 && chipHarness
+        ? {
+            levels: heldLevels,
+            current: heldValue,
+            onPick: (value) => {
+              pending.current = undefined;
+              setHeldPick({ harness: chipHarness, value });
+              onEffort(heldOption?.id ?? "effort", value);
+            },
+          }
+        : undefined;
+  // Accounts are this Mac's acpmux routes: a chat on another machine has none here.
+  const quickAccount: QuickMenuExtras["account"] =
+    chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
+      ? { sessionId: summary.sessionId, accounts: chatAccounts }
+      : undefined;
+  // Fast mode rides the Effort submenu as it rides the reasoning menu: the bolt leaves narrow rows.
+  const quickSpeed =
+    fastMode && fastOn && fastOff && (catalogModel?.fast !== false || fastMode.currentValue === fastMode.onValue)
+      ? speedSection(/codex/i.test(summary?.harness ?? ""), fastMode, fastOn, t)
+      : undefined;
+  const quick: QuickMenuExtras | undefined = compact
+    ? {
+        ...(quickEffort ? { effort: { ...quickEffort, ...(quickSpeed ? { speed: quickSpeed } : {}) } } : {}),
+        ...(quickAccount ? { account: quickAccount } : {}),
+      }
+    : undefined;
+  // The compact chip names the effort after the model ("Opus 5.5 Medium"), and its short name for a
+  // narrow row ("Med"). Before the session reports, it names the held pick, as the held chip did.
+  const quickDetail = compact
+    ? (effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined))
+    : undefined;
+  const quickShort = compact ? (effortLabel ? effortShort : awaiting ? heldShort : undefined) : undefined;
   const usage = summary?.usage;
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -629,8 +676,10 @@ export function ComposerPickers({
               ? { [snapshot.switching.harness]: t("switch.failedShort") }
               : undefined
           }
-          measureRoom={measurePickerRoom}
           usage={usageNote}
+          {...(quick ? { quick } : {})}
+          {...(quickDetail ? { detail: quickDetail } : {})}
+          {...(quickShort && quickShort !== quickDetail ? { detailShort: quickShort } : {})}
         />
       ) : (
         // No harness installed (Leo 2026-10-14): the chip itself adds one, a plain button styled as
@@ -646,7 +695,7 @@ export function ComposerPickers({
       )}
       {/* Reasoning is its own stable control, separate from the model and harness picker. A model
           whose only level is the agent's default has nothing to pick, so it shows no control. */}
-      {effort && efforts.length > 1 && (
+      {!compact && effort && efforts.length > 1 && (
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
@@ -672,7 +721,7 @@ export function ComposerPickers({
           }}
         />
       )}
-      {heldLevels.length > 1 && chipHarness && pendingEffort ? (
+      {compact ? null : heldLevels.length > 1 && chipHarness && pendingEffort ? (
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={heldLevels}

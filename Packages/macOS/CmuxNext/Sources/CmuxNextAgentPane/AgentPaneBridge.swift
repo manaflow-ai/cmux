@@ -81,6 +81,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             AgentPaneToolCard.replay(to: view)
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
+            AgentPaneNowPlaying.shared.push(to: view)
         }
         return view.model
     }
