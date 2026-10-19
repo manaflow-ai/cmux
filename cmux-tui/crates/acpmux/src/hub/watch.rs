@@ -178,10 +178,11 @@ impl Hub {
         watching.offset = offset;
         {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            // Taken over meanwhile, or closed or purged: nothing is written back.
+            // Taken over meanwhile, or closed or purged: nothing is written back. `m.status`, not
+            // `session.status()`: that takes this same lock again and would hang the runtime.
             if m.watching.is_none()
                 || session.purged.load(std::sync::atomic::Ordering::SeqCst)
-                || session.status() == SessionStatus::Closed
+                || m.status == SessionStatus::Closed
             {
                 return;
             }
