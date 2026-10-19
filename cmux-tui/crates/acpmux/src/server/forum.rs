@@ -70,7 +70,8 @@ async fn handle(
             let author = if conn.is_person() {
                 Author::Person { account: account(params)? }
             } else if let Some(caller) = conn.caller() {
-                hub.forum_agent(&hub.resolve(caller)?)
+                let session = hub.resolve(caller)?;
+                hub.forum_agent(&session)
             } else {
                 return Err(author_required());
             };
