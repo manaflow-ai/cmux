@@ -40,8 +40,9 @@ struct WindowCloseNeighborTests {
     }
 
     /// Pinned layout tiles leave the list (SidebarTopProjection): "p" is a member no row lists.
+    /// It joined last, so the join order alone would hand the bottom row's close to it.
     @Test func closingTheBottomRowNeverJumpsToAPinnedTile() {
-        let pick = WindowRegistry.repairedSelection(current: "c", previous: ["p", "a", "b", "c"], members: ["p", "a", "b"], orders: [rows, rows])
+        let pick = WindowRegistry.repairedSelection(current: "c", previous: ["a", "b", "c", "p"], members: ["a", "b", "p"], orders: [rows, rows])
         #expect(pick == "b")
     }
 
@@ -50,10 +51,11 @@ struct WindowCloseNeighborTests {
         #expect(pick == "p")
     }
 
-    /// Group by folder sorts the rows as the list draws them; the model keeps its own order.
-    @Test func folderGroupingTakesTheRowAboveAsDrawn() {
-        let pick = WindowRegistry.repairedSelection(current: "b", previous: joined, members: ["c", "a"],
-                                                    orders: [["c", "a", "b"], ["a", "b", "c"]])
+    /// Group by folder sorts the rows as the list draws them; the model and the join order
+    /// both put "c" below "b", the drawn rows put "a" there.
+    @Test func folderGroupingTakesTheRowBelowAsDrawn() {
+        let pick = WindowRegistry.repairedSelection(current: "b", previous: ["a", "b", "c", "d"], members: ["a", "c", "d"],
+                                                    orders: [["c", "d", "b", "a"], ["a", "b", "c", "d"]])
         #expect(pick == "a")
     }
 
