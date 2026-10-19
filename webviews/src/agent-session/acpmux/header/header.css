@@ -7,9 +7,8 @@
 .acpmux-header-tool:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-header-tool:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* On: a toggle whose panel is open (aria-pressed, cx-00n1), tinted like the composer's Plan toggle. */
-/* On reads like Thread details' button, one look for every header button (Lucas 2026-10-19). */
-.acpmux-header-tool[aria-pressed=true],.acpmux-header-tray .acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,currentColor 10%,transparent);color:var(--agent-text)}
-.acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,currentColor 14%,transparent)}
+.acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-accent,var(--agent-text))}
+.acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 22%,transparent)}
 .ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
@@ -33,27 +32,11 @@
 }
 /* The chat's viewer (labs chatViewer, Lucas 2026-10-19): files and changes sit beside the transcript from an ordinary
    pane width, so the chat stays on screen; only a narrow pane covers it, with Back to transcript. */
-/* About Thread details' width (300px), a little more for code (Lucas 2026-10-19); a diff needs room for
-   its two columns and file list, so Changes takes about half the pane. */
-.acpmux-stage{--acpmux-viewer-width:320px}
-.acpmux-stage:has(>.acpmux-diff-panel:not(.acpmux-file-viewer)){--acpmux-viewer-width:min(600px,50%)}
 @container (min-width:820px){
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-header,html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-scroll{visibility:visible;margin-right:var(--acpmux-viewer-width)}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-diff-panel{left:auto;bottom:auto;height:100vh;width:var(--acpmux-viewer-width);border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
-  /* A full-height column on the right, as the browser beside the chat is; its header row is the chat
-     header's height, so the two lines meet. Thread details floats over it (chatViewerPanels.ts). */
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-diff-panel>.acpmux-diff-header{height:44px}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-summary-card[data-placement=popover]{visibility:visible;z-index:6;right:calc(var(--acpmux-viewer-width) + 10px)}
-}
-/* The composer and the pull request dock sit under the transcript, not centered on the whole pane (the
-   pane is the page, so the page width stands in for the stage's container query above). */
-@media (min-width:820px){
-  html[data-lab-chat-viewer="on"] .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel.acpmux-file-viewer)>:is(.acpmux-composer,.acpmux-pr-dock,.acpmux-asks-stack){margin-right:320px;--cv-inset:max(var(--cv-edge),calc((100% - 320px - min(var(--cv-column),max(720px,(100% - 320px) * .625)))/2))}
-  html[data-lab-chat-viewer="on"] .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel:not(.acpmux-file-viewer))>:is(.acpmux-composer,.acpmux-pr-dock,.acpmux-asks-stack){margin-right:min(600px,50%);--cv-inset:max(var(--cv-edge),calc((100% - min(600px,50%) - min(var(--cv-column),max(720px,(100% - min(600px,50%)) * .625)))/2))}
+  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-header,html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-scroll{visibility:visible;margin-right:52%}
+  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-diff-panel{left:48%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
 }
 .acpmux-file-viewer{background:var(--agent-page-bg)}
-/* No Back chevron (only the X closes it): the name lines up with the search field below. */
-.acpmux-file-viewer>.acpmux-diff-header{padding-left:16px}
 .acpmux-file-viewer-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .acpmux-file-viewer-body{flex:1;min-height:0;overflow:auto;padding:8px 16px 16px}
 .acpmux-file-viewer-note{margin:8px 0 0;color:var(--agent-muted);font-size:var(--text-detail)}
@@ -160,12 +143,3 @@
 .acpmux-thread-title__name:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-thread-title__slash{flex:none;color:var(--agent-muted);opacity:.6}
 .acpmux-thread-title__field{flex:0 1 auto;min-width:0;max-width:420px;box-sizing:border-box;height:24px;padding:0 6px;border:0;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;outline:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-text) 20%,transparent)}
-
-/* The chat's folder in the viewer (FilesView.tsx). */
-.acpmux-files-search{padding:6px 12px 2px}
-.acpmux-files-search input{width:100%;box-sizing:border-box;height:28px;padding:0 10px;border:.5px solid var(--agent-border);border-radius:7px;background:transparent;color:inherit;font:inherit}
-.acpmux-files-list{list-style:none;margin:0;padding:0}
-.acpmux-files-row{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
-.acpmux-files-row:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
-.acpmux-files-row:focus-visible{outline:2px solid var(--agent-accent);outline-offset:-2px}
-.acpmux-files-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

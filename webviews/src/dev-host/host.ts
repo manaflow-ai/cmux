@@ -22,7 +22,7 @@ export type DevHostReply =
     };
 
 /// The reads the dev server answers from the slot's folder (dev-server/agentGitHost.ts).
-const SERVED_READS = new Set(["git.status", "git.diff", "git.checkpoint.diff", "file.search", "file.list"]);
+const SERVED_READS = new Set(["git.status", "git.diff", "git.checkpoint.diff", "file.search"]);
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 let gestureSequence = 0;

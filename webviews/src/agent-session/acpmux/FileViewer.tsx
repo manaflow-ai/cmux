@@ -5,9 +5,8 @@
 import type { KeyboardEvent } from "react";
 import { useEffect, useRef } from "react";
 import { useT } from "./i18n";
-import { Code, OpenTab } from "./changeIcons";
+import { ChevronLeft, Code, OpenTab } from "./changeIcons";
 import { CodeBlock } from "./conversation/CodeBlock";
-import { Icon } from "./icons/Icon";
 import { isHighlighted } from "./shikiLanguages";
 
 /// What `link.readPath` returned for a text file, and the session it was opened in.
@@ -38,16 +37,15 @@ export function FileViewer({
   onOpenFile,
 }: {
   file: ViewedFile;
-  /// The X and Escape: back to the Files list it was opened from, else out of the viewer.
   onClose(): void;
   /// The app's own file tab or the editor: leaving the chat is the reader's explicit choice.
   onOpenFile(path: string, where: "tab" | "editor"): void;
 }) {
   const t = useT();
-  const close = useRef<HTMLButtonElement>(null);
+  const back = useRef<HTMLButtonElement>(null);
   const name = file.path.split("/").pop() || file.path;
   // A new file moves focus into the viewer, as opening the changes view does.
-  useEffect(() => close.current?.focus({ preventScroll: true }), [file.path]);
+  useEffect(() => back.current?.focus({ preventScroll: true }), [file.path]);
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
     event.preventDefault();
@@ -57,6 +55,16 @@ export function FileViewer({
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the viewer from any control in it.
     <section className="acpmux-diff-panel acpmux-file-viewer" aria-label={name} onKeyDown={onKeyDown}>
       <header className="acpmux-diff-header">
+        <button
+          ref={back}
+          type="button"
+          className="acpmux-diff-back"
+          aria-label={t("changes.back")}
+          title={t("changes.back")}
+          onClick={onClose}
+        >
+          <ChevronLeft />
+        </button>
         <span className="acpmux-file-viewer-name" title={file.path}>
           {name}
         </span>
@@ -78,16 +86,6 @@ export function FileViewer({
             onClick={() => onOpenFile(file.path, "editor")}
           >
             <Code />
-          </button>
-          <button
-            ref={close}
-            type="button"
-            className="acpmux-diff-tool"
-            aria-label={t("image.close")}
-            title={t("image.close")}
-            onClick={onClose}
-          >
-            <Icon name="action.close" size={12} />
           </button>
         </div>
       </header>

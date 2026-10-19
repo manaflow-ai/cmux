@@ -206,14 +206,12 @@ import {
 } from "./header/headerStyle";
 import { configureLabs, useLab } from "./labs";
 import type { ViewedFile } from "./FileViewer";
-import type { FilesSource } from "./FilesView";
 import { PlanProgress } from "./PlanProgress";
 import { useShortcutsHelp } from "./ShortcutsHelp";
 import { RenderBridgeContext, useRenderBridge } from "./conversation/RenderBridgeContext";
 import { reactRenderPage } from "./conversation/renderFrameDoc";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
-import { detailsFloat, openViewer } from "./chatViewerPanels";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
@@ -296,8 +294,6 @@ const loadDiffPanel = () => import("./DiffPanel");
 const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
 /// A file in the chat's viewer (labs `chatViewer`): loaded on its first open.
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
-/// The chat's folder in the chat's viewer (labs `chatViewer`): loaded on its first open.
-const FilesView = lazy(() => import("./FilesView").then((module) => ({ default: module.FilesView })));
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -2970,6 +2966,7 @@ function AcpmuxPane() {
     );
   }, [snapshot.rows]);
   const [shell, setShell] = useState<HTMLElement | null>(null);
+  const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
@@ -3014,21 +3011,6 @@ function AcpmuxPane() {
   const chatViewerRef = useRef(chatViewer);
   chatViewerRef.current = chatViewer;
   const [fileView, setFileView] = useState<ViewedFile>();
-  // The header's Files in the viewer: the folder shown. A file opened from it shows over it, and
-  // the file's Back returns here.
-  const [filesView, setFilesView] = useState<{ sessionId?: string; folder: string }>();
-  // Thread details floats while the viewer holds the right side (chatViewerPanels.ts).
-  const detailsFloats = detailsFloat(chatViewer, {
-    diff: diffView !== undefined,
-    file: fileView !== undefined,
-    files: filesView !== undefined,
-  });
-  const summaryCard = useSummaryCard(
-    useSummaryColumn(shell, artifact !== undefined || freshView || detailsFloats),
-    summaryHasContent,
-  );
-  const detailsRef = useRef(summaryCard);
-  detailsRef.current = summaryCard;
   const toggleInspector = useCallback((open?: boolean) => {
     if (inspectorHiddenSurfaceRef.current) {
       inspectorOpenRef.current = false;
@@ -3040,7 +3022,6 @@ function AcpmuxPane() {
     if (next) {
       setDiffView(undefined);
       setFileView(undefined);
-      setFilesView(undefined);
       inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     }
     setInspectorOpen(next);
@@ -3060,7 +3041,6 @@ function AcpmuxPane() {
       inspectorOpenRef.current = false;
       setInspectorOpen(false);
       setFileView(undefined);
-      setFilesView(undefined);
       setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked });
     };
     if (chatViewerRef.current) return inPlace();
@@ -3077,14 +3057,13 @@ function AcpmuxPane() {
       inspectorOpenRef.current = false;
       setInspectorOpen(false);
       setDiffView(undefined);
-      const file = {
+      setFileView({
         path: read.path,
         text: read.text,
         bytes: typeof read.bytes === "number" ? read.bytes : read.text.length,
         truncated: read.truncated === true,
         sessionId: sessionIdRef.current,
-      };
-      openViewer(detailsRef.current, () => setFileView(file));
+      });
     });
   }, []);
   useEffect(() => {
@@ -3098,11 +3077,6 @@ function AcpmuxPane() {
     if (fileView && !fileOpen) setFileView(undefined);
   }, [fileView, fileOpen]);
   const closeFile = useCallback(() => setFileView(undefined), []);
-  const filesOpen = filesView !== undefined && filesView.sessionId === snapshot.sessionId;
-  useEffect(() => {
-    if (filesView && !filesOpen) setFilesView(undefined);
-  }, [filesView, filesOpen]);
-  const closeFiles = useCallback(() => setFilesView(undefined), []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -4786,33 +4760,12 @@ function AcpmuxPane() {
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
   // The header's Changes with the chat's viewer: the newest turn that changed files, in the viewer;
   // again closes it. A chat whose turns changed nothing opens the folder's changes as before.
-  // The Files view's reads, in the chat's folder (the session host's git.files.list and search).
-  const filesSource = useMemo<FilesSource>(
-    () => ({
-      list: (folder) => callNative("file.list", { cwd: localCwd ?? "", path: folder }),
-      search: (query) => callNative("file.search", { cwd: localCwd ?? "", query, limit: 100 }),
-    }),
-    [localCwd],
-  );
-  // The header's Files with the chat's viewer: the chat's folder beside the transcript; again closes it.
-  const toggleFilesViewer = (cwd: string) => {
-    // A file opened from the list goes with it.
-    if (filesView) {
-      setFileView(undefined);
-      return closeFiles();
-    }
-    inspectorOpenRef.current = false;
-    setInspectorOpen(false);
-    setDiffView(undefined);
-    setFileView(undefined);
-    openViewer(summaryCard, () => setFilesView({ sessionId: sessionIdRef.current, folder: cwd }));
-  };
   const toggleChangesViewer = (mode: QuickActionMode) => {
     if (diffView) return closeDiff();
     const row = [...snapshot.rows]
       .reverse()
       .find((candidate) => candidate.kind === "activity" && candidate.items?.some((item) => item.tool?.diffs?.length));
-    if (row) openViewer(summaryCard, () => openDiff(row.id));
+    if (row) openDiff(row.id);
     else runSplitAction(HEADER_ACTIONS.changes, localCwd, mode);
   };
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
@@ -5906,7 +5859,7 @@ function AcpmuxPane() {
           ) : (
             <>
               <div
-                className={`acpmux-stage${diffFiles || fileOpen || filesOpen ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
+                className={`acpmux-stage${diffFiles || fileOpen ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
@@ -5975,20 +5928,7 @@ function AcpmuxPane() {
                       onChanges={(mode) =>
                         chatViewer ? toggleChangesViewer(mode) : runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)
                       }
-                      onFiles={
-                        localCwd
-                          ? (mode) =>
-                              chatViewer ? toggleFilesViewer(localCwd) : runSplitAction(HEADER_ACTIONS.files, localCwd, mode)
-                          : undefined
-                      }
-                      viewing={
-                        chatViewer
-                          ? [
-                              ...(filesOpen && !diffView ? [HEADER_ACTIONS.files] : []),
-                              ...(diffView ? [HEADER_ACTIONS.changes] : []),
-                            ]
-                          : undefined
-                      }
+                      onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
                         ignoreFailure(
@@ -6097,19 +6037,7 @@ function AcpmuxPane() {
                 )}
                 {fileView && fileOpen && !diffView && (
                   <Suspense fallback={null}>
-<FileViewer file={fileView} onClose={closeFile} onOpenFile={openChangedFile} />
-                  </Suspense>
-                )}
-                {filesView && filesOpen && localCwd && !diffView && !(fileView && fileOpen) && (
-                  <Suspense fallback={null}>
-                    <FilesView
-                      root={localCwd}
-                      folder={filesView.folder}
-                      source={filesSource}
-                      onFolder={(folder) => setFilesView((view) => (view ? { ...view, folder } : view))}
-                      onOpen={(path) => void viewFile(path)}
-                      onClose={closeFiles}
-                    />
+                    <FileViewer file={fileView} onClose={closeFile} onOpenFile={openChangedFile} />
                   </Suspense>
                 )}
               </div>

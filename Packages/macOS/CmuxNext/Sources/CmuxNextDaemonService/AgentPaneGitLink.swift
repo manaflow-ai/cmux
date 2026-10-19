@@ -139,8 +139,6 @@ extension AgentPaneGitRequest {
             ["path": .string(cwd)]
         case .filesSearch(let cwd, let query, let limit):
             ["path": .string(cwd), "query": .string(query), "limit": .number(Double(limit))]
-        case .filesList(_, let folder):
-            ["path": .string(folder)]
         case .checkpointDiff(let cwd, let from, let to, let includePatch, let options):
             ["path": .string(cwd), "from": .string(from), "include_patch": .bool(includePatch)]
                 .merging(to.map { ["to": JSONValue.string($0)] } ?? [:]) { first, _ in first }

@@ -15,7 +15,7 @@ import { fuzzy } from "../src/agent-session/acpmux/mockFiles";
 import { OUTSIDE_REPOSITORY } from "../src/agent-session/acpmux/fileSearchModel";
 import { allowedPath } from "./viewerEmptyHost";
 
-export const AGENT_READ_METHODS = ["git.status", "git.diff", "git.checkpoint.diff", "file.search", "file.list"] as const;
+export const AGENT_READ_METHODS = ["git.status", "git.diff", "git.checkpoint.diff", "file.search"] as const;
 export type AgentReadMethod = (typeof AGENT_READ_METHODS)[number];
 
 /// The error a refused or failed read answers with, as the session host words it.
@@ -606,29 +606,6 @@ export async function fileSearch(cwd: string, params: Record<string, unknown>) {
   return { root, search_root: searchRoot, results, truncated: ranked.length > limit };
 }
 
-/** `file.list {cwd, path?}`: one folder's children as the session host lists them (git.files.list):
- * tracked and unignored files folded to their first component, folders first, then by name. */
-export async function fileList(cwd: string, params: Record<string, unknown>) {
-  await topLevel(cwd, "git.files.list");
-  const folder = typeof params.path === "string" ? params.path : cwd;
-  if (folder !== cwd && !folder.startsWith(`${cwd.replace(/\/$/, "")}/`))
-    throw new AgentReadError("validation.invalid", "file.list stays inside the chat's folder");
-  const listed = await gitOutput(folder, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."]);
-  const entries = new Map<string, "directory" | "file">();
-  for (const file of listed.split("\0")) {
-    if (!file) continue;
-    const [first, ...rest] = file.split("/");
-    if (!first) continue;
-    const kind = rest.length || isFolder(path.join(folder, first)) ? "directory" : "file";
-    if (entries.get(first) !== "directory") entries.set(first, kind);
-  }
-  const sorted = [...entries].sort(
-    ([a, kindA], [b, kindB]) =>
-      (kindA === kindB ? 0 : kindA === "directory" ? -1 : 1) || a.toLowerCase().localeCompare(b.toLowerCase()) || a.localeCompare(b),
-  );
-  return { entries: sorted.map(([name, kind]) => ({ name, kind })), truncated: false };
-}
-
 function isFolder(file: string): boolean {
   try {
     return fs.statSync(file).isDirectory();
@@ -651,7 +628,5 @@ export async function agentRead(method: string, params: Record<string, unknown>,
       return gitCheckpointDiff(cwd, params);
     case "file.search":
       return fileSearch(cwd, params);
-    case "file.list":
-      return fileList(cwd, params);
   }
 }
