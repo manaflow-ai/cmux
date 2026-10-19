@@ -36,6 +36,16 @@ class TourFilePathTests(unittest.TestCase):
         self.assertEqual(
             path_map.tours_for_path("webviews/src/agent-session/acpmux/harnesses/harnesses.css"), ["agent-pane"])
 
+    def test_font_settings_sources_select_the_fonts_tour(self) -> None:
+        for path in (
+            "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AppFonts.swift",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/AppFontsSetting.swift",
+            "webviews/src/pages/settings/components/FontPreview.tsx",
+        ):
+            with self.subTest(path=path):
+                self.assertIn("fonts", path_map.tours_for_path(path))
+        self.assertEqual(path_map.tours_for_path("scripts/cmux-next/media/tours/fonts.json"), ["fonts"])
+
 
 if __name__ == "__main__":
     unittest.main()
