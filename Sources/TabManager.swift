@@ -2708,6 +2708,7 @@ class TabManager: ObservableObject {
             )))
         }
         finalizeWorkspaceForRemoval(workspace)
+        workspaceCustomizationStore.removeCustomization(for: workspace.stableId)
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
