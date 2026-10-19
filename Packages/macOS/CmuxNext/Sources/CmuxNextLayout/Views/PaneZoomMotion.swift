@@ -5,9 +5,10 @@ import CoreGraphics
 /// first and fastest, no pane sits around once the zoom is asked for, and no terminal relayouts
 /// per frame). The pane that zooms keeps one host size, the full screen's, for the whole move: a
 /// zoom resizes its terminal once, up front, and its spring rect reveals it; an unzoom clips it to
-/// the shrinking rect and resizes it once it lands. The panes a zoom leaves fade out under it on
+/// the shrinking rect and resizes it once it lands. It stays the topmost layer until it lands
+/// (`ScreenContentView.rank`, DESIGN Z2 and Z4). The panes a zoom leaves fade out under it on
 /// `exit` springs, the farthest from it fastest, and are let go as each one settles; an unzoom
-/// brings them back from the opacity (and velocity) they had.
+/// brings them back from the opacity (and velocity) they had, or at full opacity once let go.
 struct PaneZoomMotion {
     struct Leaving {
         var alpha: SpringValue
@@ -61,11 +62,12 @@ struct PaneZoomMotion {
         for (id, parameters) in ranked { leaving[id]?.parameters = parameters }
     }
 
-    /// `pane` is in the layout again. An unzoom (`revealing`) fades it in from where its fade out
-    /// left it (0 once it was let go); otherwise it shows as is. Nil: not faded.
+    /// `pane` is in the layout again. An unzoom (`revealing`) brings it back from where its fade
+    /// out left it, with its velocity; one already let go is simply there, at full opacity, under
+    /// the pane springing back (DESIGN Z5: no hole, no fade-in). Nil: shown as is.
     mutating func returning(_ pane: PaneID, revealing: Bool) -> SpringValue? {
         let back = leaving.removeValue(forKey: pane)?.alpha
-        return revealing ? back ?? SpringValue(0) : nil
+        return revealing ? back : nil
     }
 
     /// Steps the fades. Returns true while one still moves.

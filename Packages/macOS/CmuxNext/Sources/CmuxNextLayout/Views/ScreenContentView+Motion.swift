@@ -43,7 +43,7 @@ extension ScreenContentView {
     var growingDocks: [AnimatedFrame] { PaneArrival.growing(arriving, frames: paneFrames, in: geometry, docks: newDockColumns) }
     func applyPresentation() {
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
-        let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks)
+        let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
         var clips: [(host: PaneHostView, scrolls: Bool, revealing: CGRect?)] = []
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
@@ -66,8 +66,12 @@ extension ScreenContentView {
             host.restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
             if host.frame != placed { host.frame = placed }
             (host.alphaValue, host.isDocked, host.revealRect) = (frame.alpha.value, !scrolls, revealing)
-            clips.append((host, scrolls, revealing))
+            // The zooming pane's ring and border trace its spring rect; the strip's dock clip does not cut it.
+            host.chromeFrame = zoomed != nil ? revealing : nil
+            clips.append((host, scrolls && zoomed == nil, revealing))
         }
+        // A zoom that landed gives its pane back its place in the stacking order (`rank`).
+        if zoomMotion.pane != zooming { ensureStacking() }
         // Once every frame is placed: a pane is clipped by the panes in front of it.
         // The panes a zoom leaves fade under it (`zoomMotion.opacities`).
         let leaving = zoomMotion.opacities.compactMap { pane, alpha in

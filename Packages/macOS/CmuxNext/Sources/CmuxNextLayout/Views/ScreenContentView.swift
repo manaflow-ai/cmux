@@ -181,7 +181,8 @@ final class ScreenContentView: NSView {
                 }
                 let revealAlpha = motionState.revealAlpha(arriving: arrivals[pane] != nil, animate: animateFrames)
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target, alpha: revealAlpha)
-                if let back = zoomMotion.returning(pane, revealing: revealing) { frame.alpha = back }
+                // With no pane springing back over it (the zoomed one closed), a pane is there at once.
+                if let back = zoomMotion.returning(pane, revealing: revealing && zoomMotion.pane != nil) { frame.alpha = back }
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
             }
@@ -230,10 +231,10 @@ final class ScreenContentView: NSView {
                 if !animateFrames { frame.snap() }
                 dividerFrames[kind] = frame
             } else {
-                // A split's new divider starts on the edge its pane grows from; an unzoom's fade in
-                // as the zoomed pane springs back, rather than showing over it.
+                // A split's new divider starts on the edge its pane grows from; an unzoom's are there
+                // at once, under the zoomed pane springing back (it ranks above them).
                 let edge = arrivals.values.first?.edgeOffset ?? .zero
-                var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: revealing ? 0 : 1)
+                var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: 1)
                 frame.setTarget(target.rect, alpha: 1)
                 dividerFrames[kind] = frame
             }
