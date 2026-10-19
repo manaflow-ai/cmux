@@ -426,10 +426,21 @@ export type SessionSummary = {
   updatedAt: number;
 } & Record<string, unknown>;
 
-export type SessionsParams = Record<string, never>;
+/** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
+export interface SessionsParams {
+  /** A previous reply's `nextCursor`: the page starts after that session. */
+  cursor?: (string | null);
+  /** Page size, at least 1. Without it the reply is the whole list. */
+  limit?: (number | null);
+}
 
 export type SessionsResult = {
-  /** Local and peer sessions, newest first. */
+  /**
+   * With `limit`: the cursor for the next page, null when the list is
+   * done. Absent without `limit`.
+   */
+  nextCursor?: (string | null);
+  /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
 } & Record<string, unknown>;
 
