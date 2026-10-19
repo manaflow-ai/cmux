@@ -442,6 +442,15 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
+  /** TeamDO's identity check only: an active daemon's public key, scoped to its existing team and grant. */
+  async serverKey(entity: string, install: string, grant: string, team: string): Promise<JsonWebKey | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
+    if (!state.user || !inst || inst.kind !== "daemon" || inst.bound_team !== team || inst.revoked_at !== null || inst.grant !== grant
+      || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("mutate-own")) return null
+    return inst.public_jwk as JsonWebKey
+  }
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()
@@ -515,11 +524,12 @@ export class UserDO extends OwnerDO<UserState> {
     if (!ok) return { ok: false, code: "auth.forbidden", message: "bad signature" }
     // Re-read after the await: a revoke may have committed during the verify.
     const now = engine.currentState
-    const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
-    if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
+    const current = now.installs[install]
+    if (!current || current.revoked_at !== null || now.grants[grant.id]?.revoked_at !== null || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
     // A chief token only for an unarchived chief of this user.
-    if (agent !== undefined && (!chiefActive(now, agent) || isMachineInstallKind(inst.kind))) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
+    if (agent !== undefined && (!chiefActive(now, agent) || isMachineInstallKind(current.kind))) return { ok: false, code: "auth.forbidden", message: "agent unknown or archived" }
     const emailDomain = emailDomainOf(now.user.email)
-    return { ok: true, user: now.user.id, team: isMachineInstallKind(inst.kind) && inst.bound_team ? inst.bound_team : now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(inst.kind === "vm" ? { vm: true as const } : {}), ...(inst.kind === "team-vm" ? { team_vm: true as const } : {}) }
+    const team = (isMachineInstallKind(current.kind) || current.kind === "daemon") && current.bound_team ? current.bound_team : now.user.personal_team
+    return { ok: true, user: now.user.id, team, install, grant: grant.id, ...(current.sso_team ? { sso_team: current.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}), ...(agent ? { agent } : {}), ...(current.kind === "vm" ? { vm: true as const } : {}), ...(current.kind === "team-vm" ? { team_vm: true as const } : {}) }
   }
 }

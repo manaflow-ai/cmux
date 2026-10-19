@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { ServerNetworkState } from "./server-network.ts"
 
 /** Public prefixed ids (cli.md C7). 20 lowercase hex characters after the prefix. */
 const prefixedId = (prefix: string, identifier: string, description: string) =>
@@ -117,6 +118,8 @@ export const Host = Schema.Struct({
   wg_public_key: Schema.optionalKey(WgPublicKey),
   /** Network policy tags, for example `tag:server`. */
   tags: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** Approval and registration only; this does not claim current transport or serving authority. */
+  network: Schema.optionalKey(ServerNetworkState),
   /** Set when its owner left the team: the host waits for a team owner to reassign or remove it (cx-44j.49). */
   orphaned: Schema.optionalKey(Schema.Struct({ at: Schema.Int, former_owner: UserId }))
 }).annotate({ identifier: "Host" })

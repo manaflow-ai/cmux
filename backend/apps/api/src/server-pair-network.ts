@@ -2,6 +2,7 @@ import { createCmuxVmClient, type components } from "@cmux/vm"
 import type { Env } from "./env.ts"
 import type { PairingRecord } from "./pairing-do.ts"
 import type { VmApiTenant } from "./team-vm-api-tenant.ts"
+import { installPublicPoint } from "./install-public-point.ts"
 
 /** Public approval intent; pinned before the first external effect. */
 export interface PairingApproval { readonly team: string; readonly name: string; readonly mesh: string | null }
@@ -17,12 +18,6 @@ const originOf = (value: unknown): string | null => {
   if (typeof value !== "string") return null
   try { const url = new URL(value); return url.protocol === "https:" && url.origin === value && !url.username && !url.password ? value : null } catch { return null }
 }
-const publicPoint = (record: PairingRecord): string => {
-  const decode = (v: string) => Uint8Array.from(atob(v.replace(/-/g, "+").replace(/_/g, "/").padEnd(44, "=")), (c) => c.charCodeAt(0))
-  const x = decode(record.public_jwk.x), y = decode(record.public_jwk.y)
-  if (x.length !== 32 || y.length !== 32) throw new Error("invalid install point")
-  return btoa(String.fromCharCode(4, ...x, ...y))
-}
 
 export const sameApproval = (a: PairingApproval, b: PairingApproval) => a.team === b.team && a.name === b.name && a.mesh === b.mesh
 export const networkLocator = (grant: ServerNetworkEnrollment) => ({ state: "reserved" as const, tenant: grant.tenantId, mesh: grant.meshId, device: grant.deviceId })
@@ -33,7 +28,7 @@ export const networkMatchesPairing = (grant: ServerNetworkEnrollment, record: Pa
     const expiry = Date.parse(grant.expiresAt)
     return originOf(grant.origin) !== null && /^msc_[0-9a-hjkmnp-tv-z]{26}$/.test(grant.code) && /^dev_[0-9a-hjkmnp-tv-z]{26}$/.test(grant.deviceId)
       && tenantId(grant.tenantId) && nativeMesh(grant.meshId) && grant.meshId === approval.mesh
-      && grant.binding.name === approval.name && grant.binding.wgPublicKey === record.wg_public_key && grant.binding.installPublicKey === publicPoint(record)
+      && grant.binding.name === approval.name && grant.binding.wgPublicKey === record.wg_public_key && grant.binding.installPublicKey === installPublicPoint(record.public_jwk)
       && expiry > now && expiry >= record.expires_at && expiry <= now + 720_000
   } catch { return false }
 }
@@ -54,7 +49,7 @@ export const issuePairNetwork = async (env: Env, approval: PairingApproval, reco
       target = await owner.vmApiTenant(approval.team, "operate")
     }
     if (!target || target.team !== approval.team || target.project !== env.STACK_PROJECT_ID || !tenantId(target.tenant)) return unavailable("The team's network identity could not be verified", false)
-    const binding = { name: approval.name, wgPublicKey: record.wg_public_key, installPublicKey: publicPoint(record) }
+    const binding = { name: approval.name, wgPublicKey: record.wg_public_key, installPublicKey: installPublicPoint(record.public_jwk) }
     const client = createCmuxVmClient({ token: transport.session, teamId: target.tenant, baseUrl: origin, fetch: (request) => (transport.fetch ?? fetch)(new Request(request, { redirect: "manual", signal: AbortSignal.timeout(15_000) })) })
     const { data, response } = await client.POST("/v1/meshes/{meshId}/overlay-server-codes", { params: { path: { meshId: approval.mesh } }, body: binding })
     if (response.status !== 201 || !data) {

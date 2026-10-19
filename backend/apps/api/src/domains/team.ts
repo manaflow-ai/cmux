@@ -17,7 +17,7 @@ import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type Tea
 import { reduceMemberProvision, reduceOwnerCountInit, reduceStackMirror, seatsOf, teamDeleted, withOwnerDelta } from "./team-stack.ts"
 import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
-import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
+import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
   /** A Stack team carries its Stack id, and `deleted_at` once Stack deleted it (team-stack.ts). */
@@ -47,6 +47,7 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
  */
 const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
   "sso.connection.set_secret",
+  "server.network.confirm",
   "sso.connection.activate",
   "domain.verify",
   "domain.release",
@@ -204,6 +205,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (!d.ok) return d
         if (!p.install || !p.user) return reject("auth.forbidden", "host.enroll needs an install token")
         const existing = hostByInstall(state, ctx.rows, p.install)
+        if (existing?.kind === "server") return reject("auth.forbidden", "paired servers must use the server pairing flow")
         const id = existing?.id ?? ctx.newId("host")
         const host: typeof Host.Type = { id, name: d.value.name, platform: d.value.platform, owner_user: p.user, enrolled_by: p.install, enrolled_at: existing?.enrolled_at ?? ctx.now }
         if (existing && JSON.stringify(existing) === JSON.stringify(host)) return { ok: true, state, value: host, changed: false }
@@ -220,6 +222,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (!d.ok) return d
         const host = hostOf(state, ctx.rows, d.value.host)
         if (!host) return reject("selector.not_found", "host not found")
+        if (host.kind === "server") return reduceServerRevoke(state, params, ctx)
         const role = roleOf(state, ctx.rows, p.user)
         if (host.owner_user !== p.user && !roleHas(role, "team.manage")) return reject("auth.forbidden", "only the host owner or a team admin may remove it")
         return {
@@ -237,6 +240,10 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
       case "server.install_revoked": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")
         return reduceServerInstallRevoked(state, params)
+      }
+      case "server.network.confirmed": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        return reduceServerNetworkConfirmed(state, params, ctx)
       }
       case "server.revoke": {
         if (!state.team) return reject("validation.invalid", "team not initialized")

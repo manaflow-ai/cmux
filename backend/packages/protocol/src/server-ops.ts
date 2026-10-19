@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { DisplayName, HostId, InstallId, PairingCode, Platform, PublicJwk, ServerCapabilities, TeamId, UserId } from "./schemas.ts"
+import { NativeDeviceId, NativeMeshId, ServerNetworkBinding, ServerNetworkProof, ServerNetworkReservation } from "./server-network.ts"
 
 /**
  * cmux server pairing (plans/cmux-next/server.md 6). A server that has no
@@ -56,8 +57,8 @@ export const ServerPairApprove = def({
   risk: "mutate-shared",
   target: "pairing",
   principals: ["session"],
-  params: Schema.Struct({ code: PairingCode, team: TeamId, name: DisplayName, mesh: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^mesh_[0-9a-hjkmnp-tv-z]{26}$/))) }),
-  result: Schema.Struct({ host: HostId, team: TeamId, user: UserId, install: InstallId, network: Schema.optionalKey(Schema.Struct({ state: Schema.Literals(["reserved"]), tenant: Schema.String, mesh: Schema.String, device: Schema.String })) }),
+  params: Schema.Struct({ code: PairingCode, team: TeamId, name: DisplayName, mesh: Schema.optionalKey(NativeMeshId) }),
+  result: Schema.Struct({ host: HostId, team: TeamId, user: UserId, install: InstallId, network: Schema.optionalKey(ServerNetworkReservation) }),
   errors: [...mutationErrors, "selector.not_found"],
   docs: "Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution.",
   cli: { path: "servers add", visible: true },
@@ -79,4 +80,19 @@ export const ServerRevoke = def({
   mcp: { expose: "never", group: "servers" }
 })
 
-export const serverOps = [ServerPairPreview, ServerPairApprove, ServerRevoke] as const satisfies readonly CloudOpDef[]
+export const ServerNetworkConfirm = def({
+  name: "server.network.confirm",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "host",
+  principals: ["install"],
+  params: Schema.Struct({ host: HostId, mesh: NativeMeshId, device: NativeDeviceId, proof: ServerNetworkProof }),
+  result: Schema.Struct({ host: HostId, network: ServerNetworkBinding }),
+  errors: [...mutationErrors, "selector.not_found", "owner.unreachable"],
+  docs: "The paired daemon confirms its approved network reservation with a fresh signed policy read. Tenant, device and public keys must match the current owners. This records identity only; it does not activate transport or serving roles.",
+  cli: { path: "servers network confirm", visible: false },
+  mcp: { expose: "never", group: "servers" }
+})
+
+export const serverOps = [ServerPairPreview, ServerPairApprove, ServerNetworkConfirm, ServerRevoke] as const satisfies readonly CloudOpDef[]

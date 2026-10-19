@@ -237,6 +237,10 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
         if (payload.op === "integration.complete" || providerOpNames.has(payload.op) || googleProviderOpNames.has(payload.op)) return yield* externalOp(principal, frame)
         // DNS checks and the domain's DomainDO run in TeamDO, outside its reducer (team-domain-external.ts).
+        if (payload.op === "server.network.confirm") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).serverNetworkConfirm(p.team!, p, frame)), catch: unreachable })
+        }
         if (payload.op === "domain.verify" || payload.op === "domain.release") {
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).domainOp(p.team!, p, frame)), catch: unreachable })
@@ -355,11 +359,11 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           return { ...response, value: { connection: c, authorize_url: authorizeUrl } }
         }
         // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
-        if (payload.op === "server.revoke" && response.ok) {
+        if ((payload.op === "server.revoke" || payload.op === "host.remove") && response.ok && typeof (response.value as { install?: unknown }).install === "string") {
           const v = response.value as { host: string; install: string }
           const team = principal.team!
           const flushed = yield* Effect.tryPromise({ try: () => rpc<{ revoked: Array<string> }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).flushServerRevocations(team)), catch: unreachable })
-          return { ...response, value: { host: v.host, install_revoked: flushed.revoked.includes(v.install) } }
+          return { ...response, value: payload.op === "server.revoke" ? { host: v.host, install_revoked: flushed.revoked.includes(v.install) } : { host: v.host } }
         }
         // The personal team exists once the user exists (a team of one, identity spec section 2).
         if (payload.op === "user.ensure" && response.ok) {

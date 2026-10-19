@@ -1,4 +1,5 @@
 import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
+import type { ServerNetworkReservation } from "@cmux/protocol"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
 import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
@@ -27,6 +28,7 @@ import { personalTenantStack, type PersonalTenantStack } from "./team-vm-api-per
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
 import { listMembers } from "./domains/team-members.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
+import { serverNetworkExternal } from "./server-network-confirm.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
@@ -365,6 +367,17 @@ export class TeamDO extends OwnerDO<TeamState> {
     return sshExternal({ ...this.sshDeps(entity), presence: this.presenceOwner(entity) }, principal, frame)
   }
 
+  /** The daemon confirms only its existing approved reservation; no policy or role is activated. */
+  async serverNetworkConfirm(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return serverNetworkExternal({
+      team: entity, project: this.env.STACK_PROJECT_ID, origin: this.env.CLOUD_VM_API_ORIGIN, stream: engine.stream,
+      state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
+      key: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).serverKey(user, install, grant, entity),
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+    }, principal, frame)
+  }
+
   /** The team SSH CA's view of this object (team-ssh-ca.ts). */
   private sshDeps(entity: string): SshCaDeps {
     const engine = this.bind(entity)
@@ -452,7 +465,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   async enrollServer(
     entity: string,
     principal: Principal,
-    params: { install: string; name: string; platform: string; wg_public_key: string },
+    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type },
     idempotencyKey: string
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
