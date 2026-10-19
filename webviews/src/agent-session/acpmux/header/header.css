@@ -1,5 +1,7 @@
 /* The chat header's tools (header/ChatHeaderTools.tsx): 26px small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface. */
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
+.acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
+.acpmux-header-separator{flex:none;width:.5px;height:16px;margin:0 3px;border:0;background:var(--agent-border);}
 .acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tool{width:26px}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
