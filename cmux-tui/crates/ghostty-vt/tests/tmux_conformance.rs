@@ -393,7 +393,16 @@ fn tmux_utf8_test_lines() {
     let have = utf8_section_ids(&actual);
     let missing: Vec<String> =
         utf8_section_ids(&expected).into_iter().filter(|id| !have.contains(id)).collect();
-    assert!(missing.is_empty(), "section lines lost or merged: {missing:?}");
+    if !missing.is_empty() {
+        let around: Vec<String> = actual
+            .lines()
+            .enumerate()
+            .skip(100)
+            .take(40)
+            .map(|(i, l)| format!("{:3} {:?}", i + 1, l.trim_end()))
+            .collect();
+        panic!("section lines lost or merged: {missing:?}\nactual lines:\n{}", around.join("\n"));
+    }
     assert_eq!(
         actual.lines().count(),
         expected.lines().count(),
@@ -1627,7 +1636,12 @@ fn cw_edge(seq: &str) {
     assert_eq!(p.cursor(), (3, 1));
     let joined = p.joined();
     assert_eq!(joined.lines().count(), 1, "row 0 is not marked wrapped: {joined:?}");
-    assert_blank(&mut p, 0, 4);
+    // tmux: a blank cell; Ghostty marks the same blank as a spacer head.
+    let c = p.cell(0, 4);
+    assert!(
+        c.text.is_empty() && matches!(c.width, CellWidth::Narrow | CellWidth::SpacerHead),
+        "cell 0,4 is not blank: {c:?}"
+    );
     assert_wide(&mut p, 1, 0, seq);
     assert_cell(&mut p, 1, 2, "X");
 }
