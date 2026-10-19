@@ -291,23 +291,26 @@ pub struct StartRequest {
 }
 
 /// A sub-session's new worktree (and the folder it was made from) until its
-/// start succeeds: dropped before that (a later refusal or failure), it is
-/// removed, off the async runtime.
-struct KeptWorktree(Option<(PathBuf, crate::subsession_worktree::Worktree)>);
+/// start succeeds: dropped before [`KeptWorktree::keep`] (a later refusal,
+/// failure, or the parent closing meanwhile), it is removed, off the async
+/// runtime.
+struct KeptWorktree {
+    folder: PathBuf,
+    made: crate::subsession_worktree::Worktree,
+    kept: bool,
+}
 
 impl KeptWorktree {
-    fn get(&self) -> &crate::subsession_worktree::Worktree {
-        &self.0.as_ref().expect("kept until keep()").1
-    }
-
-    fn keep(mut self) -> crate::subsession_worktree::Worktree {
-        self.0.take().expect("kept until keep()").1
+    /// The start succeeded: the worktree stays.
+    fn keep(mut self) {
+        self.kept = true;
     }
 }
 
 impl Drop for KeptWorktree {
     fn drop(&mut self) {
-        if let Some((folder, made)) = self.0.take() {
+        if !self.kept {
+            let (folder, made) = (self.folder.clone(), self.made.clone());
             std::thread::spawn(move || crate::subsession_worktree::remove_worktree(&folder, &made));
         }
     }
@@ -509,15 +512,19 @@ impl Hub {
                 ));
             }
         };
-        let (child, reply) = self.start_reserved(parent, &pm, depth, req).await?;
+        let (child, reply, worktree) = self.start_reserved(parent, &pm, depth, req).await?;
         slot.settle(&child);
         // A stop_session close:true of an ancestor that ran while this start
-        // was in flight did not see the child: close it now, not orphaned.
+        // was in flight did not see the child: close it now, not orphaned
+        // (and its worktree, dropped unkept, is removed).
         if parent.meta().status == SessionStatus::Closed {
             let _ = self.kill(&child, false).await;
             return Err(RpcError::invalid_params(
                 "the session closed while its sub-session started",
             ));
+        }
+        if let Some(kept) = worktree {
+            kept.keep();
         }
         let link = child.meta().subsession.clone();
         self.append(
@@ -529,14 +536,15 @@ impl Hub {
         Ok(reply)
     }
 
-    /// The start itself, inside a reserved slot.
+    /// The start itself, inside a reserved slot; with its new worktree,
+    /// removed unless the caller keeps it.
     async fn start_reserved(
         self: &Arc<Self>,
         parent: &Arc<Session>,
         pm: &SessionMeta,
         depth: u32,
         req: StartRequest,
-    ) -> Result<(Arc<Session>, Value), RpcError> {
+    ) -> Result<(Arc<Session>, Value, Option<KeptWorktree>), RpcError> {
         let base = short_name_of(req.name.as_deref(), &req.prompt);
         let short = self.subsessions.claim_name(&parent.id, &base);
         let name = self.unique_name(&format!("{}/{short}", pm.name));
@@ -552,8 +560,8 @@ impl Hub {
         let mut cwd = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
         let worktree = if req.worktree {
             let made = self.subsession_worktree(pm, &cwd, &short).await?;
-            let kept = KeptWorktree(Some((cwd.clone(), made)));
-            cwd = kept.get().cwd.clone();
+            let kept = KeptWorktree { folder: cwd.clone(), made, kept: false };
+            cwd = kept.made.cwd.clone();
             Some(kept)
         } else {
             None
@@ -632,11 +640,11 @@ impl Hub {
             "turnId": accepted.get("turnId"),
             "session": summary,
         });
-        if let Some(kept) = worktree {
-            let w = kept.keep();
+        if let Some(kept) = &worktree {
+            let w = &kept.made;
             reply["worktree"] = json!({"root": w.root, "branch": w.branch, "base": w.base});
         }
-        Ok((probe, reply))
+        Ok((probe, reply, worktree))
     }
 
     /// A new worktree of `folder`'s repository for a sub-session named

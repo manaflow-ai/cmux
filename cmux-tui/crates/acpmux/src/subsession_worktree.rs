@@ -14,11 +14,18 @@
 //! a change the agent makes to that config meanwhile changes nothing. The
 //! files are as committed (a Git LFS file stays its pointer); the child's own
 //! git, in its sandbox, uses the repository's config from then on.
+//!
+//! A partial clone (`--filter=blob:none`) may lack some of the commit's
+//! files, e.g. when it was cloned without a checkout or checks out sparsely.
+//! Those, and only those, are fetched first from its promisor remote's URL,
+//! by git reading the user's and system's config but not the repository's,
+//! and only over the file, git, http, https and ssh transports.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// A worktree [`make_worktree`] made.
+#[derive(Clone)]
 pub struct Worktree {
     pub root: PathBuf,
     pub branch: String,
@@ -85,6 +92,7 @@ fn check_out_without_config(
         std::fs::write(scratch.join("config"), config).map_err(|e| e.to_string())?;
         std::fs::write(info.join("alternates"), format!("{}\n", objects.display()))
             .map_err(|e| e.to_string())?;
+        fetch_missing(objects, &scratch, root, commit)?;
         let isolated = || {
             let mut cmd = hardened(root);
             cmd.env("GIT_DIR", &scratch)
@@ -99,6 +107,78 @@ fn check_out_without_config(
     })();
     let _ = std::fs::remove_dir_all(&scratch);
     result
+}
+
+/// The objects of `commit`'s tree that the repository's object store
+/// (`objects`) lacks, as a partial clone can.
+fn missing_objects(scratch: &Path, root: &Path, commit: &str) -> Result<Vec<String>, String> {
+    let mut cmd = hardened(root);
+    cmd.env("GIT_DIR", scratch).env("GIT_CONFIG_GLOBAL", "/dev/null");
+    let tree = format!("{commit}^{{tree}}");
+    let listed =
+        run(cmd, &["rev-list", "--objects", "--missing=print", "--no-object-names", &tree])?;
+    Ok(listed.lines().filter_map(|l| l.strip_prefix('?')).map(str::to_owned).collect())
+}
+
+/// The URL of the promisor remote of the partial clone whose worktree
+/// `root` is, as its config names it (read, never run).
+fn promisor_url(root: &Path) -> Option<String> {
+    let listed =
+        git(root, &["config", "--get-regexp", r"^remote\..*\.promisor$"]).unwrap_or_default();
+    let named = listed.lines().find_map(|l| {
+        let (key, value) = l.split_once(' ')?;
+        (value == "true").then(|| key.strip_prefix("remote.")?.strip_suffix(".promisor"))?
+    });
+    let name = named
+        .map(str::to_owned)
+        .or_else(|| git(root, &["config", "extensions.partialClone"]).ok())?;
+    git(root, &["config", &format!("remote.{name}.url")]).ok().filter(|u| !u.is_empty())
+}
+
+/// Fetches the objects of `commit`'s tree that a partial clone lacks into
+/// its object store (`objects`), from its promisor remote, through the
+/// config-less git directory `scratch`: the repository's config (its
+/// transports, helpers, `insteadOf`, upload-pack) is not read, the user's
+/// and the system's are (their credential helpers), and only the file, git,
+/// http, https and ssh transports may run. Nothing missing, nothing fetched.
+fn fetch_missing(objects: &Path, scratch: &Path, root: &Path, commit: &str) -> Result<(), String> {
+    use std::io::Write;
+    let missing = missing_objects(scratch, root, commit)?;
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let url = promisor_url(root).ok_or_else(|| {
+        format!(
+            "{} of the commit's objects are missing and no promisor remote has them",
+            missing.len()
+        )
+    })?;
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(scratch)
+        .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
+        .args(["-c", "submodule.recurse=false", "-c", "fetch.negotiationAlgorithm=noop"])
+        .args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no"])
+        .args(["--stdin", "--", &url])
+        .env("GIT_DIR", scratch)
+        .env("GIT_OBJECT_DIRECTORY", objects)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_ALLOW_PROTOCOL", "file:git:http:https:ssh")
+        .env("LC_ALL", "C")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("git did not run: {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(missing.join("\n").as_bytes()).map_err(|e| e.to_string())?;
+    }
+    let out = child.wait_with_output().map_err(|e| format!("git did not run: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("fetching the partial clone's missing files failed: {}", err.trim()));
+    }
+    Ok(())
 }
 
 /// Removes a worktree [`make_worktree`] made, and its branch.
@@ -194,8 +274,12 @@ fn make_worktree_under(folder: &Path, title: &str, home: &Path) -> Result<Worktr
             }
             Err(e) => return Err(e),
         }
-        let cwd = Some(root.join(&prefix)).filter(|p| p.is_dir()).unwrap_or_else(|| root.clone());
-        let made = Worktree { root: root.clone(), branch: branch.clone(), base: base.clone(), cwd };
+        let mut made = Worktree {
+            root: root.clone(),
+            branch: branch.clone(),
+            base: base.clone(),
+            cwd: root.clone(),
+        };
         // Its files without the repository's config; then its index, which
         // `read-tree` (no `-u`) writes from the objects alone.
         let filled = check_out_without_config(&objects, &format, &root, &commit)
@@ -206,6 +290,11 @@ fn make_worktree_under(folder: &Path, title: &str, home: &Path) -> Result<Worktr
         if let Err(e) = filled {
             remove_worktree(folder, &made);
             return Err(e);
+        }
+        // The started-from folder exists in the worktree only once its
+        // files are checked out.
+        if root.join(&prefix).is_dir() {
+            made.cwd = root.join(&prefix);
         }
         return Ok(made);
     }
