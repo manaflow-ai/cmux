@@ -6292,11 +6292,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane.",
+            "description": "DeviceOverlayPolicy",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OverlayPolicy"
+                  "$ref": "#/components/schemas/DeviceOverlayPolicy"
                 }
               }
             }
@@ -7394,11 +7394,11 @@
         "security": [],
         "responses": {
           "200": {
-            "description": "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane.",
+            "description": "DeviceOverlayPolicy",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OverlayPolicy"
+                  "$ref": "#/components/schemas/DeviceOverlayPolicy"
                 }
               }
             }
@@ -11566,7 +11566,7 @@
         },
         "additionalProperties": false
       },
-      "OverlayPolicy": {
+      "DeviceOverlayPolicy": {
         "type": "object",
         "required": [
           "deviceId",
@@ -11611,10 +11611,17 @@
             "items": {
               "$ref": "#/components/schemas/OverlayPeer"
             }
+          },
+          "tenantId": {
+            "type": "string",
+            "description": "The tenant that owns this device. Account identity binding must require it and match its authoritative team-to-tenant mapping and both public keys.",
+            "title": "maxLength(128)",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
           }
         },
-        "additionalProperties": false,
-        "description": "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane."
+        "additionalProperties": false
       },
       "OverlayPeer": {
         "type": "object",

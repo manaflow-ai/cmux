@@ -37102,6 +37102,257 @@
         }
       }
     },
+    "host.network.bind": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "mesh": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeMeshId"
+            }
+          },
+          "device": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeDeviceId"
+            }
+          },
+          "wg_public_key": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "WgPublicKey"
+            }
+          },
+          "proof": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ServerNetworkProof"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              },
+              "network": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ServerNetworkBinding"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "host network bind",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Bind the calling client install's own host to a network device using a fresh policy read signed by that install key. Verify the authoritative team tenant and both public keys. This records identity only; current transport policy and serving permissions remain separate.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "mesh": {
+            "$ref": "#/$defs/NativeMeshId"
+          },
+          "device": {
+            "$ref": "#/$defs/NativeDeviceId"
+          },
+          "wg_public_key": {
+            "$ref": "#/$defs/WgPublicKey"
+          },
+          "proof": {
+            "$ref": "#/$defs/ServerNetworkProof"
+          }
+        },
+        "required": [
+          "host",
+          "mesh",
+          "device",
+          "wg_public_key",
+          "proof"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "WgPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "A WireGuard public key, standard base64 of 32 bytes."
+          },
+          "ServerNetworkProof": {
+            "type": "object",
+            "properties": {
+              "signedAt": {
+                "type": "integer"
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{22}$"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]{86}==$"
+              }
+            },
+            "required": [
+              "signedAt",
+              "nonce",
+              "signature"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "network": {
+            "$ref": "#/$defs/ServerNetworkBinding"
+          }
+        },
+        "required": [
+          "host",
+          "network"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "host.remove": {
       "class": "mutation",
       "idempotency": "required",

@@ -4,6 +4,32 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAuditListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAuditListResult {
+    pub team: TeamId,
+    pub entries: Vec<TeamAuditEntry>,
+    pub next_cursor: Option<i64>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.audit.list declares.
+    TeamAuditListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
 wire_op! {
     /// Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token.
     TeamDeviceComplianceOp {
@@ -877,30 +903,4 @@ wire_errors! {
         AuthUnauthenticated = "auth.unauthenticated",
         TeamVmNotBound = "team_vm.not_bound",
     }
-}
-
-wire_op! {
-    /// Release a wake lease you hold, so the team VM may pause when no other lease is active.
-    TeamVmLeaseReleaseOp {
-        name: "team_vm.lease.release",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamVmDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: TeamVmLeaseReleaseParams,
-        result: TeamVmLeaseReleaseResult,
-        error: TeamVmLeaseReleaseError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmLeaseReleaseParams {
-    pub lease: TeamVmLeaseId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmLeaseReleaseResult {
-    pub lease: TeamVmLeaseId,
-    pub released: bool,
 }

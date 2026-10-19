@@ -2255,6 +2255,20 @@ export interface CloudOps {
     }
     readonly result: Host
   }
+  /** Bind the calling client install's own host to a network device using a fresh policy read signed by that install key. Verify the authoritative team tenant and both public keys. This records identity only; current transport policy and serving permissions remain separate. */
+  readonly "host.network.bind": {
+    readonly params: {
+      readonly host: HostId
+      readonly mesh: NativeMeshId
+      readonly device: NativeDeviceId
+      readonly wg_public_key: WgPublicKey
+      readonly proof: ServerNetworkProof
+    }
+    readonly result: {
+      readonly host: HostId
+      readonly network: ServerNetworkBinding
+    }
+  }
   /** Remove a host from the team directory (its owner or a team admin). */
   readonly "host.remove": {
     readonly params: {
@@ -3488,6 +3502,7 @@ export const cloudOpMeta = {
   "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "host.network.bind": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "inbox.dm_peer": { class: "read", owner: "cloud:UserDO", risk: "read" },

@@ -4,6 +4,38 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarSetParams {
+    pub participant_id: ParticipantId,
+    /// The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<String>,
+    /// true removes the picture (no bytes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clear: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarSetResult {
+    pub participant_id: ParticipantId,
+    pub avatar: Option<AvatarRef>,
+}
+
+wire_errors! {
+    /// The error codes participant.avatar.set declares.
+    ParticipantAvatarSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        AvatarInvalid = "avatar_invalid",
+        AvatarTooLarge = "avatar_too_large",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        UnknownParticipant = "unknown_participant",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.
     ParticipantsAddOp {
@@ -866,31 +898,5 @@ wire_op! {
         params: TeamAuditListParams,
         result: TeamAuditListResult,
         error: TeamAuditListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAuditListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<TeamId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub before: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAuditListResult {
-    pub team: TeamId,
-    pub entries: Vec<TeamAuditEntry>,
-    pub next_cursor: Option<i64>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.audit.list declares.
-    TeamAuditListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

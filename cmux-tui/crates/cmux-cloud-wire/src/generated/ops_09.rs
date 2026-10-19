@@ -4,6 +4,32 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Release a wake lease you hold, so the team VM may pause when no other lease is active.
+    TeamVmLeaseReleaseOp {
+        name: "team_vm.lease.release",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamVmDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: TeamVmLeaseReleaseParams,
+        result: TeamVmLeaseReleaseResult,
+        error: TeamVmLeaseReleaseError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmLeaseReleaseParams {
+    pub lease: TeamVmLeaseId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmLeaseReleaseResult {
+    pub lease: TeamVmLeaseId,
+    pub released: bool,
+}
+
 wire_errors! {
     /// The error codes team_vm.lease.release declares.
     TeamVmLeaseReleaseError {
@@ -863,30 +889,5 @@ wire_errors! {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         OwnerUnreachable = "owner.unreachable",
-    }
-}
-
-wire_op! {
-    /// The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings.
-    UserTextConfirmGetOp {
-        name: "user.text_confirm.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: UserTextConfirmGetParams,
-        result: Value,
-        error: UserTextConfirmGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTextConfirmGetParams {}
-
-wire_errors! {
-    /// The error codes user.text_confirm.get declares.
-    UserTextConfirmGetError {
-        AuthForbidden = "auth.forbidden",
     }
 }

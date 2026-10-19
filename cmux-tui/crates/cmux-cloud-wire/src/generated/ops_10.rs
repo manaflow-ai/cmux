@@ -5,6 +5,31 @@
 use super::*;
 
 wire_op! {
+    /// The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings.
+    UserTextConfirmGetOp {
+        name: "user.text_confirm.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: UserTextConfirmGetParams,
+        result: Value,
+        error: UserTextConfirmGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTextConfirmGetParams {}
+
+wire_errors! {
+    /// The error codes user.text_confirm.get declares.
+    UserTextConfirmGetError {
+        AuthForbidden = "auth.forbidden",
+    }
+}
+
+wire_op! {
     /// Make the text confirmation level safer (applies at once). A riskier level needs lower.challenge and lower.
     UserTextConfirmLevelSetOp {
         name: "user.text_confirm.level.set",
