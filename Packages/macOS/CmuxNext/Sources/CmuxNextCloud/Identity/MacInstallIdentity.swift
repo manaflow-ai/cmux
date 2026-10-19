@@ -91,9 +91,17 @@ public actor MacInstallIdentity {
     }
 
     func nativeContext(team: String) async throws -> NativeInstallContext {
+        try await context(team: team)
+    }
+
+    /// The bound account for session-only owner reads, never implicit Cloud operation authority.
+    func accountContext() async throws -> NativeInstallContext { try await context(team: nil) }
+
+    private func context(team: String?) async throws -> NativeInstallContext {
         guard let client, let stackUser = user else { throw Failure.signedOut }
         let bound = generation
-        let token = try await installToken(team: team)
+        let token: String
+        if let team { token = try await installToken(team: team) } else { token = try await installToken() }
         guard let record = await client.currentRecord, let environment = await client.environment else { throw Failure.signedOut }
         let point = try await store.signer(for: stackUser).publicKeyX963()
         guard bound == generation, user == stackUser, await client.currentRecord == record, point.count == 65, point.first == 4 else { throw Failure.signedOut }

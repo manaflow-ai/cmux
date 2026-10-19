@@ -47,10 +47,14 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     public struct Session: Sendable, Equatable {
         public var signedIn: Bool
         public var team: String?
+        public var account: String?
+        public var generation: UInt64
 
-        public init(signedIn: Bool, team: String?) {
+        public init(signedIn: Bool, team: String?, account: String? = nil, generation: UInt64 = 0) {
             self.signedIn = signedIn
             self.team = team
+            self.account = account
+            self.generation = generation
         }
     }
 
@@ -105,7 +109,8 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         guard Self.mayRelay(op, allowed: await allowedOps()) else {
             return Self.failure("credential.op_refused", "the credential relay never sends \(op)")
         }
-        guard await session().signedIn else { return Self.notSignedIn }
+        let original = await session()
+        guard original.signedIn else { return Self.notSignedIn }
         let key = params["idempotency_key"]?.stringValue
         var envelope: [String: JSONValue] = ["op": .string(op), "params": params["params"] ?? .object([:])]
         let path: String
@@ -120,14 +125,22 @@ public nonisolated struct CloudCredentialRelay: Sendable {
             return Self.failure("validation.invalid", "credential.relay params are not JSON")
         }
         do {
-            var reply = try await post(path, body, try await token())
+            var bearer = try await token()
+            guard await session() == original else { return Self.sessionChanged }
+            var reply = try await post(path, body, bearer)
+            guard await session() == original else { return Self.sessionChanged }
             if reply.status == 401 {
                 // A stale token: mint once more, then the Worker's answer stands.
                 await invalidate()
-                reply = try await post(path, body, try await token())
+                guard await session() == original else { return Self.sessionChanged }
+                bearer = try await token()
+                guard await session() == original else { return Self.sessionChanged }
+                reply = try await post(path, body, bearer)
+                guard await session() == original else { return Self.sessionChanged }
             }
             return Self.answer(status: reply.status, body: reply.body)
         } catch {
+            guard await session() == original else { return Self.sessionChanged }
             if await !session().signedIn { return Self.notSignedIn }
             return Self.failure("owner.unreachable", "the cmux API did not answer", retryable: true)
         }
@@ -165,6 +178,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     }
 
     static let notSignedIn = failure("not_signed_in", "sign in to cmux")
+    static let sessionChanged = failure("credential.session_changed", "the Cloud session changed", retryable: true)
 
     static func failure(_ code: String, _ message: String, retryable: Bool = false) -> Answer {
         Answer(ok: false, body: .object(["code": .string(code), "message": .string(message), "retryable": .bool(retryable)]))

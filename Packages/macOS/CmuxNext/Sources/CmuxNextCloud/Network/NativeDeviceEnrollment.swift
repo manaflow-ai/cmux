@@ -233,14 +233,9 @@ public actor NativeDeviceEnrollment {
         guard !revoked, epoch == generation else { throw NativeDeviceEnrollmentError.revoked }
     }
     private func sessionBearer(_ context: NativeInstallContext) async throws -> String {
-        let bearer = try await session(), pieces = bearer.split(separator: ".", omittingEmptySubsequences: false)
-        guard pieces.count == 3, let data = Data(base64URLEncoded: String(pieces[1])),
-              let claims = try JSONSerialization.jsonObject(with: data) as? [String: Any], claims["sub"] as? String == context.account,
-              let issuer = claims["iss"] as? String, issuer.hasPrefix("https://api.stack-auth.com/api/v1/projects/") else { throw NativeDeviceEnrollmentError.signedOut }
-        let project = String(issuer.dropFirst("https://api.stack-auth.com/api/v1/projects/".count))
-        guard !project.isEmpty, project.utf8.count <= 128, project.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "_-".contains($0)) }),
-              context.user == "user_" + String(hash("stack:\(project):\(context.account)").prefix(20)) else { throw NativeDeviceEnrollmentError.signedOut }
-        let shared = "team_" + String(hash("stack-team:\(project):\(scope.tenant)").prefix(20))
+        let bearer = try await session()
+        let identity = try StackSessionIdentity(bearer, context: context)
+        let shared = "team_" + String(hash("stack-team:\(identity.project):\(scope.tenant)").prefix(20))
         let personal = "team_" + String(hash("personal:\(context.user)").prefix(20))
         guard scope.team == shared || scope.team == personal else { throw NativeDeviceEnrollmentError.invalidScope }
         return bearer

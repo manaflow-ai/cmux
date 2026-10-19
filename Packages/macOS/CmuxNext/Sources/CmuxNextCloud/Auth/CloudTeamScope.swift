@@ -1,0 +1,96 @@
+package import CmuxInstallAuthCore
+import Foundation
+
+/// Resolves the picker’s opaque Stack reference through the original owner before minting in that team.
+package actor CloudTeamScope {
+    package struct Selection: Equatable, Sendable {
+        let account: String
+        let stackTeam: String?
+        let generation: UInt64
+        package init(account: String, stackTeam: String?, generation: UInt64) {
+            self.account = account; self.stackTeam = stackTeam; self.generation = generation
+        }
+    }
+    package struct Snapshot: Sendable {
+        package let team: String
+        package let account: String
+        package let generation: UInt64
+        package let recheck: @Sendable () async throws -> Void
+        package let sessionToken: @Sendable () async throws -> String
+    }
+    package enum Failure: Error, Equatable { case changed, unavailable, notMember, ssoRequired, invalidIdentity }
+
+    private let identity: MacInstallIdentity
+    private let transport: any InstallAuthTransport
+    private let selection: @Sendable () async throws -> Selection
+    private let session: InstallAuthClient.SessionToken
+
+    package init(identity: MacInstallIdentity, transport: any InstallAuthTransport,
+                 selection: @escaping @Sendable () async throws -> Selection, session: @escaping InstallAuthClient.SessionToken) {
+        self.identity = identity; self.transport = transport; self.selection = selection; self.session = session
+    }
+
+    package func snapshot() async throws -> Snapshot {
+        let selected = try await selection()
+        // This binds the install only; no Cloud operation uses the personal token as a fallback.
+        let context = try await identity.accountContext()
+        guard let personal = MacInstallIdentity.team(ofToken: context.token) else { throw Failure.invalidIdentity }
+        guard context.account == selected.account else { throw Failure.changed }
+        let bearer = try await session()
+        _ = try StackSessionIdentity(bearer, context: context)
+        try await check(selected, context)
+        let body = Data(#"{"op":"user.teams.list","params":{}}"#.utf8)
+        let reply = try await transport.post("/v1/read", json: body, bearer: bearer, headers: identity.requestHeaders)
+        try await check(selected, context)
+        guard reply.status == 200, reply.body.count <= 1_048_576,
+              let envelope = try? JSONDecoder().decode(Envelope.self, from: reply.body),
+              envelope.op == "user.teams.list", envelope.value.teams.count <= 101 else { throw Failure.unavailable }
+        let listed = envelope.value
+        let personalRows = listed.teams.filter { $0.kind == "personal" }
+        guard personalRows.count == 1, personalRows[0].id == personal, personalRows[0].stack_team == nil else { throw Failure.invalidIdentity }
+        let matches = listed.teams.filter { team in
+            if let stack = selected.stackTeam { return team.kind == "stack" && team.stack_team == stack }
+            return team.kind == "personal"
+        }
+        guard matches.count == 1, let found = matches.first else {
+            if matches.count > 1 { throw Failure.invalidIdentity }
+            throw listed.incomplete ? Failure.unavailable : Failure.notMember
+        }
+        guard found.id.hasPrefix("team_"), found.id.utf8.count == 25,
+              found.id.dropFirst(5).allSatisfy({ "0123456789abcdef".contains($0) }) else { throw Failure.invalidIdentity }
+        guard !found.sso_required else { throw Failure.ssoRequired }
+        return Snapshot(team: found.id, account: selected.account, generation: selected.generation, recheck: { [weak self] in
+            guard let self else { throw Failure.changed }
+            try await self.check(selected, context)
+        }, sessionToken: { [weak self] in
+            guard let self else { throw Failure.changed }
+            return try await self.credential(selected, context)
+        })
+    }
+
+    package func token() async throws -> String {
+        let scope = try await snapshot()
+        let token = try await identity.installToken(team: scope.team)
+        try await scope.recheck()
+        guard MacInstallIdentity.team(ofToken: token) == scope.team else { throw Failure.invalidIdentity }
+        return token
+    }
+
+    private func check(_ selected: Selection, _ context: NativeInstallContext) async throws {
+        try await identity.nativeCheck(context)
+        guard try await selection() == selected else { throw Failure.changed }
+        try Task.checkCancellation()
+    }
+
+    private func credential(_ selected: Selection, _ context: NativeInstallContext) async throws -> String {
+        try await check(selected, context)
+        let token = try await session()
+        _ = try StackSessionIdentity(token, context: context)
+        try await check(selected, context)
+        return token
+    }
+
+    private struct Envelope: Decodable { let op: String; let value: Listing }
+    private struct Listing: Decodable { let teams: [Team]; let incomplete: Bool }
+    private struct Team: Decodable { let id: String; let kind: String; let stack_team: String?; let sso_required: Bool }
+}
