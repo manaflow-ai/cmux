@@ -13,12 +13,10 @@ extension CMUXCLI {
             return path
         }
         let changeDirectoryError = errno
-        // Preserve the old guarded `cd`: a directory removed since capture
-        // falls back to the shell's current directory, while an existing but
-        // inaccessible path still blocks restore.
-        if changeDirectoryError == ENOENT || changeDirectoryError == ENOTDIR {
-            return nil
-        }
+        // A missing saved directory is ambiguous: silently continuing from
+        // the caller's cwd can launch the provider against a different
+        // checkout and make a valid session appear lost. Restore must fail
+        // closed so the caller can recreate or remount the recorded path.
         throw loggedRestoreError(
             stage: "working-directory.change",
             detail: path,

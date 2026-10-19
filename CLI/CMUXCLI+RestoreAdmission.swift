@@ -17,7 +17,7 @@ extension CMUXCLI {
         restorePayload: [String: Any],
         client: SocketClient,
         effectiveCodexHome: String? = nil
-    ) throws -> RestoreLaunchAdmissionClaim? {
+    ) async throws -> RestoreLaunchAdmissionClaim? {
         guard record.mode == AgentRestoreRequestMode.resumeAgent.rawValue ||
             record.mode == AgentRestoreRequestMode.relaunchAgent.rawValue else {
             return nil
@@ -63,17 +63,36 @@ extension CMUXCLI {
             "record_session_id": recordSessionID ?? sessionID
         ]
         if let effectiveCodexHome { params["codex_home"] = effectiveCodexHome }
+        var recoveryBudget = AgentRestoreAdmissionRecoveryBudget()
         var response: [String: Any]
-        repeat {
-            response = try RestoreAdmissionRetryPolicy.response {
-                try sendRestoreAdmission(params: &params, restorePayload: restorePayload, client: client)
+        while true {
+            guard recoveryBudget.beginAttempt() else {
+                throw loggedRestoreError(
+                    stage: "admission.recovery-timeout",
+                    detail: "kind=\(record.kind) session=\(sessionID)",
+                    message: String(
+                        localized: "cli.restore.error.admissionRecoveryTimeout",
+                        defaultValue: "restore: ownership evidence did not settle. The session remains available to retry."
+                    )
+                )
+            }
+            response = try await RestoreAdmissionRetryPolicy.response {
+                try sendRestoreAdmission(
+                    params: &params,
+                    restorePayload: restorePayload,
+                    client: client,
+                    responseTimeout: recoveryBudget.responseTimeout,
+                    deadline: recoveryBudget.deadline
+                )
             }
             // Retry only genuinely unresolved evidence. A known live owner or
             // competing launch is terminal, even when an older app also sets
             // recovering=true on that response.
             params["wait_for_change"] = true
-        } while response["recovering"] as? Bool == true
-            && response["live_owner_pid"] == nil && response["launch_pending"] as? Bool != true
+            guard response["recovering"] as? Bool == true,
+                  response["live_owner_pid"] == nil,
+                  response["launch_pending"] as? Bool != true else { break }
+        }
         guard response["admitted"] as? Bool == true else {
             throw restoreLaunchConflictError(
                 kind: record.kind, sessionID: sessionID,
@@ -120,11 +139,11 @@ extension CMUXCLI {
         static func response(
             onRetry: (Int) -> Void = { _ in },
             sending send: () throws -> [String: Any]
-        ) throws -> [String: Any] {
-            try AgentRestoreAdmissionRetry().response(
+        ) async throws -> [String: Any] {
+            try await AgentRestoreAdmissionRetry().response(
                 onRetry: onRetry,
                 isRetryable: isRetryable,
-                sending: send
+                sending: { try send() }
             )
         }
     }

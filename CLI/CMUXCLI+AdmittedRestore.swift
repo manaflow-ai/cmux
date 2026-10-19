@@ -89,7 +89,7 @@ extension CMUXCLI {
         workspaceID: String?,
         effectiveWorkingDirectory: String?,
         workingDirectoryBeforeRestore: String
-    ) throws {
+    ) async throws {
         let invocation = execution.invocation
         let workingDirectory = effectiveWorkingDirectory ?? FileManager.default.currentDirectoryPath
         let launchLease = try invocation.flatMap {
@@ -106,7 +106,7 @@ extension CMUXCLI {
                 environment: invocation.environment, workingDirectory: workingDirectory, fallbackHome: NSHomeDirectory()
             )
         }
-        let claim = try requireRestoreLaunchAdmission(
+        let claim = try await requireRestoreLaunchAdmission(
             record: record, recordSessionID: recordSessionID, restorePayload: payload,
             client: client, effectiveCodexHome: codexHome
         )

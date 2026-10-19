@@ -476,3 +476,63 @@ unused-import warnings were pre-existing and did not fail the run.
 A bounded `timeout 75 sr claude proxy` review was attempted against this exact
 head with the protected process and backup explicitly excluded. It produced no
 output before timeout, so Claude remains **unavailable**, not a review verdict.
+
+## Review reconciliation and preservation update (2026-10-19T18:00Z)
+
+The protected state was copied again before any restore or app launch. The
+manifest at
+`/Users/danielraffel/Library/Application Support/cmux/recovery-backup-20261019T-live-session/SHA256SUMS`
+verifies the current layout snapshot, the previous snapshot, and the existing
+workstream backup. The current layout snapshot is 207,929 bytes and hashes to
+`20936069116b0a675e51015c01643ca195d2975c6227a8f2055b516020652dec`; the
+878,760,521-byte workstream backup retains the previously recorded hash
+`808c48a047244efe244a2a0f271793a04bfbef6028f89d4f3bbc5d1163bc09ba`.
+PID 49398, its socket, and all provider processes remain untouched.
+
+An independent high-effort Claude review completed through `sr claude proxy`
+(`claude-opus-5-5`, session
+`cbb5fd27-3ef4-46af-be71-9ea7d1e192c4`). It found that the workstream JSONL is
+feed history, not the layout snapshot; the layout must be copied separately.
+It also found the current process at about 2.2 GB RSS with roughly 30 lease
+watchers, so preserving the snapshot does not justify keeping the live process
+unbounded indefinitely. The review changes the causal ordering: the QEMU abort
+in `NSCGLSurface flushRect` is more likely a consequence of a WindowServer
+failure than its initiating cause, and the M3 watchdogs without QEMU make cmux
+surface/process pressure an independent contributor. A restore was not proven
+to be active at the October 18 crash time, and whether the workstream log is
+re-read after startup remains an evidence gap.
+
+The review identified a red intermediate commit. HEAD
+`1cf4fe52f89aa3ee2a3761f0c143bec384665362` changed
+`AgentRestoreAdmissionRetryTests` to an async `Duration` API before the
+implementation and CLI had been updated. That intermediate head was never
+treated as green. The repair now uses a cancellable `Clock.sleep(for:)` API,
+an injected `AgentRestoreAdmissionRecoveryBudget` for the outer
+`recovering` admission loop, and an async CLI call path. The package suite
+passes 887 tests in 100 suites, and the full app-host `build-for-testing`
+target succeeds; Xcode's optional LaunchServices registration was skipped
+after its `lsregister` child stalled on the external worktree.
+
+### Ordered implementation gates after preservation
+
+1. Keep the async retry API and total deadline/iteration cap around outer
+   admission recovery; on exhaustion retain the binding and report
+   resume-available instead of launching a bare shell. The deterministic
+   budget test and package/app-host build are green.
+2. Reject a missing restore working directory instead of falling back to
+   `$HOME`, which can make a valid Claude or Subrouter session appear missing.
+3. Keep the geometry async boundary and serialized surface admission; add tests
+   for the boundary before changing the scheduler to completion tokens.
+4. Extract provider/route launch planning from `Workspace`, then redeem an
+   opaque single-use token through an internal launcher so session IDs and
+   provider flags are not typed into interactive shell history.
+5. Run the copied fixture with stub providers and isolated HOME/config roots;
+   only after exact counts and provider identity pass may a tagged app build be
+   dogfooded. Never target the protected socket.
+6. Audit governor/TOML values and storage stalls by timestamp. Treat governor
+   changes as amplifiers or unrelated until a causal trace exists; do not mutate
+   fleet configuration during recovery.
+
+The next two explicit evidence gaps are (a) whether the workstream log is read
+after startup and (b) whether hidden surfaces retain renderer/IOSurface state.
+Measure both before implementing renderer hibernation or workstream rotation.

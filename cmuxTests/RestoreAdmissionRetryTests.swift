@@ -110,6 +110,34 @@ import Testing
         #expect(total <= .seconds(60))
         #expect(AgentRestoreAdmissionRetry().delays.first.map { $0 <= .seconds(1) } == true)
     }
+
+    @Test
+    func recoveryBudgetStopsAtAttemptOrDeadline() {
+        var now = Date(timeIntervalSince1970: 100)
+        var budget = AgentRestoreAdmissionRecoveryBudget(
+            timeout: 10,
+            maximumAttempts: 2,
+            start: now,
+            now: { now }
+        )
+
+        let firstAttempt = budget.beginAttempt()
+        let secondAttempt = budget.beginAttempt()
+        let exhaustedAttempt = budget.beginAttempt()
+        #expect(firstAttempt)
+        #expect(secondAttempt)
+        #expect(!exhaustedAttempt)
+
+        var deadlineBudget = AgentRestoreAdmissionRecoveryBudget(
+            timeout: 10,
+            maximumAttempts: 3,
+            start: now,
+            now: { now }
+        )
+        now = now.addingTimeInterval(11)
+        let expiredAttempt = deadlineBudget.beginAttempt()
+        #expect(!expiredAttempt)
+    }
 }
 
 /// Ownership refreshes must finish while either Pi or another agent writes

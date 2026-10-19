@@ -197,7 +197,7 @@ extension CMUXCLI {
                 workingDirectory: effectiveWorkingDirectory
             )
         }
-        try runAdmittedRestore(
+        try await runAdmittedRestore(
             execution: execution, record: record, recordSessionID: surfaceRecordCheckpointID,
             payload: payload, bindingPayload: bindingPayload, client: client,
             surfaceID: surfaceID, workspaceID: payload["workspace_id"] as? String ?? processEnvironment["CMUX_WORKSPACE_ID"],
