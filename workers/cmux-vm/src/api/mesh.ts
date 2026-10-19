@@ -385,9 +385,10 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .setHeaders(GroupCreateHeaders)
       .addSuccess(Mesh, { status: 201 })
       .addError(NotFound)
+      .addError(Conflict)
       .addError(PaymentRequired)
       .addError(QuotaExceeded)
-      .annotateContext(describe("Create the team's mesh", "mesh:write", `A session must be a team admin. ${EXPERIMENT}`)),
+      .annotateContext(describe("Create the team's mesh", "mesh:write", `A session must be a team admin. An Idempotency-Key retains the team's original creation across retries; changed intent is 409 and a deleted key cannot create another mesh. Retry an uncertain result with the same key. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.get("listMeshes", "/v1/meshes")
