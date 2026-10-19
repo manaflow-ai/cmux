@@ -4016,7 +4016,7 @@
       },
       "help" : {
         "key" : "settings.sessions.allowFullAccess.help",
-        "text" : "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."
+        "text" : "Off, cmux won't switch an agent into a mode that skips approvals."
       },
       "kept_on_reset_all" : false,
       "key" : "sessions.allowFullAccess",
@@ -29317,7 +29317,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "26a3dd89134d38c6eb85ea11fd683c43dd5a0e7940ac371e747b84b8d8042166",
+  "schema_hash" : "a294352e5431fb8b88af8465ab4334ca366e86f0321e611fd908bccaa7b5c988",
   "sections" : [
     {
       "id" : "general",
