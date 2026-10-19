@@ -3,7 +3,7 @@ import type { Project } from "./ProjectChooser";
 import { experimentArm } from "../../experiments/experiment";
 import { LazyLanguageIcon } from "./changes/LazyFileIcons";
 import { LANGUAGE_ICONS } from "./changes/languageIcons";
-import { projectLanguageIcons } from "./projectLanguage.experiment";
+import { fileIconColor, projectLanguageIcons } from "./fileIcons.experiment";
 import { useProjectArt } from "./projectIcon";
 
 const BADGE_COLORS = [
@@ -55,6 +55,7 @@ export function ProjectBadge({ project }: { project: Project }) {
       data-project-kind={kind}
       data-project-icon={shown || language ? "" : undefined}
       data-project-language={language}
+      data-icon-color={language ? experimentArm(fileIconColor) : undefined}
       aria-hidden="true"
     >
       {shown ? (

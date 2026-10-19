@@ -160,6 +160,9 @@ test("a project with no favicon shows its language's icon from its marker files"
   expect(badge.dataset.projectLanguage).toBe("swift");
   expect(badge.querySelector("svg[data-icon='swift']")).not.toBeNull();
   expect(badge.textContent).toBe("");
+  // In its type's color: Swift's hue on a badge that colors its icon (fileIcons.experiment.ts).
+  expect(badge.dataset.iconColor).toBe("theme");
+  expect(badge.querySelector("svg")?.getAttribute("data-icon-hue")).toBe("orange");
 });
 
 test("a favicon wins over the language, and a language cmux has no icon for keeps the letters", async () => {

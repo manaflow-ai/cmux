@@ -3,6 +3,8 @@ import { useEscapingList } from "../../ui/popupHost";
 import { readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
 import { Icon } from "./icons/Icon";
 import { LazyFileTypeIcon } from "./changes/LazyFileIcons";
+import { experimentArm } from "../../experiments/experiment";
+import { fileIconColor } from "./fileIcons.experiment";
 import type { MentionItem } from "./mentionItems";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
 import { useT } from "./i18n";
@@ -98,6 +100,7 @@ export function MentionMenu({
 }) {
   const t = useT();
   const files = mentionResults(state);
+  const iconColor = experimentArm(fileIconColor);
   // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
   const escape = useEscapingList("top", 6);
   useEffect(() => {
@@ -142,7 +145,11 @@ export function MentionMenu({
             onPick(item);
           }}
         >
-          <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
+          <span
+            className="acpmux-mention-icon"
+            data-mention-icon={item.kind}
+            data-icon-color={item.kind === "file" ? iconColor : undefined}
+          >
             {item.kind === "file" ? (
               // The file's type (Swift, YAML, ...) once the icon set loads; a plain file until then.
               <LazyFileTypeIcon path={item.path} fallback={<Icon name="file" size={14} />} />

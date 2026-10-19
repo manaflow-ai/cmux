@@ -65,6 +65,9 @@ const tokenHues: Readonly<Record<string, string>> = {
   zip: "orange",
 };
 
+/** The hue of a built-in icon token (`swift`: orange), or undefined for the muted color. */
+export const iconHue = (token: string): string | undefined => tokenHues[token];
+
 export type ResolvedFileIcon = { hue: string | undefined; symbol: string; token: string | undefined };
 
 export function resolveFileIcon(path: string): ResolvedFileIcon {

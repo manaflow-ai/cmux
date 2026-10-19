@@ -14,3 +14,21 @@ export const projectLanguageIcons = defineExperiment({
   },
   defaultArm: "on",
 });
+
+/// The @ picker's file icons and a badge's language icon in their type's color (Swift orange,
+/// Python blue), from the theme's ANSI colors, as Claude desktop's picker and the Files page draw
+/// them; `muted` draws them in the muted text color, as the chat's diff headers do.
+export const fileIconColor = defineExperiment({
+  id: "file-icon-color",
+  title: "File icon color",
+  description:
+    "File-type and language icons in the @ picker and project badges: in their type's theme color, or muted.",
+  arms: {
+    theme: {
+      label: "Theme color",
+      description: "Each type in its ANSI theme color (Swift orange, Python blue, YAML red).",
+    },
+    muted: { label: "Muted", description: "Every icon in the muted text color, as the chat's diff headers." },
+  },
+  defaultArm: "theme",
+});

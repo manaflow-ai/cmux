@@ -4,6 +4,7 @@
 // package (bd cx-z9kz0); the pickers load it lazily (LazyFileIcons.tsx).
 import React, { useLayoutEffect } from "react";
 import { createFileTreeIconResolver, getBuiltInSpriteSheet } from "@pierre/trees";
+import { iconHue } from "../../../file-icons";
 import { LANGUAGE_ICONS } from "./languageIcons";
 
 const SPRITE_ID = "acpmux-file-icon-sprite";
@@ -13,7 +14,9 @@ function ensureSprite() {
   if (typeof document === "undefined" || !document.body || document.getElementById(SPRITE_ID)) return;
   const holder = document.createElement("div");
   holder.id = SPRITE_ID;
-  holder.hidden = true;
+  // Out of sight but rendered: a gradient (Next.js's mark) in a display:none sprite draws nothing.
+  holder.setAttribute("aria-hidden", "true");
+  holder.style.cssText = "position:absolute;width:0;height:0;overflow:hidden;pointer-events:none";
   holder.innerHTML = getBuiltInSpriteSheet("complete");
   document.body.prepend(holder);
 }
@@ -42,6 +45,8 @@ function BuiltInIcon({ id }: { id: string }) {
       viewBox="0 0 16 16"
       aria-hidden
       data-icon={id.slice("file-tree-builtin-".length)}
+      // The diff page's hue for the type (file-icons.tsx); a surface that colors icons maps it to a theme color.
+      data-icon-hue={iconHue(id.slice("file-tree-builtin-".length))}
     >
       <use href={`#${id}`} />
     </svg>

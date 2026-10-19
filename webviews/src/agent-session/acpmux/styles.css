@@ -160,6 +160,13 @@
 .acpmux-mention-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-mention-row b{font-weight:var(--weight-emphasis,600);color:var(--agent-text)}
+/* A file or language icon in its type's color (fileIcons.experiment.ts), from the theme's ANSI colors. */
+[data-icon-color=theme]>.acpmux-file-icon[data-icon-hue=red]{color:var(--agent-ansi-1,#b4365e)}
+[data-icon-color=theme]>.acpmux-file-icon:is([data-icon-hue=orange],[data-icon-hue=yellow]){color:var(--agent-ansi-3,#ff9f0a)}
+[data-icon-color=theme]>.acpmux-file-icon[data-icon-hue=green]{color:var(--agent-ansi-2,#32d74b)}
+[data-icon-color=theme]>.acpmux-file-icon:is([data-icon-hue=teal],[data-icon-hue=cyan]){color:var(--agent-ansi-6,#5ac8fa)}
+[data-icon-color=theme]>.acpmux-file-icon:is([data-icon-hue=blue],[data-icon-hue=indigo]){color:var(--agent-ansi-4,#58a6ff)}
+[data-icon-color=theme]>.acpmux-file-icon:is([data-icon-hue=purple],[data-icon-hue=pink],[data-icon-hue=mauve]){color:var(--agent-ansi-5,#bf7af0)}
 .acpmux-mention-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--acpmux-composer-dim)}
 .acpmux-mention-row .acpmux-slash-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-mention-row .acpmux-slash-description{flex:0 1000 auto}
