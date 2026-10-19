@@ -124,6 +124,28 @@ public final class WindowMaterialView: NSView {
         updateArtCrop()
     }
 
+    /// The art is the only layer whose frame is computed, not autoresized: every size change
+    /// places it again at once. `layout()` alone is not enough, since a superview's autoresize
+    /// can change this frame without asking for layout, which left the art at the old window's
+    /// frame over a stretched blurred fill after a resize.
+    override public func setFrameSize(_ newSize: NSSize) {
+        let changed = frame.size != newSize
+        super.setFrameSize(newSize)
+        if changed { updateArtCrop() }
+    }
+
+    override public func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        updateArtCrop()
+    }
+
+    override public func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        // A display or scale change: the placement is pixel-sensitive.
+        artPlacement = nil
+        updateArtCrop()
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
