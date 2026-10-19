@@ -32,8 +32,19 @@ impl Translator {
         {
             self.awaiting_summary.store(false, Ordering::SeqCst);
         }
+        // A failed compaction writes no boundary: its status line is the
+        // turn's output, so the zero-turn result after it ends the prompt.
+        let compaction_failed = parent.is_none()
+            && kind == "system"
+            && sub == "status"
+            && line.get("status").and_then(Value::as_str).is_none()
+            && line
+                .get("compact_result")
+                .and_then(Value::as_str)
+                .is_some_and(|result| result != "success");
         if kind == "assistant"
             || (kind == "system" && (sub == "conversation_reset" || sub == "compact_boundary"))
+            || compaction_failed
         {
             self.turn_output.store(true, Ordering::SeqCst);
         }
