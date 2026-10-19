@@ -523,6 +523,17 @@ struct AgentResumeArgvTests {
                 launcher: "codex",
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
+                arguments: ["evil", "-c", "model_provider=subrouter"],
+                environment: boundSubrouterMarker()
+            ) == .rejected,
+            "A launcher label cannot authorize Subrouter routing when argv names another executable"
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
                 arguments: [
                     "/opt/bin/codex",
                     "-c", "model_provider=subrouter",

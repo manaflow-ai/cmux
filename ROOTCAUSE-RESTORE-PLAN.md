@@ -557,3 +557,18 @@ Subrouter records must be routed from captured provider evidence; executable
 basename alone is insufficient. The one record retaining only a Subrouter
 `CODEX_HOME` has no durable provider proof and remains deliberately
 fail-closed until capture writes an explicit identity marker.
+
+## M3 “open elsewhere” validation (2026-10-19T20:00Z)
+
+The supplied M3 anchor (`workspace:1000010000`, pane
+`B4F8333D-2323-4920-8688-1F6B588802E2`, surface
+`A0852F2D-8759-4647-B2B0-32D270C102F9`) was checked read-only through the
+debug socket. The session reported as elsewhere,
+`01a13376-8047-73b2-b412-69e05305df9a`, has a live Codex process (PID 81360)
+and its `~/.codex/thread-writer-locks/<session>.lock` is open by that process.
+cmux’s process tree maps it to `workspace:1000010002` (“high-octane-gas”),
+surface `surface:1000010032`, with the durable tag
+`codex.01a13376-8047-73b2-b412-69e05305df9a`. This is a confirmed live
+same-machine owner, not a stale message. A future false-positive test must
+use a session ID whose lock has no live owner and verify that the restore path
+can reclaim it without requiring a quit/restart.

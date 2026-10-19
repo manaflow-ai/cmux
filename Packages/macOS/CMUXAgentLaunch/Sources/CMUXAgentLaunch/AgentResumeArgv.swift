@@ -393,6 +393,10 @@ public struct AgentResumeArgv: Sendable, Equatable {
         /// The launcher is a cmux wrapper; the associated value is its resume argv, or `nil` when the
         /// wrapper has no resumable form (e.g. one-shot `omx`/`omc`).
         case resolved([String]?)
+        /// The record claims a routed Codex launch but its executable identity
+        /// does not match the captured argv. Do not fall through to a direct
+        /// resume that could retain Subrouter provider settings.
+        case rejected
         /// The launcher is a plain agent executable; fall through to ``builtInKind(kind:sessionId:executablePath:arguments:)``.
         case passthrough
     }
@@ -412,7 +416,21 @@ public struct AgentResumeArgv: Sendable, Equatable {
         arguments: [String],
         environment: [String: String]? = nil
     ) -> LauncherResolution {
-        if let routed = SubrouterCodexResumeRouting().resumeArguments(
+        let normalizedLauncher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedLauncher == "codex",
+           !capturedCodexExecutableMatches(arguments: arguments, executablePath: executablePath),
+           SubrouterCodexResumeRouting().resumeArguments(
+               launcher: launcher,
+               sessionID: sessionId,
+               launchArguments: arguments,
+               environment: environment
+           ) != nil {
+            return .rejected
+        }
+        let capturedExecutableMatches = normalizedLauncher != "codex" ||
+            capturedCodexExecutableMatches(arguments: arguments, executablePath: executablePath)
+        if capturedExecutableMatches,
+           let routed = SubrouterCodexResumeRouting().resumeArguments(
             launcher: launcher,
             sessionID: sessionId,
             launchArguments: arguments,
@@ -464,6 +482,14 @@ public struct AgentResumeArgv: Sendable, Equatable {
         default:
             return .passthrough
         }
+    }
+
+    private func capturedCodexExecutableMatches(arguments: [String], executablePath: String?) -> Bool {
+        guard let first = arguments.first,
+              let executablePath,
+              !executablePath.isEmpty else { return false }
+        return URL(fileURLWithPath: first).lastPathComponent
+            == URL(fileURLWithPath: executablePath).lastPathComponent
     }
 
     /// Builds the resume argv for a built-in agent kind, or `nil` if the kind is unknown or its launch
