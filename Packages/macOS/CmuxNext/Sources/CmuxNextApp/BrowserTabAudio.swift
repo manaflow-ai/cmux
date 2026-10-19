@@ -1,4 +1,3 @@
-import Foundation
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextTabs
@@ -16,19 +15,6 @@ enum BrowserTabAudio {
         if state.isAudioMuted { return .muted }
         return state.media?.isAudible == true ? .playing : nil
     }
-
-    /// The tab menu reads Mute Tab or Unmute Tab for the right-clicked tab, as Chrome's
-    /// Mute Site / Unmute Site row does.
-    static func bindMenuTitle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        ActionTargetTitles.set("toggleTabAudioMute", in: registry) { invocation in
-            guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id),
-                  let state = ctx.services.cache.existingBrowser(tab.id)?.tab.state else { return nil }
-            return state.isAudioMuted ? unmuteTab : muteTab
-        }
-    }
-
-    static var muteTab: String { String(localized: "tabAudio.muteTab", defaultValue: "Mute Tab", table: "Handlers", bundle: .module) }
-    static var unmuteTab: String { String(localized: "tabAudio.unmuteTab", defaultValue: "Unmute Tab", table: "Handlers", bundle: .module) }
 
     /// `toggleTabAudioMute`: mutes the tab's page, or unmutes it.
     static func toggleMute(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
