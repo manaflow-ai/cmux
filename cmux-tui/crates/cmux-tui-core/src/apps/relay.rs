@@ -287,3 +287,26 @@ impl Supervisor {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    #[test]
+    fn cloud_scope_provider_roundtrip_keeps_request_and_session_context() {
+        let scope = "a".repeat(64);
+        let (_, params) = provider_call(&json!({"type": "relay.op", "id": "r1",
+            "op": "cloud.machine.list", "params": {}, "expected_scope": scope}))
+        .unwrap();
+        assert_eq!(params["expected_scope"], scope);
+        let reply = relay_reply(
+            &json!("r2"),
+            true,
+            Ending::Answer {
+                ok: true,
+                body: json!({"signed_in": true, "team": "team_a", "scope": scope}),
+            },
+        );
+        assert_eq!(reply["scope"], scope);
+    }
+}
