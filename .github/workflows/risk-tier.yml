@@ -41,11 +41,11 @@ jobs:
           sparse-checkout: scripts/ci/risk_tier.py
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
-      # pull request merged recently (a stale base). Full blobs: a blobless fetch made blame fetch
-      # them one by one, past its timeout on busy files (about 55 s and 278 MB this way, then
-      # blame takes well under a second).
-      # A fresh repository, not the sparse checkout above: actions/checkout makes a sparse
-      # checkout a blobless partial clone, and a later fetch into it stays blobless.
+      # pull request merged recently (a stale base). A fresh repository with full blobs, not the
+      # sparse checkout above: actions/checkout makes that a blobless partial clone, and blame in
+      # one fetches blobs one by one, past its timeout on busy files. This takes about 60 s and
+      # 270 MB, then blame takes seconds. Capped at 150 s so the job (5 min) always finishes: a
+      # slow fetch skips the check with a warning instead of turning the check red.
       - name: Fetch the base's recent history
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -53,7 +53,7 @@ jobs:
         run: |
           history="$RUNNER_TEMP/base-history"
           git init -q "$history"
-          if git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+          if timeout 150 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
             echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
           else
