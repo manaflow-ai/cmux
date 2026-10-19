@@ -29,6 +29,8 @@ extension SidebarViewComponents {
         var fontSize: CGFloat
         var titlebarHeight: CGFloat
         var cards: SidebarBottomCards
+        /// The session tree (`sidebar.sessionTree`): nesting, pull requests, keycaps.
+        var tree: SidebarSessionTreeState?
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedSectionsRevision
             selection = model.selection
@@ -48,6 +50,7 @@ extension SidebarViewComponents {
             fontSize = Typography.body.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
+            tree = SidebarSessionTree.shared.state
         }
     }
     func observe() {
@@ -71,7 +74,7 @@ extension SidebarViewComponents {
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
-            || state.preferences.changesList(from: lastState?.preferences)
+            || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
