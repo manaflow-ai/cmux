@@ -77,24 +77,23 @@ html[data-cmux-page="changelog"] body {
 }
 .cl-group ul { list-style: none; margin: 0; padding: 0; }
 .cl-group li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 8px 12px;
-  padding: 8px 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 0;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
-.cl-row-copy { min-width: 0; }
-.cl-row-title { display: block; font-weight: 600; }
-.cl-row-summary {
-  display: block;
-  margin-top: 2px;
-  color: var(--page-text-2);
-  white-space: normal;
-  text-wrap: pretty;
-}
-.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; }
+/* Title and line run as one paragraph that wraps, rather than either being cut short (Leo
+   2026-10-18). */
+.cl-row-text { flex: 1 1 auto; min-width: 0; }
+.cl-row-title { font-weight: 600; }
+.cl-row-summary { color: var(--page-text-2); }
+/* Try it and Learn more show on hover or keyboard focus, beside the paragraph. */
+.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; margin-left: auto; opacity: 0; }
+.cl-group li:hover .cl-row-actions,
+.cld-item:hover .cl-row-actions,
+.cl-row-actions:focus-within { opacity: 1; }
 .cl-row-action {
   border: 0;
   background: transparent;
@@ -130,6 +129,12 @@ html[data-cmux-page="changelog"] body {
   gap: 8px;
   align-items: baseline;
   padding: 3px 0;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cl-changes-internal {
+  margin: 3px 0 0;
+  color: var(--page-text-3);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
@@ -234,6 +239,7 @@ html[data-cmux-page="changelog"] body {
 .cld-item .cl-row-title,
 .cld-item .cl-row-summary { display: block; white-space: normal; }
 .cld-item .cl-row-summary { font-size: var(--text-detail); line-height: var(--text-detail--line-height); margin-top: 2px; }
+.cld-item .cl-row-actions { margin-top: 4px; }
 .cld-thumb { margin: 0; width: 76px; border-radius: 5px; }
 
 @media (prefers-reduced-motion: reduce) {

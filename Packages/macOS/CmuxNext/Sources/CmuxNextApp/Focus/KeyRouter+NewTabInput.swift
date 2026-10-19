@@ -66,7 +66,7 @@ final class NewTabInputCoordinator {
         var owns: Bool {
             guard let window else { return false }
             if incoming != nil { return true }
-            guard let pane, pane.view.window === window else { return false }
+            guard let pane, pane.view.window === window, !pane.view.isHiddenOrHasHiddenAncestor else { return false }
             guard let key = pane.currentTabKey else { return !shown }
             if pane.services.agentTabs.isNewTabPage(key) { return true }
             return !shown && key == opened
@@ -102,7 +102,8 @@ final class NewTabInputCoordinator {
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey,
                   pane.services.agentTabs.isNewTabPage(key),
-                  let view = pane.services.agentTabs.existingView(key), view.window === window else { return false }
+                  let view = pane.services.agentTabs.existingView(key), view.window === window,
+                  !view.isHiddenOrHasHiddenAncestor else { return false }
             // A Chromium page window may be key: the shell takes it back, so later keys follow.
             if !window.isKeyWindow, NSApp.isActive { window.makeKey() }
             return window.makeFirstResponder(view.webView)

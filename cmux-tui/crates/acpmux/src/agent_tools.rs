@@ -41,6 +41,8 @@
 //!   sets `ACPMUX_AGENT_TOOLS=0` (isolated sessions such as the Chief's
 //!   compactor), and Claude args with `--strict-mcp-config`.
 //!   `ACPMUX_AGENT_TOOLS=0` on the daemon turns all of it off.
+//! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
+//!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -166,6 +168,13 @@ pub struct Inputs {
 pub const SECRET_TOOLS_ENV: &str = "ACPMUX_SECRET_TOOLS";
 /// Set to `1` by an app that shows offered chats as chips (cx-807da).
 pub const OFFER_TOOLS_ENV: &str = "ACPMUX_OFFER_TOOLS";
+/// A profile or preset env key: the comma-separated MCP server names of
+/// these tools a session keeps (`cmux`: only `cmux mcp serve`). Unset or
+/// empty keeps every server. The Chief's built-in turn presets set `cmux`
+/// (`config/chief_builtins.rs`, cx-4a5w2): a turn's tool names and server
+/// instructions come after its cache mark, so each extra server is
+/// uncached input on every turn.
+pub const SERVERS_ENV: &str = "ACPMUX_AGENT_TOOL_SERVERS";
 
 impl Inputs {
     pub fn current() -> Self {
@@ -351,6 +360,11 @@ impl AgentTools {
     /// display).
     pub fn scoped(mut self, session_env: &BTreeMap<String, String>) -> Self {
         use crate::agent_displays::{DISPLAY_ENV, WORKSPACE_KEY};
+        let keep = session_env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
+        if let Some(keep) = keep {
+            let keep: Vec<&str> = keep.split(',').map(str::trim).collect();
+            self.servers.retain(|s| keep.contains(&s.name.as_str()));
+        }
         let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
         for server in &mut self.servers {
             server.env.retain(|(k, _)| k != CUA_SCOPE_ENV);

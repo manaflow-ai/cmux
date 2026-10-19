@@ -17,7 +17,7 @@ final class RemoteTerminalPlaceholderView: NSView {
     }
 
     private let icon = NSImageView()
-    private let status = NSTextField(labelWithString: "")
+    private let status = ChromeLabel(labelWithString: "")
     private let connect = ThemedBezelButton()
     private let snapshotView = NSTextView()
     private let scroll = NSScrollView()

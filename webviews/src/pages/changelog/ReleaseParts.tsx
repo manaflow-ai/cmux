@@ -132,10 +132,10 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
       <ul>
         {shown.map((item, index) => (
           <li key={`${item.id}-${index}`}>
-            <div className="cl-row-copy">
+            <span className="cl-row-text">
               <span className="cl-row-title">{item.title}</span>
-              {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
-            </div>
+              {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
+            </span>
             <RowActions item={item} ctx={ctx} />
           </li>
         ))}
@@ -149,8 +149,20 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
   );
 }
 
-/** Every change, folded: readable titles with their pull request linked, 20 at a time. */
-export function ChangesFold({ changes, strings, open }: { changes: ChangeItem[]; strings: Strings; open?: boolean }) {
+/** Every change a person would notice, folded: readable titles with their pull request linked,
+    20 at a time, and under them one quiet line for the internal ones. A release of internal work
+    alone shows no fold: the page already says "Maintenance and fixes". */
+export function ChangesFold({
+  changes,
+  internal = 0,
+  strings,
+  open,
+}: {
+  changes: ChangeItem[];
+  internal?: number;
+  strings: Strings;
+  open?: boolean;
+}) {
   const [shown, setShown] = useState(CHANGES_PAGE);
   if (changes.length === 0) return null;
   return (
@@ -175,6 +187,13 @@ export function ChangesFold({ changes, strings, open }: { changes: ChangeItem[];
         <button type="button" className="cl-more" onClick={() => setShown((n) => n + CHANGES_PAGE * 2)}>
           {strings.t("changelog.page.showMore")}
         </button>
+      )}
+      {internal > 0 && (
+        <p className="cl-changes-internal">
+          {internal === 1
+            ? strings.t("changelog.page.internalChange")
+            : strings.format("changelog.page.internalChanges", String(internal))}
+        </p>
       )}
     </details>
   );

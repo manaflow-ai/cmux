@@ -2,6 +2,8 @@
 import { changelogPageEntry } from "../../gallery/format";
 import { sampleNotes } from "./mockProvider";
 import { realNightlies } from "./realNightlyFixtures";
+import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
+import type { ReleaseNotes } from "./types";
 import { journalNotes } from "./whatsNewFixtures";
 
 const manyNotes = Array.from({ length: 18 }, (_, index) => ({
@@ -36,6 +38,11 @@ export default changelogPageEntry({
     "pages/changelog/ReleaseParts.tsx",
   ],
   variants: {
+    "nightly-3913596493801": {
+      note: "The update from 1.0.0-nightly.3911762409401 to 3913596493801 (2026-10-18): the ten signed notes of that span as published, perf-split commits, cut titles and bead ids included.",
+      notes: nightly3913596493801 as ReleaseNotes[],
+      route: "#/?from=1.0.0-nightly.3911762409401&to=1.0.0-nightly.3913596493801",
+    },
     "nightly-update": {
       note: "Real nightly-next notes: opened after the update from 1.0.0-nightly.3797234815201 to 3832783556401. Highlights of the span first, then one section per day.",
       notes: realNightlies,

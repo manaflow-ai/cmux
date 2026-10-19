@@ -17,6 +17,7 @@ enum NotificationConfigParser {
             prefs.suppressWhileTypingSeconds = value
         }
         if let value = reader.bool("dockBadge") { prefs.dockBadge = value }
+        if let value = reader.choice("dockBounce", DockBounceMode.self) { prefs.dockBounce = value }
         diagnostics += reader.diagnostics
         prefs.quietHours = quietHours(root, diagnostics: &diagnostics)
         prefs.mutedWorkspaces = mutedWorkspaces(root, diagnostics: &diagnostics)

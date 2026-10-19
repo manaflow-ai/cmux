@@ -19,7 +19,7 @@ public final class TabOverflowHintView: NSView {
     /// Runs after a button: `true` for Use Scrolling Tabs.
     var onAnswer: ((_ usesScrolling: Bool) -> Void)?
 
-    let label = NSTextField(labelWithString: Strings.overflowHint)
+    let label = ChromeLabel(labelWithString: Strings.overflowHint)
     let useButton = NSButton(title: Strings.overflowHintUse, target: nil, action: nil)
     let dismissButton = NSButton(title: "", target: nil, action: nil)
 
@@ -29,7 +29,6 @@ public final class TabOverflowHintView: NSView {
         label.textColor = .secondaryLabelColor
         label.toolTip = Strings.overflowHint
         useButton.isBordered = false
-        useButton.contentTintColor = .controlAccentColor
         useButton.target = self
         useButton.action = #selector(useScrolling)
         dismissButton.isBordered = false
@@ -52,6 +51,21 @@ public final class TabOverflowHintView: NSView {
         dismissButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: Strings.overflowHintDismiss)?
             .withSymbolConfiguration(.init(pointSize: Typography.caption.pointSize - 2, weight: .semibold))
         needsLayout = true
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyTint()
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTint()
+    }
+
+    /// Use Scrolling Tabs in the accent of the strip's scope. Runs again on a theme change.
+    private func applyTint() {
+        useButton.contentTintColor = performWithTheme { Palette.accent }
     }
 
     /// The width the hint asks for: the sentence, the button, the x and the gaps between them.

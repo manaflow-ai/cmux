@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -127,23 +128,33 @@ extension WindowManager {
 @MainActor
 struct WorkspaceSpawner {
     let windows: WindowManager
-    let spawn: WorkspaceSpawn
+    var spawn: WorkspaceSpawn
     let daemon: DaemonService
     let windowID: String?
     let frame: CGRect?
 
-    /// The key is fixed at the press, so a close pressed while this create
-    /// waits its turn or is in flight takes exactly this workspace, and the
-    /// window shows its row from the press (`PendingWorkspaceRows`), at the
-    /// slot the setting gives against the workspace the window shows now.
+    /// The key and the name are fixed at the press, so a close pressed while
+    /// this create waits its turn or is in flight takes exactly this
+    /// workspace, and the window shows its final row from the press
+    /// (`PendingWorkspaceRows`), at the slot the setting gives against the
+    /// workspace the window shows now. With no name asked for, the create
+    /// sends the daemon's own next default (`SidebarMapping.defaultWorkspaceName`),
+    /// so the row's title is the daemon's from the first frame.
     func create() async throws -> String {
         guard daemon.connection != nil else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
-        let daemon = daemon, services = windows.services
+        let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
-        if let windowID {
-            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: MachineID(daemon.machineID),
-                                                  title: spawn.name ?? "", slot: spawn.slot, byDefault: rule))
+        // Only a create with a row names itself here; another keeps the daemon's own numbering.
+        let name = spawn.name ?? windowID.map { _ in
+            SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
+        }
+        let named = renamed(name)
+        if let windowID, let name {
+            let opensPage = WorkspaceCreation.opensPage(spawn, on: daemon, tabs: services.agentTabs)
+            let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: name, opensPage: opensPage)
+            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
+                                                  slot: spawn.slot, byDefault: rule), name: name)
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         do {
@@ -152,7 +163,7 @@ struct WorkspaceSpawner {
                 _ = await daemon.failure("close-workspace") { connection in
                     try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
                 }
-            }) { try await create(key, rule: rule) }
+            }) { try await named.create(key, rule: rule) }
         } catch {
             PendingWorkspaceRows.shared.remove(key.rawValue)
             throw error
@@ -163,6 +174,12 @@ struct WorkspaceSpawner {
     /// window's, else `default`.
     private var profile: ProfileID {
         windowID.flatMap { windows.states[$0]?.profileID } ?? windows.active?.state.profileID ?? .defaultProfile
+    }
+
+    private func renamed(_ name: String?) -> Self {
+        var copy = self
+        copy.spawn.name = name
+        return copy
     }
 
     private func create(_ key: WorkspaceKey, rule: NewWorkspaceDefaultSlot?) async throws -> String {

@@ -71,14 +71,14 @@ extension WindowManager {
             if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
                 state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
             }
-            var visible = WindowProfiles.visible(window.workspaceIDs, profile: state.profileID, machines: machines)
+            var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
             // A window waiting for the workspace it just created in a new
             // or empty room keeps that room.
             let waiting = pendingClaims.values.contains(window.id)
             if visible.isEmpty, !waiting,
                let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
                 state.enterProfile(fallback)
-                visible = WindowProfiles.visible(window.workspaceIDs, profile: fallback, machines: machines)
+                visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
             }
             // A room change shows the workspace last shown in that room.
             var wanted = preferred[window.id] ?? []
@@ -94,7 +94,7 @@ extension WindowManager {
     private func handOffKey(to receivers: [String]) {
         guard ordersWindowsIn, !services.environment.noActivate else { return }
         let next = receivers.lazy.compactMap { self.controller(for: $0) }.first
-            ?? NSApp.orderedWindows.lazy.compactMap { window in self.controllers.first { $0.window === window } }.first
+            ?? registry.value.recency.lazy.compactMap { self.controller(for: $0) }.first { $0.window?.isVisible == true }
         if let next { bringToFront(next) }
     }
 
@@ -117,17 +117,20 @@ extension WindowManager {
 
     /// Shows `workspaceID`: in the window that lists it (brought forward),
     /// else in `state`'s window, which takes it.
-    /// An action run without view-change permission shows nothing.
+    /// An action run without view-change permission shows nothing. The window
+    /// swaps its content in this turn, not on its observation hop (I6).
     func show(workspaceID: String, in state: WindowState) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
         if let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
             select(workspaceID, in: target.state)
+            target.showWorkspace(requested: target.state.workspaceID)
             bringToFront(target)
             return
         }
         claim(workspaceID: workspaceID, in: state)
+        controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
     /// Shows `workspaceID` where it lives: its window when open, else the

@@ -147,6 +147,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_base_red_excuse.py
 
+      - name: Validate merge freezes as issues
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_merge_freeze.py
+
       - name: Validate main compile attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_main_compile_attribution.py
@@ -373,6 +377,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_fake_socket_env.py
 
+      - name: Test the /release changelog line classifier
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_release_changelog_lines.py
+
       - name: Test the PR media uploader
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_pr_media.py
@@ -546,6 +554,10 @@ jobs:
       - name: Validate bead auto-close on merged pull requests
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_bead_autoclose.py
+
+      - name: Validate the idea ledger joins beads, pull requests and asks
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_idea_ledger.py
 
       - name: Validate fresh-merge on feat-cmux-next pull requests
         if: ${{ matrix.group == 'ci' }}
@@ -1076,6 +1088,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
 
+      - name: Validate the cmux-next tour drops stale prebuilt modules when a binary pin changes
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_media_module_cache_stamp.py
+
       - name: Validate feat-cmux-next publishes its cmux-tui tree before the daemon tests
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_feat_publish_order.py
@@ -1129,7 +1145,10 @@ jobs:
 
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
-        run: bash ./tests/test_nightly_universal_build.sh
+        run: |
+          bash ./tests/test_nightly_universal_build.sh
+          python3 tests/test_nightly_trusted_routing.py
+          python3 tests/test_nightly_build_state.py
 
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ matrix.group == 'release-notary' }}
@@ -1154,6 +1173,10 @@ jobs:
       - name: Validate the nightly-next guard
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
+
+      - name: Validate the nightly-next feed rollback
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_feed_rollback.py
 
       - name: Validate the nightly-next arm64-only track
         if: ${{ matrix.group == 'release-notary' }}
@@ -1186,6 +1209,12 @@ jobs:
       - name: Validate nightly-next ships as cmux NEXT beside classic NIGHTLY
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_identity.py
+
+      - name: Validate nightly signing admission and its shadow mode
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_nightly_sign_admit.py
+          python3 tests/test_nightly_sign_shadow_workflow.py
 
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}

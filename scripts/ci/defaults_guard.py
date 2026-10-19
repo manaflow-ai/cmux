@@ -16,6 +16,13 @@ the sources of truth with no hand list:
 
   python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
+
+check-fresh also recomputes the source stamp: SettingsSchemaExportTests writes
+schemas/settings-export/settings-schema.sources.sha256 with the schema, a SHA-256 of
+the CmuxNextSettings sources it exported from (outside schemas/settings, which is
+a web bundle input). The schema and docs/mdm come
+from a Swift test, so committed files can agree with each other and still be
+stale against Swift (e190c402850c); a stamp that differs from the sources says so.
   python3 scripts/ci/defaults_guard.py check --base B --head H [--pr N --repo R]
 
 `check` compares the snapshot at the merge base with the one at the head (the
@@ -31,6 +38,7 @@ by editing either.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -39,7 +47,7 @@ import sys
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
 APP = "cmux-next"
@@ -48,6 +56,17 @@ OWNERS = ".github/defaults-call-owners.json"
 ACTION_SURFACES = "plans/cmux-next/action-surfaces.json"
 SETTINGS_SCHEMA = "schemas/settings/settings-schema.json"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
+# The settings exporter's inputs and its stamp. Keep in step with
+# SettingsSchemaExportTests.sourceDigest (Swift), which writes the stamp.
+SETTINGS_STAMP = "schemas/settings-export/settings-schema.sources.sha256"
+SETTINGS_SOURCE_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
+SETTINGS_SOURCE_SUFFIXES = (".swift", ".xcstrings")
+SETTINGS_EXPORTER_FILES = (
+    "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+)
+STALE_EXPORTS = ("settings exports are stale against CmuxNextSettings sources: run the fleet export "
+                 "(REPAIR.md row 'generated settings export stale after a safe-push merge')")
 # Default bindings that step aside in a context (a code editor, a focused terminal): a change to
 # one changes what a key does there.
 KEY_BINDING_DEFAULTS = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift"
@@ -99,6 +118,67 @@ class Tree:
         result = subprocess.run(["git", "-C", str(self.root), "show", f"{self.ref}:{path}"],
                                 capture_output=True, text=True)
         return result.stdout if result.returncode == 0 else None
+
+    def read_bytes(self, paths: list[str]) -> dict[str, bytes]:
+        """The exact bytes of each file (a link is refused; a missing file raises)."""
+        if self.ref is None:
+            found = {}
+            for path in paths:
+                file = self.root / path
+                self.refuse_links(file)
+                if not file.is_file():
+                    raise SystemExit(f"DEFAULTS tree: {path} is missing")
+                found[path] = file.read_bytes()
+            return found
+        listing = self.blobs(paths)
+        missing = [path for path in paths if path not in listing]
+        if missing:
+            raise SystemExit(f"DEFAULTS tree: {', '.join(missing)} is not in {self.ref}")
+        request = "".join(f"{listing[path]}\n" for path in paths).encode()
+        result = subprocess.run(["git", "-C", str(self.root), "cat-file", "--batch"],
+                                input=request, capture_output=True, check=True)
+        found, out, offset = {}, result.stdout, 0
+        for path in paths:
+            header_end = out.index(b"\n", offset)
+            header = out[offset:header_end].split()
+            if len(header) != 3 or header[1] != b"blob":
+                raise SystemExit(f"DEFAULTS tree: {path} is not readable in {self.ref} ({header!r})")
+            size = int(header[2])
+            found[path] = out[header_end + 1:header_end + 1 + size]
+            offset = header_end + 1 + size + 1
+        return found
+
+    def blobs(self, paths: Iterable[str]) -> dict[str, str]:
+        """Object id of every blob at or under `paths` in the commit (a link is refused)."""
+        result = subprocess.run(["git", "-C", str(self.root), "ls-tree", "-r", "-z", "--full-tree", self.ref, "--", *paths],
+                                capture_output=True, check=True)
+        listing = {}
+        for entry in result.stdout.split(b"\0"):
+            if not entry:
+                continue
+            meta, _, name = entry.partition(b"\t")
+            mode, kind, oid = meta.decode().split()
+            path = name.decode("utf-8")
+            if mode == "120000":
+                raise SystemExit(f"DEFAULTS tree: {path} is a symbolic link; the defaults guard reads no links")
+            if kind == "blob":
+                listing[path] = oid
+        return listing
+
+    def files(self, path: str) -> list[str]:
+        """Repository-relative paths of the regular files under `path` (a link is refused)."""
+        if self.ref is not None:
+            return sorted(self.blobs([path]))
+        top = self.root / path
+        if not top.exists():
+            return []
+        self.refuse_links(top)
+        found = []
+        for file in top.rglob("*"):
+            self.refuse_links(file)
+            if file.is_file():
+                found.append(file.relative_to(self.root).as_posix())
+        return found
 
     def refuse_links(self, file: Path) -> None:
         """A checked-out head is data: a link in it could read the runner's own files."""
@@ -440,10 +520,52 @@ def freshness(tree: Tree) -> list[str]:
     return []
 
 
+def settings_source_digest(tree: Tree) -> str:
+    """SettingsSchemaExportTests.sourceDigest in Python: SHA-256 over the exporter's inputs by
+    repository-relative path in UTF-8 byte order, each as path, NUL, the file's bytes, NUL."""
+    paths = list(SETTINGS_EXPORTER_FILES) + [
+        path for path in tree.files(SETTINGS_SOURCE_DIR) if PurePosixPath(path).suffix in SETTINGS_SOURCE_SUFFIXES]
+    paths.sort(key=lambda path: path.encode("utf-8"))
+    contents = tree.read_bytes(paths)
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.encode("utf-8") + b"\0" + contents[path] + b"\0")
+    return digest.hexdigest()
+
+
+def stamp_freshness(tree: Tree) -> tuple[list[str], list[str]]:
+    """(problems, notes) for the settings export stamp of `tree`."""
+    stamp = tree.read(SETTINGS_STAMP)
+    if stamp is None and SETTINGS_STAMP.rsplit("/", 1)[1] in (tree.read(SETTINGS_EXPORTER_FILES[1]) or ""):
+        # The tree's exporter writes the stamp, so a missing stamp is a deleted or never-run export.
+        return [f"DEFAULTS exports: {SETTINGS_STAMP} is missing; {STALE_EXPORTS}"], []
+    if stamp is None:
+        return [], [f"note: {SETTINGS_STAMP} is missing (a commit before the first stamped export); "
+                    "the settings exports are not checked against the Swift sources"]
+    actual = settings_source_digest(tree)
+    if stamp != actual + "\n":  # exactly what SettingsSchemaExportTests writes and expects
+        return [f"DEFAULTS exports: {STALE_EXPORTS}",
+                f"  {SETTINGS_STAMP} says {stamp.strip()[:16]}, the sources hash to {actual[:16]}"], []
+    return [], []
+
+
 def command_check_fresh(args: argparse.Namespace) -> int:
-    problems = freshness(Tree.named(args.ref) if args.ref else Tree(None))
+    tree = Tree.named(args.ref) if args.ref else Tree(None)
+    problems = freshness(tree)
+    stamp_problems, notes = stamp_freshness(tree)
+    problems += stamp_problems
+    for note in notes:
+        print(note)
     for problem in problems:
         print(problem)
+    return 1 if problems else 0
+
+
+def command_check_stamp(args: argparse.Namespace) -> int:
+    """Only the settings export stamp: exit 1 when the exports need the Swift export."""
+    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None))
+    for line in notes + problems:
+        print(line)
     return 1 if problems else 0
 
 
@@ -499,9 +621,12 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("snapshot", help="regenerate the golden snapshot from the sources").set_defaults(run=command_snapshot)
-    fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources")
+    fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources, and the settings export stamp matches the CmuxNextSettings sources")
     fresh.add_argument("--ref", help="a commit to check instead of the working tree")
     fresh.set_defaults(run=command_check_fresh)
+    stamp = sub.add_parser("check-stamp", help="only the settings export stamp matches the CmuxNextSettings sources")
+    stamp.add_argument("--ref", help="a commit to check instead of the working tree")
+    stamp.set_defaults(run=command_check_stamp)
     check = sub.add_parser("check", help="list changed defaults between two commits and judge the approval")
     check.add_argument("--base", required=True, help="the merge base: a commit, or a directory checked out at it")
     check.add_argument("--head", required=True, help="the head: a commit, or a directory checked out at it")

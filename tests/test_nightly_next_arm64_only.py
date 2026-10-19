@@ -68,6 +68,42 @@ def job(name):
     return TEXT[start:] if end is None else TEXT[start:start + len(name) + 4 + end.start()]
 
 
+# The resolved cmux-tui publication includes a checksum-verified acpmux
+# companion. Fetch it before the app job's acpmux step so the existing
+# commit-addressed helper cache can reuse it instead of starting Cargo.
+app_job = job("build-nightly-app")
+try:
+    tree_fetch_at = app_job.index("      - name: Fetch the resolved cmux-tui tree companions\n")
+except ValueError:
+    tree_fetch_at = -1
+try:
+    acpmux_at = app_job.index("      - name: Build in-tree acpmux for the compilation cache\n")
+except ValueError:
+    acpmux_at = -1
+if tree_fetch_at < 0:
+    failures.append("build-nightly-app must fetch resolved cmux-tui tree companions")
+elif acpmux_at < 0 or tree_fetch_at > acpmux_at:
+    failures.append("resolved cmux-tui tree companions must be fetched before the acpmux cache step")
+else:
+    fetch_end = app_job.find("\n      - name:", tree_fetch_at + 10)
+    fetch_step = app_job[tree_fetch_at:fetch_end if fetch_end >= 0 else None]
+    if (
+        "pin-cmux-tui.sh fetch" not in fetch_step
+        or "CMUX_TUI_TREE_KEY" not in fetch_step
+        or "CMUX_TUI_TREE_TARGET: aarch64-apple-darwin" not in fetch_step
+        or "pin-cmux-tui.sh acpmux-path" not in fetch_step
+        or "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" not in fetch_step
+        or "needs.decide.outputs.fast_build != 'true'" not in fetch_step
+        or "needs.decide.outputs.build_only != 'true'" not in fetch_step
+        or "inputs.nightly_next_unsigned_run == ''" not in fetch_step
+    ):
+        failures.append("resolved tree companion fetch must hand its verified acpmux path to the app build")
+
+build_step = app_job[acpmux_at:]
+if "Reusing the attested same-tree acpmux companion" not in build_step or "CMUX_NEXT_ACPMUX_BIN:-" not in build_step:
+    failures.append("acpmux build step must reuse a verified companion before its Cargo fallback")
+
+
 def build_env(body, outputs):
     values = {}
     for key, value in re.findall(r"^ +([A-Z_]+): (.+)$", body, re.M):
@@ -84,10 +120,15 @@ def compile_commands(outputs):
     with tempfile.TemporaryDirectory(prefix="nightly-compile-archs-") as directory:
         root = Path(directory)
         stubs = {
-            "bin/python3": 'while [ "$1" != -- ]; do shift; done; shift; exec "$@"',
+            # The recorder invokes the workflow snippets without running a
+            # compiler.  Keep any nightly_build_state.py call a no-op,
+            # while still forwarding the helper's `python3 -- command`
+            # shape to the command recorder.
+            "bin/python3": 'case "${1:-}" in scripts/ci/nightly_build_state.py) exit 0;; scripts/ci/run-with-helper-prebuild.py) script="$1"; shift; exec "$script" "$@";; --) shift; exec "$@";; *) exec /usr/bin/python3 "$@";; esac',
             "bin/xcodebuild": 'printf "%s\\n" "$@" > "$CAPTURE/app"',
             "bin/lipo": 'exit 0',
             "scripts/ci/run-xcodebuild-with-diagnostics.sh": 'shift; exec "$@"',
+            "scripts/ci/run-with-helper-prebuild.py": 'while [ "${1:-}" != -- ]; do shift; done; shift; exec "$@"',
             "scripts/cmux-next/build-acpmux.sh": 'printf "%s" "$CMUX_NEXT_ACPMUX_ARCHS" > "$CAPTURE/acpmux"',
             "scripts/cmux-next/build-optchat-chief.sh": 'printf "%s" "$CMUX_NEXT_OPTCHAT_CHIEF_ARCHS" > "$CAPTURE/chief"',
             "scripts/build-ghostty-cli-helper.sh": 'printf "%s\\n" "$@" > "$CAPTURE/ghostty"',

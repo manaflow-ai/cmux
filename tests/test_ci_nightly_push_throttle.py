@@ -155,6 +155,8 @@ def run_decide(
         "SEED_ONLY": "false",
         "COLD_CACHE": "false",
         "PUSH_MIN_INTERVAL_HOURS": interval,
+        # The live repository value; a test that checks the writer gate overrides it.
+        "NIGHTLY_NEXT_WRITER": "mac",
         "SCENARIO": json.dumps(
             {
                 "script": decide_script(),
@@ -448,7 +450,22 @@ def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
     )
 
 
-NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next/next"}
+NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next/next", "NIGHTLY_NEXT_WRITER": "mac"}
+
+
+def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
+    # cx-f76kf: one writer, NIGHTLY_NEXT_WRITER (mac, linux or none). A
+    # nightly-next run that publishes builds only while it is mac; the main
+    # track ignores it. publish-nightly reads it again live.
+    for writer in ("linux", "none", "", " mac-mini"):
+        result = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
+                            extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=writer))
+        assert not should_build(result), writer
+    padded = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
+                        extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=" mac\n"))
+    assert should_build(padded)
+    main_track = run_decide(event="push", tag_age_hours=2.5, extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER="linux"))
+    assert should_build(main_track)
 
 
 def test_nightly_next_publishes_its_own_track() -> None:
@@ -473,6 +490,36 @@ def test_nightly_next_publishes_its_own_track() -> None:
     # The same commit is not rebuilt.
     assert not should_build(run_decide(event="push", ref="refs/heads/nightly-next",
                                        tag_sha=HEAD_SHA, extra_env=NEXT_ENV))
+
+
+def test_nightly_next_summary_explains_active_hold_and_notary_exemption() -> None:
+    held = run_decide(
+        event="push",
+        ref="refs/heads/nightly-next",
+        extra_env={
+            **NEXT_ENV,
+            "NIGHTLY_NEXT_HOLD": "1",
+            "NIGHTLY_NEXT_BROWSER_DATA_IMPORT": "compiled-out",
+        },
+    )
+    assert not should_build(held)
+    held_summary = summary_values(held)
+    assert "69be4c7e0c5" in held_summary["publication hold"]
+    assert "15 seconds" in held_summary["required hold smoke"]
+    assert "SIGTRAP" in held["warnings"][0]
+
+    compiled_out = run_decide(
+        event="push",
+        ref="refs/heads/nightly-next",
+        extra_env={
+            **NEXT_ENV,
+            "NIGHTLY_NEXT_NOTARY_PAUSED": "1",
+            "NIGHTLY_NEXT_BROWSER_DATA_IMPORT": "compiled-out",
+        },
+    )
+    assert should_build(compiled_out)
+    assert compiled_out["outputs"]["notary_paused"] == "false"
+    assert "bypassed" in summary_values(compiled_out)["NIGHTLY_NEXT_NOTARY_PAUSED"]
 
 
 def test_main_and_rc_keep_the_release_environment_and_feeds() -> None:

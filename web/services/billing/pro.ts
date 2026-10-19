@@ -26,8 +26,11 @@ import {
 } from
   "../account/metadataMutation";
 import { activeApplePlanForUser } from "./apple/entitlement";
+import { hasCompanyPlanGrant } from "./companyPlan";
 import { planTierRank } from "./planTier";
+import { planItem } from "./subscriptionItems";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
+import type { BillingInterval } from "./plans";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
@@ -185,6 +188,8 @@ async function writeProPlanMirror(
 export type ProReconcileUser = ProMetadataCustomer & {
   readonly id?: string;
   readonly isAnonymous?: boolean;
+  readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
@@ -210,6 +215,20 @@ export type StripeBillingStatus = {
   readonly hasCustomer: boolean;
   /** Whether the newest subscription grants current Pro access. */
   readonly hasActiveSubscription: boolean;
+  /**
+   * The lookup key of the plan price behind `subscriptionId`, or null when
+   * it has none (or it is unknown). Decides whether the hosted portal can
+   * switch the subscription's plan.
+   */
+  readonly planLookupKey?: string | null;
+  /** The recurring interval of the subscription behind `subscriptionId`. */
+  readonly subscriptionInterval?: BillingInterval | null;
+  /**
+   * The account owns Founder's Edition, a one-time purchase of Pro for life.
+   * It is never a recurring subscription, so leaving Max returns the account
+   * to Pro without paying for it.
+   */
+  readonly hasFoundersEdition?: boolean;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -247,6 +266,11 @@ export type ProPlanStatus = {
    * end, so pricing offers Resume instead of a new purchase.
    */
   readonly cancelScheduled?: boolean;
+  /**
+   * The Stripe subscription that grants the plan has a failed payment, so
+   * pricing sends the subscriber to fix it before offering a plan switch.
+   */
+  readonly paymentPastDue?: boolean;
 };
 
 /**
@@ -343,7 +367,9 @@ export async function resolveProPlanStatus(
   // Stripe and Apple grant through the same mirror; the higher plan wins.
   const activeSubscriptionPlan = highestPersonalPlanId([activeStripePlan, activeApplePlan]);
   const hasActiveStripePro = activeStripePlan !== null;
-  const planId = personalPlanIdForStatus(activeSubscriptionPlan, manualVmPlanOverride(metadata));
+  const subscribedPlanId = personalPlanIdForStatus(activeSubscriptionPlan, manualVmPlanOverride(metadata));
+  // Staff accounts are Pro without a subscription (see hasCompanyPlanGrant).
+  const planId = subscribedPlanId === FREE_PLAN_ID && hasCompanyPlanGrant(user) ? PRO_PLAN_ID : subscribedPlanId;
   const isPro = planId !== FREE_PLAN_ID;
   const stripeManagement = billingManagementForStatus(
     stripeBillingStatus,
@@ -378,9 +404,17 @@ export async function resolveProPlanStatus(
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
-    ...(billingSource === "stripe" && hasActiveStripePro && stripeBillingStatus?.cancelAtPeriodEnd
-      ? { cancelScheduled: true }
-      : {}),
+    ...(billingSource === "stripe" && hasActiveStripePro ? stripeSubscriptionFlags(stripeBillingStatus) : {}),
+  };
+}
+
+/** Pricing states of the Stripe subscription that grants the plan. */
+function stripeSubscriptionFlags(
+  status: StripeBillingStatus | null,
+): Pick<ProPlanStatus, "cancelScheduled" | "paymentPastDue"> {
+  return {
+    ...(status?.cancelAtPeriodEnd ? { cancelScheduled: true } : {}),
+    ...(status?.subscriptionStatus === "past_due" ? { paymentPastDue: true } : {}),
   };
 }
 
@@ -694,7 +728,6 @@ export async function stripeBillingStatusForUser(
           isNull(stripeSubscriptions.stackTeamId),
           eq(stripeSubscriptions.scope, "user"),
           inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
-          sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
         ),
       );
     // Keep the ordering in the real Drizzle query, while allowing lightweight
@@ -716,7 +749,12 @@ export async function stripeBillingStatusForUser(
       orderedSubscriptionQuery.limit(10),
       activePersonalPlanForUser(stackUserId),
     ]);
+    // Founder rows are read only to report the lifetime purchase; every
+    // subscription decision below uses the recurring rows.
     const recurringRows = subscriptionRows.filter((row) => !isFounderSubscriptionRow(row));
+    const hasFoundersEdition = subscriptionRows.some((row) =>
+      isFounderSubscriptionRow(row) && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
+    );
     const subscription = recurringRows.find((row) =>
       row.plan === activePlanId && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) ?? pickPortalMetadataRow(recurringRows);
@@ -726,6 +764,9 @@ export async function stripeBillingStatusForUser(
       activePlanId !== null,
       activePlanId,
     ), subscriptionStatus: subscription?.status ?? null,
+    planLookupKey: planLookupKeyFromRaw(subscription?.raw),
+    subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
+    hasFoundersEdition,
     hasRecurringSubscription: recurringRows.some((row) =>
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) };
@@ -933,6 +974,7 @@ function stripeBillingStatusFromRows(
     readonly id?: string | null;
     readonly status?: string | null;
     readonly cancelAtPeriodEnd?: boolean | null;
+    readonly raw?: unknown;
   } | undefined,
   activeSubscriptionOverride?: boolean,
   activePlanId: PersonalPlanId | null = null,
@@ -950,7 +992,21 @@ function stripeBillingStatusFromRows(
       subscriptionStatus !== null &&
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(subscriptionStatus)
     ),
+    subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
   };
+}
+
+function planLookupKeyFromRaw(raw: unknown): string | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const lookupKey = (item as { price?: { lookup_key?: unknown } | null } | undefined)?.price?.lookup_key;
+  return typeof lookupKey === "string" && lookupKey ? lookupKey : null;
+}
+
+function subscriptionIntervalFromRaw(raw: unknown): BillingInterval | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const interval = (item as { price?: { recurring?: { interval?: unknown } | null } | null } | undefined)
+    ?.price?.recurring?.interval;
+  return interval === "year" || interval === "month" ? interval : null;
 }
 
 function emptyStripeBillingStatus(): StripeBillingStatus {
@@ -962,5 +1018,6 @@ function emptyStripeBillingStatus(): StripeBillingStatus {
     cancelAtPeriodEnd: false,
     hasCustomer: false,
     hasActiveSubscription: false,
+    subscriptionInterval: null,
   };
 }

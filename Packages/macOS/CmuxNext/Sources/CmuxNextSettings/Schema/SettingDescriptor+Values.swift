@@ -38,7 +38,7 @@ extension SettingDescriptor {
             return number.range.contains(double)
         case .color:
             return value.stringValue.map(Self.isHexColor) ?? false
-        case .sound:
+        case .sound, .text:
             return value.stringValue != nil
         case .url:
             if BrowserOmnibarSetting.templatePaths.contains(path) { return value.stringValue.map(BrowserOmnibarSetting.isSearchTemplate) ?? false }

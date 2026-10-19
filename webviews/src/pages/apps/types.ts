@@ -85,6 +85,20 @@ export interface InstalledApp {
   failure?: string;
 }
 
+/** One row returned by `cmux.apps.updates.list`. The supervisor owns the versions. */
+export interface AppUpdate {
+  app: string;
+  name?: string;
+  current_version?: string;
+  version: string;
+  failure?: string;
+}
+
+export interface UpdatesListResult {
+  updates: AppUpdate[];
+  revision: number;
+}
+
 export interface InstalledListResult {
   apps: InstalledApp[];
   revision: number;

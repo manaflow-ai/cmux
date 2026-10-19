@@ -1,46 +1,12 @@
-//! The JSON requests the app sends over the app FFI
-//! (`cmux_layout_reducer_json` operations `focus_reduce`,
-//! `focus_changes_view`, `focus_type_ahead`, `focus_child_window_key`) and
-//! their responses. One call per event or key, synchronous, no I/O.
+//! The JSON requests the app sends over the app FFI for the per-key rules
+//! (`cmux_layout_reducer_json` operations `focus_type_ahead`,
+//! `focus_child_window_key`) and their responses. The focus machine itself
+//! is a handle with typed events and replies (the FFI crate's `focus`
+//! module), not JSON.
 
 use crate::child_window::{self, Decision, Facts};
-use crate::event::{FocusEffect, FocusEvent};
-use crate::reducer;
-use crate::state::FocusState;
 use crate::type_ahead::TypeAheadQueue;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Deserialize)]
-pub struct ReduceRequest {
-    pub state: FocusState,
-    pub event: FocusEvent,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ReduceResponse {
-    pub state: FocusState,
-    pub effects: Vec<FocusEffect>,
-}
-
-pub fn reduce(request: &ReduceRequest) -> ReduceResponse {
-    let (state, effects) = reducer::reduce(&request.state, &request.event);
-    ReduceResponse { state, effects }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ChangesViewRequest {
-    pub event: FocusEvent,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChangesViewResponse {
-    pub changes_view: bool,
-}
-
-pub fn changes_view(request: &ChangesViewRequest) -> ChangesViewResponse {
-    ChangesViewResponse { changes_view: request.event.changes_view() }
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

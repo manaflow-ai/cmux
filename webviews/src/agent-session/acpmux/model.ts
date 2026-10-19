@@ -5,7 +5,7 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
-import { safeHref } from "./replyHref";
+import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
@@ -22,6 +22,7 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
 };
 
+export type QueuedPrompt = { id: string; prompt: string; next?: boolean };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
 
@@ -73,6 +74,10 @@ export type AcpmuxRow = {
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
+  /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
+  /// the step it is on ends), then `landed`; `stopped` was sent now to an agent that cannot steer,
+  /// which stopped the turn and ran it next.
+  steer?: "waiting" | "landed" | "stopped";
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
@@ -89,6 +94,10 @@ export type AcpmuxActivity = {
   kind: string;
   text: string;
   status?: string;
+  /// A thought's first and latest chunk (epoch ms), for a folded thought's "Thought for 12s"
+  /// (conversation/ThoughtRow.tsx `thoughtDuration`).
+  startedAt?: number;
+  endedAt?: number;
   tool?: {
     id: string;
     title: string;
@@ -228,7 +237,8 @@ export type AcpmuxSnapshot = {
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;
     effort?: string;
-    promptCapabilities?: { image?: boolean };
+    /// ACP's: `audio` is a harness that takes voice input (the mic sends its recording).
+    promptCapabilities?: { image?: boolean; audio?: boolean };
     /// The agent takes a prompt mid-turn (acpmux `steering`); without it a steer stops the turn.
     steering?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
@@ -269,7 +279,10 @@ export type AcpmuxSnapshot = {
   canHandoff?: boolean;
   handoff?: HandoffClientState;
   permissionGroups?: PermissionClientState;
-  queue: { id: string; prompt: string }[];
+  /// Prompts waiting behind the running turn, in order. `next`: sent now (⌘Return on an agent that
+  /// cannot steer): it stops the running turn and runs next, so it reads as a steer, not a queued
+  /// prompt (acpmux `queue_order` with `next`).
+  queue: QueuedPrompt[];
   permission?: AcpmuxPermission;
   secret?: AcpmuxSecretAsk;
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
@@ -476,7 +489,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
-export { safeHref };
+export { appHref, linkHref, safeHref };
 
 /// The text `renderInline` in conversation/Markdown.tsx draws for `tokens`, as the estimator
 /// measures it. Inline code draws in 12px monospace (conversation.css), no wider per character than the prose font's digits,
@@ -487,7 +500,7 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
   return tokens
     .map((token) => {
       if (token.type === "codespan") return (token as Tokens.Codespan).text.replace(/\S/g, "0").replace(/ /g, "0 ");
-      if (token.type === "link" && !safeHref((token as Tokens.Link).href)) return (token as Tokens.Link).text;
+      if (token.type === "link" && !linkHref((token as Tokens.Link).href)) return (token as Tokens.Link).text;
       if ("tokens" in token) return measuredText(token.tokens, "text" in token ? token.text : (token.raw ?? ""));
       return token.raw ?? ("text" in token ? token.text : "");
     })

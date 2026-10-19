@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextFocus
 
 /// Makes one window's AppKit first responder, WebKit/CEF page focus,
 /// `LayoutModel` focus and the registry context match its `FocusState`
@@ -125,7 +126,9 @@ final class FocusEffectApplier: FocusEffectApplying {
                 resignPaneResponder(in: window)
                 return
             }
-            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
+            // Inside Home the keyboard stays only on a text view or field, or a transcript
+            // text selection; the pane itself or a header button moves it to the box.
+            if view.focusTargetShouldTakeKeyboard(from: window.firstResponder) { window.makeFirstResponder(view.focusTarget) }
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.

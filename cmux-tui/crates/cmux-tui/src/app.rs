@@ -708,7 +708,7 @@ impl App {
             }
         }
         match &event {
-            AppEvent::Mux(MuxEvent::LayoutChanged(_)) => {
+            AppEvent::Mux(MuxEvent::LayoutChanged(..)) => {
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::NormalizedInput(input) if input.is_routable() => {
@@ -723,7 +723,7 @@ impl App {
             }
             _ => {}
         }
-        if matches!(&event, AppEvent::Mux(MuxEvent::TreeChanged | MuxEvent::LayoutChanged(_))) {
+        if matches!(&event, AppEvent::Mux(MuxEvent::TreeChanged | MuxEvent::LayoutChanged(..))) {
             self.session.clear_surface_sync_failures();
         }
         if let AppEvent::NormalizedInput(TerminalInput::Mouse(
