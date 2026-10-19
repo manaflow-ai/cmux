@@ -3736,7 +3736,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         switch agentLifecycleState {
         case .idle, .needsInput:
             return false
-        case .running, .unknown:
+        case .running, .backgroundWorkPending, .unknown:
             return true
         }
     }
