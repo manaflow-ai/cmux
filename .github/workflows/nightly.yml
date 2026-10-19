@@ -6072,6 +6072,43 @@ jobs:
               --cache-control "no-cache, no-store, must-revalidate"
           done
 
+  # Each PR in this nightly-next build gets a "Shipped in" line, in one comment
+  # that release.yml also writes for stable releases
+  # (scripts/ci/published_in_comments.py). The span is the one the release
+  # body's "PRs in this build" list uses: the previous published commit to
+  # this build's. No secrets; a comment failure never fails the nightly.
+  published-in:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
+    if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
+    runs-on: ${{ contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+      PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: Fetch the published span
+        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
+      - name: Comment the build on its PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISHED_SHA" = "$HEAD_SHA" ]; then echo "Empty span."; exit 0; fi
+          python3 scripts/ci/published_in_comments.py --repo "$GITHUB_REPOSITORY" \
+            --since "$PUBLISHED_SHA" --head "$HEAD_SHA" \
+            --name "cmux NEXT nightly 1.0.0-nightly.$NIGHTLY_BUILD" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/tag/nightly-next"
+
   # Keep one open issue per failed publication boundary. A stale channel tag
   # leaves the assets, release metadata, and feeds available, so the incident
   # must say that explicitly instead of claiming installs stopped updating.
