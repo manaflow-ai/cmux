@@ -66,6 +66,38 @@ final class PendingWorkspaceRows {
         redraws.run()
     }
 
+    /// `listed` without the workspaces Cmd-N shows before the daemon has them: their pending rows list instead, at their
+    /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
+    func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
+        Self.removing(ids(in: window) { machines.workspace(id: $0)?.0.isProvisional == true }, from: listed)
+    }
+
+    /// The pending rows of `window` whose workspace the store shows only as a stand-in
+    /// (`provisional`: Cmd-N's optimistic workspace): the sidebar lists the pending row for them.
+    func ids(in window: String, provisional: (String) -> Bool) -> Set<String> {
+        Set(rows.filter { $0.window == window && provisional($0.id) }.map(\.id))
+    }
+
+    /// `sections` without the workspace rows `ids` (their pending rows list instead, at their slot).
+    static func removing(_ ids: Set<String>, from sections: [SidebarRowSection]) -> [SidebarRowSection] {
+        guard !ids.isEmpty else { return sections }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.compactMap { node in
+                switch node {
+                case let .workspace(workspace):
+                    return ids.contains(workspace.id.rawValue) ? nil : node
+                case var .group(group):
+                    group.workspaces.removeAll { ids.contains($0.id.rawValue) }
+                    return .group(group)
+                case .item:
+                    return node
+                }
+            }
+            return section
+        }
+    }
+
     func rows(in window: String) -> [Row] {
         rows.filter { $0.window == window }
     }
