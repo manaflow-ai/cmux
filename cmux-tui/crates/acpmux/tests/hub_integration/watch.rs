@@ -22,6 +22,10 @@ async fn watch_setup() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let mut agents = BTreeMap::new();
     agents.insert("fakecodex".to_owned(), profile("codex"));
     agents.insert("fakeclaude".to_owned(), profile("claude"));
+    // A Codex harness that cannot start: Take Over's resume fails.
+    let mut broken = profile("codex");
+    broken.argv = vec!["/nonexistent/acpmux-broken-agent".into()];
+    agents.insert("brokencodex".to_owned(), broken);
     let mut cfg = Config {
         harnesses: agents,
         default_harness: Some("fakecodex".into()),
@@ -329,5 +333,40 @@ async fn viewing_a_chat_never_blocks_starting_a_new_one() {
     assert_eq!(r["stopReason"], "end_turn", "{r}");
     let summary = hub.session_summary(&hub.resolve(&viewed).unwrap());
     assert_eq!(summary["watching"], "claude", "the viewed chat goes on viewing: {summary}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Take Over starts the agent on the conversation at once. When that fails (a rollout gone, a
+/// harness that will not start), the chat stays View Only, following the transcript, and says why;
+/// the pane then offers Continue as New.
+#[tokio::test]
+async fn a_take_over_whose_resume_fails_stays_view_only() {
+    let (hub, mut c, root) = watch_setup().await;
+    let id = uuid::Uuid::now_v7().to_string();
+    let rollout =
+        root.join(format!("codex/sessions/2026/10/18/rollout-2026-10-18T09-00-00-{id}.jsonl"));
+    std::fs::create_dir_all(rollout.parent().unwrap()).unwrap();
+    append(
+        &rollout,
+        &[
+            json!({"type": "session_meta", "payload": {"id": id, "cwd": root.join("project")}}),
+            codex_event("user_message", "earlier"),
+        ],
+    );
+    backdate(&rollout);
+    let s = c.request(method::SESSION_NEW, watch("brokencodex", &id)).await.unwrap();
+    let sid = s["sessionId"].as_str().unwrap().to_owned();
+    until_prompts(&hub, &sid, 1).await;
+    let refused = c.request("_acpmux/watch_take_over", json!({"sessionId": sid})).await;
+    assert!(refused.is_err(), "{refused:?}");
+    let session = hub.resolve(&sid).unwrap();
+    assert!(session.meta().watching.is_some(), "the chat still views the conversation");
+    assert_eq!(session.meta().agent_session_id.as_deref(), Some(id.as_str()));
+    let k = kinds(&hub, &sid);
+    assert!(k.iter().any(|k| k == "watch_take_over_failed"), "{k:?}");
+    assert!(!k.iter().any(|k| k == "watch_taken_over"), "{k:?}");
+    // It goes on following what the other app writes.
+    append(&rollout, &[codex_event("user_message", "later")]);
+    assert_eq!(until_prompts(&hub, &sid, 2).await, ["earlier", "later"]);
     let _ = std::fs::remove_dir_all(&root);
 }
