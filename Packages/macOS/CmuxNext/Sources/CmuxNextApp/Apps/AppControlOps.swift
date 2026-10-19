@@ -7,8 +7,10 @@ nonisolated extension ControlRouter {
     /// Runs one control method in process for a Mac-side app op (the
     /// CodeRouter app's and page's ops, `action.*`): validation, targets, the
     /// work queue and the origin rule are the control socket's.
-    func appControl(_ method: String, _ params: [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue {
-        switch await handle(ControlRequest(method: method, params: params), connection: .inProcess) {
+    func appControl(_ method: String, _ params: [String: JSONValue], callerApp: String? = nil) async throws(AppHostCapabilityError) -> JSONValue {
+        var request = ControlRequest(method: method, params: params)
+        request.callerApp = callerApp
+        switch await handle(request, connection: .inProcess) {
         case .success(let value): return value
         case .failure(let error):
             throw AppHostCapabilityError(code: error.code, message: error.message, details: error.data.map(AppJSON.init))
@@ -23,7 +25,7 @@ nonisolated extension ControlRouter {
 /// The original mutation key reaches the shared action router unchanged;
 /// operation params cannot replace it or the supervisor's origin.
 nonisolated struct ActionAppOps: AppHostCapabilityHandler {
-    let control: @Sendable (_ method: String, _ params: [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue
+    let control: @Sendable (_ method: String, _ params: [String: JSONValue], _ callerApp: String) async throws(AppHostCapabilityError) -> JSONValue
 
     var families: Set<String> { ["action"] }
 
@@ -37,9 +39,9 @@ nonisolated struct ActionAppOps: AppHostCapabilityHandler {
             var params: [String: JSONValue] = ["action": .string(id),
                 "args": (request.params["args"] ?? .object([:])).settingsValue, "origin": origin]
             if let key = request.idempotencyKey { params["idempotency_key"] = .string(key) }
-            return AppJSON(try await control("action.run", params))
+            return AppJSON(try await control("action.run", params, request.app))
         case "action.list":
-            return AppJSON(try await control("action.list", ["origin": origin]))
+            return AppJSON(try await control("action.list", ["origin": origin], request.app))
         default:
             throw .unsupported(request.op)
         }

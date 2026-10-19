@@ -7,6 +7,9 @@ public struct ControlRequest: Sendable {
     public var id: JSONValue?
     public var method: String
     public var params: [String: JSONValue]
+    /// In-process provider attribution; wire decoding never accepts this field.
+    /// An app's user gesture does not turn its principal into the native frontend.
+    public var callerApp: String?
 
     public init(id: JSONValue? = nil, method: String, params: [String: JSONValue] = [:]) {
         self.id = id
