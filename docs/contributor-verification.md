@@ -64,6 +64,22 @@ the branch is in a fork. Leave unfamiliar code untrusted.
 
 ## PR check progression
 
+Treat a check result as evidence about one exact commit, not a property of a
+branch name: a push supersedes earlier results. Classify each non-green result
+before changing source:
+
+| Result | Action |
+| --- | --- |
+| Changed-file defect | Repair the changed file or its focused test. |
+| Same finding on the parent/base | Link the base run in a PR comment; it does not block. Route the fix to its owner. |
+| Derived wrapper | Follow the root check; do not debug the wrapper separately. |
+| Cancelled, queued, or coordinator-blocked | Retry the same head after capacity or coordinator state recovers. |
+
+Required source, compile, security, and repository gate checks block a merge
+when the failure is the PR's own. Screenshot/gallery and full webview jobs are useful retained evidence
+when they run, but should stay advisory unless the change explicitly promotes
+them.
+
 PR workflows run Fast static checks beside workflow guards and routed Linux checks.
 Applicable macOS compile admission and native checks wait for the static checks and
 Linux preflight. Required checks, review and the merge queue retain their authority.
