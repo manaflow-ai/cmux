@@ -1190,6 +1190,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_release_notes_fetch.py
 
+      - name: Validate the nightly-next release notes items, summary and digest
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash scripts/cmux-next/tests/release-notes-items.test.sh
+
       - name: Validate the nightly cmux-tui resolver (newest published tree, no wait)
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_cmux_tui_resolve.py

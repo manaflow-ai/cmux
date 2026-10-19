@@ -6199,12 +6199,61 @@ jobs:
           path: notes/
           retention-days: 7
 
+  # The pre-publish check of the signed notes (Leo 2026-10-18): this build's notes read as the
+  # What's New page shows an update of 1 and of 10 nightlies, and as the update card and popup
+  # show them. A title cut with "…", a bead id, a title shown twice or as its own description, or
+  # internal work in New, Improved or Fixed fails it, and publish-release-notes waits for it
+  # (scripts/cmux-next/check-release-notes.ts). Only this build's defects count, so a defect an
+  # older nightly already published never blocks the notes after it. No secrets: it reads the
+  # artifact and the public feed (an unverified older file can only fail the check, never pass it).
+  check-release-notes:
+    needs: [decide, build-nightly-app, sign-release-notes, resolve-nightly-cmux-tui-client]
+    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.sign-release-notes.result == 'success'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next/check-release-notes.ts
+            webviews/src/pages/changelog/
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-notes
+          path: notes
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - name: Check this build's notes as the page and the update card show them
+        run: |
+          set -euo pipefail
+          # The nine nightlies listed before this one, newest first: the artifact's copy when the
+          # backfill rewrote it, else the published file.
+          mkdir -p previous
+          previous=()
+          while IFS= read -r build; do
+            file="notes/$build.json"
+            if [ ! -f "$file" ]; then
+              file="previous/$build.json"
+              curl -fsSL --retry 3 -A "cmux-release-notes/1" -o "$file" "$NIGHTLY_NEXT_FEED_BASE/notes/$build.json" || continue
+            fi
+            previous+=("$file")
+          done < <(python3 -c 'import json, sys; builds = [b["build"] for b in json.load(open(sys.argv[1]))["builds"] if b["build"] != sys.argv[2]]; print("\n".join(builds[:9]))' notes/index.json "$NIGHTLY_BUILD")
+          bun scripts/cmux-next/check-release-notes.ts "notes/$NIGHTLY_BUILD.json" "${previous[@]}"
+
   publish-release-notes:
-    needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
+    needs: [decide, publish-nightly, sign-release-notes, check-release-notes, resolve-nightly-cmux-tui-client]
     concurrency:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
-    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
+    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success' && needs.check-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -6404,7 +6453,7 @@ jobs:
   # published build whose notes jobs did not both succeed is reported too
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, build-sign-notarize-nightly, verify-signed-nightly, verify-recovered-nightly-next, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, check-release-notes, publish-release-notes]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -6441,7 +6490,7 @@ jobs:
             // nightly-next: notes jobs that were skipped after a publication
             // (a recovered one skips them on purpose).
             if (process.env.TRACK === 'nightly-next' && results['publish-nightly']?.result === 'success' && process.env.PUBLISH_SOURCE !== 'recovered') {
-              for (const job of ['sign-release-notes', 'publish-release-notes']) {
+              for (const job of ['sign-release-notes', 'check-release-notes', 'publish-release-notes']) {
                 const result = results[job]?.result;
                 if (result === 'skipped') failed.push(`${job} (skipped)`);
               }
