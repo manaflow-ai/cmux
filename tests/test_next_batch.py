@@ -735,12 +735,73 @@ class NotifyOwners(unittest.TestCase):
             controller.land(self.validation(prs, passed=()))
         self.assertIn("heavy tier did not run", controller.comments[0][2])
 
-    def test_land_flag_merges(self):
+    def test_land_flag_merges_a_head_reviewed_at_its_exact_sha(self):
         controller = self.controller(notify=False)
         prs = [pr(1)]
-        with mock.patch.object(nb, "open_prs", return_value=prs):
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"# coord-2's reviewed heads\n1 {pr(1).sha}\n")
+        with mock.patch.object(nb, "open_prs", return_value=prs), \
+                mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)}):
             controller.land(self.validation(prs))
         self.assertEqual(controller.merged, [1])
+
+
+class ReviewGate(NotifyOwners):
+    """The queue lands only heads an independent review approved at that exact SHA."""
+
+    def land(self, prs, env=None, statuses=None):
+        controller = self.controller(notify=False)
+        controller.gh.rest = mock.Mock(return_value=statuses or [])
+        with mock.patch.object(nb, "open_prs", return_value=prs), mock.patch.dict(os.environ, env or {}, clear=False):
+            for key in ("CMUX_NEXT_BATCH_REVIEWED", "CMUX_NEXT_BATCH_REVIEWERS"):
+                if key not in (env or {}):
+                    os.environ.pop(key, None)
+            landed = controller.land(self.validation(prs))
+        return controller, dict((item.number, text) for item, text in landed)
+
+    def test_an_unreviewed_head_gets_a_receipt_and_is_not_merged(self):
+        controller, landed = self.land([pr(1)])
+        self.assertEqual(controller.merged, [])
+        self.assertIn("not reviewed at this head", landed[1])
+        self.assertEqual([kind for _, kind, _ in controller.comments], ["receipt"])
+
+    def test_a_review_of_an_older_head_does_not_count(self):
+        reviewed = Path(tempfile.mkdtemp()) / "reviewed"
+        reviewed.write_text(f"1 {'f' * 40}\n")
+        controller, landed = self.land([pr(1)], {"CMUX_NEXT_BATCH_REVIEWED": str(reviewed)})
+        self.assertEqual(controller.merged, [])
+
+    def test_a_status_counts_only_from_a_named_reviewer(self):
+        status = lambda login: [{"context": "review/independent", "state": "success", "creator": {"login": login}}]
+        env = {"CMUX_NEXT_BATCH_REVIEWERS": "cmux-review-bot"}
+        controller, _ = self.land([pr(1)], env, status("teamleaderleo"))
+        self.assertEqual(controller.merged, [])  # every lane runs gh as teamleaderleo
+        controller, _ = self.land([pr(1)], env, status("cmux-review-bot"))
+        self.assertEqual(controller.merged, [1])
+
+
+class CoordinatorAndOverrides(unittest.TestCase):
+    def test_prs_coord2_lands_itself_stay_out(self):
+        listed = Path(tempfile.mkdtemp()) / "merge-ready.sh"
+        listed.write_text("land 21686 98f2d9818d5\nland 21697 3b544e65d8d\n")
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_EXCLUDE": str(listed)}):
+            self.assertIn("coord-2 lands it", nb.ineligible_reason(pr(21686), NOW))
+            self.assertIsNone(nb.ineligible_reason(pr(21700), NOW))
+
+    def test_known_base_red_counts_only_when_an_allowed_login_applied_it(self):
+        red = [("lint", "completed", "failure")]
+        label = nb.OVERRIDE_BASE_RED
+        trusted = pr(1, checks=red, labels=[label], label_actors={label: "lawrencecchen"})
+        by_lane = pr(1, checks=red, labels=[label], label_actors={label: "teamleaderleo"})
+        self.assertIsNone(nb.ineligible_reason(trusted, NOW))
+        self.assertEqual(nb.ineligible_reason(by_lane, NOW), "red check lint")
+
+    def test_land_alone_takes_a_batch_of_its_own(self):
+        label = nb.OVERRIDE_ALONE
+        prs = [pr(1), pr(2, labels=[label], label_actors={label: "lawrencecchen"}), pr(3)]
+        self.assertEqual([item.number for item in nb.land_alone_first(prs)], [2])
+        untrusted = [pr(1), pr(2, labels=[label], label_actors={label: "teamleaderleo"})]
+        self.assertEqual([item.number for item in nb.land_alone_first(untrusted)], [1, 2])
 
 
 class LocalController(unittest.TestCase):
