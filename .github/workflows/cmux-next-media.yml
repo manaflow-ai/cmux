@@ -210,9 +210,20 @@ jobs:
       # take one tour at a time: a cancelled run still stopping, a dispatch, or
       # a merge tour beside a dispatch could otherwise build into the same
       # DerivedData at once. Other tags never wait.
+      # A pull request branched before the lock existed checks out a head
+      # without the script; this step comes from the merge ref, so it takes
+      # the script from that commit.
       - name: Hold this tour's tag
         if: steps.scope.outputs.is_ui == 'true'
-        run: python3 scripts/ci/media_tag_lock.py hold --tag "$TOUR_TAG" --wait 3600
+        run: |
+          set -euo pipefail
+          lock=scripts/ci/media_tag_lock.py
+          if [ ! -f "$lock" ]; then
+            git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+            git show "$GITHUB_SHA:$lock" > "$RUNNER_TEMP/media_tag_lock.py"
+            lock="$RUNNER_TEMP/media_tag_lock.py"
+          fi
+          python3 "$lock" hold --tag "$TOUR_TAG" --wait 1800
 
       # Each tag's DerivedData is about 9 GiB and nothing else removes it: a
       # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).

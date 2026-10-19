@@ -253,16 +253,19 @@ class Session:
             return None
         return (done.stderr or done.stdout).strip() or "the helper wrote no image"
 
-    def window_id(self, pid: int) -> int | None:
-        """The window server id of the largest normal window `pid` shows, from the window list
-        (ids and bounds need no Screen Recording grant); None when it shows none."""
+    def window_id(self, pid: int, size: tuple[int, int] | None = None) -> int | None:
+        """The window server id of `pid`'s on-screen normal window of this size (the main window's), else its
+        largest on-screen one, from the window list (ids and bounds need no Screen Recording grant)."""
+        width, height = size or (0, 0)
         script = ('ObjC.import("CoreGraphics");'
                   'var list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo('
-                  '$.kCGWindowListOptionAll | $.kCGWindowListExcludeDesktopElements, 0))) || [];'
+                  '$.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements, 0))) || [];'
                   f'var mine = list.filter(function (w) {{ return w.kCGWindowOwnerPID === {int(pid)} && w.kCGWindowLayer === 0; }});'
-                  'mine.sort(function (a, b) { return b.kCGWindowBounds.Width * b.kCGWindowBounds.Height'
-                  ' - a.kCGWindowBounds.Width * a.kCGWindowBounds.Height; });'
-                  'mine.length ? String(mine[0].kCGWindowNumber) : ""')
+                  'function area(w) { return w.kCGWindowBounds.Width * w.kCGWindowBounds.Height; }'
+                  f'var sized = mine.filter(function (w) {{ return Math.abs(w.kCGWindowBounds.Width - {int(width)}) <= 1'
+                  f' && Math.abs(w.kCGWindowBounds.Height - {int(height)}) <= 1; }});'
+                  'var pick = (sized.length ? sized : mine).sort(function (a, b) { return area(b) - area(a); });'
+                  'pick.length ? String(pick[0].kCGWindowNumber) : ""')
         try:
             done = self.capture(["osascript", "-l", "JavaScript", "-e", script])
         except (OSError, subprocess.SubprocessError):
@@ -309,8 +312,10 @@ class Screen:
             return
         self.rect = tuple(int(value) for value in frame)
         if not self.app:
-            # The app's largest window is its main window, as main_window_frame picks it.
-            self.window_id = self.session.window_id(self.pid) if self.pid else None
+            # The on-screen window of the main window's size (main_window_frame); child windows (Chromium
+            # pages, overlay panels) are separate windows this route leaves out, so it is the last resort
+            # for builds that cannot snapshot themselves.
+            self.window_id = self.session.window_id(self.pid, (self.rect[2], self.rect[3])) if self.pid else None
 
     def capture(self, path: Path, kind: str = "png") -> str | None:
         """Write a screenshot of the app's window; None on success, else what went wrong.
