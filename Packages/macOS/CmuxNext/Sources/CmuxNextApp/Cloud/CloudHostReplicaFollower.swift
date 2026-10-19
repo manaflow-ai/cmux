@@ -20,20 +20,27 @@ import os
 /// older lease never lands after a newer one.
 @MainActor
 final class CloudHostReplicaFollower {
-    struct Want: Equatable {
+    nonisolated struct Want: Equatable, Sendable {
         var connection: DaemonConnection?
+        /// The daemon process behind the connection: a restart on the same
+        /// connection starts with no lease, so it is a new want.
+        var daemon: Int32?
         var userID: String?
         var on: Bool
 
-        static func == (lhs: Want, rhs: Want) -> Bool {
-            lhs.connection === rhs.connection && lhs.userID == rhs.userID && lhs.on == rhs.on
+        nonisolated static func == (lhs: Want, rhs: Want) -> Bool {
+            lhs.connection === rhs.connection && lhs.daemon == rhs.daemon && lhs.userID == rhs.userID && lhs.on == rhs.on
         }
     }
 
-    /// Set once a lease was given and no purge was asked since: an off
-    /// switch found at launch (cmux.json edited while the app was closed)
-    /// still deletes the copy.
-    nonisolated static let publishedKey = "cmux.cloudReplica.published.v1"
+    /// The account whose copy may exist: set when a lease is given, removed
+    /// once that daemon confirmed the purge. An off switch found later (the
+    /// setting edited while the app was closed, a purge the daemon could not
+    /// finish) still deletes the copy.
+    nonisolated static let publishedKey = "cmux.cloudReplica.publishedUser.v1"
+    /// The daemon (pid) asked to purge for `publishedKey`: its `off` state
+    /// then means the purge is done.
+    nonisolated static let purgeAskedKey = "cmux.cloudReplica.purgeAskedDaemon.v1"
 
     private let identity: MacInstallIdentity
     private let apiBaseURL: URL
@@ -41,7 +48,7 @@ final class CloudHostReplicaFollower {
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud.replica")
     private var observation: Task<Void, Never>?
-    private var want = Want(connection: nil, userID: nil, on: false)
+    private var want = Want(connection: nil, daemon: nil, userID: nil, on: false)
     /// The newest lease work; the next waits for it.
     private var work: Task<Void, Never>?
 
@@ -59,10 +66,10 @@ final class CloudHostReplicaFollower {
         observation = Task { [weak self] in
             await settings.waitForLoad(atLeast: 1)
             for await next in ObservationStream({ () -> Want in
-                let connection = local.supports(DaemonCapabilities.shared.cloudHostReplica) ? local.connection : nil
+                let supported = local.supports(DaemonCapabilities.shared.cloudHostReplica)
                 let allowed = cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled
-                return Want(connection: connection, userID: allowed ? cloud.auth.user?.id : nil,
-                            on: settings.snapshot.sessions.publishesCloudReplica)
+                return Want(connection: supported ? local.connection : nil, daemon: supported ? local.identity?.pid : nil,
+                            userID: allowed ? cloud.auth.user?.id : nil, on: settings.snapshot.sessions.publishesCloudReplica)
             }) {
                 guard let self else { return }
                 self.want = next
@@ -77,7 +84,8 @@ final class CloudHostReplicaFollower {
         enqueue(renew: false)
     }
 
-    /// `cloud-host-replica-needed`: the token expires soon or the cloud refused it.
+    /// `cloud-host-replica-needed`: the token expires soon or the cloud
+    /// refused it. A purge in flight needs the new token too.
     func needed(_ needed: CloudHostReplicaNeeded) {
         logger.info("host replica asks for a token: \(needed.reason, privacy: .public)")
         enqueue(renew: true)
@@ -98,19 +106,16 @@ final class CloudHostReplicaFollower {
         guard let connection = want.connection else { return }
         let client = CloudHostReplicaClient(connection)
         do {
-            guard want.userID != nil else {
+            guard let user = want.userID else {
+                // Signed out: no token to purge with; the mark stays for that account's next sign-in.
                 _ = try await client.clear(purge: false)
                 return
             }
             if want.on {
                 if renew { await identity.invalidate() }
-                try await lease(client)
-            } else if defaults.bool(forKey: Self.publishedKey) {
-                // The copy may exist: purge needs a lease, then the lease goes when the cloud confirms.
-                let state = try await client.status()
-                if state.state == "off" { try await lease(client) }
-                _ = try await client.clear(purge: true)
-                defaults.set(false, forKey: Self.publishedKey)
+                try await lease(client, user: user)
+            } else if defaults.string(forKey: Self.publishedKey) == user {
+                try await purge(client, user: user, daemon: want.daemon, renew: renew)
             } else {
                 _ = try await client.clear(purge: false)
             }
@@ -119,12 +124,34 @@ final class CloudHostReplicaFollower {
         }
     }
 
-    private func lease(_ client: CloudHostReplicaClient) async throws {
+    /// The off switch with a copy that may exist: lease (a purge needs a
+    /// token), then purge. A lease resets a pending purge, so the purge is
+    /// asked again after every lease. Never `clear(purge: false)` here: that
+    /// would cancel the purge.
+    private func purge(_ client: CloudHostReplicaClient, user: String, daemon: Int32?, renew: Bool) async throws {
+        let asked = defaults.object(forKey: Self.purgeAskedKey) as? Int
+        let state = try await client.status()
+        if !renew, let daemon, asked == Int(daemon), state.state == "off", state.purgePending != true {
+            // This daemon purged (or the cloud refused the install, and drops a removed host's copy itself).
+            defaults.removeObject(forKey: Self.publishedKey)
+            defaults.removeObject(forKey: Self.purgeAskedKey)
+            return
+        }
+        if renew { await identity.invalidate() }
+        try await lease(client, user: user)
+        _ = try await client.clear(purge: true)
+        if let daemon { defaults.set(Int(daemon), forKey: Self.purgeAskedKey) }
+    }
+
+    private func lease(_ client: CloudHostReplicaClient, user: String) async throws {
         let token = try await identity.installToken()
         guard let origin = HomeCloudLease.origin(apiBaseURL) else { return }
         let expiresAt = HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())
-        let hostName = await MacName().computerName()
-        defaults.set(true, forKey: Self.publishedKey)
+        // The daemon takes 1-64 Unicode scalars (cloud-host-replica-set).
+        let name = await MacName().computerName().trimmingCharacters(in: .whitespacesAndNewlines)
+        let hostName = name.isEmpty ? "Mac" : String(String.UnicodeScalarView(name.unicodeScalars.prefix(64)))
+        defaults.set(user, forKey: Self.publishedKey)
+        defaults.removeObject(forKey: Self.purgeAskedKey)
         _ = try await client.set(CloudHostReplicaSetRequest(apiBaseURL: origin, installToken: token, expiresAt: expiresAt,
                                                             clientVersion: clientVersion, hostName: hostName))
     }
