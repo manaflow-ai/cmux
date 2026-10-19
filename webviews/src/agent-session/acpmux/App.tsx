@@ -200,7 +200,7 @@ import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } 
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
-import { sideChatRow } from "./header/sideChatRow";
+import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
@@ -4801,11 +4801,7 @@ function AcpmuxPane() {
           ]
         : [];
     // New side chat, New terminal and New browser: something new beside the chat, every time.
-    const opensBeside: ChatMenuItem[] = [
-      ...(sideChat ? [sideChat] : []),
-      { key: "newTerminal", label: t("chatMenu.newTerminal"), icon: "terminal", onSelect: newTerminal },
-      { key: "newBrowser", label: t("chatMenu.newBrowser"), icon: "browser", onSelect: newBrowser },
-    ];
+    const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
     const continueIn: ChatMenuItem[] =
       snapshot.canHandoff && handoffTargets.length > 0
         ? [

@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 import { earlierForkPrompts, forkablePrompts } from "../src/agent-session/acpmux/conversation/messageMenu";
 import { copyRow } from "../src/agent-session/acpmux/header/copyRow";
+import { opensBesideRows, sideChatRow } from "../src/agent-session/acpmux/header/sideChatRow";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 test("Fork names each turn by its first prompt, newest first", () => {
@@ -77,4 +78,14 @@ test("Copy lists the session id last, and only for a chat that has one", () => {
     "key" in child ? child.key : undefined,
   );
   expect(keys).not.toContain("copySessionId");
+});
+
+test("New terminal and New browser open beside a tab, and Quick Chat's panel has no tab beside it", () => {
+  const open = { terminal: () => {}, browser: () => {} };
+  const keys = (quick: boolean) => {
+    const sideChat = sideChatRow({ canFork: true, throughSeq: 3, local: !quick }, () => {});
+    return opensBesideRows({ sideChat, quick }, open).map((row) => row.key);
+  };
+  expect(keys(false)).toEqual(["sideChat", "newTerminal", "newBrowser"]);
+  expect(keys(true)).toEqual([]);
 });
