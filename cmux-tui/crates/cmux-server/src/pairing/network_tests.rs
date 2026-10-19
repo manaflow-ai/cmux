@@ -224,3 +224,56 @@ fn server_pairing_real_socket_waits_for_its_deadline_and_refuses_oversized_frame
         .is_err()
     );
 }
+
+#[test]
+fn server_pairing_wait_lasts_until_the_server_must_have_expired_the_code() {
+    let now = 1_000_000;
+    let skew = MAX_CLOCK_SKEW_MS;
+    assert_eq!(wait_budget(now + 600_000, now), 600_000 + skew);
+    assert_eq!(wait_budget(now - 1, now), skew - 1);
+    assert_eq!(wait_budget(now - skew, now), 0);
+    assert_eq!(wait_budget(u64::MAX, now), MAX_WAIT_MS + skew);
+}
+
+#[test]
+fn server_pairing_http_marks_a_busy_begin_route_as_unsent() {
+    let (api, worker) = http(503, "{}".into(), String::new());
+    let error = loopback_http().begin(&api, &serde_json::json!({})).unwrap_err();
+    worker.join().unwrap();
+    assert_eq!(error.message, "server.pair.unsent");
+}
+
+#[test]
+fn server_pairing_http_marks_a_refused_connection_as_unsent() {
+    let address = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let error =
+        loopback_http().begin(&format!("http://{address}"), &serde_json::json!({})).unwrap_err();
+    assert_eq!(error.message, "server.pair.unsent");
+}
+
+/// The real client handshake against a loopback wait route answering `status`.
+fn handshake_status(status: u16) -> Result<Waited> {
+    let (api, worker) = http(status, "{}".into(), String::new());
+    let address = api.trim_start_matches("http://").to_owned();
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let error = runtime.block_on(async {
+        let stream = tokio::net::TcpStream::connect(&address).await.unwrap();
+        let request = format!("ws://{address}/v1/pair/wait?code=7KQ4M2XD")
+            .into_client_request()
+            .unwrap();
+        tokio_tungstenite::client_async_with_config(request, stream, Some(socket_config()))
+            .await
+            .map(|_| ())
+            .unwrap_err()
+    });
+    worker.join().unwrap();
+    handshake_refused(error)
+}
+
+#[test]
+fn server_pairing_wait_treats_a_code_the_backend_deleted_as_expired() {
+    // The backend deletes an expired code and answers its wait upgrade 404. Resuming inside the
+    // clock-skew window must end the attempt, not report the API unreachable until the window ends.
+    assert!(matches!(handshake_status(404), Ok(Waited::Expired)));
+    assert_eq!(handshake_status(500).unwrap_err().message, "server.pair.unreachable");
+}
