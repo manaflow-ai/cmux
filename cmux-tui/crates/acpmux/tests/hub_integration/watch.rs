@@ -214,3 +214,71 @@ async fn taking_over_a_watched_chat_lets_it_run_the_conversation() {
     assert_eq!(prompts(&hub, &sid), ["earlier", "carry on"]);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Nothing starts the agent on a watched conversation before Take Over: not the pane's warm-up
+/// (`_acpmux/warm`), and not a mode or model change from the composer's pickers.
+#[tokio::test]
+async fn warming_or_changing_mode_starts_no_agent_on_a_watched_chat() {
+    let (hub, mut c, root) = watch_setup().await;
+    let id = uuid::Uuid::now_v7().to_string();
+    let rollout =
+        root.join(format!("codex/sessions/2026/10/18/rollout-2026-10-18T09-00-00-{id}.jsonl"));
+    std::fs::create_dir_all(rollout.parent().unwrap()).unwrap();
+    append(
+        &rollout,
+        &[
+            json!({"type": "session_meta", "payload": {"id": id, "cwd": root.join("project")}}),
+            codex_event("user_message", "first prompt"),
+        ],
+    );
+    let before = snapshot(&root.join("codex"));
+    let s = c.request(method::SESSION_NEW, watch("fakecodex", &id)).await.unwrap();
+    let sid = s["sessionId"].as_str().unwrap().to_owned();
+    until_prompts(&hub, &sid, 1).await;
+    let warmed = c.request(method::MUX_WARM, json!({"sessionIds": [sid]})).await.unwrap();
+    assert!(!warmed.to_string().contains(&sid), "a watched chat is not warmed: {warmed}");
+    let mode =
+        c.request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": "default"})).await;
+    assert!(mode.as_ref().is_err_and(|e| e.contains("watch.read_only")), "{mode:?}");
+    let k = kinds(&hub, &sid);
+    assert!(!k.iter().any(|k| k == "initialize" || k == "session/load"), "{k:?}");
+    assert_eq!(snapshot(&root.join("codex")), before);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Claude Code writes a message's thinking and its text as separate lines with the same stop
+/// reason: the turn ends with the text, so the answer is inside it. Take Over settles a turn the
+/// other app left open.
+#[tokio::test]
+async fn a_claude_turn_ends_with_its_text_and_take_over_settles_an_open_one() {
+    let (hub, mut c, root) = watch_setup().await;
+    let id = uuid::Uuid::now_v7().to_string();
+    let project = root.join("project");
+    let file = root.join(format!("claude/projects/-tmp-watch/{id}.jsonl"));
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let user = |text: &str| json!({"type": "user", "cwd": project, "sessionId": id, "timestamp": "2026-10-18T09:00:00.000Z", "message": {"role": "user", "content": text}});
+    let block = |content: Value| json!({"type": "assistant", "cwd": project, "sessionId": id, "timestamp": "2026-10-18T09:00:01.000Z", "message": {"id": "m1", "role": "assistant", "stop_reason": "end_turn", "content": [content]}});
+    append(
+        &file,
+        &[
+            user("fix the build"),
+            block(json!({"type": "thinking", "thinking": "look at the log"})),
+            block(json!({"type": "text", "text": "done"})),
+            user("now the tests"),
+        ],
+    );
+    backdate(&file);
+    let s = c.request(method::SESSION_NEW, watch("fakeclaude", &id)).await.unwrap();
+    let sid = s["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(until_prompts(&hub, &sid, 2).await, ["fix the build", "now the tests"]);
+    let k = kinds(&hub, &sid);
+    let answer = k.iter().position(|k| k == "agent_message_chunk").expect("the answer is shown");
+    let first_end = k.iter().position(|k| k == "turn_end").expect("the first turn ends");
+    assert!(answer < first_end, "the answer is inside its turn: {k:?}");
+    // The second prompt's turn is still open; Take Over settles it.
+    let ends = |hub: &Hub| kinds(hub, &sid).iter().filter(|k| *k == "turn_result").count();
+    assert_eq!(ends(&hub), 1);
+    c.request("_acpmux/watch_take_over", json!({"sessionId": sid})).await.unwrap();
+    assert_eq!(ends(&hub), 2);
+    let _ = std::fs::remove_dir_all(&root);
+}

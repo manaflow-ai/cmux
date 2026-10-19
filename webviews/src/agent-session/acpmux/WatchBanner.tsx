@@ -13,7 +13,7 @@ export function watchedApp(family: string): string {
 export function WatchBanner({ family, onTakeOver }: { family: string; onTakeOver(): void }) {
   const t = useT();
   return (
-    <div className="acpmux-link-missing acpmux-watch-banner" role="status">
+    <div className="acpmux-link-missing acpmux-watch-banner">
       <p>{t("watch.banner", { app: watchedApp(family) })}</p>
       <p className="acpmux-live-chat-actions">
         <button type="button" className="acpmux-folder-choice-button" onClick={onTakeOver}>

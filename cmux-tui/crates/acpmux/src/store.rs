@@ -78,6 +78,22 @@ pub struct Watching {
     /// The rollout is a current Codex one, whose message items are its turns (`adopt_replay.rs`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub codex_items: bool,
+    /// The turn shown as open: the last prompt, until the transcript ends it, the next prompt
+    /// comes, or Take Over settles it. Kept so a daemon restart goes on with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<WatchedTurn>,
+}
+
+/// A watched chat's open turn (`Watching::open`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedTurn {
+    pub turn_id: String,
+    pub prompt_id: String,
+    pub turn_seq: u64,
+    /// An answer was shown, so the next piece is set apart from it.
+    #[serde(default)]
+    pub answered: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

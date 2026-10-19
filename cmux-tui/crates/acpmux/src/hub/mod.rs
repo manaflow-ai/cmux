@@ -834,7 +834,8 @@ impl Hub {
     /// may have run to completion.
     pub(super) fn mark_unknown_outcomes(&self, hosted: &std::collections::HashSet<String>) {
         for session in self.sessions() {
-            if hosted.contains(&session.id) {
+            // A watched chat's open turn is the other app's, and goes on (`watch.rs`).
+            if hosted.contains(&session.id) || session.meta().watching.is_some() {
                 continue;
             }
             // Scan the whole log: a long turn can stream far more records

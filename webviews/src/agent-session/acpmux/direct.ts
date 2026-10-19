@@ -668,6 +668,8 @@ export class AcpmuxDirectClient {
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   /** Take Over refused because the watched chat's app still runs it, until the user picks a way on. */
   private liveTakeOver?: { canFork: boolean; command?: string };
+  /// The chat `liveTakeOver` asks about: the choice is shown only on that chat.
+  private liveTakeOverFor?: string;
   private summary: Record<string, any> | undefined;
   /// The event seq the summary's config options are current as of: attach's `lastSeq` (its session
   /// names the options it runs now), then each newer config update. A replayed update before it is
@@ -2153,7 +2155,7 @@ export class AcpmuxDirectClient {
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
       liveChat: this.liveAdopt && { canFork: this.liveAdopt.canFork, command: this.liveAdopt.command },
-      liveTakeOver: this.liveTakeOver,
+      liveTakeOver: this.liveTakeOverFor === this.selectedSessionId ? this.liveTakeOver : undefined,
     });
   }
 
@@ -2891,7 +2893,8 @@ export class AcpmuxDirectClient {
   async takeOver(ifLive?: "fork" | "open"): Promise<void> {
     const sessionId = this.selectedSessionId;
     if (!sessionId) return;
-    if (ifLive && (!this.liveTakeOver || (ifLive === "fork" && !this.liveTakeOver.canFork))) return;
+    const live = this.liveTakeOverFor === sessionId ? this.liveTakeOver : undefined;
+    if (ifLive && (!live || (ifLive === "fork" && !live.canFork))) return;
     this.liveTakeOver = undefined;
     this.emit();
     try {
@@ -2899,6 +2902,7 @@ export class AcpmuxDirectClient {
     } catch (error) {
       if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !ifLive) {
         this.liveTakeOver = liveDetails((error as { details?: unknown }).details);
+        this.liveTakeOverFor = sessionId;
         this.emit();
         return;
       }

@@ -24,7 +24,7 @@ use super::{Hub, Session, SessionStatus};
 use crate::adopt::IfLive;
 use crate::adopt_replay::{Step, ends_turn, record_step, record_time};
 use crate::rpc::RpcError;
-use crate::store::Watching;
+use crate::store::{WatchedTurn, Watching};
 use serde_json::{Value, json};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -50,12 +50,14 @@ pub(super) fn read_only() -> RpcError {
 }
 
 /// The complete lines of `file` from `offset` (at most [`MAX_READ`] bytes), and the offset after
-/// the last complete one. A file shorter than `offset` was replaced: it is read again from its
-/// start. A first read of a big file starts at its newest [`MAX_BYTES`], after a line break.
+/// the last complete one. A file shorter than `offset` was cut or replaced: it is followed from its
+/// end, so nothing shown is shown twice. A first read of a big file starts at its newest
+/// [`MAX_BYTES`], after a line break. A line longer than [`MAX_READ`] is skipped: its rest fails
+/// to parse and is dropped.
 pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<String>, u64)> {
     let mut f = std::fs::File::open(file)?;
     let len = f.metadata()?.len();
-    let mut start = if offset > len { 0 } else { offset };
+    let mut start = if offset > len { len } else { offset };
     let skip_partial = start == 0 && len > MAX_BYTES;
     if skip_partial {
         start = len - MAX_BYTES;
@@ -75,7 +77,8 @@ pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<Strin
     }
     // Only complete lines: the app may be halfway through writing the last one.
     let Some(end) = buf.iter().rposition(|&b| b == b'\n') else {
-        return Ok((Vec::new(), start));
+        let skip = if buf.len() as u64 == MAX_READ { buf.len() as u64 } else { 0 };
+        return Ok((Vec::new(), start + skip));
     };
     if end < from {
         return Ok((Vec::new(), start + from as u64));
@@ -88,15 +91,6 @@ pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<Strin
     Ok((lines, start + end as u64 + 1))
 }
 
-/// The turn a watched chat shows as open: the last prompt, until the transcript ends it or the
-/// next prompt comes.
-#[derive(Default)]
-struct OpenTurn {
-    turn_id: String,
-    prompt_id: String,
-    turn_seq: u64,
-}
-
 impl Hub {
     /// Makes a just-created adopted `session` watch `file` instead of running the conversation.
     pub(super) fn begin_watch(
@@ -105,7 +99,8 @@ impl Hub {
         family: &str,
         file: std::path::PathBuf,
     ) -> Arc<Session> {
-        let watching = Watching { family: family.to_owned(), file, offset: 0, codex_items: false };
+        let watching =
+            Watching { family: family.to_owned(), file, offset: 0, codex_items: false, open: None };
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).watching = Some(watching);
         self.save_meta(session);
         self.append(session, "mux", "watch_started", json!({"family": family}));
@@ -121,7 +116,6 @@ impl Hub {
         }
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
-            let mut open: Option<OpenTurn> = None;
             loop {
                 let Some(watching) = session.meta().watching else { return };
                 if session.status() == SessionStatus::Closed {
@@ -137,7 +131,7 @@ impl Hub {
                 };
                 let more = offset > watching.offset && !lines.is_empty();
                 if offset != watching.offset {
-                    hub.show_watched(&session, &lines, offset, &mut open);
+                    hub.show_watched(&session, &lines, offset);
                 }
                 if !more {
                     tokio::time::sleep(POLL).await;
@@ -148,14 +142,9 @@ impl Hub {
 
     /// Appends what `lines` add as history and moves the read position to `offset`, unless the
     /// chat was taken over meanwhile.
-    fn show_watched(
-        &self,
-        session: &Session,
-        lines: &[String],
-        offset: u64,
-        open: &mut Option<OpenTurn>,
-    ) {
+    fn show_watched(&self, session: &Session, lines: &[String], offset: u64) {
         let Some(mut watching) = session.meta().watching else { return };
+        let open = &mut watching.open;
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
@@ -167,7 +156,14 @@ impl Hub {
                     }
                     *open = Some(self.begin_watched_turn(session, &text, at));
                 }
-                Some(Step::Answer(text)) => {
+                Some(Step::Answer(mut text)) => {
+                    // The pieces of one answer (text around a tool call) read as paragraphs.
+                    if let Some(turn) = open.as_mut() {
+                        if turn.answered {
+                            text.insert_str(0, "\n\n");
+                        }
+                        turn.answered = true;
+                    }
                     let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}});
                     self.append_at(session, "in", "agent_message_chunk", update, None, at);
                 }
@@ -182,7 +178,11 @@ impl Hub {
         watching.offset = offset;
         {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if m.watching.is_none() {
+            // Taken over meanwhile, or closed or purged: nothing is written back.
+            if m.watching.is_none()
+                || session.purged.load(std::sync::atomic::Ordering::SeqCst)
+                || session.status() == SessionStatus::Closed
+            {
                 return;
             }
             m.watching = Some(watching);
@@ -191,7 +191,7 @@ impl Hub {
     }
 
     /// The records a turn starts with, for a prompt the original app sent.
-    fn begin_watched_turn(&self, session: &Session, text: &str, at: Option<u64>) -> OpenTurn {
+    fn begin_watched_turn(&self, session: &Session, text: &str, at: Option<u64>) -> WatchedTurn {
         let turn_id = format!("watched-{}", uuid::Uuid::now_v7());
         let prompt_id = format!("{turn_id}-prompt");
         {
@@ -210,12 +210,12 @@ impl Hub {
         let msg =
             json!({"text": text, "client": "watch", "promptId": prompt_id, "turnId": turn_id});
         self.append_at(session, "mux", "user_message", msg, None, at);
-        OpenTurn { turn_id, prompt_id, turn_seq }
+        WatchedTurn { turn_id, prompt_id, turn_seq, answered: false }
     }
 
     /// The records a turn ends with, once the transcript says it ended or the next prompt came.
-    fn end_watched_turn(&self, session: &Session, turn: &OpenTurn, at: Option<u64>) {
-        let OpenTurn { turn_id, prompt_id, turn_seq } = turn;
+    fn end_watched_turn(&self, session: &Session, turn: &WatchedTurn, at: Option<u64>) {
+        let WatchedTurn { turn_id, prompt_id, turn_seq, .. } = turn;
         let end = json!({"stopReason": "end_turn", "turnId": turn_id, "turnSeq": turn_seq});
         self.append_at(session, "mux", "turn_end", end, None, at);
         let result = json!({"status": "completed", "stopReason": "end_turn", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
@@ -262,13 +262,18 @@ impl Hub {
             }
         }
         let fork = if_live == IfLive::Fork;
-        {
+        let open = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            m.watching = None;
+            let open = m.watching.take().and_then(|w| w.open);
             // A fork resumes nothing as itself: its first spawn branches the conversation off.
             if fork {
                 m.agent_session_id = None;
             }
+            open
+        };
+        // The other app's open turn is settled here: this chat's own turns follow.
+        if let Some(turn) = open {
+            self.end_watched_turn(session, &turn, None);
         }
         if fork {
             *session.fork_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
@@ -306,9 +311,12 @@ mod tests {
         let (lines, offset) = read_lines(&file, offset).unwrap();
         assert_eq!(lines, ["{\"c\":3}"]);
         assert_eq!(offset, 24);
-        // A replaced, shorter file is read again from its start.
+        // A cut, shorter file is followed from its end: nothing is shown twice.
         std::fs::write(&file, "{\"d\":4}\n").unwrap();
-        assert_eq!(read_lines(&file, offset).unwrap().0, ["{\"d\":4}"]);
+        let (lines, offset) = read_lines(&file, offset).unwrap();
+        assert!(lines.is_empty());
+        std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
+        assert_eq!(read_lines(&file, offset).unwrap().0, ["{}"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

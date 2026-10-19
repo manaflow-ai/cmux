@@ -968,6 +968,10 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // A watched chat starts no agent until Take Over: every lazy start (warm, model, mode, fork).
+        if session.meta().watching.is_some() {
+            return Err(super::watch::read_only());
+        }
         // `ensure_child` publishes the child before `initialize` and
         // `session/load` answer (the inbound loop needs it to answer the
         // agent's own requests meanwhile). A live child is ready only while

@@ -8,12 +8,12 @@
 mod action_hint;
 mod agent_message;
 #[cfg(unix)]
-#[cfg(unix)]
 mod agent_view;
 #[cfg(unix)]
 mod agents;
 #[cfg(unix)]
 mod agents_doctor;
+#[cfg(unix)]
 mod app;
 #[cfg(unix)]
 mod app_focus;

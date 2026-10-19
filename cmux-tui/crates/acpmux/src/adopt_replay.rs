@@ -106,11 +106,20 @@ pub fn ends_turn(family: &str, record: &Value) -> bool {
                     Some("task_complete" | "turn_complete")
                 )
         }
+        // Claude Code writes each content block of a message as its own line, all with the
+        // message's stop reason (thinking first): the turn ends with its text.
         _ => {
             record.get("type").and_then(Value::as_str) == Some("assistant")
                 && record.get("isSidechain").and_then(Value::as_bool) != Some(true)
-                && record.pointer("/message/stop_reason").and_then(Value::as_str)
-                    == Some("end_turn")
+                && matches!(
+                    record.pointer("/message/stop_reason").and_then(Value::as_str),
+                    Some("end_turn" | "stop_sequence")
+                )
+                && record.pointer("/message/content").and_then(Value::as_array).is_some_and(
+                    |blocks| {
+                        blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                    },
+                )
         }
     }
 }

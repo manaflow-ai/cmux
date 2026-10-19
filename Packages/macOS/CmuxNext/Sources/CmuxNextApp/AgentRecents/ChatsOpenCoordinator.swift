@@ -6,27 +6,6 @@ import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
 
-/// The chat as Open Chat names it (the index's metadata).
-struct ChatOpenSubject: Equatable {
-    var title: String?
-    /// The index harness id (`claude-code`, `codex`, `opencode`, `pi`, ...).
-    var harness: String?
-    var sessionID: String?
-    var cwd: String?
-    /// The chat's index key (`harness:id`): a fresh chat opened for it shows its past turns.
-    var key: String?
-
-    /// The acpmux harness family a fresh agent chat for this chat starts on, nil for the default.
-    var acpHarness: String? {
-        switch harness {
-        case "claude-code": "claude"
-        case "codex", "opencode", "gemini", "pi": harness
-        case "cursor-agent": "cursor"
-        default: nil
-        }
-    }
-}
-
 /// What Open Chat does with a daemon plan (Lawrence 2026-10-09): one click on a chat shows it in a
 /// NEW WORKSPACE as the ACP agent pane, focus moving there, never a terminal; a chat a tab already
 /// resumes shows that tab instead of a duplicate. A chat acpmux cannot resume over ACP yet opens a
@@ -101,11 +80,9 @@ final class ChatsOpenCoordinator {
     /// Open in Terminal (the row's right-click menu): the harness's own resume command.
     func openInTerminal(_ key: String) { open(key, inTerminal: true) }
 
-    /// View Only (an All chats row's menu, `cmux agent view`): the chat in a tab that shows it and
-    /// follows the app that runs it, without running it, until Take Over.
-    func watch(_ key: String) { open(key, watch: true) }
-
-    /// `page`: the New Tab page the row was clicked on; the chat replaces it in its tab.
+    /// `page`: the New Tab page the row was clicked on; the chat replaces it in its tab. `watch`: View
+    /// Only (an All chats row's menu, `agentChat.view`, `cmux agent view`): a tab that shows the chat
+    /// and follows the app that runs it, without running it, until Take Over.
     func open(_ key: String, inTerminal: Bool = false, watch: Bool = false, replacing page: String? = nil) {
         guard let services, let environment = QuitAgents.environment(services) else { return }
         Task { [weak self] in

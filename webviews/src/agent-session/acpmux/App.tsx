@@ -5589,7 +5589,7 @@ function AcpmuxPane() {
                     onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
                   />
                 )}
-                {snapshot.liveTakeOver && (
+                {snapshot.summary?.watching && snapshot.liveTakeOver && (
                   <LiveChatChoice
                     {...snapshot.liveTakeOver}
                     onChoose={(choice) => void directClient.current?.takeOver(choice).catch(() => undefined)}

@@ -30,10 +30,10 @@ struct AgentChatViewTests {
         let request = AgentPaneRequest(body: ["method": "chats.watch", "params": ["key": Self.key]])
         guard case .watchChat(let key) = request else { Issue.record("\(request)"); return }
         #expect(key == Self.key)
-        #expect(AgentChatViewHandlers.isChatKey(Self.key))
-        #expect(AgentChatViewHandlers.isChatKey("codex:0199a1b2"))
+        #expect(ChatOpenSubject.isWatchable(key: Self.key))
+        #expect(ChatOpenSubject.isWatchable(key: "codex:0199a1b2"))
         for bad in ["", "claude-code:", "opencode:x", "show", "/tmp/x.jsonl", "codex:" + String(repeating: "a", count: 600)] {
-            #expect(!AgentChatViewHandlers.isChatKey(bad), "\(bad)")
+            #expect(!ChatOpenSubject.isWatchable(key: bad), "\(bad)")
         }
     }
 }
