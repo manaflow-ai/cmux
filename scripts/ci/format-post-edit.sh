@@ -14,13 +14,14 @@
 # stderr, and a clean format is silent. CMUX_SKIP_FORMAT_HOOKS=1 skips it.
 set -u
 
-[ "${CMUX_SKIP_FORMAT_HOOKS:-0}" = 1 ] && exit 0
-
 # The checkout this script lives in, whatever directory the agent's shell is in.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd -P)"
 [ -n "$ROOT" ] || exit 0
 
 payload="$(cat 2>/dev/null || true)"
+# Read the payload first even when skipping, so the agent never writes into a
+# closed pipe.
+[ "${CMUX_SKIP_FORMAT_HOOKS:-0}" = 1 ] && exit 0
 # One line per file:
 #   rust<TAB>edition<TAB>toolchain<TAB>path<TAB>config  (toolchain, config may be empty)
 #   web<TAB>package<TAB>path-inside-package
