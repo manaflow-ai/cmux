@@ -300,6 +300,9 @@ the folder. A workspace without one gets an app-owned agent-home folder for its
 chats; that folder is not stored here. Neither the user's home folder nor a
 folder above it is accepted (`validation.invalid`): an agent there could read
 the whole home folder.
+Every workspace snapshot also carries `extra.key`, the workspace key that its
+terminals and agent chats get as `CMUX_WORKSPACE_ID` (in UUID form), so a client
+can tell which acpmux chats run in a session's workspaces (`cmux agents chat`).
 `workspace.agent_start.get {workspace, cwd?}` (capability
 `workspace-agent-start-v1`, cx-9aps) is the one answer for where a new agent
 chat of the workspace starts: `{cwd, kind, agent_home, skipped?}`. Rules, first
