@@ -137,7 +137,7 @@ test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
         {
           type: "ProviderError",
           value:
-            "provider escaped {\\\"details\\\":\\\"{\\\\\\\"password\\\\\\\":\\\\\\\"escaped-password-secret\\\\\\\"}\\\"} fragment #sig=fragment-signature-secret",
+            "provider escaped {\\\"details\\\":\\\"{\\\\\\\"password\\\\\\\":\\\\\\\"escaped-password-secret\\\\\\\"}\\\"} fragment #sig=fragment-signature-secret credential {\"password\":\"prefix\\\"quoted-tail-secret\"} request failed auth[token]=embedded-auth-secret",
         },
       ],
     },
@@ -174,6 +174,8 @@ test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
     "output-text-secret",
     "content-text-secret",
     "auth-data-secret",
+    "quoted-tail-secret",
+    "embedded-auth-secret",
   ]) {
     expect(serialized).not.toContain(secret);
   }

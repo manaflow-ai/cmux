@@ -83,10 +83,14 @@ struct ErrorJournalTests {
 
     @Test func escapedAssignmentsAndNamespacedQuerySecretsNeverReachTheJournal() async throws {
         let journal = ErrorJournal(directory: directory)
-        let values = ["escaped-password", "raw-auth-value", "access-secret", "signature-secret", "encoded-credential-value"]
+        let values = [
+            "escaped-password", "raw-auth-value", "access-secret", "signature-secret", "encoded-credential-value",
+            "quoted-tail-value", "embedded-query-value",
+        ]
         await journal.record(event(
             #"provider {\"password\":\"\#(values[0])\"} failed ?auth[token]=\#(values[1])"#
                 + #"&access_token[]=\#(values[2])&X-Amz-Signature=\#(values[3])&auth%5Btoken%5D=\#(values[4])"#
+                + #" credential {\"password\":\"prefix\\\"\#(values[5])\"} request failed auth[token]=\#(values[6])"#
         ))
 
         let entry = try #require(await journal.entries().first)
@@ -240,6 +244,27 @@ struct ErrorJournalTests {
             .filter { $0.pathExtension == "ndjson" }
         let disk = try segments.map { try String(contentsOf: $0, encoding: .utf8) }.joined()
         #expect(!disk.contains(value))
+    }
+
+    @Test func clearDoesNotReportSuccessWhenAnOldSegmentCannotBeDeleted() async throws {
+        let journal = ErrorJournal(directory: directory)
+        await journal.record(event("clear failure"))
+        await journal.flush()
+        let segment = try #require(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                .first { $0.pathExtension == "ndjson" }
+        )
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: segment.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: segment.path) }
+
+        #expect(await journal.clear() == 0)
+        #expect(await journal.writeError != nil)
+        #expect(await journal.entryCount == 1)
+        #expect(await ErrorJournal(directory: directory).entryCount == 1)
+
+        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: segment.path)
+        #expect(await journal.clear() == 1)
+        #expect(await ErrorJournal(directory: directory).entryCount == 0)
     }
 
     @Test func journalArtifactsAreOwnerOnly() async throws {
