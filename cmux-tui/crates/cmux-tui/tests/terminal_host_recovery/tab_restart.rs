@@ -267,12 +267,14 @@ fn a_manual_restart_of_a_kept_layout_tab_starts_in_its_directory_and_ends_the_ke
     let _exclusive = exclusive_process_test();
     let mut harness = RecoveryHarness::start("restart-kept-layout");
     let (terminal_id, _, surface) = start_default_shell(&harness, "kept-layout");
-    let kept_dir = harness.dir.join("kept-dir");
+    let kept_dir = harness.dir.join("keptdir");
     fs::create_dir_all(&kept_dir).unwrap();
     // The physical path: the session host records the shell's real directory.
     let kept_dir = kept_dir.canonicalize().unwrap().to_string_lossy().into_owned();
     send_line(&harness.socket, surface, &format!("cd '{kept_dir}'"));
-    assert_eq!(echo_value(&harness, surface, "before", "$PWD"), kept_dir);
+    // The base name: a full path can wrap on the screen.
+    let base = r#"$(basename "$PWD")"#;
+    assert_eq!(echo_value(&harness, surface, "before", base), "keptdir");
 
     let identify = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "identify"}));
     let capabilities = identify["capabilities"].as_array().unwrap();
@@ -319,7 +321,7 @@ fn a_manual_restart_of_a_kept_layout_tab_starts_in_its_directory_and_ends_the_ke
     assert!(tab["relaunch"].is_null(), "{tab}");
     let surface = tab["surface"].as_u64().expect("the restarted tab has a surface");
     wait_for_screen(&harness.socket, surface, MARKER);
-    assert_eq!(echo_value(&harness, surface, "after", "$PWD"), kept_dir, "not the kept directory");
+    assert_eq!(echo_value(&harness, surface, "after", base), "keptdir", "not the kept directory");
 
     // The keep ended: the shell's exit closes the tab.
     send_line(&harness.socket, surface, "exit");

@@ -23,28 +23,40 @@ public struct KeptTabsRelaunched: Sendable, Equatable {
 }
 
 extension DaemonConnection {
-    /// Restarts a shell in every kept tab, all at once: each `restart-tab` answers when its
-    /// worker started, so the tree reports every kept tab restarting together, in its own slot,
+    /// The kept-tab restarts `relaunchKeptTabs` keeps in flight.
+    static let keptTabRestartsInFlight = 8
+
+    /// Restarts a shell in every kept tab, in parallel (up to `keptTabRestartsInFlight`): each
+    /// `restart-tab` answers when its worker started, so the kept tabs restart together, each in its own slot,
     /// and each pane maps its restored tabs once, not once per create, move and close in turn
     /// (cx-8w027.23). A tab that fails stays dead and is reported; the rest continue.
     @discardableResult
     public func relaunchKeptTabs() async throws -> KeptTabsRelaunched {
         let steps = KeptTabRelaunch.steps(tree: try await listWorkspaces())
         let failures = await withTaskGroup(of: String?.self) { group in
-            for step in steps {
-                group.addTask {
-                    do {
-                        _ = try await self.request(RestartTabRequest(surface: step.surface))
-                        return nil
-                    } catch {
-                        return "surface \(step.surface.rawValue): \(error)"
-                    }
-                }
+            // At most `keptTabRestartsInFlight` at once: each restart starts a host and a shell.
+            var pending = steps.makeIterator()
+            for step in steps.prefix(Self.keptTabRestartsInFlight) {
+                _ = pending.next()
+                group.addTask { await self.restart(step) }
             }
             var failures: [String] = []
-            for await failure in group { if let failure { failures.append(failure) } }
+            for await failure in group {
+                if let failure { failures.append(failure) }
+                if let step = pending.next() { group.addTask { await self.restart(step) } }
+            }
             return failures
         }
         return KeptTabsRelaunched(relaunched: steps.count - failures.count, failures: failures)
+    }
+
+    /// One kept tab's `restart-tab`: nil when the daemon took it, else the failure line.
+    private func restart(_ step: KeptTabRelaunch) async -> String? {
+        do {
+            _ = try await request(RestartTabRequest(surface: step.surface))
+            return nil
+        } catch {
+            return "surface \(step.surface.rawValue): \(error)"
+        }
     }
 }

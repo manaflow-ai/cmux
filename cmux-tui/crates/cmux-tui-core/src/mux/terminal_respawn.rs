@@ -40,7 +40,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 #[cfg(any(unix, windows))]
-use crate::state::kept_tab_store::KeptTabRecord;
+use crate::state::kept_tab_store::KeptTab;
 #[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::TerminalExit;
 #[cfg(any(unix, windows))]
@@ -171,7 +171,7 @@ impl TerminalRespawns {
 #[cfg(any(unix, windows))]
 pub(super) enum RespawnDecision {
     /// Respawn after the plan's delay.
-    Planned(RespawnPlan),
+    Planned(Box<RespawnPlan>),
     /// The terminal used every attempt of the window.
     Exhausted(TerminalPublicId),
 }
@@ -196,13 +196,13 @@ pub(super) struct RespawnPlan {
     /// An explicit user restart (`restart-tab`, `manual.rs`): any end of
     /// the incarnation reopens, not only a host loss.
     pub(super) user_restart: bool,
-    /// The keep-layout record of the tab a user restart reopens (`kept_tabs`,
-    /// `tab-restart-kept-layout-v1`): the new shell starts in its directory,
-    /// and once the new runtime is in its tabs the worker forgets the
-    /// terminal's kept rows, so the tab is an ordinary terminal tab again.
-    /// None for every automatic respawn (kept tabs never respawn by
-    /// themselves).
-    pub(super) kept: Option<KeptTabRecord>,
+    /// The keep-layout rows (`kept_tabs`, `tab-restart-kept-layout-v1`) of
+    /// the terminal's tabs when a user restart reopens a kept tab, the
+    /// restarted tab's first: the new shell starts in its directory, and once
+    /// the new runtime is in the tabs the worker forgets the rows, so the tabs
+    /// are ordinary terminal tabs again. Empty for every automatic respawn
+    /// (kept tabs never respawn by themselves).
+    pub(super) kept: Vec<KeptTab>,
 }
 
 impl Mux {
@@ -233,7 +233,7 @@ impl Mux {
         decision: RespawnDecision,
     ) {
         let plan = match decision {
-            RespawnDecision::Planned(plan) => plan,
+            RespawnDecision::Planned(plan) => *plan,
             RespawnDecision::Exhausted(public_id) => {
                 self.end_terminal_respawn_exhausted(terminal_id, end, &public_id);
                 return;
@@ -361,7 +361,7 @@ impl Mux {
         for placement in &placements {
             state.surfaces.remove(placement);
         }
-        Some(RespawnDecision::Planned(RespawnPlan {
+        Some(RespawnDecision::Planned(Box::new(RespawnPlan {
             terminal_id: terminal_id.to_string(),
             public_id,
             old_incarnation,
@@ -372,8 +372,8 @@ impl Mux {
             delay,
             recorded: end.exit().clone(),
             user_restart: false,
-            kept: None,
-        }))
+            kept: Vec::new(),
+        })))
     }
 
     /// The respawn worker: respawn, then pre-fill; on failure or a refused
@@ -507,22 +507,24 @@ impl Mux {
             &launch.seed,
         )?;
         let _pending_host_release = PendingTerminalHostRelease(surface.clone());
+        let mut forgot_kept = false;
         let activated = match self.install_respawned_runtime(&plan, &surface) {
             Ok(true) => {
                 // A restarted kept tab is an ordinary terminal tab again: its
                 // exit closes it, a host loss respawns it, and no frontend
                 // restarts it on its next connect. Forgotten before the launch
-                // stream starts, so even an instant exit sees no record. A
-                // launch that fails before its runtime is in the tabs keeps
-                // the record, so the tab stays kept and dead.
-                if plan.kept.is_some()
-                    && let Err(error) =
-                        self.forget_kept_tabs_of(std::slice::from_ref(&plan.terminal_id))
-                {
-                    eprintln!(
-                        "cmux-tui: restarted terminal {} keeps its keep-layout record: {error:#}",
-                        plan.terminal_id
-                    );
+                // stream starts (the new shell's exit and a host loss arrive
+                // through it), so neither can see the record.
+                if !plan.kept.is_empty() {
+                    let tab_ids =
+                        plan.kept.iter().map(|kept| kept.tab_id.clone()).collect::<Vec<_>>();
+                    match self.forget_kept_tabs(&tab_ids) {
+                        Ok(()) => forgot_kept = true,
+                        Err(error) => eprintln!(
+                            "cmux-tui: restarted terminal {} keeps its keep-layout record: {error:#}",
+                            plan.terminal_id
+                        ),
+                    }
                 }
                 // Output the lost host read but never delivered is not in
                 // the journal: the new generation starts with a marked gap,
@@ -538,6 +540,14 @@ impl Mux {
         };
         if let Err(error) = activated {
             surface.kill();
+            // A failed launch leaves a kept tab kept (dead, for the next
+            // frontend to restart), as a failure before the install does.
+            if forgot_kept && let Err(error) = self.commit_kept_tabs(&plan.kept) {
+                eprintln!(
+                    "cmux-tui: terminal {} lost its keep-layout record: {error:#}",
+                    plan.terminal_id
+                );
+            }
             return Err(error);
         }
         if let Some(workspace_key) = workspace_key.as_deref() {
