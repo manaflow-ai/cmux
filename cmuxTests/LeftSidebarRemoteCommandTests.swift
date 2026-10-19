@@ -87,78 +87,74 @@ extension TerminalControllerSocketSecurityTests {
     }
 
     @Test func leftSidebarV1ParserProducesRemoteCommands() throws {
-#if DEBUG
         let workspaceId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let windowId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
-        let cases: [(String, LeftSidebarRemoteRequest)] = [
-            ("left_sidebar toggle", .init(command: .toggle, target: SidebarRemoteTarget())),
+        let cases: [([String], LeftSidebarRemoteRequest)] = [
+            (["toggle"], .init(command: .toggle, target: SidebarRemoteTarget())),
             (
-                "left_sidebar show --window=\(windowId.uuidString)",
+                ["show", "--window=\(windowId.uuidString)"],
                 .init(command: .show, target: SidebarRemoteTarget(windowId: windowId, workspaceId: nil))
             ),
             (
-                "left_sidebar hide --tab=\(workspaceId.uuidString)",
+                ["hide", "--tab=\(workspaceId.uuidString)"],
                 .init(command: .hide, target: SidebarRemoteTarget(windowId: nil, workspaceId: workspaceId))
             ),
-            ("left_sidebar FOCUS", .init(command: .focus, target: SidebarRemoteTarget())),
+            (["FOCUS"], .init(command: .focus, target: SidebarRemoteTarget())),
             (
-                "left_sidebar mode --workspace \(workspaceId.uuidString) --window \(windowId.uuidString)",
+                ["mode", "--workspace", workspaceId.uuidString, "--window", windowId.uuidString],
                 .init(command: .getState, target: SidebarRemoteTarget(windowId: windowId, workspaceId: workspaceId))
             ),
         ]
 
-        for (line, expected) in cases {
-            let result = TerminalController.shared.parseLeftSidebarRemoteRequestForTesting(line)
-            #expect(try result.get() == expected, Comment(rawValue: line))
+        for (tokens, expected) in cases {
+            let result = LeftSidebarRemoteRequest.parse(tokens: tokens)
+            #expect(try result.get() == expected, Comment(rawValue: tokens.joined(separator: " ")))
         }
 
-        let invalidCases: [(String, String)] = [
-            ("left_sidebar", "Usage: left_sidebar <toggle"),
-            ("left_sidebar state", "Unknown left sidebar command 'state'"),
-            ("left_sidebar set files", "Unknown left sidebar command 'set'"),
-            ("left_sidebar files", "Unknown left sidebar command 'files'"),
-            ("left_sidebar toggle extra", "Usage: left_sidebar toggle"),
-            ("left_sidebar show --no-focus", "Unknown left sidebar option '--no-focus'"),
-            ("left_sidebar --bad", "Unknown left sidebar option '--bad'"),
-            ("left_sidebar show --window", "--window requires an id"),
-            ("left_sidebar show --tab not-a-uuid", "Invalid left sidebar --tab id 'not-a-uuid'"),
+        let invalidCases: [([String], String)] = [
+            ([], "Usage: left_sidebar <toggle"),
+            (["state"], "Unknown left sidebar command 'state'"),
+            (["set", "files"], "Unknown left sidebar command 'set'"),
+            (["files"], "Unknown left sidebar command 'files'"),
+            (["toggle", "extra"], "Usage: left_sidebar toggle"),
+            (["show", "--no-focus"], "Unknown left sidebar option '--no-focus'"),
+            (["--bad"], "Unknown left sidebar option '--bad'"),
+            (["show", "--window"], "--window requires an id"),
+            (["show", "--tab", "not-a-uuid"], "Invalid left sidebar --tab id 'not-a-uuid'"),
         ]
 
-        for (line, expectedMessage) in invalidCases {
-            switch TerminalController.shared.parseLeftSidebarRemoteRequestForTesting(line) {
+        for (tokens, expectedMessage) in invalidCases {
+            switch LeftSidebarRemoteRequest.parse(tokens: tokens) {
             case .success(let request):
-                Issue.record("Expected parser failure for \(line), got \(request)")
+                Issue.record("Expected parser failure for \(tokens), got \(request)")
             case .failure(let error):
                 #expect(
                     error.message.contains(expectedMessage),
-                    "Expected \(line) to contain \(expectedMessage), got \(error.message)"
+                    "Expected \(tokens) to contain \(expectedMessage), got \(error.message)"
                 )
             }
         }
-#endif
     }
 
     /// Unlike `right_sidebar`, only `focus` may move in-app focus.
     @Test func leftSidebarV1FocusPolicyAllowsOnlyFocus() throws {
-#if DEBUG
         let cases: [(String, Bool)] = [
-            ("left_sidebar focus", true),
-            ("left_sidebar focus --window=22222222-2222-2222-2222-222222222222", true),
-            ("left_sidebar toggle", false),
-            ("left_sidebar show", false),
-            ("left_sidebar hide", false),
-            ("left_sidebar mode", false),
-            ("left_sidebar set files", false),
-            ("left_sidebar focus extra", false),
+            ("focus", true),
+            ("focus --window=22222222-2222-2222-2222-222222222222", true),
+            ("toggle", false),
+            ("show", false),
+            ("hide", false),
+            ("mode", false),
+            ("set files", false),
+            ("focus extra", false),
         ]
 
-        for (line, expected) in cases {
+        for (args, expected) in cases {
             #expect(
-                TerminalController.shared.leftSidebarCommandAllowsInAppFocusMutationsForTesting(line) == expected,
-                Comment(rawValue: line)
+                TerminalController.leftSidebarCommandAllowsInAppFocusMutations(args: args) == expected,
+                Comment(rawValue: args)
             )
         }
-#endif
     }
 
     @Test func leftSidebarCommandsTargetRegisteredWindowOrWorkspace() {

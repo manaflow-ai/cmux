@@ -813,7 +813,7 @@ class TerminalController {
 
     /// Only `left_sidebar focus` may move focus. Unlike `right_sidebar`,
     /// `toggle` and `show` change visibility without it.
-    private nonisolated static func leftSidebarCommandAllowsInAppFocusMutations(args: String) -> Bool {
+    nonisolated static func leftSidebarCommandAllowsInAppFocusMutations(args: String) -> Bool {
         guard case .success(let request) = LeftSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args)) else {
             return false
         }
@@ -15496,22 +15496,6 @@ class TerminalController {
     }
 
 #if DEBUG
-    func parseLeftSidebarRemoteRequestForTesting(_ commandLine: String) -> Result<LeftSidebarRemoteRequest, LeftSidebarRemoteParseError> {
-        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.first?.lowercased() == "left_sidebar" else {
-            return .failure(.init(message: "ERROR: Usage: left_sidebar <toggle|show|hide|focus|mode>"))
-        }
-        return LeftSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(parts.count > 1 ? parts[1] : ""))
-    }
-
-    func leftSidebarCommandAllowsInAppFocusMutationsForTesting(_ commandLine: String) -> Bool {
-        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.first?.lowercased() == "left_sidebar" else { return false }
-        return Self.leftSidebarCommandAllowsInAppFocusMutations(args: parts.count > 1 ? parts[1] : "")
-    }
-
     func parseRightSidebarRemoteRequestForTesting(_ commandLine: String) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
         let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
