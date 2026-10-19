@@ -110,6 +110,11 @@ pub enum Input {
         tasks: Vec<String>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
+    /// A queued subagent's launch, saved in its record.
+    SubagentQueued {
+        id: String,
+        launch: crate::state::QueuedLaunch,
+    },
     /// A subagent's session exists (its prompt follows).
     SubagentStarted {
         id: String,
@@ -465,7 +470,9 @@ pub struct Brain {
     /// Where subagents' workspaces are renamed when they finish.
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
-    sub_starter: Option<Sender<String>>,
+    sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
+    /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
+    max_live: Option<usize>,
     /// A finished subagent's workspace closes instead of taking the done
     /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
     sub_close_on_finish: bool,
@@ -588,6 +595,7 @@ impl Brain {
             trace: crate::trace::Trace::off(),
             workspaces: None,
             sub_starter: None,
+            max_live: None,
             sub_close_on_finish: false,
             prev_view: None,
             settle_clock: None,
@@ -666,8 +674,13 @@ impl Brain {
     }
 
     /// Where queued subagents are started when a slot frees.
-    pub fn set_sub_starter(&mut self, starter: Option<Sender<String>>) {
+    pub fn set_sub_starter(&mut self, starter: Option<Sender<crate::subagents::QueuedStart>>) {
         self.sub_starter = starter;
+    }
+
+    /// Caps the subagents at work at once (None: no cap, the default).
+    pub fn set_max_live(&mut self, limit: Option<usize>) {
+        self.max_live = limit;
     }
 
     /// Renames subagents' workspaces when they finish (workspaces.rs).
@@ -767,6 +780,7 @@ impl Brain {
                 let plan = self.register_spawn(&tasks);
                 let _ = reply.send(plan);
             }
+            Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
             Input::SubagentStarted {
                 id,
                 session_id,
