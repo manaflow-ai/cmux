@@ -424,7 +424,9 @@ impl StreamState {
         match applied {
             Applied::Snapshot(snapshot) => {
                 let seq = snapshot.seq;
-                let Ok(frame) = serde_json::to_value(&*snapshot) else { return Translated::Nothing };
+                let Ok(frame) = serde_json::to_value(&*snapshot) else {
+                    return Translated::Nothing;
+                };
                 match &self.target {
                     Target::Inbox => {
                         Translated::Emit(CloudEvent::InboxReset { seq, account: None })
