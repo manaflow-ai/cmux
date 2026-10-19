@@ -241,11 +241,20 @@ jobs:
       - name: Build base and head tagged apps
         id: build
         if: steps.scope.outputs.is_ui == 'true'
+        # A warm tag's DerivedData keeps the explicit module Xcode precompiled
+        # from GhosttyNextKit's ghostty.h and does not rebuild it for a new pin
+        # ("ghostty.h has been modified since the module file", job
+        # 117892119256). The stamp clears those modules only when a binary
+        # pin changed since the tag's last good build.
         run: |
           set -euo pipefail
+          stamp="$GITHUB_WORKSPACE/scripts/ci/media_module_cache_stamp.py"
           build_one() {
             local dir="$1" tag="$2" log="$3" output="$4" app
+            local derived="$HOME/Library/Developer/Xcode/DerivedData/cmux-$tag"
+            python3 "$stamp" clear --source "$dir" --derived-data "$derived"
             (cd "$dir" && ./scripts/reload.sh --tag "$tag" --no-global-cli-links) 2>&1 | tee "$log"
+            python3 "$stamp" record --source "$dir" --derived-data "$derived"
             app="$(awk '/^App path:/ { getline; sub(/^ +/, ""); print; exit }' "$log")"
             if [ -z "$app" ] || [ ! -d "$app" ]; then
               app="$(find "$HOME/Library/Developer/Xcode/DerivedData/cmux-$tag/Build/Products/Debug" -maxdepth 1 -name '*.app' -print -quit)"
