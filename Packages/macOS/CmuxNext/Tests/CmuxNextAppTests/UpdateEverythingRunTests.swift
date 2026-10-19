@@ -25,7 +25,9 @@ struct UpdateEverythingRunTests {
         let outcomes = await runner.run(plan, continueThreads: true, steps: steps)
         runner.release()
 
-        #expect(outcomes.map(\.failure) == [nil, nil])
+        // devbox has no outcome yet: its update is the relaunched app's.
+        #expect(outcomes.map(\.machineID) == ["local"])
+        #expect(outcomes.map(\.failure) == [nil])
         #expect(UpdateEverythingOutcome.summary(outcomes) == nil, "every machine updated")
         // devbox's daemon waits for the relaunched app's newer build: updating it to this build
         // first would replace it twice.
@@ -136,7 +138,7 @@ struct UpdateEverythingRunTests {
                                         installSSH: { _ in }, updateCloud: { _ in false },
                                         updater: UpdaterService(defaults: defaults, enableSparkle: false, recordsUpdates: false),
                                         appVersion: "100", window: { nil }, journal: nil)
-        let registry = ActionRegistry()
+        let registry = ActionRegistry(catalog: [ActionDescriptor(id: UpdateEverything.actionID, title: "Update Everything", category: .settings)])
         // A test or tool host (no bundle ID) never reads or removes the real app's note.
         #expect(!UpdateEverything.bind(into: registry, host: host), "no launch check without a bundle ID")
         // No window to ask in: the action says so instead of doing nothing.
