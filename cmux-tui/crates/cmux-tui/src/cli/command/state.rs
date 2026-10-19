@@ -167,6 +167,23 @@ fn top_index(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError> {
     }
 }
 
+/// `--parent <group>` nests the group in that group (id or exact name);
+/// `--clear-parent` moves it to the top level (`workspace-group-nest-v1`).
+fn parent_group(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError> {
+    let clear = flags.boolean("clear-parent");
+    match (flags.take("parent"), clear) {
+        (Some(_), true) => {
+            Err(UsageError::new("--parent and --clear-parent are mutually exclusive"))
+        }
+        (Some(parent), false) => params.state("parent_group", &parent, Op::WorkspaceGroupList),
+        (None, true) => {
+            params.insert("parent_group", Value::Null);
+            Ok(())
+        }
+        (None, false) => Ok(()),
+    }
+}
+
 fn nullable(
     params: &mut Params,
     flags: &mut Flags,
@@ -373,6 +390,7 @@ pub(super) fn parse_workspace_group(
             params.insert("name", Value::String(flags.required("name")?));
             insert_optional_string(&mut params.fields, flags, "color", "color");
             params.room(flags, "room", "room")?;
+            params.optional_state(flags, "parent", "parent_group", Op::WorkspaceGroupList)?;
             optional_index(&mut params, flags)?;
             if flags.boolean("collapse") {
                 params.insert("collapsed", Value::Bool(true));
@@ -398,6 +416,7 @@ pub(super) fn parse_workspace_group(
                     params.room(flags, "room", "room")?;
                     group_collapse(flags, &mut params.fields)?;
                     top_index(&mut params, flags)?;
+                    parent_group(&mut params, flags)?;
                     Op::WorkspaceGroupUpdate
                 }
                 "delete" => Op::WorkspaceGroupDelete,

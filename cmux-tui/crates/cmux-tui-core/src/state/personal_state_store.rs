@@ -32,6 +32,7 @@ fn group_value(group: &PersonalGroup) -> Value {
         "top_index": group.top_index,
         "icon": group.icon,
         "pinned": group.pinned,
+        "parent_group": group.parent,
     })
 }
 
@@ -279,6 +280,21 @@ pub(crate) fn set_group_icon(
     icon: Option<&str>,
 ) -> anyhow::Result<PersonalGroup> {
     WorkspaceRegistry::set_personal_group_icon_in(tx, id, icon).map(|(group, _)| group)
+}
+
+pub(crate) fn set_group_parent(
+    tx: &Transaction<'_>,
+    id: &str,
+    parent: Option<&str>,
+) -> anyhow::Result<PersonalGroup> {
+    WorkspaceRegistry::set_personal_group_parent_in(tx, id, parent).map(|(group, _)| group)
+}
+
+pub(crate) fn read_group_row(
+    connection: &Connection,
+    id: &str,
+) -> anyhow::Result<Option<PersonalGroup>> {
+    read_group(connection, id)
 }
 
 pub(crate) fn set_group_pinned(
