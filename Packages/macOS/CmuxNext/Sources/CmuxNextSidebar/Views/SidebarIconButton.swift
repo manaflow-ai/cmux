@@ -98,7 +98,7 @@ final class SidebarIconButton: NSButton {
         renderIcon()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override var acceptsFirstResponder: Bool {
         guard takesKeyFocus else { return super.acceptsFirstResponder }

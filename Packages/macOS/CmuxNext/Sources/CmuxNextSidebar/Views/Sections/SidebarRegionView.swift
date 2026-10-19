@@ -375,7 +375,7 @@ final class SidebarRegionView: NSView {
         return view
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {

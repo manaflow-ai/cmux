@@ -562,8 +562,13 @@ fn websocket_overflow_marks_attach_lifecycle() {
 #[test]
 fn identify_and_ping_return_build_metadata() {
     let mux = test_mux();
-    let identity =
-        handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
+    let identity = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::Identify { machine_metadata: false },
+        &test_writer(),
+    )
+    .unwrap();
     assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
     assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
     assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
@@ -602,8 +607,13 @@ fn identify_and_ping_return_build_metadata() {
 fn lifecycle_ready_identity_advertises_new_public_protocol() {
     let mux = test_mux();
     mux.mark_server_lifecycle_ready();
-    let identity =
-        handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
+    let identity = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::Identify { machine_metadata: false },
+        &test_writer(),
+    )
+    .unwrap();
 
     assert_eq!(identity["lifecycle_ready"], true);
     assert_eq!(identity["protocol"].as_u64(), Some(12));
