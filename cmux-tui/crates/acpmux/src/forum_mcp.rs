@@ -110,9 +110,10 @@ async fn call(daemon: &Client, params: &Value) -> Value {
                             "A person's rule holds this key; your post {id} is a proposal they will see."
                         )
                     } else {
-                        let pushed = r["pushed"].as_array().map_or(0, Vec::len);
+                        let n = |k: &str| r[k].as_array().map_or(0, Vec::len);
+                        let (pushed, pending) = (n("pushed"), n("pending"));
                         format!(
-                            "Posted {id}. Sessions read it on their next prompt; pushed to {pushed} now."
+                            "Posted {id}. Sessions read it on their next prompt; pushed to {pushed} now, {pending} still on the way."
                         )
                     };
                     ok(text, r)
