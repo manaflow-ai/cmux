@@ -13,6 +13,10 @@ import QuartzCore
 /// `crossfade` instead of a pop. Under Reduce Motion the card only fades;
 /// with motion speed off nothing animates. Every animation is presentation
 /// only: the layer's model values never change, so layout never sees them.
+///
+/// The Core Animation objects are built here, not through `Motion.set`, because
+/// `Motion.set` writes the model value and reads the global policy; every duration
+/// and spring still comes from `policy` tokens (check-motion `motion-allow`).
 @MainActor
 struct SidebarCardTransition {
     /// The motion settings the card follows (`Motion.policy` by default).
@@ -33,20 +37,20 @@ struct SidebarCardTransition {
         clear(layer)
         let fade = policy.duration(.fadeIn)
         if fade > 0 {
-            let animation = CABasicAnimation(keyPath: "opacity")
+            let animation = CABasicAnimation(keyPath: "opacity") // motion-allow: policy tokens (type doc)
             animation.fromValue = 0
             animation.toValue = 1
             animation.duration = fade
-            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut) // motion-allow: policy tokens (type doc)
             layer.add(animation, forKey: Self.opacityKey)
         }
         guard policy.animatesMovement else { return }
         let spring = policy.spring(.appear)
-        let animation = CASpringAnimation(keyPath: "transform.translation.y")
+        let animation = CASpringAnimation(keyPath: "transform.translation.y") // motion-allow: policy tokens (type doc)
         animation.mass = 1
         animation.stiffness = spring.stiffness
         animation.damping = spring.damping
-        animation.duration = spring.settlingTime(within: 0.002)
+        animation.duration = spring.settlingTime(within: 0.002) // motion-allow: policy tokens (type doc)
         animation.fromValue = Self.down(in: view) * Self.travel
         animation.toValue = 0
         layer.add(animation, forKey: Self.travelKey)
@@ -63,10 +67,10 @@ struct SidebarCardTransition {
         }
         let from = layer.presentation()?.opacity ?? layer.opacity
         clear(layer)
-        let curve = CAMediaTimingFunction(name: .easeIn)
+        let curve = CAMediaTimingFunction(name: .easeIn) // motion-allow: policy tokens (type doc)
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: committed on main
-        let opacity = CABasicAnimation(keyPath: "opacity")
+        let opacity = CABasicAnimation(keyPath: "opacity") // motion-allow: policy tokens (type doc)
         opacity.fromValue = from
         opacity.toValue = 0
         opacity.duration = fade
@@ -75,7 +79,7 @@ struct SidebarCardTransition {
         opacity.isRemovedOnCompletion = false
         layer.add(opacity, forKey: Self.opacityKey)
         if policy.animatesMovement {
-            let drop = CABasicAnimation(keyPath: "transform.translation.y")
+            let drop = CABasicAnimation(keyPath: "transform.translation.y") // motion-allow: policy tokens (type doc)
             drop.fromValue = 0
             drop.toValue = Self.down(in: view) * Self.travel / 2
             drop.duration = fade
@@ -91,10 +95,10 @@ struct SidebarCardTransition {
     func crossfade(_ layer: CALayer?) {
         let duration = policy.duration(.crossfade)
         guard let layer, duration > 0 else { return }
-        let transition = CATransition()
+        let transition = CATransition() // motion-allow: policy tokens (type doc)
         transition.type = .fade
         transition.duration = duration
-        transition.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        transition.timingFunction = CAMediaTimingFunction(name: .easeOut) // motion-allow: policy tokens (type doc)
         layer.add(transition, forKey: Self.crossfadeKey)
     }
 
