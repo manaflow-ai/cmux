@@ -240,6 +240,7 @@ class PullRequest:
     author_association: str = "MEMBER"
     committed_at: str = ""
     author: str = ""
+    mergeable: str = "UNKNOWN"  # GitHub's MERGEABLE, CONFLICTING or UNKNOWN against BASE
     files: list[str] = field(default_factory=list)
     checks: list[tuple[str, str, str]] = field(default_factory=list)  # (name, status, conclusion)
 
@@ -261,7 +262,7 @@ query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: Str
                  orderBy: {field: CREATED_AT, direction: ASC}) {
       pageInfo { hasNextPage endCursor }
       nodes {
-        id number title url isDraft headRefName headRefOid authorAssociation
+        id number title url isDraft headRefName headRefOid authorAssociation mergeable
         author { login }
         isCrossRepository
         labels(first: 30) { nodes { name } }
@@ -383,6 +384,7 @@ def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
             draft=node["isDraft"], same_repo=not node["isCrossRepository"],
             author_association=node["authorAssociation"], committed_at=commit.get("committedDate", ""),
             author=(node.get("author") or {}).get("login", ""),
+            mergeable=node.get("mergeable") or "UNKNOWN",
         )
         prs.append((pr, node))
         if ineligible_reason(pr, at) is not None:
@@ -453,6 +455,10 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
     held = sorted(label for label in pr.labels if label.lower() in HOLD_LABELS)
     if held:
         return "label " + ", ".join(held)
+    # A PR that conflicts with the base itself can never stack; it waits for
+    # its owner to merge feat-cmux-next instead of taking a batch slot.
+    if pr.mergeable == "CONFLICTING":
+        return f"conflicts with {BASE} (merge it, push)"
     if pr.committed_at and at - parse_time(pr.committed_at) > dt.timedelta(days=stale_days):
         return f"head commit older than {stale_days} days"
     red = red_fast_checks(pr)
