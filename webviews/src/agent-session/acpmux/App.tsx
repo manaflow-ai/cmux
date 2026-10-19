@@ -206,6 +206,7 @@ import {
 } from "./header/headerStyle";
 import { configureLabs, useLab } from "./labs";
 import type { ViewedFile } from "./FileViewer";
+import type { FilesSource } from "./FilesView";
 import { PlanProgress } from "./PlanProgress";
 import { useShortcutsHelp } from "./ShortcutsHelp";
 import { RenderBridgeContext, useRenderBridge } from "./conversation/RenderBridgeContext";
@@ -294,6 +295,8 @@ const loadDiffPanel = () => import("./DiffPanel");
 const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
 /// A file in the chat's viewer (labs `chatViewer`): loaded on its first open.
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
+/// The chat's folder in the chat's viewer (labs `chatViewer`): loaded on its first open.
+const FilesView = lazy(() => import("./FilesView").then((module) => ({ default: module.FilesView })));
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -3011,6 +3014,9 @@ function AcpmuxPane() {
   const chatViewerRef = useRef(chatViewer);
   chatViewerRef.current = chatViewer;
   const [fileView, setFileView] = useState<ViewedFile>();
+  // The header's Files in the viewer: the folder shown. A file opened from it shows over it, and
+  // the file's Back returns here.
+  const [filesView, setFilesView] = useState<{ sessionId?: string; folder: string }>();
   const toggleInspector = useCallback((open?: boolean) => {
     if (inspectorHiddenSurfaceRef.current) {
       inspectorOpenRef.current = false;
@@ -3022,6 +3028,7 @@ function AcpmuxPane() {
     if (next) {
       setDiffView(undefined);
       setFileView(undefined);
+      setFilesView(undefined);
       inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     }
     setInspectorOpen(next);
@@ -3041,6 +3048,7 @@ function AcpmuxPane() {
       inspectorOpenRef.current = false;
       setInspectorOpen(false);
       setFileView(undefined);
+      setFilesView(undefined);
       setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked });
     };
     if (chatViewerRef.current) return inPlace();
@@ -3077,6 +3085,11 @@ function AcpmuxPane() {
     if (fileView && !fileOpen) setFileView(undefined);
   }, [fileView, fileOpen]);
   const closeFile = useCallback(() => setFileView(undefined), []);
+  const filesOpen = filesView !== undefined && filesView.sessionId === snapshot.sessionId;
+  useEffect(() => {
+    if (filesView && !filesOpen) setFilesView(undefined);
+  }, [filesView, filesOpen]);
+  const closeFiles = useCallback(() => setFilesView(undefined), []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -4760,6 +4773,23 @@ function AcpmuxPane() {
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
   // The header's Changes with the chat's viewer: the newest turn that changed files, in the viewer;
   // again closes it. A chat whose turns changed nothing opens the folder's changes as before.
+  // The Files view's reads, in the chat's folder (the session host's git.files.list and search).
+  const filesSource = useMemo<FilesSource>(
+    () => ({
+      list: (folder) => callNative("file.list", { cwd: localCwd ?? "", path: folder }),
+      search: (query) => callNative("file.search", { cwd: localCwd ?? "", query, limit: 100 }),
+    }),
+    [localCwd],
+  );
+  // The header's Files with the chat's viewer: the chat's folder beside the transcript; again closes it.
+  const toggleFilesViewer = (cwd: string) => {
+    if (filesView) return closeFiles();
+    inspectorOpenRef.current = false;
+    setInspectorOpen(false);
+    setDiffView(undefined);
+    setFileView(undefined);
+    setFilesView({ sessionId: sessionIdRef.current, folder: cwd });
+  };
   const toggleChangesViewer = (mode: QuickActionMode) => {
     if (diffView) return closeDiff();
     const row = [...snapshot.rows]
@@ -5859,7 +5889,7 @@ function AcpmuxPane() {
           ) : (
             <>
               <div
-                className={`acpmux-stage${diffFiles || fileOpen ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
+                className={`acpmux-stage${diffFiles || fileOpen || filesOpen ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
@@ -5928,7 +5958,12 @@ function AcpmuxPane() {
                       onChanges={(mode) =>
                         chatViewer ? toggleChangesViewer(mode) : runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)
                       }
-                      onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
+                      onFiles={
+                        localCwd
+                          ? (mode) =>
+                              chatViewer ? toggleFilesViewer(localCwd) : runSplitAction(HEADER_ACTIONS.files, localCwd, mode)
+                          : undefined
+                      }
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
                         ignoreFailure(
@@ -6038,6 +6073,18 @@ function AcpmuxPane() {
                 {fileView && fileOpen && !diffView && (
                   <Suspense fallback={null}>
                     <FileViewer file={fileView} onClose={closeFile} onOpenFile={openChangedFile} />
+                  </Suspense>
+                )}
+                {filesView && filesOpen && localCwd && !diffView && !(fileView && fileOpen) && (
+                  <Suspense fallback={null}>
+                    <FilesView
+                      root={localCwd}
+                      folder={filesView.folder}
+                      source={filesSource}
+                      onFolder={(folder) => setFilesView((view) => (view ? { ...view, folder } : view))}
+                      onOpen={(path) => void viewFile(path)}
+                      onClose={closeFiles}
+                    />
                   </Suspense>
                 )}
               </div>
