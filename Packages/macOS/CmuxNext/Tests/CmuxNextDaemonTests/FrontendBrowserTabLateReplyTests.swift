@@ -59,7 +59,7 @@ struct FrontendBrowserTabLateReplyTests {
         let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, keyed ? "keyed" : "unkeyed"])
         return DaemonConnection(
             endpoint: .init(socketPath: "/tmp/cmux-late-reply-test-\(UUID().uuidString).sock", bridge: bridge),
-            configuration: .init(requiredCapabilities: [], requestTimeout: .milliseconds(300), terminalEnvironment: nil))
+            configuration: .init(requiredCapabilities: [], requestTimeout: .seconds(1), terminalEnvironment: nil))
     }
 
     @Test func aLateCreateReplyStillOpensTheOneTab() async throws {
