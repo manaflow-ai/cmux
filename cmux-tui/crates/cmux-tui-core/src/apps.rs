@@ -43,6 +43,7 @@ mod open_tokens;
 mod provider;
 #[cfg(unix)]
 mod relay;
+pub(crate) mod envelope;
 #[cfg(unix)]
 pub(crate) mod routing;
 #[cfg(unix)]
