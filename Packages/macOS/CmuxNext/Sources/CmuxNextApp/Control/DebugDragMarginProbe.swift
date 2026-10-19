@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextControl
+import CmuxNextSettings
 import ObjectiveC
 
 /// PROBE ONLY (perf-drag cx-8w027.19, never landed): with CMUX_NEXT_PROBE_DRAGMARGINS=1, counts
