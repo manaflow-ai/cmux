@@ -94,6 +94,7 @@ private struct SpamRun {
     var pendingClosed: Set<SurfaceID> { daemon.state.pendingClosed }
     /// The person's tab order in the strip, newest last; Cmd-W closes the last (the selected one).
     var steps = 0
+    var failed = false
 
     init(seed: UInt64, rawTabAddedFirst: Bool, lostReplyRate: Double = 0, createFailureRate: Double = 0) {
         rng = SplitMix(seed: seed)
@@ -123,13 +124,15 @@ private struct SpamRun {
         liveCreates.append(transaction)
         provisionalIDs[transaction] = provisional.id
         daemon.send(.create(transaction, snapshot))
-        check("Cmd-T")
+        check("Cmd-T tx=\(transaction.rawValue.prefix(8))")
     }
 
     /// Cmd-W on the selected (newest shown) tab: a pending creation is cancelled, a daemon tab closes.
     mutating func closeSelected() {
         guard let tab = shownTabs().last, tab.surface != Self.baseSurface else { return check("Cmd-W (nothing)") }
-        if store.creations.cancel(tab: tab.id) {
+        let cancelled = store.creations.cancel(tab: tab.id)
+        daemon.log.append("Cmd-W on \(ProvisionalTab.isProvisional(surface: tab.surface) ? "provisional" : "\(tab.surface.rawValue)") cancelled=\(cancelled)")
+        if cancelled {
             closedIDs.insert(tab.id)
             if let transaction = provisionalIDs.first(where: { $0.value == tab.id })?.key {
                 liveCreates.removeAll { $0 == transaction }
@@ -148,22 +151,17 @@ private struct SpamRun {
     // MARK: Daemon
 
     mutating func progress(steps count: Int) {
-        for _ in 0..<count { _ = daemon.step(using: &rng) }
-        check("daemon")
+        for _ in 0..<count { _ = daemon.step(using: &rng); check("daemon") }
     }
 
     /// Progress that never runs a close: the create of the newest Cmd-T is in any of its stages.
     mutating func progressCreateOnly(steps count: Int) {
-        for _ in 0..<count { _ = daemon.step(using: &rng, closes: false) }
-        check("daemon")
+        for _ in 0..<count { _ = daemon.step(using: &rng, closes: false); check("daemon") }
     }
 
     mutating func drain() {
         var guardSteps = 0
-        while daemon.step(using: &rng) { guardSteps += 1; precondition(guardSteps < 100_000) }
-        // Cancelled creations whose surface came late send their close now: drain again.
-        while daemon.step(using: &rng) { guardSteps += 1; precondition(guardSteps < 100_000) }
-        check("drained")
+        while daemon.step(using: &rng) { guardSteps += 1; precondition(guardSteps < 100_000); check("drain") }
     }
 
     // MARK: Invariants
@@ -175,24 +173,31 @@ private struct SpamRun {
 
     mutating func check(_ step: String) {
         steps += 1
+        daemon.log.append("\(steps) \(step) shown=\(shownTabs().map { ProvisionalTab.isProvisional(surface: $0.surface) ? "p" : "\($0.surface.rawValue)" })")
+        guard !failed else { return }
+        var problems: [String] = []
         let shown = shownTabs()
-        let context = Comment(rawValue: "step \(steps) (\(step)), seed run")
-        #expect(store.mirrorViolations.isEmpty, context)
+        if !store.mirrorViolations.isEmpty { problems.append("mirror: \(store.mirrorViolations)") }
         for tab in shown {
-            #expect(!closedIDs.contains(tab.id), "a closed tab shows again: \(tab.id) — \(context)")
-            #expect(!closedSurfaces.contains(tab.surface), "a closed surface shows again: \(tab.surface) — \(context)")
-            if let transaction = daemon.state.cancelled.first(where: { daemon.state.surfaceOf[$0] == tab.surface }) {
-                Issue.record("a cancelled creation's daemon tab shows: \(transaction) \(tab.surface) — \(context)")
+            if closedIDs.contains(tab.id) { problems.append("a closed tab shows again: \(tab.id)") }
+            if closedSurfaces.contains(tab.surface) { problems.append("a closed surface shows again: \(tab.surface.rawValue)") }
+            if daemon.state.cancelled.contains(where: { daemon.state.surfaceOf[$0] == tab.surface }) {
+                problems.append("a cancelled creation's daemon tab shows: \(tab.surface.rawValue)")
             }
         }
         let surfaces = shown.map(\.surface)
-        #expect(Set(surfaces).count == surfaces.count, "a surface shows twice — \(context)")
+        if Set(surfaces).count != surfaces.count { problems.append("a surface shows twice") }
         // A refused create removes its tab (the person sees it go): it no longer counts.
         let expected = 1 + liveCreates.filter { !daemon.state.refused.contains($0) }.count
-        #expect(shown.count == expected, "the strip shows \(shown.count) tabs, the person made \(expected) — \(context)")
+        if shown.count != expected { problems.append("the strip shows \(shown.count) tabs, the person made \(expected)") }
+        guard !problems.isEmpty else { return }
+        failed = true
+        Issue.record(Comment(rawValue: "step \(steps) (\(step)): \(problems.joined(separator: "; "))\ntrace:\n"
+            + daemon.log.suffix(60).joined(separator: "\n")))
     }
 
     func expectSettled() {
+        guard !failed else { return }
         let records = (store.pane(Self.pane)?.tabs ?? []).map(\.surface)
         #expect(store.pendingIntents.isEmpty, "intents left: \(store.pendingIntents.count)")
         #expect(!records.contains { ProvisionalTab.isProvisional(surface: $0) }, "a provisional tab is left")
@@ -237,6 +242,7 @@ private final class SimulatedDaemon {
     let lostReplyRate: Double
     let createFailureRate: Double
     var state = State()
+    var log: [String] = []
     private var requests: [Request] = []
     private var events: [DaemonEventEnvelope] = []
     private var replies: [Reply] = []
@@ -254,6 +260,29 @@ private final class SimulatedDaemon {
 
     func send(_ request: Request) { requests.append(request) }
 
+    static func describe(_ request: Request) -> String {
+        switch request {
+        case .create(let transaction, _): "create tx=\(transaction.rawValue.prefix(8))"
+        case .close(let surface, let cancelled): "close \(surface.rawValue) cancelled=\(cancelled?.rawValue.prefix(8) ?? "-")"
+        }
+    }
+
+    static func describe(_ reply: Reply) -> String {
+        switch reply {
+        case .created(let transaction, let surface, let sequence): "created tx=\(transaction.rawValue.prefix(8)) \(surface.rawValue) seq=\(sequence)"
+        case .createFailed(let transaction): "create failed tx=\(transaction.rawValue.prefix(8))"
+        case .closed(let surface, let cancelled, let ok): "closed \(surface.rawValue) cancelled=\(cancelled?.rawValue.prefix(8) ?? "-") ok=\(ok)"
+        }
+    }
+
+    static func describe(_ event: DaemonEvent) -> String {
+        switch event {
+        case .tabAdded(let delta): "tab-added \(delta.surface.rawValue) tx=\(delta.clientTransactionID?.rawValue.prefix(8) ?? "-")"
+        case .tabClosed(let delta): "tab-closed \(delta.surface.rawValue)"
+        default: "\(event)"
+        }
+    }
+
     /// One step: run a request, deliver an event, or deliver a reply (random among those ready).
     /// False when nothing is left.
     @discardableResult
@@ -264,9 +293,9 @@ private final class SimulatedDaemon {
         if !replies.isEmpty { ready.append(2) }
         guard !ready.isEmpty else { return !requests.isEmpty && closes }
         switch ready[rng.next(in: 0...(ready.count - 1))] {
-        case 0: run(requests.removeFirst())
-        case 1: deliver(events.removeFirst())
-        default: deliver(replies.removeFirst())
+        case 0: let request = requests.removeFirst(); log.append("run \(Self.describe(request))"); run(request)
+        case 1: let event = events.removeFirst(); log.append("event \(event.sequence) \(Self.describe(event.event))"); deliver(event)
+        default: let reply = replies.removeFirst(); log.append("reply \(Self.describe(reply))"); deliver(reply)
         }
         return true
     }
