@@ -1206,10 +1206,17 @@ async fn a_peer_lists_a_sessions_text_masked_and_the_owning_daemon_keeps_it_raw(
     assert!(!live.to_string().contains("ghp_"), "{live}");
 }
 
-/// hq#2509: a peer reads B's queued prompt masked and edits it from that
-/// text; B puts the secret back where its mask still stands.
+/// A fake AWS access key, assembled so no file holds one.
+fn aws_key() -> String {
+    format!("AK{}{}", "IA", "Z7QLPMN5HHFPXAM2")
+}
+
+/// hq#2509: a peer reads B's queued prompt masked, and may not edit one that
+/// holds a secret: an edit from the masked text would either write the mask
+/// over the secret or, put back, let the peer move the secret where the next
+/// summary no longer masks it. A prompt without one it edits as before.
 #[tokio::test]
-async fn a_peer_edits_a_queued_prompt_from_its_masked_text_without_losing_the_secret() {
+async fn a_peer_may_not_edit_a_queued_prompt_that_holds_a_secret() {
     let b = hub(config(PermissionPolicy::Ask)).await;
     let (port, peer_token) = listen_with_peer_token(b.clone(), "queue").await;
     let mut cb = client(b.clone()).await;
@@ -1224,9 +1231,11 @@ async fn a_peer_edits_a_queued_prompt_from_its_masked_text_without_losing_the_se
         .to_line()
     };
     cb.tx.send(send(900, "hang", "p-hang")).await.unwrap();
-    let queued = format!("deploy with {} now", github_token());
+    let queued = format!("deploy with {} and {} now", github_token(), aws_key());
     cb.tx.send(send(901, &queued, "p-q")).await.unwrap();
     cb.wait("_acpmux/prompt_accepted", |p| p["promptId"] == "p-q" && p["queued"] == true).await;
+    cb.tx.send(send(902, "tidy the docs", "p-plain")).await.unwrap();
+    cb.wait("_acpmux/prompt_accepted", |p| p["promptId"] == "p-plain" && p["queued"] == true).await;
 
     let a = hub(config(PermissionPolicy::Ask)).await;
     a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
@@ -1241,15 +1250,35 @@ async fn a_peer_edits_a_queued_prompt_from_its_masked_text_without_losing_the_se
         .find(|x| x["name"] == "b/queue-edit")
         .cloned()
         .unwrap();
-    let mask = "[GitHub Personal Access Token]";
-    let shown = on_a["queue"][0]["prompt"].as_str().unwrap().to_owned();
-    assert_eq!(shown, format!("deploy with {mask} now"), "{on_a}");
+    let (gh, aws) = ("[GitHub Personal Access Token]", "[AWS access key]");
+    assert_eq!(on_a["queue"][0]["prompt"], format!("deploy with {gh} and {aws} now"), "{on_a}");
 
-    let edit = json!({"sessionId": "b/queue-edit", "promptId": "p-q", "op": "update", "text": format!("{shown} please")});
-    let edited = ca.call("_acpmux/queue_edit", edit).await.unwrap();
+    // Each would get the secret back to the peer, lose it, or copy it.
+    let text = |t: String| json!({"sessionId": "b/queue-edit", "promptId": "p-q", "op": "update", "text": t});
+    let attacks = [
+        // Moved behind a name whose hex the next summary does not mask.
+        text(format!("commit: {gh}")),
+        // Two masks swapped.
+        text(format!("deploy with {aws} and {gh} now")),
+        // One mask repeated across blocks.
+        json!({"sessionId": "b/queue-edit", "promptId": "p-q", "op": "update",
+               "prompt": [{"type": "text", "text": format!("a {gh}")}, {"type": "text", "text": format!("b {gh}")}]}),
+        // Even keeping every mask in place.
+        text(format!("deploy with {gh} and {aws} now please")),
+    ];
+    for edit in attacks {
+        let refused = ca.call("_acpmux/queue_edit", edit.clone()).await;
+        let e = refused.expect_err(&format!("a peer edited a prompt with a secret: {edit}"));
+        assert!(e.contains("masked secret"), "{e}");
+    }
+    let on_b = cb.call(method::MUX_INFO, json!({"session": id.clone()})).await.unwrap();
+    assert_eq!(on_b["queue"][0]["prompt"], queued, "{on_b}");
+
+    let plain = json!({"sessionId": "b/queue-edit", "promptId": "p-plain", "op": "update", "text": "tidy the docs please"});
+    let edited = ca.call("_acpmux/queue_edit", plain).await.unwrap();
     assert_eq!(edited["ok"], true, "{edited}");
-    let on_b = cb.call(method::MUX_INFO, json!({"session": id})).await.unwrap();
-    assert_eq!(on_b["queue"][0]["prompt"], format!("{queued} please"), "{on_b}");
+    let on_b = cb.call(method::MUX_INFO, json!({"session": id.clone()})).await.unwrap();
+    assert_eq!(on_b["queue"][1]["prompt"], "tidy the docs please", "{on_b}");
     let cancel = Message::notification(method::SESSION_CANCEL, json!({"sessionId": id}));
     cb.tx.send(cancel.to_line()).await.unwrap();
 }

@@ -1,5 +1,5 @@
-//! hq#2509: a peer reads a summary's session text masked, unless the
-//! person named its device in `trustedPeers`.
+//! hq#2509: a peer reads a summary's session text masked; every other
+//! origin reads it raw.
 
 use serde_json::{Value, json};
 
