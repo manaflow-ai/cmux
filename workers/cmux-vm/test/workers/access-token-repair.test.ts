@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CompactSign, decodeJwt, importJWK } from "jose";
 import { bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 
@@ -33,7 +34,11 @@ const mint = async (key: string, vmId: string, scopes: ReadonlyArray<string>, tt
 const ssh = (created: { readonly id: string; readonly token: string }) =>
   harness.request(`/v1/access-tokens/${created.id}/ssh`, bearer(created.token), { method: "POST" });
 
-const rows = async (key: string) => (await harness.request("/v1/access-tokens", bearer(key))).json();
+const rows = async (key: string): Promise<unknown> => {
+  const response = await harness.request("/v1/access-tokens", bearer(key));
+  expect(response.status).toBe(200);
+  return response.json();
+};
 
 describe("access-token review regressions", () => {
   it.each(["ssh", "ports"])("refuses read-only keys delegating %s", async (scope) => {
@@ -84,6 +89,27 @@ describe("access-token review regressions", () => {
     await harness.scheduled();
     expect(harness.upstream.callsTo("DELETE", /\/identities\//u)).toHaveLength(1);
     expect((await ssh(expired)).status).toBe(401);
+  });
+
+  it("refuses preexisting non-root file tokens before any provider call", async () => {
+    const { vmId } = harness.addVm("team_alpha");
+    const key = await harness.addKey("team_alpha", ["access-token:create", "vm:exec"]);
+    const issued = await mint(key, vmId, ["exec"]);
+    const signing = harness.accessTokenKeys()[0];
+    if (signing === undefined) throw new Error("missing signing key");
+    const claims = { ...decodeJwt(issued.token.slice("cmux_at_".length)), scopes: ["files:read", "files:write"], linuxUser: "cmux" };
+    const signed = await new CompactSign(new TextEncoder().encode(JSON.stringify(claims)))
+      .setProtectedHeader({ alg: "EdDSA", kid: signing.kid, typ: "JWT" })
+      .sign(await importJWK(signing.privateJwk, "EdDSA"));
+    const headers = bearer(`cmux_at_${signed}`);
+    const read = await harness.request(`/v1/vms/${vmId}/files/content?path=%2Ftmp%2Fx`, headers);
+    const write = await harness.send(`/v1/vms/${vmId}/files/content?path=%2Ftmp%2Fx`, headers, "PUT", new TextEncoder().encode("x"));
+    const list = await harness.request(`/v1/vms/${vmId}/files/entries?path=%2Ftmp`, headers);
+    for (const response of [read, write, list]) {
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ _tag: "BadRequest", message: "This provider supports file access only as root; set linuxUser to root" });
+    }
+    expect(harness.upstreamRequests).toHaveLength(0);
   });
 
   it("retries failed revocations on the next sweep without waiting for expiry, and continues past failed rows", async () => {

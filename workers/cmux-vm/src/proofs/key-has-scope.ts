@@ -7,15 +7,17 @@
 import { defineProof, type Named, type Proof } from "@gdp-ts/core";
 import type { Principal } from "../domain/principal.ts";
 import type { Scope } from "../domain/scopes.ts";
+import type { AccessTokenAllows } from "./access-token-allows.ts";
 
 /** The credential behind caller `C` carries scope `S`. */
 export interface KeyHasScope<C, S extends Scope> extends Proof<`KeyHasScope:${S}`, [C]> {
-  /** The verifier's Linux-user restriction, when this is an access-token proof. */
-  readonly linuxUser: string | undefined;
+  readonly linuxUser: string;
+  readonly restrictLinuxUser: boolean;
 }
 
-export function keyHasScope<C, const S extends Scope>(caller: Named<C, Principal>, scope: S): KeyHasScope<C, S> | null {
+export function keyHasScope<C, const S extends Scope>(caller: Named<C, Principal>, scope: S, allows?: AccessTokenAllows<C>): KeyHasScope<C, S> | null {
   if (!caller.value.scopes.has(scope)) return null;
+  if (caller.value.actor.kind === "access-token" && allows === undefined) return null;
   const KeyHasScope = defineProof(`KeyHasScope:${scope}`);
-  return Object.freeze({ ...KeyHasScope.prove(caller), linuxUser: caller.value.accessTokenProof?.linuxUser });
+  return Object.freeze({ ...KeyHasScope.prove(caller), linuxUser: allows?.linuxUser ?? "root", restrictLinuxUser: allows !== undefined });
 }

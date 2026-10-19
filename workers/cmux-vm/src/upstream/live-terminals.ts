@@ -31,7 +31,7 @@ export function makeUpstreamTerminals(config: UpstreamConfig): UpstreamTerminals
           ["exec", options.command],
           ["cols", options.cols],
           ["rows", options.rows],
-          ["linuxUser", scope.linuxUser ?? options.user],
+          ["linuxUser", scope.restrictLinuxUser ? scope.linuxUser : options.user],
           ["slug", options.name],
           ["replaceOnExit", options.restartOnExit],
         ])}`,
@@ -39,11 +39,11 @@ export function makeUpstreamTerminals(config: UpstreamConfig): UpstreamTerminals
     attachTerminal: (_vm, { owns, scope }, session, user) =>
       http.upgrade(
         "attachTerminal",
-        `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", scope.linuxUser ?? user]])}`,
+        `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", scope.restrictLinuxUser ? scope.linuxUser : user]])}`,
       ),
     listTerminals: (_vm, { owns, scope }, user) =>
       http
-        .json("listTerminals", "GET", `/v5/vms/${proofSegment(owns)}/pty/sessions${query([["linuxUser", scope.linuxUser ?? user]])}`)
+        .json("listTerminals", "GET", `/v5/vms/${proofSegment(owns)}/pty/sessions${query([["linuxUser", scope.restrictLinuxUser ? scope.linuxUser : user]])}`)
         .pipe(
           Effect.flatMap(decodeAs(ListPtySessions, "listTerminals")),
           Effect.map((body) => body.sessions),
@@ -53,7 +53,7 @@ export function makeUpstreamTerminals(config: UpstreamConfig): UpstreamTerminals
         .json(
           "closeTerminal",
           "DELETE",
-          `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", scope.linuxUser ?? user]])}`,
+          `/v5/vms/${proofSegment(owns)}/pty/sessions/${encodeURIComponent(session)}${query([["linuxUser", scope.restrictLinuxUser ? scope.linuxUser : user]])}`,
         )
         .pipe(Effect.flatMap(decodeAs(ClosedPtySession, "closeTerminal"))),
   };

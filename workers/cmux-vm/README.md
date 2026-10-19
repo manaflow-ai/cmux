@@ -103,14 +103,30 @@ GRANT INSERT, UPDATE ON cmux_vm.api_keys TO <worker role>;
 `access-token:create` mint a short-lived `cmux_at_...` token for one of the
 tenant's own users and VM ids. The Worker stores only the token id and claims;
 the Ed25519 key set is supplied as `CMUX_VM_ACCESS_TOKEN_KEYS` (a JSON array of
-`kid`, `privateJwk`, `publicJwk` and `active` entries). `exec`, PTY open/attach,
-and file routes accept the bearer token only for its VM ids and scopes. Lists,
-lifecycle changes and all other routes remain unavailable. `GET` lists token
+`kid`, `privateJwk`, `publicJwk` and `active` entries). Duplicate key ids, invalid
+Ed25519 key material and multiple active signing keys fail closed with redacted
+diagnostics. Inactive keys can verify existing tokens during rotation.
+`exec`, PTY and file routes accept the bearer token only for its VM ids and scopes.
+VM inventory, lifecycle changes and all other routes remain unavailable. `GET` lists token
 metadata and `DELETE` revokes through the tenant Durable Object deny list.
 
+Issuers must also hold each delegated VM scope: `vm:exec` for `exec`,
+`vm:terminal` for `pty`, `vm:files` for file access, `vm:write` for `ports`,
+and either `vm:exec` or `vm:terminal` for SSH. `ports` does not yet enable a
+brokered route. File scopes require explicit `linuxUser: "root"`: the provider
+file API cannot enforce a different user, so minting otherwise returns 400.
+Exec and PTY enforce the token's user (default `cmux`). Open PTYs close at expiry
+and check revocation every 30 seconds.
+
 Tokens with `ssh` can use `POST /v1/access-tokens/{id}/ssh` to receive a
-Freestyle delegated SSH credential; the provider identity is revoked with the
-cmux token.
+Freestyle delegated SSH credential. The pinned provider identity-token API has
+no TTL parameter. A cron runs every minute to delete identities for expired or
+revoked cmux tokens, so delegated SSH expiry is enforced by that cleanup, not
+by a provider TTL. A provider outage can delay cleanup; failed rows remain
+queued and are logged for retry. Explicit revocation denies brokered use first,
+records revocation before provider cleanup, and returns 503 if cleanup fails.
+SSH reuses one identity per token and rechecks revocation after minting; a
+concurrent revoke deletes the identity rather than returning a credential.
 
 Migrations are applied by an operator with `psql -f migrations/<file>.sql`,
 staging branch first; the Worker never runs DDL. Deploys run only from CI,

@@ -1,5 +1,6 @@
+-- contract: adds tenant-scoped access token metadata and indexes without changing existing tables
 -- cx-b4h.23: tenant-owned end-user access tokens. The signed token is never stored.
-CREATE TABLE IF NOT EXISTS cmux_vm.access_tokens (
+CREATE TABLE cmux_vm.access_tokens (
   id text PRIMARY KEY,
   tenant_id text NOT NULL,
   principal text NOT NULL,
@@ -13,10 +14,10 @@ CREATE TABLE IF NOT EXISTS cmux_vm.access_tokens (
   provider_identity_id text
 );
 
-CREATE INDEX IF NOT EXISTS access_tokens_tenant_created_idx
+CREATE INDEX access_tokens_tenant_created_idx
   ON cmux_vm.access_tokens (tenant_id, created_at DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS access_tokens_expiry_identity_idx
+CREATE INDEX access_tokens_expiry_identity_idx
   ON cmux_vm.access_tokens (expires_at)
   WHERE provider_identity_id IS NOT NULL;
 

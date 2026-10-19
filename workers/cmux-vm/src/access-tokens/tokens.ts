@@ -1,10 +1,8 @@
 import { Context, Data, Effect, Redacted, Schema } from "effect";
-import { compactVerify, CompactSign, importJWK, type JWK } from "jose";
+import type { JWK } from "jose";
 import { TenantId, UserId, VmId, type TenantId as TenantIdType, type UserId as UserIdType, type VmId as VmIdType } from "../lib/ids.ts";
 import type { Principal } from "../domain/principal.ts";
-import { scopeSetOf } from "../domain/scopes.ts";
-import { type TenantLimitsService } from "../limits/service.ts";
-import { verifierAccessTokenProof, type AccessTokenEvidence } from "../proofs/access-token-allows.ts";
+import type { AccessTokenEvidence } from "../proofs/access-token-allows.ts";
 
 export const ACCESS_TOKEN_PREFIX = "cmux_at_";
 const TOKEN_ID_PATTERN = /^at_[0-9A-HJKMNP-TV-Z]{26}$/u;
@@ -59,6 +57,10 @@ const KeyConfig = Schema.Struct({
   active: Schema.Boolean,
 });
 
+const isJwk = (value: unknown): value is JWK =>
+  typeof value === "object" && value !== null && "kty" in value && value.kty === "OKP" &&
+  "crv" in value && value.crv === "Ed25519" && "x" in value && typeof value.x === "string" && /^[A-Za-z0-9_-]{43}$/u.test(value.x);
+
 export const parseAccessTokenKeys = (raw: string | undefined): ReadonlyArray<AccessTokenKeys> => {
   if (raw === undefined || raw.trim().length === 0) return [];
   try {
@@ -66,11 +68,13 @@ export const parseAccessTokenKeys = (raw: string | undefined): ReadonlyArray<Acc
     const values = Schema.decodeUnknownSync(Schema.Array(KeyConfig))(parsed);
     const kids = new Set<string>();
     const keys = values.flatMap((value) => {
-      if (!isJwk(value.privateJwk) || !isJwk(value.publicJwk) || kids.has(value.kid)) return [];
+      if (!isJwk(value.privateJwk) || !isJwk(value.publicJwk) || kids.has(value.kid) ||
+        typeof value.privateJwk.d !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(value.privateJwk.d) ||
+        value.publicJwk.d !== undefined || value.privateJwk.x !== value.publicJwk.x) return [];
       kids.add(value.kid);
       return [{ kid: value.kid, privateJwk: value.privateJwk, publicJwk: value.publicJwk, active: value.active }];
     });
-    if (keys.length !== values.length) {
+    if (keys.length !== values.length || keys.filter((key) => key.active).length > 1) {
       console.error(JSON.stringify({ event: "cmux_vm_access_token_keys_invalid", reason: "duplicate_or_invalid_kid" }));
       return [];
     }
@@ -94,7 +98,7 @@ export interface VerifiedAccessToken {
   readonly authenticatedPrincipal: Principal;
 }
 
-interface Claims {
+export interface Claims {
   readonly tenant: TenantIdType;
   readonly project: null;
   readonly principal: UserIdType;
@@ -106,7 +110,7 @@ interface Claims {
   readonly jti: AccessTokenId;
 }
 
-const Claims = Schema.Struct({
+export const Claims = Schema.Struct({
   tenant: TenantId,
   project: Schema.Null,
   principal: UserId,
@@ -117,31 +121,6 @@ const Claims = Schema.Struct({
   exp: Schema.Number,
   jti: AccessTokenId,
 });
-
-const isJwk = (value: unknown): value is JWK => typeof value === "object" && value !== null;
-
-const base32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-const newTokenId = (): AccessTokenId => {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  let bits = 0;
-  let value = 0;
-  let text = "";
-  for (const byte of bytes) {
-    value = (value << 8) | byte;
-    bits += 8;
-    while (bits >= 5 && text.length < 26) {
-      text += base32[(value >>> (bits - 5)) & 31];
-      bits -= 5;
-    }
-    value &= (1 << bits) - 1;
-  }
-  while (text.length < 26) text += "0";
-  return AccessTokenId.make(`at_${text}`);
-};
-
-type ImportedKey = Awaited<ReturnType<typeof importJWK>>;
-const asKey = (jwk: JWK, operation: string): Effect.Effect<ImportedKey, AccessTokenUnavailable> =>
-  Effect.tryPromise({ try: () => importJWK(jwk, "EdDSA"), catch: () => new AccessTokenUnavailable({ reason: operation }) });
 
 export interface AccessTokenService {
   readonly mint: (input: {
@@ -156,79 +135,3 @@ export interface AccessTokenService {
 }
 
 export class AccessTokens extends Context.Tag("cmux-vm/AccessTokens")<AccessTokens, AccessTokenService>() {}
-
-export const makeAccessTokenService = (keys: ReadonlyArray<AccessTokenKeys>, limits: TenantLimitsService): AccessTokenService => {
-  const byKid = new Map(keys.map((key) => [key.kid, key]));
-  const active = keys.find((key) => key.active);
-  return {
-    mint: (input) =>
-      active === undefined
-        ? Effect.fail(new AccessTokenUnavailable({ reason: "keys" }))
-        : Effect.gen(function* () {
-            const key = yield* asKey(active.privateJwk, "private-key");
-            const id = newTokenId();
-            const issuedAt = new Date();
-            const claims: Claims = {
-              tenant: input.tenantId,
-              project: null,
-              principal: input.principal,
-              vmIds: input.vmIds,
-              scopes: input.scopes,
-              linuxUser: input.linuxUser,
-              iat: Math.floor(issuedAt.getTime() / 1000),
-              exp: Math.floor(input.expiresAt.getTime() / 1000),
-              jti: id,
-            };
-            const token = yield* Effect.tryPromise({
-              try: () => new CompactSign(new TextEncoder().encode(JSON.stringify(claims))).setProtectedHeader({ alg: "EdDSA", kid: active.kid, typ: "JWT" }).sign(key),
-              catch: () => new AccessTokenUnavailable({ reason: "sign" }),
-            });
-            return { id, token: `${ACCESS_TOKEN_PREFIX}${token}` };
-          }),
-    verify: (wrapped, now) =>
-      Effect.gen(function* () {
-        const raw = Redacted.value(wrapped);
-        if (!raw.startsWith(ACCESS_TOKEN_PREFIX)) return yield* Effect.fail(new AccessTokenRejected({ reason: "prefix" }));
-        const compact = raw.slice(ACCESS_TOKEN_PREFIX.length);
-        const dot = compact.indexOf(".");
-        const kid = dot <= 0 ? null : (() => {
-          try {
-            const header = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(compact.slice(0, dot).replaceAll("-", "+").replaceAll("_", "/")), (c) => c.charCodeAt(0))));
-            return typeof header.kid === "string" ? header.kid : null;
-          } catch {
-            return null;
-          }
-        })();
-        const config = kid === null ? undefined : byKid.get(kid);
-        if (config === undefined) return yield* Effect.fail(new AccessTokenRejected({ reason: "kid" }));
-        const key = yield* asKey(config.publicJwk, "public-key").pipe(Effect.mapError(() => new AccessTokenRejected({ reason: "key" })));
-        const payload = yield* Effect.tryPromise({
-          try: async () => {
-            const result = await compactVerify(compact, key, { algorithms: ["EdDSA"] });
-            return JSON.parse(new TextDecoder().decode(result.payload));
-          },
-          catch: () => new AccessTokenRejected({ reason: "signature" }),
-        });
-        const claims = yield* Schema.decodeUnknown(Claims)(payload).pipe(Effect.mapError(() => new AccessTokenRejected({ reason: "claims" })));
-        const expiresAt = new Date(claims.exp * 1000);
-        if (!Number.isFinite(expiresAt.getTime()) || claims.exp <= Math.floor(now.getTime() / 1000) || claims.iat > Math.floor(now.getTime() / 1000) + 60 || claims.exp - claims.iat > 86400) {
-          return yield* Effect.fail(new AccessTokenRejected({ reason: "time" }));
-        }
-        const revoked = yield* limits.isAccessTokenRevoked(claims.tenant, claims.jti, now.getTime()).pipe(Effect.mapError(() => new AccessTokenUnavailable({ reason: "revocation" })));
-        if (revoked) return yield* Effect.fail(new AccessTokenRejected({ reason: "revoked" }));
-        const principal: Principal = {
-          tenantId: claims.tenant,
-          actor: { kind: "access-token", tokenId: claims.jti, principal: claims.principal },
-          scopes: scopeSetOf([
-            ...(claims.scopes.includes("exec") ? ["vm:exec"] : []),
-            ...(claims.scopes.includes("pty") ? ["vm:terminal"] : []),
-            ...(claims.scopes.includes("files:read") || claims.scopes.includes("files:write") ? ["vm:files"] : []),
-          ]),
-          resourceAllowlist: new Set(claims.vmIds),
-          credentialExpiresAt: expiresAt,
-        };
-        const proof = yield* verifierAccessTokenProof(principal, claims.jti, claims.tenant, claims.principal, claims.vmIds, claims.scopes, claims.linuxUser);
-        return { id: claims.jti, tenantId: claims.tenant, principal: claims.principal, vmIds: claims.vmIds, scopes: claims.scopes, linuxUser: claims.linuxUser, issuedAt: new Date(claims.iat * 1000), expiresAt, proof, authenticatedPrincipal: Object.assign(principal, { accessTokenProof: proof }) };
-      }),
-  };
-};

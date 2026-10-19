@@ -17,9 +17,8 @@ export interface UpstreamAccessTokensService {
   readonly mintSsh: <C, V>(
     vm: Named<V, VmId>,
     proofs: { readonly owns: TenantOwnsResource<C, V>; readonly allows: AccessTokenAllows<C> },
-    linuxUser: string,
-    identityId?: string,
-    _expiresAt?: Date,
+    identityId: string | undefined,
+    expiresAt: Date,
   ) => Effect.Effect<DelegatedSsh, UpstreamError>;
   readonly revokeIdentity: (identityId: string) => Effect.Effect<void, UpstreamError>;
 }

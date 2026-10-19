@@ -24,6 +24,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
           const upstream = yield* UpstreamClient;
           const file = yield* upstream.readFile(vm, proofs, urlParams.path, headers.range).pipe(
             Effect.mapError((error) => {
+              if (error.unsupported !== undefined) return badRequest(error.unsupported);
               if (error.status === 404) return fileNotFound();
               if (error.status === 409) return conflict(NOT_RUNNING);
               if (error.status === 400) return badRequest("The path is not readable");
@@ -63,6 +64,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
             const upstream = yield* UpstreamClient;
             yield* upstream.writeFile(vm, proofs, { path: urlParams.path, mode: urlParams.mode, body, length }).pipe(
               Effect.mapError((error) => {
+                if (error.unsupported !== undefined) return badRequest(error.unsupported);
                 if (error.status === 404) return vmNotFound();
                 if (error.status === 409) return conflict(NOT_RUNNING);
                 if (error.status === 400) return badRequest("The file could not be written at that path");
@@ -83,6 +85,7 @@ export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers)
           const upstream = yield* UpstreamClient;
           const entries = yield* upstream.listFiles(vm, proofs, urlParams.path).pipe(
             Effect.mapError((error) => {
+              if (error.unsupported !== undefined) return badRequest(error.unsupported);
               if (error.status === 404) return fileNotFound();
               if (error.status === 409) return conflict(NOT_RUNNING);
               if (error.status === 400) return badRequest("The path is not a readable directory");

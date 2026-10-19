@@ -12,6 +12,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
+  "triggers": { "crons": ["* * * * *"] },
   "vars": {
     "ENVIRONMENT": "local",
     "STACK_API_URL": "https://api.stack-auth.com",
@@ -46,6 +47,7 @@
     // each other; they share the preview Hyperdrive config.
     "preview": {
       "name": "cmux-vm-preview",
+      "triggers": { "crons": ["* * * * *"] },
       "workers_dev": true,
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
       "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
@@ -62,6 +64,7 @@
     // Nothing of cmux VM is published under cmux.com or cmux.sh.
     "staging": {
       "name": "cmux-vm-staging",
+      "triggers": { "crons": ["* * * * *"] },
       "workers_dev": false,
       "routes": [{ "pattern": "vm-staging.cmux.dev", "custom_domain": true }],
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
@@ -81,6 +84,7 @@
     // production deploy (cx-b4h.5), not before.
     "production": {
       "name": "cmux-vm-production",
+      "triggers": { "crons": ["* * * * *"] },
       "workers_dev": false,
       "routes": [{ "pattern": "vm.cmux.dev", "custom_domain": true }],
       "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },

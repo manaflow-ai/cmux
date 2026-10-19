@@ -1,4 +1,4 @@
-import { Effect, Layer, Redacted, Schema } from "effect";
+import { Clock, Effect, Layer, Redacted, Schema } from "effect";
 import type { Environment } from "../policy.ts";
 import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp } from "./live-http.ts";
@@ -13,9 +13,11 @@ const CreatedToken = Schema.Struct({ token: Schema.String });
 export function makeUpstreamAccessTokens(config: UpstreamConfig): UpstreamAccessTokensService {
   const http = makeUpstreamHttp(config);
   return {
-    mintSsh: (vm, { owns, allows }, linuxUser, identityId, _expiresAt) =>
+    mintSsh: (vm, { owns, allows }, identityId, expiresAt) =>
       Effect.gen(function* () {
-        if (!accessTokenAllowsVm(allows, vm.value)) return yield* Effect.fail(new UpstreamError({ operation: "mintSsh.scope", status: 403 }));
+        if (!accessTokenAllowsVm(allows, vm.value) || !allows.scopes.includes("ssh")) return yield* Effect.fail(new UpstreamError({ operation: "mintSsh.scope", status: 403 }));
+        if (expiresAt.getTime() <= (yield* Clock.currentTimeMillis)) return yield* Effect.fail(new UpstreamError({ operation: "mintSsh.expired", status: 403 }));
+        const linuxUser = allows.linuxUser;
         const identity = identityId === undefined
           ? yield* http.json("createIdentity", "POST", "/v5/identities", { managed: false }).pipe(
               Effect.flatMap((body) => Schema.decodeUnknown(Identity)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "createIdentity", status: null })))),
@@ -28,14 +30,16 @@ export function makeUpstreamAccessTokens(config: UpstreamConfig): UpstreamAccess
             Effect.tapError(() => http.json("deleteIdentity", "DELETE", `/v5/identities/${id}`).pipe(Effect.ignore)),
           );
         }
-        // Freestyle's token endpoint has no TTL field; cmux bounds use by the access-token expiry.
         const token = yield* http.json("createIdentityToken", "POST", `/v5/identities/${id}/tokens`).pipe(
           Effect.flatMap((body) => Schema.decodeUnknown(CreatedToken)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "createIdentityToken", status: null })))),
           Effect.tapError(() => http.json("deleteIdentity", "DELETE", `/v5/identities/${id}`).pipe(Effect.ignore)),
         );
         return { host: "beta-ssh.freestyle.sh", user: `${upstreamIdOf(owns)}+${linuxUser}`, password: token.token, identityId: identity.identityId, tokenId: token.token };
       }),
-    revokeIdentity: (identityId) => http.json("deleteIdentity", "DELETE", `/v5/identities/${encodeURIComponent(identityId)}`).pipe(Effect.asVoid),
+    revokeIdentity: (identityId) => http.json("deleteIdentity", "DELETE", `/v5/identities/${encodeURIComponent(identityId)}`).pipe(
+      Effect.asVoid,
+      Effect.catchAll((error) => error.status === 404 ? Effect.void : Effect.fail(error)),
+    ),
   };
 }
 

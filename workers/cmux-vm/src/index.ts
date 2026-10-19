@@ -24,7 +24,8 @@ import { meshConfigLayer, parseMeshExperiment } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
 import { sqlAccessTokenStoreLayer } from "./access-tokens/store.ts";
-import { AccessTokens, makeAccessTokenService, parseAccessTokenKeys } from "./access-tokens/tokens.ts";
+import { AccessTokens, parseAccessTokenKeys } from "./access-tokens/tokens.ts";
+import { makeAccessTokenService } from "./access-tokens/crypto.ts";
 import { upstreamAccessTokensLayer } from "./upstream/live-access-tokens.ts";
 import { sweepExpiredAccessTokenIdentities } from "./access-tokens/sweep.ts";
 

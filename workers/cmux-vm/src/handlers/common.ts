@@ -18,7 +18,7 @@ import { TenantLimits } from "../limits/service.ts";
 import { TenantPolicy } from "../policy.ts";
 import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantOwnsVm, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
-import { accessTokenAllowsVm } from "../proofs/access-token-allows.ts";
+import { accessTokenAllowsVm, type AccessTokenAllows } from "../proofs/access-token-allows.ts";
 
 export type AccessTokenRoute = "other" | "exec" | "files-read" | "files-write" | "pty-open" | "pty-attach" | "pty-list" | "pty-close";
 
@@ -88,22 +88,19 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
 ) =>
   Effect.gen(function* () {
     const principal = yield* CurrentPrincipal;
-    const accessProof = principal.actor.kind === "access-token" ? principal.accessTokenProof : undefined;
-    if (principal.actor.kind === "access-token") {
-      const proof = accessProof;
-      if (proof === undefined) return yield* Effect.fail(new Forbidden({ message: "This access token is missing verifier evidence" }));
-      const scopes = new Set(proof.scopes);
-      const needed = accessTokenRoute === "exec" ? "exec" : accessTokenRoute === "files-read" ? "files:read" : accessTokenRoute === "files-write" ? "files:write" : accessTokenRoute.startsWith("pty-") ? "pty" : null;
-      if (needed === null || !scopes.has(needed)) return yield* Effect.fail(new Forbidden({ message: needed === null ? "This access token cannot use this endpoint" : `This access token lacks the ${needed} scope` }));
-    }
-    return yield* name(principal, rawId, (caller, raw) =>
+    const run = <C>(caller: Named<C, Principal>, proof?: AccessTokenAllows<C>) =>
       Effect.gen(function* () {
-        const granted = keyHasScope(caller, requiredScope);
+        if (caller.value.actor.kind === "access-token") {
+          if (proof === undefined) return yield* Effect.fail(new Forbidden({ message: "This access token is missing verifier evidence" }));
+          const needed = accessTokenRoute === "exec" ? "exec" : accessTokenRoute === "files-read" ? "files:read" : accessTokenRoute === "files-write" ? "files:write" : accessTokenRoute.startsWith("pty-") ? "pty" : null;
+          if (needed === null || !proof.scopes.includes(needed)) return yield* Effect.fail(new Forbidden({ message: needed === null ? "This access token cannot use this endpoint" : `This access token lacks the ${needed} scope` }));
+        }
+        const granted = keyHasScope(caller, requiredScope, proof);
         if (granted === null) return yield* Effect.fail(missingScope(requiredScope));
-        yield* rateLimit(principal, rateClass);
-        const parsed = parseVmId(raw.value);
+        yield* rateLimit(caller.value, rateClass);
+        const parsed = parseVmId(rawId);
         if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
-        if (principal.actor.kind === "access-token" && (accessProof === undefined || !accessProof.withCaller((_caller, proof) => accessTokenAllowsVm(proof, parsed.value)))) {
+        if (proof !== undefined && !accessTokenAllowsVm(proof, parsed.value)) {
           return yield* Effect.fail(vmNotFound());
         }
         return yield* name(parsed.value, (vm) =>
@@ -113,8 +110,13 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
             return yield* k(caller, vm, { owns, scope: granted });
           }),
         );
-      }),
-    );
+      });
+    if (principal.actor.kind === "access-token") {
+      const evidence = principal.accessTokenProof;
+      if (evidence === undefined) return yield* Effect.fail(new Forbidden({ message: "This access token is missing verifier evidence" }));
+      return yield* evidence.withCaller((caller, proof) => run(caller, proof));
+    }
+    return yield* name(principal, (caller) => run(caller));
   });
 
 /** The public tag of a failure, for the audit log. */

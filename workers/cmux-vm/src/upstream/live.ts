@@ -20,6 +20,7 @@ import {
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
 import { upstreamName } from "./naming.ts";
+import { FILES_LINUX_USER_UNSUPPORTED } from "../access-tokens/policy.ts";
 
 const CreatedVm = Schema.Struct({ id: UpstreamId, ...UpstreamVm.fields });
 const CreatedSnapshot = Schema.Struct({ snapshotId: UpstreamId });
@@ -271,7 +272,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
           ...(spec.env === undefined ? {} : { env: spec.env }),
           ...(spec.stdinBase64 === undefined ? {} : { stdin: spec.stdinBase64 }),
           ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
-          ...(scope.linuxUser === undefined && spec.linuxUser === undefined ? {} : { linuxUser: scope.linuxUser ?? spec.linuxUser }),
+          ...(scope.restrictLinuxUser ? { linuxUser: scope.linuxUser } : spec.linuxUser === undefined ? {} : { linuxUser: spec.linuxUser }),
         },
         timeoutMs: (spec.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) + 30_000,
       }).pipe(
@@ -283,9 +284,9 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       )),
 
     readFile: (_vm, { owns, scope }, path, range) =>
-      Effect.flatMap(idOf(owns), (id) => send("readFile", vmPath(id, "/fs/read"), {
+      scope.linuxUser !== "root" ? Effect.fail(new UpstreamError({ operation: "readFile", status: null, unsupported: FILES_LINUX_USER_UNSUPPORTED })) : Effect.flatMap(idOf(owns), (id) => send("readFile", vmPath(id, "/fs/read"), {
         method: "GET",
-        query: { path, ...(scope.linuxUser === undefined ? {} : { linuxUser: scope.linuxUser }) },
+        query: { path },
         ...(range === undefined ? {} : { headers: { range } }),
         timeoutMs: TRANSFER_TIMEOUT_MS,
       }).pipe(
@@ -304,16 +305,16 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       )),
 
     writeFile: (_vm, { owns, scope }, file) =>
-      Effect.flatMap(idOf(owns), (id) => send("writeFile", vmPath(id, "/fs/write"), {
+      scope.linuxUser !== "root" ? Effect.fail(new UpstreamError({ operation: "writeFile", status: null, unsupported: FILES_LINUX_USER_UNSUPPORTED })) : Effect.flatMap(idOf(owns), (id) => send("writeFile", vmPath(id, "/fs/write"), {
         method: "PUT",
-        query: { ...(file.mode === undefined ? { path: file.path } : { path: file.path, mode: String(file.mode) }), ...(scope.linuxUser === undefined ? {} : { linuxUser: scope.linuxUser }) },
+        query: file.mode === undefined ? { path: file.path } : { path: file.path, mode: String(file.mode) },
         body: { stream: file.body, length: file.length },
         timeoutMs: TRANSFER_TIMEOUT_MS,
       }).pipe(Effect.flatMap(drain))),
 
     listFiles: (_vm, { owns, scope }, path) =>
-      Effect.flatMap(idOf(owns), (id) =>
-        send("listFiles", vmPath(id, "/fs/dir"), { method: "GET", query: { path, ...(scope.linuxUser === undefined ? {} : { linuxUser: scope.linuxUser }) } }).pipe(
+      scope.linuxUser !== "root" ? Effect.fail(new UpstreamError({ operation: "listFiles", status: null, unsupported: FILES_LINUX_USER_UNSUPPORTED })) : Effect.flatMap(idOf(owns), (id) =>
+        send("listFiles", vmPath(id, "/fs/dir"), { method: "GET", query: { path } }).pipe(
           Effect.flatMap(json("listFiles", DirListing)),
           Effect.map((listing) => listing.entries),
         ),

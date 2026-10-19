@@ -8,11 +8,14 @@ import { name } from "@gdp-ts/core";
 import { Effect } from "effect";
 import type { Principal } from "../../src/domain/principal.ts";
 import type { VmId } from "../../src/lib/ids.ts";
-import { keyHasScope } from "../../src/proofs/key-has-scope.ts";
+import { keyHasScope, type KeyHasScope } from "../../src/proofs/key-has-scope.ts";
 import { tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import type { AccessTokenAllows, AccessTokenEvidence } from "../../src/proofs/access-token-allows.ts";
 import { UpstreamAccessTokens } from "../../src/upstream/access-tokens.ts";
+// @ts-expect-error only the verifier module can construct access-token proofs
+import { verifierAccessTokenProof } from "../../src/proofs/access-token-allows.ts";
+void verifierAccessTokenProof;
 
 export const misuse = (principal: Principal, vmA: VmId, vmB: VmId) =>
   Effect.gen(function* () {
@@ -76,6 +79,12 @@ acceptsCallerA(accessProofB);
 acceptsCallerA(accessProofA);
 
 declare const accessEvidence: AccessTokenEvidence;
+// @ts-expect-error scope decisions require the verifier's branded proof, not the envelope
+accessEvidence.scopes;
+declare const fileProof: KeyHasScope<"file-caller", "vm:files">;
+// @ts-expect-error a file proof must carry an explicit Linux user
+const missingFileUser: KeyHasScope<"file-caller", "vm:files"> = { ...fileProof, linuxUser: undefined };
+void missingFileUser;
 // @ts-expect-error the caller-bound proof cannot escape the evidence callback
 accessEvidence.withCaller((_caller, proof) => proof);
 
@@ -87,13 +96,15 @@ export const accessTokenMisuse = (evidence: AccessTokenEvidence, vmId: VmId) =>
         Effect.gen(function* () {
           const owns = yield* tenantOwnsVm(caller, vm);
           if (owns === null) return;
-          yield* upstream.mintSsh(vm, { owns, allows }, allows.linuxUser);
+          yield* upstream.mintSsh(vm, { owns, allows }, undefined, new Date());
           yield* name(caller.value, (otherCaller) =>
             Effect.gen(function* () {
+              // @ts-expect-error another caller cannot inherit the access token's Linux user
+              keyHasScope(otherCaller, "vm:files", allows);
               const otherOwns = yield* tenantOwnsVm(otherCaller, vm);
               if (otherOwns === null) return;
               // @ts-expect-error ownership from another caller cannot use this access-token proof
-              yield* upstream.mintSsh(vm, { owns: otherOwns, allows }, allows.linuxUser);
+              yield* upstream.mintSsh(vm, { owns: otherOwns, allows }, undefined, new Date());
             }),
           );
         }),

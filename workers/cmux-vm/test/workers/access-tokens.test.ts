@@ -22,9 +22,9 @@ interface CreatedTokenBody {
   readonly token: string;
 }
 
-const mint = async (key: string, vmId: string, scopes: string[], ttlSeconds = 3600) =>
+const mint = async (key: string, vmId: string, scopes: string[], ttlSeconds = 3600, linuxUser = "cmux") =>
   (async () => {
-    const body = await json(await h.request("/v1/access-tokens", bearer(key), { method: "POST", body: { principal: "end_user_1", vmIds: [vmId], scopes, ttlSeconds } }));
+    const body = await json(await h.request("/v1/access-tokens", bearer(key), { method: "POST", body: { principal: "end_user_1", vmIds: [vmId], scopes, ttlSeconds, linuxUser } }));
     if (typeof body === "object" && body !== null && "id" in body && "token" in body && typeof body.id === "string" && typeof body.token === "string") return { id: body.id, token: body.token } satisfies CreatedTokenBody;
     throw new Error("access token response was malformed");
   })();
@@ -41,7 +41,7 @@ describe("access tokens", () => {
   it("mints once, brokers exec and files, and refuses management and lifecycle calls", async () => {
     const { vmId } = h.addVm(TENANT_A);
     const key = await h.addKey(TENANT_A, ["access-token:create", "vm:exec", "vm:files"]);
-    const created = await mint(key, vmId, ["exec", "files:read", "files:write"]);
+    const created = await mint(key, vmId, ["exec", "files:read", "files:write"], 3600, "root");
     expect(created.token).toMatch(/^cmux_at_/u);
     const management = await json(await h.request("/v1/access-tokens", bearer(created.token)));
     expect(typeof management === "object" && management !== null && "_tag" in management ? management._tag : undefined).toBe("Forbidden");
@@ -51,9 +51,13 @@ describe("access tokens", () => {
     expect(await (await h.request(`/v1/vms/${vmId}/exec`, bearer(created.token), { method: "POST", body: { command: "id -u" } })).json()).toMatchObject({ exitCode: 0 });
     const write = await h.send(`/v1/vms/${vmId}/files/content?path=%2Ftmp%2Ftoken.txt`, bearer(created.token), "PUT", new TextEncoder().encode("secret"));
     expect(write.status).toBe(204);
-    expect(h.upstream.callsTo("PUT", /fs\/write$/u).at(-1)?.search.get("linuxUser")).toBe("cmux");
+    expect(h.upstream.callsTo("PUT", /fs\/write$/u).at(-1)?.search.has("linuxUser")).toBe(false);
     const read = await h.request(`/v1/vms/${vmId}/files/content?path=%2Ftmp%2Ftoken.txt`, bearer(created.token));
+    expect(read.status).toBe(200);
     expect(await read.text()).toBe("secret");
+    const listing = await h.request(`/v1/vms/${vmId}/files/entries?path=%2Ftmp`, bearer(created.token));
+    expect(listing.status).toBe(200);
+    expect(await listing.json()).toEqual({ entries: [{ name: "token.txt", kind: "file" }] });
   });
 
   it("opens a PTY only on an allowed VM and forces the token Linux user", async () => {
@@ -125,7 +129,9 @@ describe("access tokens", () => {
 
   it("mints and revokes a delegated Freestyle SSH identity", async () => {
     const { vmId, upstreamId } = h.addVm(TENANT_A);
-    const key = await h.addKey(TENANT_A, ["access-token:create", "vm:read"]);
+    const readKey = await h.addKey(TENANT_A, ["access-token:create", "vm:read"]);
+    expect((await h.request("/v1/access-tokens", bearer(readKey), { method: "POST", body: { principal: "end_user_1", vmIds: [vmId], scopes: ["ssh"], linuxUser: "root" } })).status).toBe(403);
+    const key = await h.addKey(TENANT_A, ["access-token:create", "vm:exec"]);
     const created = await mint(key, vmId, ["ssh"]);
     const ssh = await json(await h.request(`/v1/access-tokens/${created.id}/ssh`, bearer(created.token), { method: "POST" }));
     expect(ssh).toMatchObject({ host: "beta-ssh.freestyle.sh", user: `${upstreamId}+cmux` });
@@ -136,9 +142,9 @@ describe("access tokens", () => {
     expect(h.upstream.identities.size).toBe(0);
   });
 
-  it("denies a token before the database revoke when provider identity cleanup fails", async () => {
+  it("denies a token and records revocation when provider identity cleanup fails", async () => {
     const { vmId } = h.addVm(TENANT_A);
-    const key = await h.addKey(TENANT_A, ["access-token:create", "vm:read"]);
+    const key = await h.addKey(TENANT_A, ["access-token:create", "vm:exec"]);
     const created = await mint(key, vmId, ["ssh"]);
     await h.request(`/v1/access-tokens/${created.id}/ssh`, bearer(created.token), { method: "POST" });
     h.upstream.fail("deleteIdentity", 503);
