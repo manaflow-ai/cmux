@@ -56,7 +56,7 @@ test("a responsive frame survives and a later hang expires despite stale or forg
   expect(stops).toBe(0);
   expect(messages.length).toBe(2);
   expect(messages[1]!.id).not.toBe(first);
-  time.advance(4999);
+  time.advance(29999);
   watch.pong(first);
   watch.pong("forged");
   time.advance(1);
@@ -79,7 +79,7 @@ test("duplicate replies and ready messages cannot renew a load or response deadl
   time.advance(1999);
   watch.pong(first);
   time.advance(1);
-  time.advance(4999);
+  time.advance(29999);
   watch.start(frame);
   watch.pong(first);
   time.advance(1);
@@ -98,4 +98,41 @@ test("unmount cancels both load and heartbeat timers", () => {
     expect(time.tasks.size).toBe(0);
     restore();
   }
+});
+
+test("a missing heartbeat after document replacement gets a bounded hang grace period", () => {
+  const time = clock();
+  const reasons: string[] = [];
+  let id = "";
+  const watch = renderWatchdog((reason) => reasons.push(reason));
+  watch.start({ postMessage: (data: { id: string }) => { id = data.id; } } as unknown as Window);
+  watch.pong(id);
+  // document.open/document.write can erase the listener after the first successful answer.
+  time.advance(2000);
+  time.advance(5000);
+  expect(reasons).toHaveLength(0);
+  time.advance(24999);
+  expect(reasons).toHaveLength(0);
+  time.advance(1);
+  expect(reasons).toEqual(["hang"]);
+  time.advance(60000);
+  expect(reasons).toEqual(["hang"]);
+  expect(time.tasks.size).toBe(0);
+});
+
+test("a late matching heartbeat recovers during the post-load grace period", () => {
+  const time = clock();
+  const reasons: string[] = [];
+  let id = "";
+  const watch = renderWatchdog((reason) => reasons.push(reason));
+  watch.start({ postMessage: (data: { id: string }) => { id = data.id; } } as unknown as Window);
+  watch.pong(id);
+  time.advance(12000);
+  watch.pong(id);
+  expect(reasons).toHaveLength(0);
+  time.advance(2000);
+  time.advance(29999);
+  expect(reasons).toHaveLength(0);
+  time.advance(1);
+  expect(reasons).toEqual(["hang"]);
 });

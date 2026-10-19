@@ -57,7 +57,8 @@ afterAll(() => {
 const sent: string[] = [];
 const prefilled: string[] = [];
 const opened: string[] = [];
-const { ChatSessionContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
+const { ChatSessionContext, RenderLiveContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
+const { ranRenders } = await import("../src/agent-session/acpmux/conversation/RenderCard");
 const PAGE = "<title>Interactive page</title><p>Ready</p>";
 
 let testSession = 0;
@@ -66,6 +67,7 @@ const clock = spyOn(Date, "now").mockImplementation(() => now);
 afterAll(() => clock.mockRestore());
 beforeEach(() => {
   testSession++;
+  ranRenders.clear();
 });
 
 async function draw(
@@ -74,6 +76,7 @@ async function draw(
   sessionId = `live-test-${testSession}`,
   turnStreaming = true,
   openResult: () => boolean | Promise<boolean> = () => true,
+  renderLive = turnStreaming,
 ) {
   act(() => root?.unmount());
   document.documentElement.setAttribute("data-lab-live-render", live ? "on" : "off");
@@ -99,7 +102,9 @@ async function draw(
         }}
       >
         <ChatSessionContext.Provider value={sessionId}>
-          <Markdown turnStreaming={turnStreaming}>{markdown}</Markdown>
+          <RenderLiveContext.Provider value={renderLive}>
+            <Markdown turnStreaming={turnStreaming}>{markdown}</Markdown>
+          </RenderLiveContext.Provider>
         </ChatSessionContext.Provider>
       </RenderBridgeContext.Provider>,
     ),
@@ -289,9 +294,8 @@ test("the side panel uses the same opaque dev frame for markup and components", 
     { kind: "html" as const, lang: "html", code: PAGE },
     { kind: "react" as const, lang: "cmux-react", code: "function App() { return <button>+</button>; }" },
   ]) {
+    await draw(true, "```" + (artifact.kind === "html" ? "cmux-render" : "cmux-react") + "\n" + artifact.code + "\n```");
     act(() => root!.render(<ArtifactPanel key={artifact.kind} artifact={artifact} onClose={() => {}} />));
-    expect(host.querySelectorAll("iframe").length).toBe(0);
-    click("Run");
     const frame = host.querySelector("iframe")!;
     expect(frame.srcdoc).toContain("Content-Security-Policy");
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
@@ -445,7 +449,7 @@ test("embedded frames retain accessible titles without a visible heading or hove
     ["<title>Plan &amp; effort</title><p>Choose</p>", "Plan & effort"],
     ["<!-- cmux-react -->\n// title: Plan picker\nfunction App() { return null; }", "Plan picker"],
   ]) {
-    act(() => root!.render(<RenderCard turnStreaming call={{ html }} />));
+    act(() => root!.render(<RenderLiveContext.Provider value><RenderCard turnStreaming call={{ html }} /></RenderLiveContext.Provider>));
     expect(host.querySelector(".acpmux-render-card-title")).toBeNull();
     expect(host.querySelector("iframe")?.getAttribute("aria-label")).toBe(title);
     expect(host.querySelector("iframe")?.hasAttribute("title")).toBe(false);
@@ -504,7 +508,7 @@ test.each([
       root!.render(
         <ChatSessionContext.Provider value={`two-cards-${name}`}>
           <TranscriptRowContext.Provider value="reply">
-            <Markdown turnStreaming>{nested(html)}</Markdown>
+            <RenderLiveContext.Provider value><Markdown turnStreaming>{nested(html)}</Markdown></RenderLiveContext.Provider>
           </TranscriptRowContext.Provider>
         </ChatSessionContext.Provider>,
       ),
@@ -551,7 +555,7 @@ test("a tool card keeps its frame and state when its HTML changes under the same
   const card = (html: string) => (
     <ChatSessionContext.Provider value="tool-identity">
       <TranscriptRowContext.Provider value="tool-call-1">
-        <RenderCard turnStreaming call={{ html }} />
+        <RenderLiveContext.Provider value><RenderCard turnStreaming call={{ html }} /></RenderLiveContext.Provider>
       </TranscriptRowContext.Provider>
     </ChatSessionContext.Provider>
   );
@@ -746,7 +750,7 @@ test.each(["sendPrompt", "prefill", "copy"])("%s confirmations expose the full s
     card.request(method, { text: payload });
     const text = host.querySelector<HTMLElement>(".acpmux-render-confirm-text")!;
     const css = getComputedStyle(text);
-    expect(text.textContent).toBe(payload);
+    expect(text.textContent).toBe("Summarize\n[Blank lines: 39]\nHidden instruction");
     expect(css.overflowY).toBe("auto");
     expect(css.display).not.toBe("-webkit-box");
     expect(css.getPropertyValue("-webkit-line-clamp")).toBe("");
@@ -809,7 +813,7 @@ test("a refused replacement does not restart the 500ms click guard", async () =>
 test.each([false, true])("a pending request freezes frame height, panel=%s", async (panel) => {
   await draw();
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
-  act(() => root!.render(<RenderCard turnStreaming call={{ html: PAGE }} panel={panel} />));
+  act(() => root!.render(<RenderLiveContext.Provider value><RenderCard turnStreaming call={{ html: PAGE }} panel={panel} /></RenderLiveContext.Provider>));
   const frame = host.querySelector("iframe")!;
   const receive = (data: Record<string, unknown>) =>
     act(() => {
@@ -826,7 +830,7 @@ test.each([false, true])("a pending request freezes frame height, panel=%s", asy
 test("turning live on replaces a frame already running under the Run gate", async () => {
   dom.reconfigure({ url: "cmux-agent://pane/index.html" });
   try {
-    await draw();
+    await draw(false);
     const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
     document.documentElement.setAttribute("data-lab-live-render", "off");
     act(() => root!.render(<RenderCard turnStreaming call={{ html: PAGE }} />));
@@ -999,7 +1003,7 @@ test("render repair uses only the first normalized bounded error and names the r
 test("kit toggles and frame remounts reset the first-error limit and note", async () => {
   await draw();
   const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
-  const render = (key: string) => act(() => root!.render(<RenderCard turnStreaming key={key} call={{ html: PAGE }} />));
+  const render = (key: string) => act(() => root!.render(<RenderLiveContext.Provider value><RenderCard turnStreaming key={key} call={{ html: PAGE }} /></RenderLiveContext.Provider>));
   const report = (error: string) =>
     act(() =>
       dom.window.dispatchEvent(
@@ -1036,9 +1040,7 @@ test("render expansion uses an accessible dialog and its lab can remove the cont
   const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
   expect(dialog).not.toBeNull();
   expect(dialog.getAttribute("aria-label")).toBe("Interactive page");
-  expect(dialog.querySelectorAll("iframe").length).toBe(0);
-  const run = [...dialog.querySelectorAll("button")].find((button) => button.textContent === "Run")!;
-  act(() => run.click());
+
   expect(dialog.querySelectorAll("iframe").length).toBe(1);
   expect(dialog.querySelector(".acpmux-render-enlarge")).toBeNull();
   await act(async () => dialog.querySelector<HTMLButtonElement>("button")!.click());
@@ -1051,18 +1053,18 @@ test("render expansion uses an accessible dialog and its lab can remove the cont
 });
 
 
-test("history waits for Run, a live turn runs, and reattaching history waits again", async () => {
+test("history waits for Run and run pages survive remounts in the pane", async () => {
   const markdown = "```cmux-render\n<p>History</p>\n```";
   await draw(true, markdown, "history", false);
   expect(host.querySelectorAll("iframe").length).toBe(0);
   click("Run");
   expect(host.querySelectorAll("iframe").length).toBe(1);
   await draw(true, markdown, "history", false);
-  expect(host.querySelectorAll("iframe").length).toBe(0);
+  expect(host.querySelectorAll("iframe").length).toBe(1);
   await draw(true, markdown, "active", true);
   expect(host.querySelectorAll("iframe").length).toBe(1);
   await draw(true, markdown, "active", false);
-  expect(host.querySelectorAll("iframe").length).toBe(0);
+  expect(host.querySelectorAll("iframe").length).toBe(1);
 });
 
 test("a watchdog removes an unresponsive frame without waiting in real time", async () => {
@@ -1124,10 +1126,170 @@ test("an attached unfinished reply stays gated even when its row says streaming"
   const { RenderLiveContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
   act(() => root!.render(
     <RenderLiveContext.Provider value={false}>
-      <RenderCard call={{ html: PAGE }} turnStreaming />
+      <RenderCard call={{ html: "<p>Unfinished history</p>" }} turnStreaming />
     </RenderLiveContext.Provider>,
   ));
   expect(host.querySelectorAll("iframe").length).toBe(0);
   click("Run");
   expect(host.querySelectorAll("iframe").length).toBe(1);
+});
+
+test.each([4, 40])("blank-line padding with %s newlines is counted beside the hidden instruction", async (newlines) => {
+  const card = await draw();
+  const text = "Summarize" + "\n".repeat(newlines) + "Hidden instruction";
+  card.request("sendPrompt", { text });
+  const shown = host.querySelector(".acpmux-render-confirm-text")!;
+  expect(shown.textContent).toBe(`Summarize\n[Blank lines: ${newlines - 1}]\nHidden instruction`);
+  click("Send");
+  expect(sent).toEqual([text]);
+});
+
+test("all invisible spacing and annotation characters are named in the confirmation", async () => {
+  const card = await draw();
+  const codes = [...Array.from({ length: 11 }, (_, i) => 0x2000 + i), 0x3000, 0x2028, 0x2029, 0x180e, 0xfff9, 0xfffa, 0xfffb];
+  card.request("sendPrompt", { text: "Start" + String.fromCodePoint(...codes) + "End" });
+  expect(host.querySelector(".acpmux-render-confirm-text")?.textContent).toBe(
+    "Start" + codes.map((code) => `[U+${code.toString(16).toUpperCase().padStart(4, "0")}]`).join("") + "End",
+  );
+});
+
+test("confirmation stays disabled until the full payload has been scrolled into view", async () => {
+  const prototype = dom.window.HTMLElement.prototype;
+  const height = Object.getOwnPropertyDescriptor(prototype, "clientHeight");
+  const scroll = Object.getOwnPropertyDescriptor(prototype, "scrollHeight");
+  Object.defineProperty(prototype, "clientHeight", { configurable: true, get: () => 240 });
+  Object.defineProperty(prototype, "scrollHeight", { configurable: true, get: () => 1200 });
+  try {
+    const card = await draw();
+    const text = "First line\n".repeat(80) + "Hidden instruction";
+    card.request("sendPrompt", { text });
+    const box = host.querySelector<HTMLElement>(".acpmux-render-confirm-text")!;
+    const send = [...host.querySelectorAll("button")].find((button) => button.textContent === "Send")!;
+    expect(box.textContent).toContain("Hidden instruction");
+    expect(send.disabled).toBe(true);
+    click("Send");
+    expect(sent).toEqual([]);
+    act(() => {
+      box.scrollTop = 500;
+      box.dispatchEvent(new dom.window.Event("scroll", { bubbles: true }));
+    });
+    expect(send.disabled).toBe(true);
+    act(() => {
+      box.scrollTop = 960;
+      box.dispatchEvent(new dom.window.Event("scroll", { bubbles: true }));
+    });
+    expect(send.disabled).toBe(false);
+    click("Send");
+    expect(sent).toEqual([text]);
+    card.request("sendPrompt", { text: "Another long payload" }, undefined, "second");
+    expect([...host.querySelectorAll("button")].find((button) => button.textContent === "Send")!.disabled).toBe(true);
+  } finally {
+    if (height) Object.defineProperty(prototype, "clientHeight", height);
+    else Reflect.deleteProperty(prototype, "clientHeight");
+    if (scroll) Object.defineProperty(prototype, "scrollHeight", scroll);
+    else Reflect.deleteProperty(prototype, "scrollHeight");
+  }
+});
+
+
+test("live fences run after a burst or delayed text reveal, even after streaming ends", async () => {
+  const markdown = "```cmux-render\n<p>Complete burst</p>\n```";
+  await draw(true, markdown, "burst", false, undefined, true);
+  expect(host.querySelectorAll("iframe")).toHaveLength(1);
+  expect(ranRenders.has("<p>Complete burst</p>")).toBe(true);
+  await draw(true, markdown, "burst", false, undefined, false);
+  expect(host.querySelectorAll("iframe")).toHaveLength(1);
+});
+
+
+test.each([false, true])("tool renders use their live provenance through the transcript: %s", async (renderLive) => {
+  await draw(false);
+  document.documentElement.setAttribute("data-lab-live-render", "on");
+  const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+  const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
+  const rows = turnView([
+    { id: "prompt", kind: "user", version: 1, at: 1, text: "Make a page" },
+    { id: "tool", kind: "activity", version: 1, at: 2, renderLive, items: [
+      { kind: "tool", text: "Page", tool: { id: "page", title: "mcp__cmux__render", status: "completed", inputSummary: JSON.stringify({ html: `<p>Tool ${renderLive}</p>` }) } },
+    ] },
+    { id: "end", kind: "turnSummary", version: 1, at: 3, status: "completed" },
+  ], new Set());
+  act(() => root!.render(
+    <RenderLiveContext.Provider value={false}>
+      <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
+    </RenderLiveContext.Provider>,
+  ));
+  expect(host.querySelectorAll("iframe")).toHaveLength(renderLive ? 1 : 0);
+  if (!renderLive) {
+    click("Run");
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+  }
+});
+
+test("a card with no live provider fails closed even when the turn is streaming", async () => {
+  await draw(false);
+  document.documentElement.setAttribute("data-lab-live-render", "on");
+  const { RenderCard } = await import("../src/agent-session/acpmux/conversation/RenderCard");
+  act(() => root!.render(<RenderCard turnStreaming call={{ html: "<p>No provenance</p>" }} />));
+  expect(host.querySelectorAll("iframe")).toHaveLength(0);
+  click("Run");
+  expect(host.querySelectorAll("iframe")).toHaveLength(1);
+});
+
+test("a page that loses its heartbeat after loading reports a hang after the longer grace", async () => {
+  const timers = new Map<number, { delay: number; run: () => void }>();
+  let next = 100000;
+  const original = globalThis.setTimeout;
+  const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delay?: number) => {
+    if (delay === 5000 || delay === 2000 || delay === 30000) {
+      const id = next++;
+      timers.set(id, { delay, run });
+      return id;
+    }
+    return original(run, delay);
+  }) as typeof setTimeout);
+  const clear = spyOn(globalThis, "clearTimeout").mockImplementation((id) => { timers.delete(Number(id)); });
+  const fire = (delay: number) => {
+    const task = [...timers].find(([, task]) => task.delay === delay);
+    if (!task) return;
+    timers.delete(task[0]);
+    act(() => task[1].run());
+  };
+  try {
+    const card = await draw();
+    const receive = (data: unknown) => void act(() => dom.window.dispatchEvent(
+      new dom.window.MessageEvent("message", { source: card.target, data }),
+    ));
+    receive({ type: "cmux-render-ready" });
+    const challenge = card.replies.find((message) => message.type === "cmux-render-ping")!;
+    receive({ type: "cmux-render-pong", id: challenge.id });
+    // A loaded page replaces its document and never answers the next challenge.
+    receive({ type: "cmux-render-content-size", height: 200 });
+    fire(2000);
+    fire(5000);
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    expect(host.querySelector('[role="status"]')).toBeNull();
+    fire(30000);
+    expect(host.querySelectorAll("iframe")).toHaveLength(0);
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("The page stopped responding");
+    expect(host.textContent).not.toContain("Could not load the page");
+  } finally {
+    act(() => root?.unmount());
+    root = undefined;
+    timeout.mockRestore();
+    clear.mockRestore();
+  }
+});
+
+
+test("a history page in the side panel keeps Run until the reader runs it", async () => {
+  await draw(false);
+  document.documentElement.setAttribute("data-lab-live-render", "on");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  act(() => root!.render(
+    <ArtifactPanel artifact={{ kind: "html", lang: "html", code: "<p>History panel</p>" }} onClose={() => {}} />,
+  ));
+  expect(host.querySelectorAll("iframe")).toHaveLength(0);
+  click("Run");
+  expect(host.querySelectorAll("iframe")).toHaveLength(1);
 });

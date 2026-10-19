@@ -148,3 +148,45 @@ for (const [name, markdown] of [
     }
   });
 }
+
+test.each(["<!doctype html>", " \n<!-- page -->\n<!-- layout -->\n<!DoCtYpE html>"])(
+  "heartbeat injection preserves standards mode with leading %s",
+  async (prefix) => {
+    const html = prefix + "<html><head><title>Standards</title></head><body>Page</body></html>";
+    await draw("```cmux-render\n" + html + "\n```");
+    act(() => button("Run")!.click());
+    const frame = host.querySelector("iframe")!;
+    const messages: { html: string }[] = [];
+    frame.contentWindow!.postMessage = (data) => messages.push(data);
+    void act(() => dom.window.dispatchEvent(new dom.window.MessageEvent("message", {
+      source: frame.contentWindow,
+      data: { type: "cmux-render-ready" },
+    })));
+    const page = new JSDOM(messages[0]!.html);
+    try {
+      expect(page.window.document.compatMode).toBe("CSS1Compat");
+      expect(messages[0]!.html.startsWith(prefix + "<script>")).toBe(true);
+      expect(page.window.document.querySelector("script")?.textContent).toContain("cmux-render-ping");
+    } finally {
+      page.window.close();
+    }
+  },
+);
+
+
+test("a closed code fence in a streaming list still gets its highlighted card", async () => {
+  dom.reconfigure({ url: "http://localhost/" });
+  try {
+    await act(async () => {
+      const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+      await loadHighlightedCode();
+      await draw("- Example:\n  ```js\n  const count = 1;\n  ```\n  More:\n  ```js\n  const next =", true);
+    });
+    expect(host.querySelector("li diffs-container")).not.toBeNull();
+    expect(host.querySelector("li .cv-codeblock")?.classList.contains("cv-codeblock--plain")).toBe(false);
+  } finally {
+    act(() => root?.unmount());
+    root = undefined;
+    dom.reconfigure({ url: "cmux-agent://pane/index.html" });
+  }
+});

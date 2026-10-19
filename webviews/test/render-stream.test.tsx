@@ -1,7 +1,7 @@
 // Partial pages stay inert until their fence closes (Lucas 2026-10-18).
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -45,6 +45,10 @@ const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[k
 Object.assign(scope, replacements);
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
+const { RenderLiveContext } = await import("../src/agent-session/acpmux/conversation/viewIdentity");
+const renderLive = (children: ReactNode) => root!.render(
+  <RenderLiveContext.Provider value>{children}</RenderLiveContext.Provider>,
+);
 
 afterAll(() => {
   act(() => root?.unmount());
@@ -55,19 +59,21 @@ afterAll(() => {
 });
 
 const { createRoot } = await import("react-dom/client");
+const { ranRenders } = await import("../src/agent-session/acpmux/conversation/RenderCard");
 const { Markdown, mergeRenderBlocks, parseMarkdown } =
   await import("../src/agent-session/acpmux/conversation/Markdown");
 
 beforeEach(() => {
   act(() => root?.unmount());
+  ranRenders.clear();
   root = createRoot(host);
   document.documentElement.setAttribute("data-lab-live-render", "on");
 });
 
-function draw(html: string, { closed = false, live = true, lang = "cmux-render", streaming = true } = {}) {
+function draw(html: string, { closed = false, live = true, lang = "cmux-render", streaming = true, renderLive = streaming } = {}) {
   document.documentElement.setAttribute("data-lab-live-render", live ? "on" : "off");
   act(() =>
-    root!.render(<Markdown streaming={streaming}>{"```" + lang + "\n" + html + (closed ? "\n```" : "")}</Markdown>),
+    root!.render(<RenderLiveContext.Provider value={renderLive}><Markdown streaming={streaming}>{"```" + lang + "\n" + html + (closed ? "\n```" : "")}</Markdown></RenderLiveContext.Provider>),
   );
 }
 
@@ -199,9 +205,9 @@ test.each([
   revealFrames.cancel = () => {};
   try {
     const start = nested("```cmux-react\nfunction App() {");
-    act(() => root!.render(<RevealedMarkdown text={start} streaming />));
+    act(() => renderLive(<RevealedMarkdown text={start} streaming />));
     expect(host.querySelector("iframe") !== null).toBe(true);
-    act(() => root!.render(<RevealedMarkdown text={start + " return null;"} streaming={false} />));
+    act(() => renderLive(<RevealedMarkdown text={start + " return null;"} streaming={false} />));
     expect(host.querySelector("iframe") === null).toBe(true);
   } finally {
     Object.assign(revealFrames, saved);
@@ -221,7 +227,7 @@ test("received renders wait for every preceding block and keep their frame at th
   const received = "First.\n\nSecond.\n\n```cmux-render\n<p>Page</p>\n```";
   const show = (text: string) =>
     act(() =>
-      root!.render(
+      renderLive(
         <Markdown streaming receivedText={received}>
           {text}
         </Markdown>,
@@ -241,7 +247,7 @@ test("an appended received render leaves the last revealed ordinary fence open",
   const shown = "```js\nconst value = 1";
   const received = shown + "\n```\n\n```cmux-render\n<p>Page</p>";
   act(() =>
-    root!.render(
+    renderLive(
       <Markdown streaming receivedText={received}>
         {shown}
       </Markdown>,
@@ -272,7 +278,7 @@ test.each([
   expect(children.length).toBe(Object.keys(children).length);
   expect(children.some((child) => child.type === "code")).toBe(false);
   act(() =>
-    root!.render(
+    renderLive(
       <Markdown streaming receivedText={received}>
         {shown}
       </Markdown>,
@@ -295,10 +301,10 @@ test("the transport ending before reveal catches up retains the streaming frame"
   };
   try {
     const start = "```cmux-render\n<p>First";
-    act(() => root!.render(<RevealedMarkdown text={start} streaming />));
+    act(() => renderLive(<RevealedMarkdown text={start} streaming />));
     const { frame, posted } = messages();
     const final = start + " second</p>\n```";
-    act(() => root!.render(<RevealedMarkdown text={final} streaming={false} />));
+    act(() => renderLive(<RevealedMarkdown text={final} streaming={false} />));
     expect(host.querySelector("iframe")).toBe(frame);
     expect(host.querySelector("pre")).toBeNull();
     for (let now = 0; now < 1000; now += 20) {
@@ -307,7 +313,7 @@ test("the transport ending before reveal catches up retains the streaming frame"
       act(() => pending.forEach((callback) => callback(now)));
       expect(host.querySelector("iframe")).toBe(frame);
     }
-    await wait(65);
+    await wait();
     expect(posted.at(-1)).toEqual({ type: "cmux-render-stream", html: "<p>First second</p>", done: true });
   } finally {
     Object.assign(revealFrames, saved);
@@ -405,9 +411,9 @@ test("received fences feed immediately while prose still waits for reveal", asyn
   revealFrames.request = () => 1;
   revealFrames.cancel = () => {};
   try {
-    act(() => root!.render(<RevealedMarkdown text="Intro" streaming />));
+    act(() => renderLive(<RevealedMarkdown text="Intro" streaming />));
     const received = "Intro before the page.\n\n```cmux-render\n<p>Received</p>";
-    act(() => root!.render(<RevealedMarkdown text={received} streaming />));
+    act(() => renderLive(<RevealedMarkdown text={received} streaming />));
     expect(host.querySelector("iframe")).not.toBeNull();
     expect(host.querySelector("p")?.textContent).toBe("Intro");
     const { frame, posted } = messages();
@@ -416,7 +422,7 @@ test("received fences feed immediately while prose still waits for reveal", asyn
       html: "<p>Received</p>",
       done: false,
     });
-    act(() => root!.render(<RevealedMarkdown text={received + "\n```\n\nLater prose"} streaming />));
+    act(() => renderLive(<RevealedMarkdown text={received + "\n```\n\nLater prose"} streaming />));
     await wait(85);
     expect(host.querySelector("iframe")).toBe(frame);
     expect(posted.at(-1)).toEqual({
@@ -439,8 +445,8 @@ test.each([
   revealFrames.request = () => 1;
   revealFrames.cancel = () => {};
   try {
-    act(() => root!.render(<RevealedMarkdown text={initial} streaming />));
-    act(() => root!.render(<RevealedMarkdown text={received} streaming />));
+    act(() => renderLive(<RevealedMarkdown text={initial} streaming />));
+    act(() => renderLive(<RevealedMarkdown text={received} streaming />));
     expect(host.querySelector("iframe")).not.toBeNull();
     expect(host.textContent).not.toContain("before the page");
     expect(host.textContent).toContain("Intro");
@@ -462,10 +468,10 @@ test.each(["cmux-render", "cmux-react"])(
     const code = lang === "cmux-render" ? "<p>Page</p>" : "function App() { return <svg />; }";
     try {
       const prefix = "```" + lang + "\n" + code;
-      act(() => root!.render(<RevealedMarkdown text={prefix} streaming />));
+      act(() => renderLive(<RevealedMarkdown text={prefix} streaming />));
       const { frame, posted } = messages();
       for (const ticks of ["`", "``"]) {
-        act(() => root!.render(<RevealedMarkdown text={prefix + "\n" + ticks} streaming />));
+        act(() => renderLive(<RevealedMarkdown text={prefix + "\n" + ticks} streaming />));
         await wait(85);
         expect(
           posted
@@ -474,7 +480,7 @@ test.each(["cmux-render", "cmux-react"])(
         ).toBe(false);
         expect(host.querySelector("iframe")).toBe(frame);
       }
-      act(() => root!.render(<RevealedMarkdown text={prefix + "\n```"} streaming />));
+      act(() => renderLive(<RevealedMarkdown text={prefix + "\n```"} streaming />));
       await wait(85);
       expect(posted.at(-1)?.done).toBe(true);
       expect(host.querySelector("iframe")).toBe(frame);
@@ -483,3 +489,30 @@ test.each(["cmux-render", "cmux-react"])(
     }
   },
 );
+
+test("a fence first revealed after the transport ends still runs live", async () => {
+  const { RevealedMarkdown, revealFrames } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+  const saved = { ...revealFrames };
+  const callbacks = new Map<number, (now: number) => void>();
+  let id = 0;
+  revealFrames.request = (callback) => {
+    callbacks.set(++id, callback);
+    return id;
+  };
+  revealFrames.cancel = (handle) => { callbacks.delete(handle); };
+  try {
+    act(() => renderLive(<RevealedMarkdown text="First" streaming />));
+    const final = "First paragraph.\n\nSecond paragraph.\n\n```cmux-render\n<p>Revealed late</p>\n```";
+    act(() => renderLive(<RevealedMarkdown text={final} streaming={false} />));
+    expect(host.querySelector("iframe")).toBeNull();
+    for (let now = 0; now < 2000; now += 20) {
+      const pending = [...callbacks.values()];
+      callbacks.clear();
+      act(() => pending.forEach((callback) => callback(now)));
+    }
+    expect(host.querySelectorAll("iframe")).toHaveLength(1);
+    expect(host.querySelector(".acpmux-render-card-head")).toBeNull();
+  } finally {
+    Object.assign(revealFrames, saved);
+  }
+});
