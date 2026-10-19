@@ -722,6 +722,9 @@ impl RemoteSurface {
             apply_terminal_colors(&mut fresh, colors);
         }
         fresh.vt_write(pending_sequence);
+        if let Some(rows_from_viewport_top_to_end) = scrolled_back_anchor(&term) {
+            restore_scrolled_back_anchor(&mut fresh, rows_from_viewport_top_to_end);
+        }
         *term = fresh;
         if daemon_replay {
             // Daemon-built replays carry resolved state, not application
@@ -953,6 +956,33 @@ enum RemoteGeometryTestStep {
     StreamResizeCommitBoundary,
     CellPixelStarted,
     CellPixelCommitBoundary,
+}
+
+/// Rows from the top of a scrolled-back viewport to the end of the screen,
+/// or `None` when the viewport follows the live bottom.
+///
+/// A rebuilt mirror keeps the same trailing content as the old one (the
+/// replay ends at the live screen) while its oldest history may differ, so
+/// the distance from the end is the stable anchor for the row being read.
+fn scrolled_back_anchor(term: &Terminal) -> Option<u64> {
+    let scrollbar = term.scrollbar()?;
+    scrollbar.scrolled_back().then(|| scrollbar.total.saturating_sub(scrollbar.offset))
+}
+
+/// Scroll a freshly rebuilt mirror so the viewport top sits the same number
+/// of rows from the end as before, clamped to the retained history.
+fn restore_scrolled_back_anchor(term: &mut Terminal, rows_from_viewport_top_to_end: u64) {
+    let Some(scrollbar) = term.scrollbar() else {
+        return;
+    };
+    let live_offset = scrollbar.total.saturating_sub(scrollbar.len);
+    let target = scrollbar.total.saturating_sub(rows_from_viewport_top_to_end).min(live_offset);
+    let delta = i128::from(target) - i128::from(scrollbar.offset);
+    if let Ok(delta) = isize::try_from(delta)
+        && delta != 0
+    {
+        term.scroll_delta(delta);
+    }
 }
 
 fn pointer_frame_is_in_range(browser: &RemoteBrowserState, frame_seq: u64) -> bool {

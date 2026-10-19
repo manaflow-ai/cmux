@@ -2,25 +2,30 @@
 # Tab, pane, split and workspace create/close latency (perf-10x lifecycle area).
 # Run alone on a worker:
 #   cmux-ci run --class exclusive --measurement --script scripts/measure/perf-10x-lifecycle.sh --ref SHA
-#     [--arg=part=daemon|swift|all] [--arg=rounds=N] [--arg=against=SHA]
+#     [--arg=part=daemon|swift|all] [--arg=rounds=N] [--arg=against=SHA] [--arg=background=N]
 # part=daemon: a headless cmux-tui (cmux-tui/scripts/bench-lifecycle.py) times new-tab,
 #   new-browser-tab, split right/down, new-workspace and their closes from send to reply.
 #   The binary is the commit's published cmux-tui tree, or a release build when unpublished.
 #   against=SHA runs that commit's binary first, interleaved round by round.
+#   background=N (default 50) adds N idle one-terminal workspaces first, so a cost
+#   that grows with the session shows.
 # part=swift: the LifecycleBench Swift Testing suite (model + layout, no app).
 # Output: LIFECYCLE lines (p50/p95/max ms) and JSON under .build/perf-lifecycle.
 set -euo pipefail
 part=all
 rounds=40
 against=""
+background=50
 for arg in "$@"; do
   case "$arg" in
     part=daemon|part=swift|part=all) part="${arg#part=}" ;;
     rounds=*) rounds="${arg#rounds=}" ;;
     against=*) against="${arg#against=}" ;;
+    background=*) background="${arg#background=}" ;;
     *) echo "perf-10x-lifecycle.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
+case "$background" in [0-9]|[1-9][0-9]|[1-2][0-9][0-9]) ;; *) echo "perf-10x-lifecycle.sh: background must be 0-299" >&2; exit 2 ;; esac
 case "$rounds" in [1-9]|[1-9][0-9]|[1-2][0-9][0-9]) ;; *) echo "perf-10x-lifecycle.sh: rounds must be 1-299" >&2; exit 2 ;; esac
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
@@ -66,7 +71,7 @@ if [ "$part" = daemon ] || [ "$part" = all ]; then
   for pass in $(seq 1 "$passes"); do
     for label in against ref; do
       [ -x "$work/bin-$label" ] || continue
-      python3 -I cmux-tui/scripts/bench-lifecycle.py --bin "$work/bin-$label" --rounds "$per" \
+      python3 -I cmux-tui/scripts/bench-lifecycle.py --bin "$work/bin-$label" --rounds "$per" --background "$background" \
         --label "$label-p$pass" --root-dir "$state_root" --spans --out "$work/$label-p$pass.json" || status=$?
     done
   done

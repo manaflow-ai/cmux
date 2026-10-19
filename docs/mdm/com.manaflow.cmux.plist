@@ -1872,7 +1872,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>both</string>
+			<string>tabs</string>
 			<key>pfm_description</key>
 			<string>How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.</string>
 			<key>pfm_name</key>
@@ -2664,6 +2664,34 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<integer>72</integer>
+			<key>pfm_description</key>
+			<string>The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box.</string>
+			<key>pfm_name</key>
+			<string>markdown.layout.width</string>
+			<key>pfm_range_max</key>
+			<real>160</real>
+			<key>pfm_range_min</key>
+			<real>40</real>
+			<key>pfm_title</key>
+			<string>Text Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Text fills the whole pane instead of the text width.</string>
+			<key>pfm_name</key>
+			<string>markdown.layout.fullWidth</string>
+			<key>pfm_title</key>
+			<string>Full Width</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>16</integer>
 			<key>pfm_description</key>
 			<string>The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size.</string>
@@ -2677,6 +2705,97 @@
 			<string>Default Font Size</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>system</string>
+			<key>pfm_name</key>
+			<string>markdown.font.preset</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>system</string>
+				<string>serif</string>
+				<string>mono</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Font</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<real>1.6000000000000001</real>
+			<key>pfm_name</key>
+			<string>markdown.font.lineHeight</string>
+			<key>pfm_range_max</key>
+			<real>2.3999999999999999</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Line Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>The gap after each paragraph, as a share of the text size.</string>
+			<key>pfm_name</key>
+			<string>markdown.spacing.paragraph</string>
+			<key>pfm_range_max</key>
+			<real>3</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Paragraph Spacing</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>14</integer>
+			<key>pfm_name</key>
+			<string>markdown.code.blockSize</string>
+			<key>pfm_range_max</key>
+			<real>32</real>
+			<key>pfm_range_min</key>
+			<real>8</real>
+			<key>pfm_title</key>
+			<string>Code Font Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>scroll</string>
+			<key>pfm_name</key>
+			<string>markdown.tables</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>scroll</string>
+				<string>wrap</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Wide Tables</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>app</string>
+			<key>pfm_name</key>
+			<string>markdown.theme</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>app</string>
+				<string>light</string>
+				<string>dark</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Page Theme</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
@@ -3075,7 +3194,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>300</integer>
+			<integer>250</integer>
 			<key>pfm_description</key>
 			<string>How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.</string>
 			<key>pfm_name</key>

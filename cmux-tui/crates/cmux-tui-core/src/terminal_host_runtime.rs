@@ -702,7 +702,7 @@ mod unix {
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
+        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels);
         let pty = cmux_pty::open(initial_pty_size)?;
         crate::debug_spans::mark("host.pty_opened");
         let mut command = PtyCommand::new(&launch.command[0]);

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 84cd4c3f33af065e3de184ef0e7620f0a5ee2060ef94477fadee1b71ca92da36.
+// cmux-tui mux protocol 12, IR c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -206,6 +206,16 @@ pub struct CloudConversationRunChangedEvent {
     pub conversation: String,
     pub run: Nullable<T::JsonValue>,
     pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationTypingEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub on: bool,
+    pub participant: String,
 }
 
 #[rustfmt::skip]
@@ -968,6 +978,7 @@ pub enum Event {
     CloudConversationLive(CloudConversationLiveEvent),
     CloudConversationResynced(CloudConversationResyncedEvent),
     CloudConversationRunChanged(CloudConversationRunChangedEvent),
+    CloudConversationTyping(CloudConversationTypingEvent),
     CloudInboxChanged(CloudInboxChangedEvent),
     CloudInboxReset(CloudInboxResetEvent),
     CloudMuxResynced(CloudMuxResyncedEvent),
@@ -1060,6 +1071,7 @@ impl Event {
             Self::CloudConversationLive(_) => Some("cloud-conversation-live"),
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
             Self::CloudConversationRunChanged(_) => Some("cloud-conversation-run-changed"),
+            Self::CloudConversationTyping(_) => Some("cloud-conversation-typing"),
             Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
             Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
             Self::CloudMuxResynced(_) => Some("cloud-mux-resynced"),
@@ -1151,6 +1163,7 @@ impl Event {
             Self::CloudConversationLive(_) => Some(&CLOUD_CONVERSATION_LIVE_EVENT_METADATA),
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
             Self::CloudConversationRunChanged(_) => Some(&CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA),
+            Self::CloudConversationTyping(_) => Some(&CLOUD_CONVERSATION_TYPING_EVENT_METADATA),
             Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
             Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
             Self::CloudMuxResynced(_) => Some(&CLOUD_MUX_RESYNCED_EVENT_METADATA),
@@ -1358,6 +1371,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("cloud-conversation-run-changed") => match serde_json::from_value::<CloudConversationRunChangedEvent>(raw.clone()) {
             Ok(event) => Event::CloudConversationRunChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-conversation-typing") => match serde_json::from_value::<CloudConversationTypingEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationTyping(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

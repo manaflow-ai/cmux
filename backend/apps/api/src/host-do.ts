@@ -52,6 +52,7 @@ export class HostDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS host_relay (id INTEGER PRIMARY KEY CHECK (id = 1), host_peer TEXT NOT NULL, reachable TEXT NOT NULL)`)
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS replica_dropped (id INTEGER PRIMARY KEY CHECK (id = 1), at INTEGER NOT NULL, reason TEXT NOT NULL)`)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
   }
 
@@ -85,6 +86,8 @@ export class HostDO extends DurableObject<Env> {
     const host = request.headers.get("x-cmux-host") ?? ""
     const principalJson = request.headers.get("x-cmux-principal")
     if ((role !== "publisher" && role !== "reader") || !/^host_[a-z0-9]{20}$/.test(host) || !principalJson) return new Response("forbidden", { status: 403 })
+    // A dropped replica stays dropped: host ids are never reused, so a late upgrade (its role checked before the drop) gets nothing.
+    if (this.replicaDropped()) return new Response("gone", { status: 410 })
     const principal = replicaPrincipal(JSON.parse(principalJson) as Principal)
     // An install socket lives only as long as its registry row, which needs the token's expiry.
     if (principal.kind === "install" && principal.expires_at === undefined) return new Response("forbidden", { status: 403 })
@@ -99,6 +102,11 @@ export class HostDO extends DurableObject<Env> {
     server.serializeAttachment({ role, principal, id, streams: [] } satisfies ReplicaAttachment)
     this.registerSocket(server, principal, host)
     await this.armExpiry()
+    // A drop that ran during the await closed this socket; touch nothing it purged.
+    if (this.replicaDropped() || server.readyState !== WebSocket.READY_STATE_OPEN) {
+      closeQuietly(server, 4403, "replica dropped")
+      return new Response("gone", { status: 410 })
+    }
     if (role === "publisher") wire.publisherOpened(server, id)
     else wire.readerOpened(server, principal)
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
@@ -116,6 +124,22 @@ export class HostDO extends DurableObject<Env> {
         () => undefined
       )
     )
+  }
+
+  private replicaDropped(): boolean {
+    return this.ctx.storage.sql.exec(`SELECT 1 FROM replica_dropped WHERE id = 1`).toArray().length > 0
+  }
+
+  /**
+   * RPC from TeamDO (team-host-replica-drop.ts): the host was removed or its owner left the team.
+   * Forgets every stored stream and closes every replica socket. A removed host (`tombstone`) also
+   * answers later upgrades 410; an orphaned one keeps its id and may be enrolled again. Idempotent.
+   */
+  async dropReplica(reason: string, tombstone: boolean): Promise<boolean> {
+    if (tombstone && !this.replicaDropped()) this.ctx.storage.sql.exec(`INSERT INTO replica_dropped (id, at, reason) VALUES (1, ?, ?)`, Date.now(), reason.slice(0, 200))
+    new ReplicaStore(this.ctx.storage.sql).purge()
+    for (const ws of this.ctx.getWebSockets()) if (isReplica(ws.deserializeAttachment())) closeQuietly(ws, 4403, reason.slice(0, 100))
+    return true
   }
 
   /** RPC from UserDO (socket-registry.ts): an install was revoked; close its replica sockets now. */
@@ -240,6 +264,7 @@ export class HostDO extends DurableObject<Env> {
     if (a.principal.expires_at !== undefined && a.principal.expires_at <= Date.now()) return closeQuietly(ws, 4401, "token expired")
     const wire = this.storedReplica()
     if (!wire) return closeQuietly(ws, 1011, "no replica")
+    if (this.replicaDropped()) return closeQuietly(ws, 4403, "replica dropped")
     if (a.role === "publisher") return wire.isCurrentPublisher(a.id) ? wire.onPublisher(message) : closeQuietly(ws, 4000, "replaced")
     const next = wire.onReader(ws, a, message)
     if (next === a) return
