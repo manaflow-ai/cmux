@@ -1,10 +1,10 @@
-import CmuxNextAgentActivity
+public import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextSidebar
+public import CmuxNextSidebar
 import Foundation
 import Observation
 
@@ -14,8 +14,8 @@ import Observation
 /// chat header's chip reads it) and each pull request a session opened (acpmux `pullRequests`,
 /// `gh pr view <url>`). Off, it leaves `SidebarSessionTree.state` nil.
 @MainActor
-final class SidebarSessionTreeFeed {
-    static let shared = SidebarSessionTreeFeed()
+public final class SidebarSessionTreeFeed {
+    public static let shared = SidebarSessionTreeFeed()
 
     private var task: Task<Void, Never>?
     private let pullRequests = SidebarPullRequestStore()
@@ -26,16 +26,17 @@ final class SidebarSessionTreeFeed {
         var asks: Set<String>
     }
 
-    /// Follows the setting, the lanes and this Mac's workspaces from now on. `localHost` is this
-    /// Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
-    func start(_ services: AppServices, localHost: String?, lanes: AgentLaneStore = .shared, tree: SidebarSessionTree = .shared) {
+    /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
+    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
+    public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
+                      lanes: AgentLaneStore = .shared, tree: SidebarSessionTree = .shared) {
         guard task == nil else { return }
-        let pullRequests = pullRequests, machines = services.machines
+        let pullRequests = pullRequests
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                return Self.pass(machines.allWorkspaces.map { $0.0 }, lanes: lanes.lanes, localHost: localHost,
+                return Self.pass(workspaces(), lanes: lanes.lanes, localHost: localHost,
                                  pullRequests: pullRequests.answers)
             }) {
                 if tree.state != pass?.state { tree.state = pass?.state }
@@ -101,8 +102,8 @@ final class SidebarSessionTreeFeed {
 
 /// The pull request of each session folder's branch and of each pull request URL a session opened,
 /// for the sidebar's session tree: read with the chat header's reader (two gh calls at a time, never
-/// prompting), at most once a minute per folder or URL, when the tree passes again (a lane or a
-/// workspace changed). Nothing else polls.
+/// prompting), at most once every five minutes per folder or URL, when the tree passes again (a lane or a workspace changed). Nothing else polls. The
+/// chat header's chip shares those two calls, so the sidebar asks seldom and never stalls it.
 @MainActor @Observable
 final class SidebarPullRequestStore {
     /// By folder or URL; a folder whose branch has no pull request has none.
@@ -112,7 +113,7 @@ final class SidebarPullRequestStore {
     @ObservationIgnored private let reader: AgentChatPullRequestReader
     @ObservationIgnored private let freshness: Duration
 
-    init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(60)) {
+    init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(300)) {
         self.reader = reader
         self.freshness = freshness
     }

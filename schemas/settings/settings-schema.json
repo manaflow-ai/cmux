@@ -348,6 +348,7 @@
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
               "sidebar.showChats",
+              "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
               "sidebar.showSpaces",
@@ -14478,6 +14479,57 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sessionTree.help",
+        "text" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sessionTree",
+      "keywords" : [
+        "sidebar",
+        "tree",
+        "nested",
+        "parent",
+        "child",
+        "pull request",
+        "keycap",
+        "sessions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sessionTree"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.sessionTree",
+        "text" : "Session Tree"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : true,
       "default_label" : null,
       "group" : {
@@ -25277,7 +25329,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "502fa1bb751069c138334d83a806a719d993de32235251b4d3b9035f24c81d78",
+  "schema_hash" : "a93da2ce963a7956d97d08828a70be04a0eba5c8f55d36215f68fa10c59b6d6a",
   "sections" : [
     {
       "id" : "general",

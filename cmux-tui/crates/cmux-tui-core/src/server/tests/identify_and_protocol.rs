@@ -374,8 +374,13 @@ fn ordinary_control_client_cannot_forge_provider_workspace_commits() {
 #[test]
 fn identify_advertises_additive_capabilities() {
     let mux = test_mux();
-    let identity =
-        handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
+    let identity = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::Identify { machine_metadata: false },
+        &test_writer(),
+    )
+    .unwrap();
 
     let capabilities = identity["capabilities"].as_array().expect("capabilities");
     for expected in [

@@ -698,7 +698,7 @@ class ContractRegistryTests(unittest.TestCase):
             {"kind": "nullable", "value": decimal},
         )
 
-    def test_live_catalog_counts_and_local_endpoint_scope_are_frozen(self) -> None:
+    def test_live_catalog_keeps_one_native_owner_and_optional_remote_metadata(self) -> None:
         catalog = json.loads(
             (SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text(encoding="utf-8")
         )
@@ -714,12 +714,34 @@ class ContractRegistryTests(unittest.TestCase):
                 "deleted",
                 "recoverable",
                 "extra",
+                "platform",
+                "capabilities",
             },
         )
         self.assertEqual(
             catalog["types"]["MachineSnapshot"]["fields"]["origin"]["type"]["values"],
-            ["local"],
+            ["local", "cloud", "ssh", "server"],
         )
+
+    def test_catalog_refuses_unbounded_machine_metadata_contracts(self) -> None:
+        catalog = json.loads((SCRIPT.parents[1] / "spec/resource-operations-v2.json").read_text())
+        for mutation in ("command", "new_origin", "required_platform", "open_platform"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                value = json.loads(json.dumps(catalog))
+                fields = value["types"]["MachineSnapshot"]["fields"]
+                if mutation == "command":
+                    fields["command"] = {"required": False, "type": {"kind": "primitive", "name": "string"}}
+                elif mutation == "new_origin":
+                    fields["origin"]["type"]["values"].append("unverified")
+                elif mutation == "required_platform":
+                    fields["platform"]["required"] = True
+                else:
+                    value["types"]["MachinePlatform"]["extra"] = True
+                path = Path(directory) / "catalog.json"
+                path.write_text(json.dumps(value))
+                diagnostics = []
+                CHECKER._operation_catalog(path, diagnostics)
+                self.assertTrue(any("remote catalog metadata contract" in item.message for item in diagnostics))
 
     def test_live_creation_correlation_is_exactly_the_eight_created_path_operations(
         self,
