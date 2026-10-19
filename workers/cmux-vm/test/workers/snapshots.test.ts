@@ -426,7 +426,7 @@ describe("capture controls", () => {
     const headers = { ...bearer(token), "idempotency-key": "cancel-before-admission" };
     const cancelled = await h.request("/v1/snapshot-creations/by-key/cancel", headers, { method: "POST", body: { expectedSnapshotId: null } });
     expect(cancelled.status).toBe(200);
-    expect(await cancelled.json()).toMatchObject({ state: "cancelled", id: null });
+    expect(await cancelled.json()).toMatchObject({ state: "fenced", id: null });
     expect((await create(vmId, headers)).status).toBe(409);
     expect(h.upstream.calls).toHaveLength(0);
   });

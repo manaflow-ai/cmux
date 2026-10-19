@@ -8,7 +8,7 @@ import { Conflict, Forbidden, PaymentRequired, QuotaExceeded, NotFound, ServiceU
 import { newSnapshotId, parseSnapshotId, parseVmId, type SnapshotId, type VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import type { SnapshotCapture } from "../limits/snapshot-capture.ts";
-import { authorizedSnapshotCapture, snapshotCaptureEvidenceOf, type AuthorizedSnapshotCapture } from "../proofs/snapshot-capture.ts";
+import { authorizedSnapshotCapture, legacySnapshotCaptureStatus, snapshotFenceAllowed, snapshotCaptureEvidenceOf, type AuthorizedSnapshotCapture } from "../proofs/snapshot-capture.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { tenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { tenantOwnsCapturedSnapshot, tenantOwnsSnapshot, tenantOwnsVm } from "../proofs/tenant-owns-resource.ts";
@@ -98,6 +98,10 @@ export const createSnapshotCapture = (rawVm: string, payload: CreateSnapshotRequ
       createdBy: actorRef(caller.value.actor), createdAt: new Date(yield* Clock.currentTimeMillis).toISOString(),
       ttlSeconds: payload.ttlSeconds ?? null, autoDeleteSeconds: payload.autoDeleteSeconds ?? null,
     } }).pipe(Effect.mapError(() => unavailable()));
+    if (result.state === "fenced") {
+      if (!snapshotFenceAllowed(caller.value, result.fence)) return yield* Effect.fail(snapshotNotFound());
+      return yield* Effect.fail(new Conflict({ message: "This Idempotency-Key has been cancelled" }));
+    }
     if (result.state === "mismatch") return yield* Effect.fail(new Conflict({ message: "This Idempotency-Key was already used with a different request" }));
     if (result.state === "legacyDone") {
       const oldId = parseSnapshotId(result.id);
@@ -134,17 +138,10 @@ const withCapture = <A, E, R>(rawId: string, f: <C, S>(caller: Named<C, Principa
 
 export const inspectSnapshotCaptureByKey = (key: string) => withCaller("snapshot:read", "read", (caller) => Effect.gen(function* () {
   const found = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "inspect", key: yield* digest(["key", key]) }).pipe(Effect.mapError(() => unavailable()));
-  if (found.state === "legacyDone") {
-    const id = parseSnapshotId(found.id);
-    if (Option.isNone(id)) return yield* Effect.fail(unavailable());
-    const stored = yield* (yield* SnapshotStore).inspect(caller.value.tenantId, id.value).pipe(Effect.mapError(() => unavailable()));
-    if (Option.isNone(stored)) return yield* Effect.fail(snapshotNotFound());
-    const row = stored.value, principal = caller.value, originalActor = actorRef(principal.actor) === row.createdBy;
-    const selected = principal.resourceAllowlist === null || principal.resourceAllowlist.has(row.id)
-      || (originalActor && row.sourceVmId !== null && principal.resourceAllowlist.has(row.sourceVmId));
-    if (!selected || !carriesRequiredLabels(principal, row.labels) || (principal.actor.kind === "service" && !originalActor)) return yield* Effect.fail(snapshotNotFound());
-    return new SnapshotCreationStatus({ id: row.id, state: row.deleted ? "deleted" : "committed", retryCreate: false,
-      receipt: new SnapshotSummary({ id: row.id, sourceVmId: row.sourceVmId, displayName: row.displayName, labels: row.labels, createdAt: row.createdAt.toISOString() }) });
+  if (found.state === "legacyDone") return yield* legacySnapshotCaptureStatus(caller, found.id);
+  if (found.state === "fenced") {
+    if (!snapshotFenceAllowed(caller.value, found.fence)) return yield* Effect.fail(snapshotNotFound());
+    return yield* Effect.fail(new Conflict({ message: "This Idempotency-Key has been cancelled" }));
   }
   if (found.state === "legacy") return yield* Effect.fail(new Conflict({ message: "This legacy capture has no recoverable operation record" }));
   if (found.state !== "record") return yield* Effect.fail(snapshotNotFound());
@@ -165,7 +162,7 @@ export const listSnapshotCaptures = (cursor: string | undefined, limit: number) 
   return new SnapshotCreationList({ items: items.filter((item) => item !== null), nextCursor: page.nextCursor });
 }));
 
-const reconcile = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, scope: KeyHasScope<C, "snapshot:write">) => Effect.gen(function* () {
+export const reconcileCapturedSnapshot = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId>, scope: KeyHasScope<C, "snapshot:write">) => Effect.gen(function* () {
   const capture = yield* authorizedSnapshotCapture(caller, snapshot), record = snapshotCaptureEvidenceOf(capture);
   if (record.state === "pending" || record.state === "cancelling") {
     const store = yield* SnapshotStore, upstream = yield* UpstreamSnapshots, limits = yield* TenantLimits;
@@ -182,6 +179,13 @@ const reconcile = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, Snapsho
           const settled = yield* limits.snapshotCapture(caller.value.tenantId, { op: "cancelled", id: snapshot.value }).pipe(Effect.mapError(() => retained(snapshot.value)));
           if (settled.state !== "record" || !settled.granted) return yield* Effect.fail(retained(snapshot.value));
         } else { yield* commit(caller, snapshot, capture, recovered); }
+      } else if (record.state === "cancelling" && Option.isSome(existing)) {
+        const owns = yield* tenantOwnsCapturedSnapshot(caller, snapshot, capture).pipe(Effect.mapError(() => retained(snapshot.value)));
+        if (owns === null) return yield* Effect.fail(snapshotNotFound());
+        yield* upstream.deleteSnapshot(snapshot, { owns, scope }).pipe(Effect.catchAll((error) => error.status === 404 ? Effect.void : Effect.fail(retained(snapshot.value))));
+        yield* store.markDeleted(caller.value.tenantId, snapshot.value, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(() => retained(snapshot.value)));
+        const settled = yield* limits.snapshotCapture(caller.value.tenantId, { op: "cancelled", id: snapshot.value }).pipe(Effect.mapError(() => retained(snapshot.value)));
+        if (settled.state !== "record" || !settled.granted) return yield* Effect.fail(retained(snapshot.value));
       }
     }
   }
@@ -189,10 +193,10 @@ const reconcile = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, Snapsho
 });
 
 export const reconcileSnapshotCapture = (id: string) => audited("snapshot.create.reconcile", id,
-  withCapture(id, (caller, snapshot, scope) => reconcile(caller, snapshot, scope)).pipe(Effect.uninterruptible), (value) => value.id);
+  withCapture(id, (caller, snapshot, scope) => reconcileCapturedSnapshot(caller, snapshot, scope)).pipe(Effect.uninterruptible), (value) => value.id);
 export const cancelSnapshotCapture = (id: string) => audited("snapshot.create.cancel", id, withCapture(id, (caller, snapshot, scope) => Effect.gen(function* () {
   yield* authorizedSnapshotCapture(caller, snapshot);
   const cancelled = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "cancel", id: snapshot.value }).pipe(Effect.mapError(() => retained(snapshot.value)));
   if (cancelled.state !== "record" || !cancelled.granted) return yield* Effect.fail(new Conflict({ message: "This snapshot is already committed; delete it instead" }));
-  return yield* reconcile(caller, snapshot, scope);
+  return yield* reconcileCapturedSnapshot(caller, snapshot, scope);
 })).pipe(Effect.uninterruptible), (value) => value.id);

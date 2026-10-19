@@ -46,8 +46,9 @@ it.each(["shared", "personal", "lost-capture", "cancel-capture"] as const)("runs
       const body = await r.json() as { expectedSnapshotId: string | null };
       expect(body.expectedSnapshotId).toBe(captured?.id ?? null);
       cancelRequested = true;
-      if (cancelReady && captured) snapshots.delete(captured.id);
-      return Response.json({ state: cancelReady ? "cancelled" : "cancelling", id: captured?.id ?? null, ...(captured ? { receipt: captured } : {}) });
+      const finished = kind !== "cancel-capture" || cancelReady;
+      if (finished && captured) snapshots.delete(captured.id);
+      return Response.json(captured ? { state: finished ? "cancelled" : "cancelling", id: captured.id, receipt: captured } : { state: "fenced", id: null });
     }
     if (url.pathname === "/v1/snapshot-creations/by-key") {
       return captured ? Response.json({ id: captured.id, state: cancelRequested && cancelReady ? "deleted" : snapshots.has(captured.id) ? "committed" : "pending", receipt: captured, ...(cancelRequested ? { cancellation: cancelReady ? "completed" : "requested" } : {}) }) : new Response(null, { status: 404 });

@@ -134,6 +134,7 @@ export class VmApiCloudDriver implements RawCloudDriver {
     if (tag && vm.labels.cmux_next_machine !== tag.machine) throw unavailable("unconfirmed snapshot source", true)
     return this.captures.create(vmId, name, this.labels(name, vm.labels.cmux_next_machine))
   }
+  async cancelSnapshot(name: string, tag: VmTag, allowEmptyFence: boolean): Promise<void> { return this.captures.cancel(name, tag, allowEmptyFence) }
   async deleteSnapshot(id: string): Promise<void> { this.empty(await this.request(() => this.client.DELETE("/v1/snapshots/{snapshotId}", { params: { path: { snapshotId: id } } }))) }
   async resize(id: string, size: VmResources): Promise<void> {
     const key = `cloud-resize:${await sha256Hex(JSON.stringify([id, size.cpu, size.memory, size.storage]))}`

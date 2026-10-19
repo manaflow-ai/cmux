@@ -21,7 +21,11 @@ export const SnapshotCapture = Schema.Struct({
   dispatch: Schema.optional(Schema.Struct({ state: Schema.Literal("ready", "sent", "rejected"), token: Schema.String })),
 });
 export type SnapshotCapture = typeof SnapshotCapture.Type;
+export const SnapshotKeyFence = Schema.Struct({ phase: Schema.Literal("snapshotKeyFence"), key: Schema.String,
+  createdBy: Schema.String, labels: Schema.Record({ key: Schema.String, value: Schema.String }) });
+export type SnapshotKeyFence = typeof SnapshotKeyFence.Type;
 export const SnapshotCaptureResult = Schema.Union(
+  Schema.Struct({ state: Schema.Literal("fenced"), fence: SnapshotKeyFence, granted: Schema.Boolean }),
   Schema.Struct({ state: Schema.Literal("record"), record: SnapshotCapture, granted: Schema.Boolean }),
   Schema.Struct({ state: Schema.Literal("absent", "mismatch", "legacy") }),
   Schema.Struct({ state: Schema.Literal("legacyDone"), id: Schema.String }),
@@ -29,6 +33,7 @@ export const SnapshotCaptureResult = Schema.Union(
 );
 export type SnapshotCaptureResult = typeof SnapshotCaptureResult.Type;
 export type SnapshotCaptureCommand =
+  | { readonly op: "fence"; readonly key: string; readonly expectedId: SnapshotId | null; readonly createdBy: string; readonly labels: Readonly<Record<string, string>> }
   | { readonly op: "list"; readonly cursor?: string; readonly limit: number }
   | { readonly op: "inspect"; readonly key: string }
   | { readonly op: "get"; readonly id: SnapshotId }
@@ -38,6 +43,7 @@ export type SnapshotCaptureCommand =
   | { readonly op: "commit" | "cancel" | "cancelled" | "yield" | "reservation"; readonly id: SnapshotId };
 
 const isCapture = Schema.is(SnapshotCapture);
+const isFence = Schema.is(SnapshotKeyFence);
 const Reservation = Schema.Struct({ kind: Schema.String, expiresMs: Schema.Number, retained: Schema.optional(Schema.Boolean), owner: Schema.optional(Schema.String) });
 const isReservation = Schema.is(Reservation);
 const Legacy = Schema.Struct({ fingerprint: Schema.String, progress: Schema.Struct({ phase: Schema.String, snapshotId: Schema.optional(Schema.String) }) });
@@ -64,14 +70,42 @@ export const snapshotCapture = (storage: LedgerStorage, command: SnapshotCapture
     const key = "key" in command ? command.key : await tx.get(`snapshot-key:${command.id}`);
     if (typeof key !== "string") return { state: "absent" };
     const raw = await tx.get(`idem:${key}`);
+    if (command.op === "fence") {
+      if (isFence(raw)) return { state: "fenced", fence: raw, granted: command.expectedId === null };
+      if (raw === undefined) {
+        if (command.expectedId !== null) return { state: "mismatch" };
+        const fence: SnapshotKeyFence = { phase: "snapshotKeyFence", key, createdBy: command.createdBy, labels: command.labels };
+        await tx.put(`idem:${key}`, fence);
+        return { state: "fenced", fence, granted: true };
+      }
+      if (isCapture(raw)) {
+        if (raw.intent.id !== command.expectedId) return recordResult(raw);
+        const allowed = Object.entries(command.labels).every(([k, v]) => raw.intent.labels[k] === v)
+          && (!command.createdBy.startsWith("service:") || raw.intent.createdBy === command.createdBy);
+        if (!allowed) return { state: "mismatch" };
+        const terminal = raw.state === "cancelled" || raw.state === "claimed" || (raw.state === "pending" && (raw.dispatch?.state === "ready" || raw.dispatch?.state === "rejected"));
+        const record: SnapshotCapture = { ...raw, state: terminal ? "cancelled" : "cancelling" };
+        if (terminal && record.reservationId !== undefined) await tx.delete(`reserve:${record.reservationId}`);
+        await tx.put(`idem:${key}`, record);
+        return recordResult(record, true);
+      }
+      if (isLegacy(raw) && (raw.progress.phase === "snapshotDone" || raw.progress.phase === "snapshotLegacy") && raw.progress.snapshotId !== undefined) {
+        if (raw.progress.snapshotId !== command.expectedId) return { state: "mismatch" };
+        await tx.put(`idem:${key}`, { fingerprint: raw.fingerprint, progress: { phase: "snapshotLegacy", snapshotId: raw.progress.snapshotId } });
+        return { state: "legacyDone", id: raw.progress.snapshotId };
+      }
+      return { state: "legacy" };
+    }
     if (command.op === "inspect" || command.op === "get") {
       if (isCapture(raw)) return recordResult(raw);
+      if (isFence(raw)) return { state: "fenced", fence: raw, granted: false };
       if (raw === undefined) return { state: "absent" };
       if (isProtectedLegacy(raw)) return raw.progress.snapshotId === undefined ? { state: "legacy" } : { state: "legacyDone", id: raw.progress.snapshotId };
       if (isLegacy(raw) && raw.progress.phase === "snapshotDone" && raw.progress.snapshotId !== undefined) return { state: "legacyDone", id: raw.progress.snapshotId };
       return { state: "legacy" };
     }
     if (command.op === "begin") {
+      if (isFence(raw)) return { state: "fenced", fence: raw, granted: false };
       if (isProtectedLegacy(raw)) {
         if (raw.fingerprint !== command.fingerprint) return { state: "mismatch" };
         return raw.progress.snapshotId === undefined ? { state: "legacy" } : { state: "legacyDone", id: raw.progress.snapshotId };
