@@ -127,6 +127,7 @@ mod tests {
                 "argv": ["agent", SENTINEL],
                 "env": {"PRIVATE_TOKEN": SENTINEL},
                 "sessions": {"adapter": "jsonl", "resume": {"argv": ["agent", SENTINEL]}},
+                "description": format!("route https://user:{SENTINEL}@example.invalid"),
                 "unavailable": format!("launcher failed: {SENTINEL}"),
                 "probeError": format!("probe failed: {SENTINEL}"),
             }},
