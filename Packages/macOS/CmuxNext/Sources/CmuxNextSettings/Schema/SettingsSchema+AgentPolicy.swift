@@ -262,6 +262,8 @@ extension SettingsSchema {
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
         "phone.keepAwake": .userOnly,
+        // Workspace names leave this Mac for the Cloud service: only the person turns it on.
+        "phone.cloudReplica": .privacy,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

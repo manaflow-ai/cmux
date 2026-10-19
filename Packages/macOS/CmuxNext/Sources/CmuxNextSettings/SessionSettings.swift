@@ -15,6 +15,8 @@ public nonisolated struct SessionSettings: Sendable, Equatable {
     public var phoneStartsSessions = SessionSettings.startSessionsDefault
     /// `phone.keepAwake`: idle sleep stays off while phones can reach this Mac.
     public var phoneKeepAwake = SessionSettings.phoneKeepAwakeDefault
+    /// `phone.cloudReplica`: the daemon publishes this Mac's workspace list to the Cloud service.
+    public var publishesCloudReplica = SessionSettings.cloudReplicaDefault
 
     public init() {}
 
@@ -29,6 +31,7 @@ public nonisolated struct SessionSettings: Sendable, Equatable {
             if let value = reader.bool("allowConnections") { settings.allowsPhone = value }
             if let value = reader.bool("startSessions") { settings.phoneStartsSessions = value }
             if let value = reader.choice("keepAwake", PhoneKeepAwakeSetting.self) { settings.phoneKeepAwake = value }
+            if let value = reader.bool("cloudReplica") { settings.publishesCloudReplica = value }
             diagnostics += reader.diagnostics
         }
         return settings
