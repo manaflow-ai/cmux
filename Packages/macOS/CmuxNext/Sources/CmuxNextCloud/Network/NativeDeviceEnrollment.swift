@@ -78,7 +78,7 @@ public actor NativeDeviceEnrollment {
     private func currentRecord(_ store: NativeDeviceStore) throws -> NativeDeviceRecord {
         let lock = try store.lock()
         defer { withExtendedLifetime(lock) {} }
-        return try store.loadOrCreate()
+        return try store.loadOrCreate(create: false)
     }
 
     /// Stop admitting enrollments. Sign-out also calls `revoke` while its Stack session is available.
