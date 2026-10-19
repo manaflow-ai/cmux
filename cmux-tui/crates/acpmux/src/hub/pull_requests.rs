@@ -6,8 +6,8 @@
 //! Only a shell call (`kind` `execute`) whose whole command is `gh pr create ...` counts, after
 //! `cd DIR &&` steps and `VAR=value` / `env` prefixes: a grep or an echo that mentions it, or a
 //! `gh pr create && gh pr view 9`, does not. Of its output only the last line that is nothing but
-//! a pull request URL is kept, which is what gh prints on success (or for the branch's existing
-//! pull request). Harnesses report the command on the tool call and its output on later updates
+//! a pull request URL is kept, which is what gh prints on success; a failed call (gh exits 1 when
+//! the branch already has one, printing its URL) records nothing. Harnesses report the command on the tool call and its output on later updates
 //! (Claude Code, codex-acp), so such a call is remembered until it ends (`Session::pr_creates`).
 
 use std::sync::LazyLock;
@@ -214,13 +214,17 @@ pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta) {
     if !calls.contains(id) {
         return;
     }
-    if let Some(url) = printed_url(&output_text(update))
+    let status = update.get("status").and_then(Value::as_str);
+    // A failed gh opened nothing; "a pull request for branch ... already exists: URL" names one
+    // it did not open now.
+    if status != Some("failed")
+        && let Some(url) = printed_url(&output_text(update))
         && m.pull_requests.len() < MAX_PULL_REQUESTS
         && !m.pull_requests.iter().any(|p| p == url)
     {
         m.pull_requests.push(url.to_owned());
     }
-    if matches!(update.get("status").and_then(Value::as_str), Some("completed" | "failed")) {
+    if matches!(status, Some("completed" | "failed")) {
         calls.remove(id);
     }
 }
