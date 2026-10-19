@@ -37,6 +37,7 @@
 #
 # Environment:
 #   CNX_PROD_API_BASE   production Worker URL (default: project.yml)
+#   CNX_PROFILE_PATH    use this .mobileprovision instead of downloading CNX_PROFILE_NAME (CI)
 #   CNX_PROFILE_NAME    App Store profile for dev.cmux.app.internal (default
 #                       "cmux Internal Distribution")
 #   CNX_SIGN_IDENTITY   SHA-1 of the distribution identity (default: the first one in
@@ -226,20 +227,30 @@ fi
 profile_path="" profile_uuid="" identity=""
 if [[ $unsigned == 0 ]]; then
   log "signing: profile \"$profile_name\", distribution identity"
-  profile_id=$(asc_ bundle-ids list --paginate --output json | json '
+  if [[ -n "${CNX_PROFILE_PATH:-}" ]]; then
+    # CI: the release environment's copy of the profile (the one that lists
+    # CI's distribution certificate), not App Store Connect's current version.
+    [[ -f "$CNX_PROFILE_PATH" ]] || die "CNX_PROFILE_PATH $CNX_PROFILE_PATH is not a file"
+    cp "$CNX_PROFILE_PATH" "$private/profile.mobileprovision"
+    profile_id="file"
+  else
+    profile_id=$(asc_ bundle-ids list --paginate --output json | json '
 import json,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
 print(next(b["id"] for b in d["data"] if b["attributes"]["identifier"]=="dev.cmux.app.internal"))' \
-    | { read -r bid; asc_ bundle-ids profiles list --id "$bid" --output json; } | CNX_PROFILE_NAME="$profile_name" json '
+      | { read -r bid; asc_ bundle-ids profiles list --id "$bid" --output json; } | CNX_PROFILE_NAME="$profile_name" json '
 import json,os,sys
 d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
 p=[p for p in d["data"] if p["attributes"]["name"]==os.environ["CNX_PROFILE_NAME"]
    and p["attributes"]["profileType"]=="IOS_APP_STORE" and p["attributes"]["profileState"]=="ACTIVE"]
 print(p[0]["id"] if p else "")')
-  [[ -n "$profile_id" ]] || die "no ACTIVE IOS_APP_STORE profile \"$profile_name\" for $bundle_id"
-  asc_ profiles download --id "$profile_id" --output "$private/profile.mobileprovision" >/dev/null
+    [[ -n "$profile_id" ]] || die "no ACTIVE IOS_APP_STORE profile \"$profile_name\" for $bundle_id"
+    asc_ profiles download --id "$profile_id" --output "$private/profile.mobileprovision" >/dev/null
+  fi
   security cms -D -i "$private/profile.mobileprovision" > "$private/profile.plist"
   profile_uuid=$(plutil -extract UUID raw "$private/profile.plist")
+  expiry=$(plutil -extract ExpirationDate raw "$private/profile.plist")
+  [[ "$(date -u +%Y-%m-%dT%H:%M:%SZ)" < "$expiry" ]] || die "profile $profile_uuid expired $expiry"
   [[ "$(plutil -extract Entitlements.application-identifier raw "$private/profile.plist")" == "$team.$bundle_id" ]] \
     || die "profile $profile_id is not for $team.$bundle_id"
   # Xcode 16+ reads profiles from UserData; older tools from MobileDevice.

@@ -116,16 +116,15 @@ jobs:
           IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64 }}
         run: |
           set -euo pipefail
-          # The ios/ INTERNAL lane signs with this profile; "cmux Internal
-          # Distribution" does not list CI's distribution certificate. The
-          # script fetches the profile by name from App Store Connect.
+          # The ios/ INTERNAL lane signs with this profile.
           [ -n "${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64:-}" ] || { echo "no internal profile secret; using the default profile"; exit 0; }
-          profile="$RUNNER_TEMP/internal.mobileprovision"
+          # Same name as App Store Connect's current profile, but this copy is
+          # the one that lists CI's certificate: sign with the file itself.
+          mkdir -p "$RUNNER_TEMP/asc"; chmod 700 "$RUNNER_TEMP/asc"
+          profile="$RUNNER_TEMP/asc/internal.mobileprovision"
           printf '%s' "$IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64" | base64 --decode > "$profile"
-          name="$(security cms -D -i "$profile" | plutil -extract Name raw -)"
-          rm -f "$profile"
-          echo "profile: $name"
-          echo "CNX_PROFILE_NAME=$name" >> "$GITHUB_ENV"
+          security cms -D -i "$profile" | plutil -extract Name raw - | sed 's/^/profile: /'
+          echo "CNX_PROFILE_PATH=$profile" >> "$GITHUB_ENV"
 
       - name: Archive, export, verify, validate
         env:
