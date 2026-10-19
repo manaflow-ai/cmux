@@ -15,15 +15,23 @@ public final class TerminalHostView: NSView, LayerParkable {
     /// Parked in its pane (`LayerParkable`): kept in its window, unhidden for AppKit, its layer
     /// hidden; the surface stops drawing, observing and taking input as when hidden. Any move to
     /// another superview unparks it (parking never moves a view), so a view taken elsewhere shows.
+    /// Every set applies the layer (an AppKit unhide shows the layer again); only a change notifies.
     public var isParked = false {
         didSet {
-            guard isParked != oldValue else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            layer?.isHidden = isParked
+            layer?.isHidden = isParked || isHidden
             CATransaction.commit()
-            current?.parkingDidChange()
+            if isParked != oldValue { notifyOutOfSightChange() }
         }
+    }
+
+    /// Whether the host can park by its layer: only while it shows no control of its own (the find
+    /// bar, Restart or Retry), whose cursor rects and key views AppKit would keep live in a parked
+    /// view. A host that shows one parks by AppKit's hidden state.
+    public var parksByLayer: Bool {
+        restartButton.isHidden && retryButton.isHidden
+            && !subviews.contains { $0 is TerminalFindBarView && !$0.isHidden }
     }
     /// The session's theme; nil paints the config background.
     var theme: GhosttyThemeConfig? {
@@ -304,3 +312,6 @@ private final class TerminalHostThemeListener: ThemeResponsive {
 
     func themeDidChange() { host?.paintBackground() }
 }
+
+/// The surface goes out of sight with its parked host (`LayerParkable`).
+extension TerminalSurfaceView: OutOfSightObserving {}

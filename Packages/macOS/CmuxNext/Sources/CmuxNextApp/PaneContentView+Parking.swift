@@ -30,10 +30,16 @@ extension BrowserChromeView: PaneParkableContent {}
 /// A terminal parks by its layer (`LayerParkable`): an AppKit hidden-state change of content under
 /// the transparent titlebar re-sends the window's titlebar drag shapes, and the next commit waits on
 /// a window-server fence (cx-8w027.19, one per tab switch).
+/// A host that shows a control of its own (`parksByLayer` false) parks by AppKit's hidden state.
 extension TerminalHostView: PaneParkableContent {
     func setParked(_ parked: Bool) {
-        if isHidden { isHidden = false } // parked hidden before it moved here (another kind of pane)
-        isParked = parked
+        if parked, !parksByLayer {
+            isParked = false
+            isHidden = true
+        } else {
+            if isHidden { isHidden = false }
+            isParked = parked
+        }
     }
     var isParkedInPane: Bool { isParked || isHidden }
 }

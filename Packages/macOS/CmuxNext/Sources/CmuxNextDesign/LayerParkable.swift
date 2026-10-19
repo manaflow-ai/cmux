@@ -10,6 +10,26 @@ public protocol LayerParkable: NSView {
     var isParked: Bool { get }
 }
 
+/// A view that reacts when it goes out of sight or back (`isOutOfSight`), as it does on
+/// `viewDidHide` / `viewDidUnhide`: AppKit sends those for a hidden-state change only, so a parked
+/// view tells its subtree itself (`notifyOutOfSightChange`).
+@MainActor
+public protocol OutOfSightObserving: NSView {
+    func outOfSightDidChange()
+}
+
+extension LayerParkable {
+    /// Tells every `OutOfSightObserving` view in this view's subtree (itself included) that it
+    /// went out of sight or came back. Call it when `isParked` changes.
+    public func notifyOutOfSightChange() {
+        var pending: [NSView] = [self]
+        while let view = pending.popLast() {
+            (view as? OutOfSightObserving)?.outOfSightDidChange()
+            pending.append(contentsOf: view.subviews)
+        }
+    }
+}
+
 extension NSView {
     /// Hidden for AppKit, or inside a parked view (`LayerParkable`): out of sight either way.
     public var isOutOfSight: Bool {

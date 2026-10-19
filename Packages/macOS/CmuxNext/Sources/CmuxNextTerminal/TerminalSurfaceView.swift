@@ -180,9 +180,9 @@ public final class TerminalSurfaceView: NSView {
         syncWindowState()
     }
 
-    /// Its host parked or unparked (`TerminalHostView.isParked`): the same as a hide or an unhide,
-    /// and the window drops or takes back its cursor rect.
-    func parkingDidChange() {
+    /// Its host parked or unparked (`TerminalHostView.isParked`, `OutOfSightObserving`): the same
+    /// as a hide or an unhide, and the window drops or takes back its cursor rect.
+    public func outOfSightDidChange() {
         if isOutOfSight {
             observeWindow(false)
             updateOcclusion()

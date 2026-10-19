@@ -124,7 +124,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
 /// tab shows or stops showing (it leaves its window or is hidden) and when
 /// it changes size.
 @MainActor
-final class CmuxDialogScopeWatcher: NSView {
+final class CmuxDialogScopeWatcher: NSView, OutOfSightObserving {
     var onVisibilityChange: (() -> Void)?
     var onResize: (() -> Void)?
 
@@ -139,8 +139,8 @@ final class CmuxDialogScopeWatcher: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// In a window and not hidden (itself or an ancestor).
-    var isShowing: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+    /// In a window and in sight (not hidden or parked, itself or an ancestor: `isOutOfSight`).
+    var isShowing: Bool { window != nil && !isOutOfSight }
 
     /// The tab's rect in window coordinates.
     var windowRect: NSRect? { superview.map { $0.convert($0.bounds, to: nil) } }
@@ -164,6 +164,11 @@ final class CmuxDialogScopeWatcher: NSView {
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
+        onVisibilityChange?()
+    }
+
+    /// Its tab parked or came back (`LayerParkable`).
+    func outOfSightDidChange() {
         onVisibilityChange?()
     }
 
