@@ -1917,6 +1917,7 @@
     "home.settings.set",
     "host.enroll",
     "host.remove",
+    "host.replica.purge",
     "install.list",
     "install.register",
     "install.rename",

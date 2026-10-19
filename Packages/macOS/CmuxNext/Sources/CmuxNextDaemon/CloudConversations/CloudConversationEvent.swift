@@ -62,10 +62,13 @@ public enum CloudConversationsEvent: Sendable, Hashable {
     case live(ConversationLive)
     /// A Cloud Chief's run after an append (`cloud-conversation-runs-v1`).
     case runChanged(ConversationRunChanged)
+    /// The host replica publisher asks for a new install token (`cloud-host-replica-v1`).
+    case hostReplicaNeeded(CloudHostReplicaNeeded)
 
     public static let eventNames: Set<String> = [
         "cloud-conversation-changed", "cloud-conversation-resynced", "cloud-inbox-changed", "cloud-inbox-reset",
         "cloud-subscription-state", "cloud-session-needed", "cloud-conversation-live", "cloud-conversation-run-changed",
+        "cloud-host-replica-needed",
     ]
 
     private struct InboxReset: Decodable {
@@ -88,6 +91,7 @@ public enum CloudConversationsEvent: Sendable, Hashable {
         case "cloud-session-needed": .sessionNeeded(try decoder.decode(CloudSessionNeeded.self, from: line))
         case "cloud-conversation-live": .live(try decoder.decode(ConversationLive.self, from: line))
         case "cloud-conversation-run-changed": .runChanged(try decoder.decode(ConversationRunChanged.self, from: line))
+        case "cloud-host-replica-needed": .hostReplicaNeeded(try decoder.decode(CloudHostReplicaNeeded.self, from: line))
         default: nil
         }
     }

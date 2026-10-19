@@ -2719,6 +2719,12 @@
       "title" : "Let Your Phone Use This Mac",
       "type" : "boolean"
     },
+    "phone.cloudReplica" : {
+      "default" : false,
+      "description" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy.",
+      "title" : "Show This Mac's Workspaces on Your Phone While It's Off",
+      "type" : "boolean"
+    },
     "phone.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep.",
