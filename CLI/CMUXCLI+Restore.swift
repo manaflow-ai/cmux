@@ -187,7 +187,7 @@ extension CMUXCLI {
         if let invocation {
             execution = .invocation(invocation)
         } else {
-            if mode == .resumeAgent,
+            if record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
                let launch = record.launchCommand,
                let checkpointID = record.checkpointID,
                case .rejected = AgentResumeArgv().launcherResolution(
