@@ -166,6 +166,23 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     await page.close();
   });
 
+  test("in shell mode ⌘Return sends no yes, and the card shows no ⌘Return key", async () => {
+    const page = await openChat();
+    await card(page).waitFor();
+    const yes = card(page).getByRole("button", { name: "Yes, open PR" });
+    expect(await yes.getAttribute("aria-keyshortcuts")).toBe("Meta+Enter");
+    await page.locator(".acpmux-composer-prompt").click();
+    await page.keyboard.type("!");
+    await page.locator(".acpmux-shell-field").waitFor();
+    expect(await yes.getAttribute("aria-keyshortcuts")).toBeNull();
+    expect(await yes.locator(".acpmux-keycap").count()).toBe(0);
+    await page.keyboard.press("Meta+Enter");
+    await page.waitForTimeout(300);
+    expect(prompts).toEqual([]);
+    expect(await card(page).count()).toBe(1);
+    await page.close();
+  });
+
   test("Not now hides the card for the turn, across a reload, and sends nothing", async () => {
     const page = await openChat();
     await card(page).waitFor();
