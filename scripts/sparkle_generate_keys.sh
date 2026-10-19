@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The output contains the private update-signing key. Keep both newly created
+# files and replacement temporaries private regardless of the caller's umask.
+umask 077
+
 SPARKLE_VERSION="${SPARKLE_VERSION:-2.8.1}"
 SPARKLE_KEYCHAIN_ACCOUNT="${SPARKLE_KEYCHAIN_ACCOUNT:-cmux}"
 SPARKLE_ENV_FILE="${SPARKLE_ENV_FILE:-.env}"
