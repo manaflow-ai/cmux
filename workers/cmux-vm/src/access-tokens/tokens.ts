@@ -2,8 +2,9 @@ import { Context, Data, Effect, Redacted, Schema } from "effect";
 import { compactVerify, CompactSign, importJWK, type JWK } from "jose";
 import { TenantId, UserId, VmId, type TenantId as TenantIdType, type UserId as UserIdType, type VmId as VmIdType } from "../lib/ids.ts";
 import type { Principal } from "../domain/principal.ts";
+import { scopeSetOf } from "../domain/scopes.ts";
 import { type TenantLimitsService } from "../limits/service.ts";
-import { verifierAccessTokenProof, type AccessTokenAllows } from "../proofs/access-token-allows.ts";
+import { verifierAccessTokenProof, type AccessTokenEvidence } from "../proofs/access-token-allows.ts";
 
 export const ACCESS_TOKEN_PREFIX = "cmux_at_";
 const TOKEN_ID_PATTERN = /^at_[0-9A-HJKMNP-TV-Z]{26}$/u;
@@ -89,7 +90,7 @@ export interface VerifiedAccessToken {
   readonly linuxUser: string;
   readonly issuedAt: Date;
   readonly expiresAt: Date;
-  readonly proof: AccessTokenAllows<Principal>;
+  readonly proof: AccessTokenEvidence;
   readonly authenticatedPrincipal: Principal;
 }
 
@@ -218,7 +219,11 @@ export const makeAccessTokenService = (keys: ReadonlyArray<AccessTokenKeys>, lim
         const principal: Principal = {
           tenantId: claims.tenant,
           actor: { kind: "access-token", tokenId: claims.jti, principal: claims.principal },
-          scopes: new Set(),
+          scopes: scopeSetOf([
+            ...(claims.scopes.includes("exec") ? ["vm:exec"] : []),
+            ...(claims.scopes.includes("pty") ? ["vm:terminal"] : []),
+            ...(claims.scopes.includes("files:read") || claims.scopes.includes("files:write") ? ["vm:files"] : []),
+          ]),
           resourceAllowlist: new Set(claims.vmIds),
           credentialExpiresAt: expiresAt,
         };

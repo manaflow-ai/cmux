@@ -66,7 +66,7 @@ export const authenticationLayer = Layer.effect(
           Effect.mapError(() => unavailable()),
         );
         if (Option.isNone(record)) return yield* Effect.fail(unauthorized());
-        const principal = {
+        const principal: Principal = {
           tenantId: record.value.tenantId,
           actor: { kind: "api_key", keyId: record.value.id },
           scopes: scopeSetOf(record.value.scopes),

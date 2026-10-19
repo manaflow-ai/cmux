@@ -2,7 +2,7 @@ import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { name } from "@gdp-ts/core";
 import { Clock, Effect, Option } from "effect";
 import { CreatedAccessToken, AccessTokenList, SshAccess, type CreateAccessTokenRequest } from "../access-tokens/api.ts";
-import { AccessTokenStore, type AccessTokenRecord, type AccessTokenScope } from "../access-tokens/tokens.ts";
+import { AccessTokenStore, AccessTokens, type AccessTokenRecord, type AccessTokenScope } from "../access-tokens/tokens.ts";
 import { AccessTokenId } from "../access-tokens/tokens.ts";
 import { actorRef, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import { badRequest, Forbidden, NotFound, unavailable, missingScope } from "../errors.ts";
@@ -158,13 +158,13 @@ const ssh = (rawId: string) =>
       const parsed = parseVm(vmRaw);
       if (parsed === null) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
       const upstream = yield* UpstreamAccessTokens;
-      const delegated = yield* name(principal, <C>(caller: import("@gdp-ts/core").Named<C, Principal>) =>
-        name(parsed, <V>(vm: import("@gdp-ts/core").Named<V, import("../lib/ids.ts").VmId>) =>
-          Effect.flatMap(tenantOwnsVm(caller, vm), (owns): Effect.Effect<import("../upstream/access-tokens.ts").DelegatedSsh, NotFound | import("../upstream/client.ts").UpstreamError> =>
-            owns === null
-              ? Effect.fail(new NotFound({ message: "VM not found" }))
-              : upstream.mintSsh(vm, { owns, allows: accessProof }, record.linuxUser, record.providerIdentityId ?? undefined, record.expiresAt),
-          ),
+      const delegated = yield* accessProof.withCaller((caller, allows) =>
+        name(parsed, (vm) =>
+          Effect.gen(function* () {
+            const owns = yield* tenantOwnsVm(caller, vm);
+            if (owns === null) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
+            return yield* upstream.mintSsh(vm, { owns, allows }, record.linuxUser, record.providerIdentityId ?? undefined, record.expiresAt);
+          }),
         ),
       ).pipe(Effect.mapError((error) => error instanceof NotFound ? error : unavailable()));
       yield* (yield* AccessTokenStore).setProviderIdentity(principal.tenantId, record.id, delegated.identityId).pipe(Effect.mapError(() => unavailable()));

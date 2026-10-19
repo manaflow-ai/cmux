@@ -76,8 +76,9 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
                 .pipe(Effect.mapError(mapUpstream(vmNotFound))),
             );
             const limits = yield* TenantLimits;
-            const shouldClose = caller.value.actor.kind === "access-token"
-              ? () => Effect.runPromise(limits.isAccessTokenRevoked(caller.value.tenantId, caller.value.actor.tokenId, Date.now())).catch(() => true)
+            const actor = caller.value.actor;
+            const shouldClose = actor.kind === "access-token"
+              ? () => Effect.runPromise(limits.isAccessTokenRevoked(caller.value.tenantId, actor.tokenId, Date.now())).catch(() => true)
               : undefined;
             return switchingProtocols(bridgeTerminal(socket, {
               ...(caller.value.credentialExpiresAt === null ? {} : { expiresAt: caller.value.credentialExpiresAt }),
@@ -102,8 +103,9 @@ export const terminalsHandlers = HttpApiBuilder.group(CmuxVmApi, "terminals", (h
               upstream.attachTerminal(vm, proofs, selector, urlParams.user).pipe(Effect.mapError(mapUpstream(terminalNotFound))),
             );
             const limits = yield* TenantLimits;
-            const shouldClose = caller.value.actor.kind === "access-token"
-              ? () => Effect.runPromise(limits.isAccessTokenRevoked(caller.value.tenantId, caller.value.actor.tokenId, Date.now())).catch(() => true)
+            const actor = caller.value.actor;
+            const shouldClose = actor.kind === "access-token"
+              ? () => Effect.runPromise(limits.isAccessTokenRevoked(caller.value.tenantId, actor.tokenId, Date.now())).catch(() => true)
               : undefined;
             return switchingProtocols(bridgeTerminal(socket, {
               ...(caller.value.credentialExpiresAt === null ? {} : { expiresAt: caller.value.credentialExpiresAt }),

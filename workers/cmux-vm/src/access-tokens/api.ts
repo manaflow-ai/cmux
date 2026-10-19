@@ -76,6 +76,7 @@ export class AccessTokensGroupDefinition extends HttpApiGroup.make("accessTokens
       .addSuccess(HttpApiSchema.NoContent)
       .addError(Forbidden)
       .addError(NotFound)
+      .addError(QuotaExceeded)
       .addError(ServiceUnavailable)
       .annotateContext(describe("Revoke an access token")),
   )
@@ -86,6 +87,7 @@ export class AccessTokensGroupDefinition extends HttpApiGroup.make("accessTokens
       .addSuccess(SshAccess)
       .addError(Forbidden)
       .addError(NotFound)
+      .addError(QuotaExceeded)
       .addError(ServiceUnavailable)
       .annotateContext(describe("Mint a delegated SSH credential")),
   ) {}

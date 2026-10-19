@@ -103,7 +103,7 @@ export const withOwnedVm = <const S extends Scope, A, E, R>(
         yield* rateLimit(principal, rateClass);
         const parsed = parseVmId(raw.value);
         if (Option.isNone(parsed)) return yield* Effect.fail(vmNotFound());
-        if (principal.actor.kind === "access-token" && (accessProof === undefined || !accessTokenAllowsVm(accessProof, parsed.value))) {
+        if (principal.actor.kind === "access-token" && (accessProof === undefined || !accessProof.withCaller((_caller, proof) => accessTokenAllowsVm(proof, parsed.value)))) {
           return yield* Effect.fail(vmNotFound());
         }
         return yield* name(parsed.value, (vm) =>
