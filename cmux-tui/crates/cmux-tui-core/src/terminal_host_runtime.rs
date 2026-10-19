@@ -702,17 +702,23 @@ mod unix {
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
+        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels);
         let pty = cmux_pty::open(initial_pty_size)?;
         crate::debug_spans::mark("host.pty_opened");
-        let mut command = PtyCommand::new(&launch.command[0]);
-        command.args(launch.command[1..].iter().cloned());
+        // A frontend's shell starts through login(1) (`login_shell`); the
+        // recorded launch command stays the shell's.
+        let login = crate::login_shell::wrap(&launch.command, &launch.extra_env);
+        let argv = login.as_deref().unwrap_or(&launch.command);
+        let mut command = PtyCommand::new(&argv[0]);
+        command.args(argv[1..].iter().cloned());
         command.env("TERM", &launch.term);
         // Terminal-host children get the same truecolor guarantee as directly
         // spawned surfaces (see Surface spawn in surface.rs); extra_env wins.
         command.env("COLORTERM", "truecolor");
         for (key, value) in &launch.extra_env {
-            command.env(key, value);
+            if !crate::login_shell::is_marker(key) {
+                command.env(key, value);
+            }
         }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);

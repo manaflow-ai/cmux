@@ -743,3 +743,54 @@ fn open_url_into_a_browser_whose_page_never_answers_returns_at_once() {
     assert_success(&listed);
     drop(provider);
 }
+
+/// `tab.create_browser` (`cmux browser open`, `cmux tab create browser`, the
+/// MCP `tab_create_browser`) with no cmux-browser provider: before the app
+/// attaches it refuses with `engine_unavailable` and a reason that says what
+/// to do; once the app attaches (`frontend-browser-tabs-v1`) the same create
+/// makes a frontend browser tab the app renders, and a retry with the same
+/// key answers the first tab instead of a second one. Live repro before the
+/// fix: an agent whose CLI talks to a Chief session the app shows got "no
+/// browser engine: no cmux-browser provider is attached" for every
+/// `cmux browser open`.
+#[test]
+fn tab_create_browser_makes_a_frontend_tab_when_the_app_is_attached() {
+    let server = HeadlessServer::start("create-browser-frontend");
+    let created = v2(
+        &server,
+        "workspace.create",
+        json!({"initial_content": "terminal", "name": "create-browser-frontend"}),
+        Some("create-browser-frontend-ws"),
+    );
+    let workspace = value(&created)["workspace_id"].as_str().unwrap().to_string();
+    let create = |url: &str, key: &str| {
+        v2(&server, "tab.create_browser", json!({"workspace": workspace, "url": url}), Some(key))
+    };
+
+    let refused = create("https://example.com/none", "create-browser-frontend-0");
+    let refusal = error(&refused);
+    assert_eq!(refusal["details"]["extra"]["code"], "engine_unavailable", "{refused}");
+    assert!(
+        refusal["details"]["reason"].as_str().is_some_and(|reason| reason.contains("cmux app")),
+        "the refusal says to open the cmux app: {refused}"
+    );
+    let before = screen(&server, &workspace);
+
+    let _app = frontend_app(&server);
+    let opened = create("https://example.com/agent", "create-browser-frontend-1");
+    let first = value(&opened).clone();
+    assert!(first["browser_id"].as_str().is_some_and(|id| id.starts_with("browser_")), "{opened}");
+    let after = screen(&server, &workspace);
+    let tab = tab_by_resource(&after, &first["tab_id"]);
+    assert_eq!(tab["browser_renderer"], "frontend", "not a frontend browser tab: {after}");
+    assert_eq!(tab["url"], "https://example.com/agent", "{after}");
+    assert_eq!(tab_count(&after), tab_count(&before) + 1, "{after}");
+
+    let retried = create("https://example.com/agent", "create-browser-frontend-1");
+    assert_eq!(value(&retried)["browser_id"], first["browser_id"], "{retried}");
+    assert_eq!(value(&retried)["tab_id"], first["tab_id"], "{retried}");
+    assert_eq!(tab_count(&screen(&server, &workspace)), tab_count(&after), "a retry made a tab");
+
+    let conflict = create("https://example.com/other", "create-browser-frontend-1");
+    assert_eq!(error(&conflict)["code"], "idempotency.conflict", "{conflict}");
+}

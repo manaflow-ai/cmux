@@ -131,6 +131,8 @@ final class SidebarListView: NSView {
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        // A close's successor is the next row drawn here (FocusAfterClose.workspace).
+        model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.
         // A no-op drop settles the same way (nothing will change the model).
         for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
@@ -197,8 +199,13 @@ final class SidebarListView: NSView {
     }
     /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {
-        func reach(_ view: NSView) { view.subviews.forEach { ($0 as? StatusIndicatorView)?.isWindowVisible = visible; if !($0 is StatusIndicatorView) { reach($0) } } }
-        subviews.forEach(reach)
+        // Depth first in subview order; an indicator's own subviews are not entered. An explicit
+        // stack, not a recursive local function (Swift 6.3.3's SendNonSendable pass crashed now and
+        // then on capturing ones in Release).
+        var pending: [NSView] = subviews.reversed()
+        while let view = pending.popLast() {
+            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
+        }
     }
     nonisolated override var isFlipped: Bool { true }
     /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing

@@ -59,7 +59,7 @@ struct ScreenDividers {
     /// (`ScreenContentView.rank`), so its Chromium page gets no hole and no click catcher there.
     private func uncovered(_ rect: CGRect) -> CGRect {
         guard let pane = screen.zoomMotion.pane, let host = screen.context.hosts[pane], host.superview === screen, !rect.isNull else { return rect }
-        let cover = host.revealRect.map(host.frame.intersection) ?? host.frame
+        let cover = host.frame
         if cover.insetBy(dx: -0.5, dy: -0.5).contains(rect) { return .null }
         return rect.remainder(outside: cover)
     }

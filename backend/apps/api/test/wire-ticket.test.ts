@@ -2,7 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject as runIn } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
 
@@ -34,8 +34,12 @@ const person = async (tag: string) => {
   return { token, user: userIdFor(testEnv.STACK_PROJECT_ID, sub) }
 }
 
-const mint = async (token?: string) => {
-  const r = await worker.fetch("https://api.test/v1/wire/ticket", { method: "POST", headers: token ? { authorization: `Bearer ${token}` } : {} })
+const mint = async (token?: string, scope?: string) => {
+  const r = await worker.fetch("https://api.test/v1/wire/ticket", {
+    method: "POST",
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(scope ? { "content-type": "application/json" } : {}) },
+    ...(scope ? { body: JSON.stringify({ scope }) } : {}),
+  })
   return { status: r.status, body: (await r.json()) as { ticket?: string; expires_at?: number } }
 }
 
@@ -88,7 +92,7 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
 
   it("an expired ticket is refused", async () => {
     const a = await person("exp")
-    const m = await mint(a.token)
+    const m = await mint(a.token, "feed")
     const { stub, key } = await shard(m.body.ticket!)
     await runInDurableObject(stub, async (_i, state) => {
       const r = (await state.storage.get(key)) as { principal: Principal; expires_at: number }
@@ -113,13 +117,28 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id)) as unknown as { submit(e: string, p: Principal, f: unknown): Promise<unknown> }
     const bSession: Principal = { kind: "session", identity: `session:${b.user}`, user: b.user, team: personalTeamIdFor(b.user), display_name: "B", email: "b@example.com", email_verified: true }
     await conv.submit(id, bSession, { t: "op", op: "conversation.create", params: { id, kind: "group", title: "B only", participants: [{ id: b.user, kind: "human", display_name: "B" }] }, idempotency_key: "c" })
-    const forA = await mint(a.token)
+    const forA = await mint(a.token, "conv")
     const refused = await upgrade(`/v1/wire/conv/${id}`, `cmux.wire.v1, ticket.${forA.body.ticket}`)
     expect(refused.status).toBe(403)
     await refused.arrayBuffer()
     // A's ticket with B's legacy bearer beside it still opens A's socket, never B's.
     const forA2 = await mint(a.token)
     expect(await welcomeUser(await upgrade("/v1/wire/user", `cmux.wire.v1, ticket.${forA2.body.ticket}, bearer.${b.token}`))).toBe(a.user)
+  })
+
+  it("a ticket opens only the socket scope it was minted for, and is spent by a refused try", async () => {
+    const a = await person("scope")
+    const feed = await mint(a.token, "feed")
+    expect(feed.status).toBe(200)
+    await expectRefused(await upgrade("/v1/wire/user", `cmux.wire.v1, ticket.${feed.body.ticket}`))
+    // The refused try spent it: the right socket refuses it too.
+    await expectRefused(await upgrade("/v1/wire/feed", `cmux.wire.v1, ticket.${feed.body.ticket}`))
+    expect(await welcomeUser(await upgrade("/v1/wire/feed", `cmux.wire.v1, ticket.${(await mint(a.token, "feed")).body.ticket}`))).toBe(a.user)
+    // A ticket minted without a scope is a user-socket ticket (the scope before tickets were bound).
+    await expectRefused(await upgrade("/v1/wire/feed", `cmux.wire.v1, ticket.${(await mint(a.token)).body.ticket}`))
+    expect(await welcomeUser(await upgrade("/v1/wire/user", `cmux.wire.v1, ticket.${(await mint(a.token)).body.ticket}`))).toBe(a.user)
+    // An unknown scope mints nothing.
+    expect((await mint(a.token, "pair")).status).toBe(400)
   })
 
   it("minting needs the Authorization header", async () => {
@@ -134,6 +153,32 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
     const a = await person("native")
     expect(await welcomeUser(await upgrade("/v1/wire/user", "cmux.wire.v1", { authorization: `Bearer ${a.token}` }))).toBe(a.user)
     await expectRefused(await upgrade("/v1/wire/user", "cmux.wire.v1", { authorization: "Bearer not-a-token" }))
+  })
+
+  it("the upgrade forwarded to the owner object carries no credential: no Authorization, no bearer. or ticket. subprotocol", async () => {
+    const a = await person("forward")
+    const ns = testEnv.USER_DO as unknown as { get(id: DurableObjectId): { fetch(r: Request): Promise<Response> } }
+    const get = ns.get.bind(ns)
+    const forwarded: Array<Request> = []
+    const spy = vi.spyOn(ns, "get").mockImplementation((id) => {
+      const stub = get(id)
+      return new Proxy(stub, { get: (t, k) => (k === "fetch" ? (r: Request) => (forwarded.push(r), t.fetch(r)) : Reflect.get(t, k)) })
+    })
+    try {
+      const res = await upgrade("/v1/wire/user", "cmux.wire.v1, bearer.x, ticket.y", { authorization: `Bearer ${a.token}` })
+      // The stray ticket is spent at the entry (and refused), so a stray bearer. beside the header proves the strip.
+      await res.arrayBuffer()
+      const native = await upgrade("/v1/wire/user", "cmux.wire.v1, bearer.x", { authorization: `Bearer ${a.token}` })
+      expect(await welcomeUser(native)).toBe(a.user)
+    } finally {
+      spy.mockRestore()
+    }
+    expect(forwarded).toHaveLength(1)
+    const headers = forwarded[0]!.headers
+    expect(headers.get("authorization")).toBeNull()
+    const protocols = (headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((p) => p.trim())
+    expect(protocols).toEqual(["cmux.wire.v1"])
+    expect(protocols.some((p) => p.startsWith("bearer.") || p.startsWith("ticket."))).toBe(false)
   })
 
   it("the retired bearer subprotocol opens nothing, and the 401 names header auth", async () => {
