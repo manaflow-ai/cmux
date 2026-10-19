@@ -159,8 +159,11 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         return Placement(empty, retry, f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
                                        "Blacksmith's queue; no job leaves the minis' queue")
     runs = set((env.get("CASCADE_RUNS") or "").split())
-    candidates = [job for job in (env.get("JOBS") or "").split()
-                  if job in CASCADE_JOBS and job in runs and job not in owned]
+    # idle_placement() hands the idle minis to the first JOBS, running or not, and
+    # every side job takes the side label whatever owned_jobs says: so the idle
+    # minis count against the jobs that run here, in order, before Blacksmith.
+    running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
+    candidates = running[len(owned):]
     placed = cascade(candidates, live, waiting)
     load = ", ".join(f"`{label}` {live[label]} in flight + {waiting[label]} queued of {CAPACITY[label]}"
                      for label in LABELS)

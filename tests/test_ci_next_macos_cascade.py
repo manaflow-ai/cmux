@@ -112,6 +112,13 @@ class Place(unittest.TestCase):
         self.assertEqual(result.jobs, {LARGE: ("swift-canary", "cmux-scheme-compile"), SMALL: ()})
         self.assertEqual(result.retry_runner, LARGE)
 
+    def test_an_idle_mini_given_a_job_that_does_not_run_still_takes_one_that_does(self):
+        # fast-tier is on its fast-lane runner (not in CASCADE_RUNS), yet idle_placement named it for
+        # the one idle mini: that mini still takes swift-canary, and only the scheme compile pays Blacksmith.
+        result = cascade.place(env(CASCADE_RUNS=" swift-canary cmux-scheme-compile "), ("fast-tier",),
+                               {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(result.jobs, {LARGE: ("cmux-scheme-compile",), SMALL: ()})
+
     def test_only_jobs_that_run_on_this_route_take_a_slot(self):
         # fast-tier on its own fast-lane runner, or a canary the pull request's labels skip, spends no slot.
         result = cascade.place(env(CASCADE_RUNS=" cmux-scheme-compile "), (), {LARGE: 4, SMALL: 0},
@@ -261,8 +268,11 @@ class Wiring(unittest.TestCase):
         place = next(step for step in self.jobs["macos-placement"]["steps"] if step.get("id") == "place")
         expression = place["env"]["CASCADE_RUNS"]
 
-        def runs(event="pull_request", labels=("full-ci",), fast_lane="", canary="true", scheme="true"):
+        def runs(event="pull_request", labels=("full-ci",), fast_lane="", canary="true", scheme="true",
+                 association="MEMBER", inputs=None):
             context = self.context()
+            context["inputs"] = inputs or {"same_tree_sha": ""}
+            context["github"]["event"]["pull_request"]["author_association"] = association
             context["github"].update(event_name=event, base_ref="feat-cmux-next",
                                      ref="refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge")
             context["github"]["event"]["pull_request"]["labels"] = [{"name": label} for label in labels]
@@ -275,6 +285,13 @@ class Wiring(unittest.TestCase):
         self.assertEqual(runs(labels=()), {"fast-tier"})
         self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), {"swift-canary", "cmux-scheme-compile"})
         self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile"})
+        # A member's dev-build pull request compiles the scheme without full-ci; an outsider's does not.
+        self.assertEqual(runs(labels=("dev-build",)), {"fast-tier", "cmux-scheme-compile"})
+        self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), {"fast-tier"})
+        # A same-tree dispatch asking for the scheme tier has no path routing output.
+        self.assertEqual(runs("workflow_dispatch", labels=(), canary="", scheme="",
+                              inputs={"same_tree_sha": "a" * 40, "same_tree_state": "ready",
+                                      "same_tree_tiers": "scheme,swift"}), {"cmux-scheme-compile"})
 
     def test_the_bots_overflow_takes_the_placements_retry_label(self):
         for name in CASCADED:
