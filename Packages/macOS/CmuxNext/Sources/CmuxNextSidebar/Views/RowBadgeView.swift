@@ -10,6 +10,7 @@ import QuartzCore
 /// - `stack`: each item is a full chip (a tonal disc with the glyph inside, ringed by the
 ///   backdrop), and each chip tucks under the one before it only as far as its padding, so every
 ///   glyph stays whole and the overlap reads as a stack of avatars.
+/// A working or loading item's spinner has neither: it draws bare on the row's own background.
 /// Glyphs are the shared status indicator: the icon set, colors and Reduce Motion (a still ring
 /// for work) follow it.
 final class RowBadgeView: NSView {
@@ -79,8 +80,11 @@ final class RowBadgeView: NSView {
         }
         for (index, glyph) in glyphs.enumerated() {
             let shown = index < states.count
-            rings[index].isHidden = !shown
-            chips[index].isHidden = !shown || look == .corner
+            // A spinner is bare on the row's own background (Leo: "the spinner should NOT have a
+            // background"); its cell keeps its size, so nothing moves when the work ends.
+            let bare = shown && (states[index].isWorking || states[index].isLoading)
+            rings[index].isHidden = !shown || bare
+            chips[index].isHidden = !shown || look == .corner || bare
             glyph.configure(shown ? states[index] : .idle)
         }
         isHidden = states.isEmpty
