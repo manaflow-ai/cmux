@@ -192,9 +192,8 @@ fn self_exe() -> anyhow::Result<PathBuf> {
         return Ok(exe);
     }
     let real = std::fs::canonicalize(&exe).unwrap_or_else(|_| exe.clone());
-    let same = |candidate: &Path| {
-        std::fs::canonicalize(candidate).is_ok_and(|resolved| resolved == real)
-    };
+    let same =
+        |candidate: &Path| std::fs::canonicalize(candidate).is_ok_and(|resolved| resolved == real);
     let mut candidates = Vec::new();
     if let Some(argv0) = std::env::args_os().next().map(PathBuf::from)
         && is_cmux_name(&argv0)
