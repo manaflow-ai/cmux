@@ -111,6 +111,20 @@ pub enum SignalPayload {
         #[serde(default, skip_serializing_if = "is_zero")]
         version: u32,
     },
+    /// A WireGuard side's new endpoints after a roam (or a new TURN
+    /// allocation), the same announcement it sends inside the tunnel
+    /// (PROTOCOL.md "WireGuard roaming"), so it arrives even when the peer
+    /// cannot receive from the new address yet (a NAT that filters by
+    /// address). Older peers ignore it.
+    #[serde(rename = "wg-endpoints")]
+    WgEndpoints {
+        generation: u64,
+        endpoints: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        relayed: Vec<String>,
+        #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
+        relayed_tls: Vec<String>,
+    },
     #[serde(rename = "bye")]
     Bye {
         #[serde(default)]

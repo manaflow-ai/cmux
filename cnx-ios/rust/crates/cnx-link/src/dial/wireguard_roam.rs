@@ -29,6 +29,7 @@ use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use cmux_wg::{Priority, WgDatagramSocket};
+use tokio::task::JoinHandle;
 use serde::{Deserialize, Serialize};
 
 use super::*;
@@ -159,6 +160,13 @@ pub(super) struct Session {
     /// Takes a new TURN allocation after a roam or a dead stream.
     keeps_turn: bool,
     turn_monitor: Mutex<Option<JoinHandle<()>>>,
+    /// Announcements the peer sent through signaling, for the control task.
+    inject: mpsc::UnboundedSender<RoamMessage>,
+    injected: Mutex<Option<mpsc::UnboundedReceiver<RoamMessage>>>,
+    /// Asks the control task to send its latest announcement through
+    /// signaling again (a new signaling socket).
+    resignal: mpsc::UnboundedSender<()>,
+    resignals: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
     follow: Mutex<Option<JoinHandle<()>>>,
     announce: Mutex<Option<mpsc::UnboundedSender<Announcement>>>,
     control_task: Mutex<Option<JoinHandle<()>>>,
@@ -193,6 +201,8 @@ fn find(session_id: &str, dialer: bool) -> Option<Arc<Session>> {
 impl Session {
     pub(super) fn register(parts: SessionParts) -> Arc<Self> {
         let turn_dead = parts.turn_dead;
+        let (inject, injected) = mpsc::unbounded_channel();
+        let (resignal, resignals) = mpsc::unbounded_channel();
         let session = Arc::new(Self {
             session_id: parts.session_id,
             peer: parts.peer,
@@ -208,6 +218,10 @@ impl Session {
             relayed: Mutex::new(parts.relayed),
             keeps_turn: parts.keeps_turn,
             turn_monitor: Mutex::new(None),
+            inject,
+            injected: Mutex::new(Some(injected)),
+            resignal,
+            resignals: Mutex::new(Some(resignals)),
             follow: Mutex::new(None),
             announce: Mutex::new(None),
             control_task: Mutex::new(None),
@@ -244,9 +258,7 @@ impl Session {
             }
             tracing::info!("no new TURN allocation; the session goes on without TURN");
         });
-        if let Some(old) = lock(&self.turn_monitor).replace(task) {
-            old.abort();
-        }
+        stop_monitor(lock(&self.turn_monitor).replace(task));
     }
 
     /// Take a new TURN allocation on the current network and tell the peer
@@ -275,11 +287,7 @@ impl Session {
         }
         match dead {
             Some(dead) => self.monitor_turn(dead),
-            None => {
-                if let Some(old) = lock(&self.turn_monitor).take() {
-                    old.abort();
-                }
-            }
+            None => stop_monitor(lock(&self.turn_monitor).take()),
         }
     }
 
@@ -301,9 +309,16 @@ impl Session {
     /// an earlier signaling socket.
     pub(super) fn follow(&self, mut events: mpsc::UnboundedReceiver<SessionEvent>) {
         let net = Arc::clone(&self.net);
+        let inject = self.inject.clone();
         let task = tokio::spawn(async move {
             loop {
                 match events.recv().await {
+                    Some(SessionEvent::Signal(SignalEnvelope {
+                        payload: SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls },
+                        ..
+                    })) => {
+                        let _ = inject.send(RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls });
+                    }
                     Some(SessionEvent::Signal(envelope)) => {
                         if matches!(envelope.payload, SignalPayload::Bye { .. }) {
                             lock(&net).take();
@@ -332,14 +347,27 @@ impl Session {
         };
         let (announce_tx, announce_rx) = mpsc::unbounded_channel();
         let peer = SocketAddr::new(IpAddr::V4(self.peer_ip), ROAM_PORT);
-        // Taken once; a second start (never done today) sends no `reach`.
+        // Taken once; a second start (never done today) gets closed ones.
         let reach = lock(&self.reach).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
+        let injected = lock(&self.injected).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
+        let resignal = lock(&self.resignals).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
         let task = tokio::spawn(run_control(
             socket,
             peer,
             self.control.clone(),
             Arc::clone(&self.net),
-            ControlChannels { announce: announce_rx, reach },
+            ControlChannels {
+                announce: announce_rx,
+                reach,
+                injected,
+                resignal,
+                signal: SignalTarget {
+                    dialer: self.dialer,
+                    signaling: Arc::clone(&self.signaling),
+                    peer: self.peer.clone(),
+                    session_id: self.session_id.clone(),
+                },
+            },
             Arc::clone(&self.path_epoch),
         ));
         *lock(&self.announce) = Some(announce_tx);
@@ -402,7 +430,7 @@ impl Session {
         timeline.mark("network_changed");
         *lock(&self.last_roam) = Some(timeline.clone());
         let Ok(net) = self.net() else { return timeline };
-        let socket = match UdpSocket::bind("0.0.0.0:0").await {
+        let socket = match bind_udp() {
             Ok(socket) => socket,
             Err(error) => {
                 // No network yet (airplane mode): the next change roams.
@@ -468,6 +496,8 @@ impl Session {
         let old = std::mem::replace(&mut *lock(&self.signaling), client.clone());
         old.unsubscribe(&self.session_id);
         self.follow(client.subscribe(&self.session_id));
+        // An announcement sent while the old socket was dead is sent again.
+        let _ = self.resignal.send(());
         tracing::debug!(session = self.session_id, "WireGuard session moved to a new signaling socket");
     }
 }
@@ -479,10 +509,45 @@ async fn send_message(socket: &WgDatagramSocket, peer: SocketAddr, message: &Roa
     }
 }
 
-/// What the control task is asked to send.
+/// Stop a TURN monitor task, unless it is the one running this (a monitor
+/// that installs the new allocation replaces its own handle).
+fn stop_monitor(task: Option<JoinHandle<()>>) {
+    if let Some(task) = task
+        && tokio::task::try_id() != Some(task.id())
+    {
+        task.abort();
+    }
+}
+
+/// Where this side's announcements also go through signaling.
+struct SignalTarget {
+    dialer: bool,
+    signaling: Arc<Mutex<SignalingClient>>,
+    peer: String,
+    session_id: String,
+}
+
+impl SignalTarget {
+    fn send(&self, message: &RoamMessage) {
+        let RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls } = message.clone() else {
+            return;
+        };
+        let client = lock(&self.signaling).clone();
+        let payload = SignalPayload::WgEndpoints { generation, endpoints, relayed, relayed_tls };
+        if let Err(error) = client.send_signal(&self.peer, &self.session_id, payload) {
+            tracing::debug!(%error, "endpoint announcement not sent through signaling");
+        }
+    }
+}
+
+/// What the control task is asked to send, and what reaches it from
+/// signaling.
 struct ControlChannels {
     announce: mpsc::UnboundedReceiver<Announcement>,
     reach: mpsc::UnboundedReceiver<()>,
+    injected: mpsc::UnboundedReceiver<RoamMessage>,
+    resignal: mpsc::UnboundedReceiver<()>,
+    signal: SignalTarget,
 }
 
 /// The roaming messages of one session: announce this side's endpoints
@@ -496,7 +561,9 @@ async fn run_control(
     channels: ControlChannels,
     path_epoch: Arc<watch::Sender<u64>>,
 ) {
-    let ControlChannels { mut announce, mut reach } = channels;
+    let ControlChannels { mut announce, mut reach, mut injected, mut resignal, signal } = channels;
+    // The latest announcement, for a resend through a new signaling socket.
+    let mut latest: Option<RoamMessage> = None;
     let mut generation = 0u64;
     let mut pending: Option<RoamMessage> = None;
     let mut resends = 0usize;
@@ -517,6 +584,7 @@ async fn run_control(
         };
         tokio::select! {
             Some(()) = reach.recv() => {
+                tracing::debug!(dialer = signal.dialer, "sending reach");
                 send_message(&socket, peer, &RoamMessage::Reach).await;
             }
             endpoints = announce.recv() => {
@@ -528,6 +596,10 @@ async fn run_control(
                 let relayed_tls = relayed_tls.into_iter().filter(|text| relayed.contains(text)).collect();
                 let message = RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls };
                 send_message(&socket, peer, &message).await;
+                // Also through signaling: the peer may not receive anything
+                // from this side's new address yet.
+                signal.send(&message);
+                latest = Some(message.clone());
                 pending = Some(message);
                 resends = 0;
                 resend_at = Some(Instant::now() + ANNOUNCE_RESENDS[0]);
@@ -542,13 +614,32 @@ async fn run_control(
                     pending = None;
                 }
             }
-            received = socket.recv_from() => {
-                let Some((payload, from)) = received else { return };
-                if from.ip() != peer.ip() {
-                    continue;
+            Some(()) = resignal.recv() => {
+                if let Some(message) = &latest {
+                    signal.send(message);
                 }
-                match serde_json::from_slice::<RoamMessage>(&payload) {
+            }
+            received = async {
+                tokio::select! {
+                    Some(message) = injected.recv() => Some(Ok(message)),
+                    received = socket.recv_from() => {
+                        let (payload, from) = received?;
+                        Some(if from.ip() != peer.ip() {
+                            Err("a roam message from another address".to_owned())
+                        } else {
+                            serde_json::from_slice::<RoamMessage>(&payload).map_err(|error| error.to_string())
+                        })
+                    }
+                }
+            } => {
+                let Some(received) = received else {
+                    tracing::debug!(dialer = signal.dialer, "roam control ends: the tunnel is gone");
+                    return;
+                };
+                tracing::debug!(dialer = signal.dialer, ?received, "roam message");
+                match received {
                     Ok(RoamMessage::Reach) => {
+                        tracing::debug!(dialer = signal.dialer, "got reach");
                         if control.send(Control::Reached).is_err() {
                             return;
                         }

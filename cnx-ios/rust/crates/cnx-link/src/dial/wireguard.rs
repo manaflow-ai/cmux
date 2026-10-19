@@ -95,6 +95,23 @@ fn parse_key(text: &str) -> Result<[u8; 32], DialError> {
         .ok_or_else(|| DialError::Unexpected("bad WireGuard public key".into()))
 }
 
+/// Receive and send buffer of a tunnel's UDP socket. A roam resends up to
+/// [`REPLAY_MAX`] datagrams at once, as does the peer, on top of a stream
+/// at full rate: the OS default (about 200 KB on Linux) drops part of
+/// such a burst, and TCP inside the tunnel then waits out its 1 s
+/// retransmission timeout. The OS caps it (Linux `net.core.rmem_max`).
+const UDP_BUFFER: usize = 2 * 1024 * 1024;
+
+/// A UDP socket for the tunnel, on any port, with [`UDP_BUFFER`] buffers.
+pub(super) fn bind_udp() -> io::Result<UdpSocket> {
+    let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
+    let _ = socket.set_recv_buffer_size(UDP_BUFFER);
+    let _ = socket.set_send_buffer_size(UDP_BUFFER);
+    socket.set_nonblocking(true)?;
+    socket.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)).into())?;
+    UdpSocket::from_std(socket.into())
+}
+
 /// The machine's primary local address (no packet is sent).
 pub fn primary_local_ip() -> Option<IpAddr> {
     let probe = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
@@ -282,6 +299,12 @@ fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> 
 
 /// Time between "your datagrams reach me" messages while they keep arriving.
 const MARKER_INTERVAL: Duration = Duration::from_secs(3);
+/// After a route change the `reach` message is repeated this much later
+/// (each wait after the previous one) while the peer's datagrams keep
+/// arriving: it is one UDP datagram in the tunnel, and the peer sends on
+/// every route until one arrives.
+const REACH_REPEATS: [Duration; 3] =
+    [Duration::from_millis(100), Duration::from_millis(300), Duration::from_millis(1000)];
 
 /// How a route reaches the peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -392,6 +415,8 @@ struct HybridUnderlay {
     /// The peer said it receives what we send (us→peer works).
     confirmed: bool,
     last_marker: Option<Instant>,
+    /// Repeats of `reach` still due after a route change ([`REACH_REPEATS`]).
+    reach_repeats: usize,
     /// Asks the session's control task to send the peer a `reach` message.
     reach_out: mpsc::UnboundedSender<()>,
     path: watch::Sender<LinkPath>,
@@ -415,6 +440,16 @@ struct HybridUnderlay {
     recent: std::collections::VecDeque<(Instant, Bytes, SendClass)>,
     /// When a route change last replayed.
     last_replay: Option<Instant>,
+    /// A replay is due as soon as a route is known: there was none to send
+    /// it on (right after a roam). Sending it to every candidate instead
+    /// overflowed the peer's socket buffer and lost the very datagrams the
+    /// replay is for.
+    replay_pending: bool,
+    /// The tunnel's receive task, woken when a control message applied on
+    /// the send side brings a new socket or TURN allocation: nothing would
+    /// otherwise poll it until a timer fires (the old socket's readiness is
+    /// what the task waits on).
+    recv_waker: Option<std::task::Waker>,
 }
 
 const UDP_PATH: PathId = PathId(0);
@@ -457,6 +492,7 @@ impl HybridUnderlay {
             refused: HashSet::new(),
             confirmed: false,
             last_marker: None,
+            reach_repeats: 0,
             reach_out: spec.reach_out,
             path: spec.path,
             control: spec.control,
@@ -469,6 +505,8 @@ impl HybridUnderlay {
             sent_to: HashSet::new(),
             recent: std::collections::VecDeque::new(),
             last_replay: None,
+            replay_pending: false,
+            recv_waker: None,
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
         underlay
@@ -527,10 +565,12 @@ impl HybridUnderlay {
                 self.roam = Some(timeline);
                 self.publish_path();
                 self.replay_recent(true);
+                self.wake_receiver();
             }
             Control::Turn(turn) => {
                 tracing::debug!(relayed = %turn.relayed, transport = ?turn.transport, "WireGuard takes a TURN allocation");
                 self.turn = Some(turn);
+                self.wake_receiver();
                 self.retarget_turn();
                 self.publish_path();
                 // What went into a dead allocation (or nowhere, while a
@@ -560,9 +600,7 @@ impl HybridUnderlay {
                 self.replay_recent(true);
             }
             Control::Reached => {
-                if !self.confirmed {
-                    tracing::debug!("peer confirmed our datagrams reach it");
-                }
+                tracing::debug!(was = self.confirmed, direct = ?self.direct, "peer confirmed our datagrams reach it");
                 self.confirmed = true;
                 self.publish_path();
             }
@@ -597,6 +635,11 @@ impl HybridUnderlay {
     /// Send what went out lately again, on the current route. Replays for
     /// a route change (not `forced`) happen at most every [`REPLAY_GAP`].
     fn replay_recent(&mut self, forced: bool) {
+        if self.direct.is_none() {
+            self.replay_pending = true;
+            return;
+        }
+        self.replay_pending = false;
         let now = Instant::now();
         if !forced {
             if self.last_replay.is_some_and(|last| now.duration_since(last) < REPLAY_GAP) {
@@ -615,6 +658,12 @@ impl HybridUnderlay {
         }
         for (datagram, class) in recent {
             self.transmit(&datagram, class);
+        }
+    }
+
+    fn wake_receiver(&self) {
+        if let Some(waker) = &self.recv_waker {
+            waker.wake_by_ref();
         }
     }
 
@@ -804,6 +853,9 @@ impl Underlay for HybridUnderlay {
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+        if !self.recv_waker.as_ref().is_some_and(|waker| waker.will_wake(cx.waker())) {
+            self.recv_waker = Some(cx.waker().clone());
+        }
         while let Poll::Ready(Some(control)) = self.control.poll_recv(cx) {
             self.apply(control);
         }
@@ -879,9 +931,13 @@ impl Underlay for HybridUnderlay {
                 self.confirmed = false;
                 self.last_marker = None;
                 self.direct = Some(route);
-                self.replay_recent(false);
+                let forced = self.replay_pending;
+                self.replay_recent(forced);
             } else {
                 self.direct = Some(route);
+                if self.replay_pending {
+                    self.replay_recent(true);
+                }
             }
         }
         self.last_direct = Some(now);
@@ -889,9 +945,27 @@ impl Underlay for HybridUnderlay {
             // An older peer's confirmation went through the retired relay and
             // never arrives: what it sends is all we will learn.
             self.confirmed = true;
-        } else if self.last_marker.is_none_or(|last| now.duration_since(last) >= MARKER_INTERVAL) {
-            self.last_marker = Some(now);
-            let _ = self.reach_out.send(());
+        } else {
+            let due = match self.last_marker {
+                // A new route (or a roam): send now, then repeat.
+                None => {
+                    self.reach_repeats = REACH_REPEATS.len();
+                    true
+                }
+                Some(last) if self.reach_repeats > 0 => {
+                    let wait = REACH_REPEATS[REACH_REPEATS.len() - self.reach_repeats];
+                    let due = now.duration_since(last) >= wait;
+                    if due {
+                        self.reach_repeats -= 1;
+                    }
+                    due
+                }
+                Some(last) => now.duration_since(last) >= MARKER_INTERVAL,
+            };
+            if due {
+                self.last_marker = Some(now);
+                let _ = self.reach_out.send(());
+            }
         }
         self.publish_path();
     }
@@ -1027,12 +1101,12 @@ impl Dialer for WireGuardDialer {
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
-            let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(transport_error)?;
+            let socket = bind_udp().map_err(transport_error)?;
             let (gathered, turn) = tokio::join!(gather_endpoints(&socket, options), TurnCarrier::allocate(options));
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
-            let Gathered { endpoints: mut endpoints, stun, .. } = gathered;
+            let Gathered { mut endpoints, stun, .. } = gathered;
             let (relayed, relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(relayed.iter().cloned());
             if let Some(turn) = &turn {
@@ -1072,6 +1146,9 @@ impl Dialer for WireGuardDialer {
                             break (parse_key(&public_key)?, endpoints, ip, relayed, relayed_tls, version);
                         }
                         SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
+                        // A Mac that roamed before this side saw its answer:
+                        // the tunnel learns its endpoints from inside.
+                        SignalPayload::WgEndpoints { .. } => {}
                         other => return Err(DialError::Unexpected(format!("{other:?}"))),
                     },
                     SessionEvent::Disconnected => return Err(DialError::Signaling("disconnected".into())),
@@ -1179,7 +1256,7 @@ impl Dialer for WireGuardDialer {
                 .parse()
                 .map_err(|_| DialError::Unexpected("wg-init overlayIP is not IPv4".into()))?;
             let own_ip = if peer_ip == ANSWER_OVERLAY { DIALER_OVERLAY } else { ANSWER_OVERLAY };
-            let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(transport_error)?;
+            let socket = bind_udp().map_err(transport_error)?;
             let gathered = gather_endpoints(&socket, options).await;
             // A Mac whose network answers no STUN (it drops UDP) takes its
             // own TURN allocation, over TLS when UDP to the server fails too.
@@ -1191,7 +1268,7 @@ impl Dialer for WireGuardDialer {
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
-            let Gathered { endpoints: mut endpoints, stun, .. } = gathered;
+            let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(own_relayed.iter().cloned());
             let (private_key, own_public) = keypair();

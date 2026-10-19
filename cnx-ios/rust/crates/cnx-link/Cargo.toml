@@ -31,6 +31,8 @@ rcgen = { version = "0.13", optional = true }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# Larger UDP socket buffers for the tunnel (a replay burst after a roam).
+socket2 = "0.6"
 thiserror.workspace = true
 tokio.workspace = true
 # TURN over TLS (dial/turn.rs); ring only, like every other TLS here.

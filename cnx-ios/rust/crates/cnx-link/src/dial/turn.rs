@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadHalf, WriteHalf};
-use tokio::net::{TcpStream, UdpSocket};
+use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use webrtc::util::Conn;
@@ -50,6 +50,7 @@ const STREAM_RTO_MS: u16 = 1500;
 const INBOUND_QUEUE: usize = 1024;
 /// The largest STUN or ChannelData message on a stream (RFC 5766: 16-bit
 /// length) with its header and padding.
+#[cfg(test)]
 const MAX_MESSAGE: usize = 20 + 65_535 + 3;
 
 /// How this side reaches its TURN server.
@@ -361,7 +362,7 @@ impl TurnCarrier {
 
     async fn allocate_on(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
         let (conn, dead): (Arc<dyn Conn + Send + Sync>, Option<watch::Receiver<bool>>) = match server.transport {
-            TurnTransport::Udp => (Arc::new(UdpSocket::bind("0.0.0.0:0").await.map_err(|e| e.to_string())?), None),
+            TurnTransport::Udp => (Arc::new(super::wireguard::bind_udp().map_err(|e| e.to_string())?), None),
             TurnTransport::Tcp | TurnTransport::Tls => {
                 let tcp = TcpStream::connect(server.address.as_str()).await.map_err(|e| e.to_string())?;
                 let _ = tcp.set_nodelay(true);
