@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CoreImage
 
 /// The one material behind a window's content (``WindowMaterial``) and the
@@ -51,6 +52,12 @@ public final class WindowMaterialView: NSView {
     }
     /// The columns over the art by who reported them, in window coordinates (``setCover(_:for:)``).
     private var covers: [String: CGRect] = [:]
+    /// Follows `appearance.backgroundAvoidPanes` while in a window.
+    private var playbackWatch: Task<Void, Never>?
+    /// Where the person put each background themselves (backgrounds plan phase 6).
+    public var placements: BackdropPlacementStore = .shared {
+        didSet { updateArtCrop() }
+    }
     /// The art layer's opacity (`WindowBackdrop.artOpacity`), the end of its fade-in.
     private var artOpacity: Float = 1
     private var loadedSelection: BackdropSelection?
@@ -167,8 +174,23 @@ public final class WindowMaterialView: NSView {
         for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
         keyObservers = []
         resignedKey = false
+        playbackWatch?.cancel()
+        playbackWatch = nil
         guard let window else { return updateInactiveTint() }
-        keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+        playbackWatch = Task { [weak self] in
+            for await _ in ObservationStream({ DesignSettings.shared.backdropPlayback.avoidsPanes }) { self?.updateArtCrop(animated: true) }
+        }
+        keyObservers.append(NotificationCenter.default.addObserver(forName: BackdropPlacementStore.didChange, object: nil, queue: .main) { [weak self] note in
+            let store = (note.object as AnyObject?).map(ObjectIdentifier.init)
+            let id = note.userInfo?["id"] as? String
+            // main-proof: the observer runs on the main queue (queue: .main)
+            MainActor.assumeIsolated {
+                // Only this view's store, and only the background it shows.
+                guard let self, store == ObjectIdentifier(self.placements), id == nil || id == self.shownID else { return }
+                self.updateArtCrop()
+            }
+        })
+        keyObservers += [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
             NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] note in
                 let resigned = note.name == NSWindow.didResignKeyNotification
                 // main-proof: the observer runs on the main queue (queue: .main)
@@ -215,6 +237,10 @@ public final class WindowMaterialView: NSView {
         let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
         let flipped = shown?.followsAppearance == true && loadedDark != dark
         if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped {
+            // Placing a picture by hand ends when the window shows another background.
+            if let window, loadedSelection != backdrop.selection || loadedArt != backdrop.art {
+                BackdropAdjustOverlay.current(in: window)?.done()
+            }
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
@@ -295,6 +321,29 @@ public final class WindowMaterialView: NSView {
         return [blur, dim].compactMap { $0 }
     }
 
+    /// The x of the middle of the span the art keeps clear of the panes, in this view's points.
+    var visibleMiddle: CGFloat {
+        let visible = BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns)
+        return (visible.minX + visible.maxX) / 2 * bounds.width
+    }
+
+    /// The id of the background shown (an art work or a file), nil for none.
+    private var shownID: String? { (loadedSelection ?? loadedArt.map(BackdropSelection.art))?.id }
+    /// The framing hints of the art placed last.
+    private var shownMetadata: BackdropArtMetadata?
+
+    /// The still picture the person may place by hand now, and where it shows (backgrounds plan
+    /// phase 6): its id, pixel size and the placement on screen as a starting point. Nil for no
+    /// picture, a video, or a background hidden by Reduce Transparency.
+    public var adjustable: (id: String, imageSize: CGSize, current: BackdropUserPlacement)? {
+        guard let id = shownID, let image = artImage, let placement = artPlacement, let metadata = shownMetadata,
+              !artView.isHidden, videoView.url == nil else { return nil }
+        let visible = BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns)
+        let current = placements.placement(for: id)
+            ?? metadata.userPlacement(from: placement, viewSize: bounds.size, imageSize: image.size, visible: visible)
+        return (id, image.size, current)
+    }
+
     /// Places the art (``BackdropArtMetadata/placement(forViewSize:imageSize:visible:)``): on a
     /// resize at once, and with the move spring when the columns over it change.
     private func updateArtCrop(animated: Bool = false) {
@@ -320,8 +369,13 @@ public final class WindowMaterialView: NSView {
                                            dominantPalette: [], quietZone: .init(x: 0, y: 0, width: 1, height: 1),
                                            subjectBox: .init(minX: 0, minY: 0, maxX: 1, maxY: 1))
         }
-        let visible = BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns)
-        let placement = metadata.placement(forViewSize: bounds.size, imageSize: image.size, visible: visible)
+        // `appearance.backgroundAvoidPanes` off: the art frames itself in the whole window.
+        let visible = DesignSettings.shared.backdropPlayback.avoidsPanes
+            ? BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns) : .whole
+        let placement = shownID.flatMap(placements.placement(for:)).map {
+            metadata.placement(forViewSize: bounds.size, imageSize: image.size, visible: visible, user: $0)
+        } ?? metadata.placement(forViewSize: bounds.size, imageSize: image.size, visible: visible)
+        shownMetadata = metadata
         let fills = placement.fills && !artView.isHidden
         if fills, artFillView.layer?.filters == nil { artFillView.layer?.filters = Self.fillFilters() }
         artFillView.isHidden = !fills

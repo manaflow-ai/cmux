@@ -68,12 +68,13 @@ import Testing
         #expect(placement.keepsSubject)
     }
 
-    /// The review's case (#21709): a subject that fits the span at the cover scale but not while
-    /// the art covers the window slides right, under the panes, instead of staying under them.
+    /// The review's case (#21709): Böcklin's Isle of the Dead, whose subject fits the span at the
+    /// cover scale but not while the art covers the window, slides right, under the panes, instead
+    /// of staying under them.
     @Test func aSubjectThatFitsOnlyOffTheCoverSlidesClearOfTheColumns() {
         let view = CGSize(width: 1512, height: 945)
         let visible = BackdropVisibleSpan.uncovered(width: view.width, by: [0...240, 240...660])
-        let metadata = Self.art((0.25, 0.15, 0.7, 0.9))
+        let metadata = BackdropArt.bocklinIsleOfTheDead.metadata
         let placement = metadata.placement(forViewSize: view, imageSize: Self.image, visible: visible)
         Self.checkSane(placement, view: view)
         let subject = Self.subjectFrame(placement, metadata)
