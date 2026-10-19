@@ -164,6 +164,8 @@ on:
       - tests/test_next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
+      - tests/test_cmux_next_pr_autofix_settings.py
+      - .github/workflows/cmux-next-pr-autofix.yml
       - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_next_update_dev_daily.py
@@ -1184,6 +1186,7 @@ jobs:
           bash scripts/cmux-next/tests/ratchet-tiers.test.sh
           bash scripts/cmux-next/tests/base-autofix.test.sh
           bash scripts/cmux-next/tests/pr-autofix.test.sh
+          bash tests/test_ci_generator_input_freshness.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/ci/tests/package-test-lane-suite-args.test.sh
           bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
@@ -1268,6 +1271,7 @@ jobs:
           python3 tests/test_cmux_next_generated_catch_up.py
           python3 tests/test_next_batch.py
           python3 tests/test_cmux_next_base_autofix_finishes.py
+          python3 tests/test_cmux_next_pr_autofix_settings.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
       # update keeps sessions and reopens the app) and the classic session import.
