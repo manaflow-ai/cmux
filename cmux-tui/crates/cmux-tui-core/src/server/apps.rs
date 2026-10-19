@@ -207,18 +207,7 @@ struct CancelRequest {
 /// `cmux.op.cancelled` (apps/cancel.rs). A request that is unknown, already
 /// answered or another connection's changes nothing; the reply is `{}`.
 fn cancel_request(mux: &Arc<Mux>, client: u64, value: Value, writer: &MessageWriter) -> bool {
-    let scoped = cmd == "apps-run-scoped";
     let id = value.get("id").cloned();
-    if scoped && value.get("expected_scope").and_then(Value::as_str).is_none() {
-        return Some(reply(
-            writer,
-            id,
-            Err(crate::apps::ApiError::new(
-                "apps.invalid_scope",
-                "a scoped run requires expected_scope",
-            )),
-        ));
-    }
     let request = match serde_json::from_value::<CancelRequest>(value) {
         Ok(request) => request,
         Err(e) => {
@@ -261,7 +250,18 @@ pub(super) fn try_handle(
     if !cmd.starts_with("apps-") {
         return None;
     }
+    let scoped = cmd == "apps-run-scoped";
     let id = value.get("id").cloned();
+    if scoped && value.get("expected_scope").and_then(Value::as_str).is_none() {
+        return Some(reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new(
+                "apps.invalid_scope",
+                "a scoped run requires expected_scope",
+            )),
+        ));
+    }
     let request = match serde_json::from_value::<Request>(value) {
         Ok(request) => request,
         Err(e) => {
