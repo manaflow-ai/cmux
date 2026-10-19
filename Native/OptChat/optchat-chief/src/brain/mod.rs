@@ -138,6 +138,24 @@ pub enum Input {
         id: String,
         answer: Result<serde_json::Value, String>,
     },
+    /// An auto-resume of subagent `id` is due (auto_resume.rs): its backoff
+    /// passed, or (`after_network`) the network came back (`online`) or
+    /// the wait for it ended (`!online`).
+    AutoResume {
+        id: String,
+        attempt: u32,
+        reason: String,
+        after_network: bool,
+        online: bool,
+    },
+    /// An agent CLI in a cmux terminal stopped on an error
+    /// (terminal_watch.rs): `[term_…] stopped: …`. Quiet ones (an
+    /// auto-resume is planned or done) are notices; the others reach the
+    /// Chief as a note.
+    TerminalStopped {
+        text: String,
+        quiet: bool,
+    },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
     SubSession {
@@ -476,6 +494,11 @@ pub struct Brain {
     /// A finished subagent's workspace closes instead of taking the done
     /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
     sub_close_on_finish: bool,
+    /// Auto-resume of subagents that stopped on an error (auto_resume.rs);
+    /// None: off (`OPTCHAT_AUTO_RESUME=off`).
+    resume_policy: Option<crate::auto_resume::ResumePolicy>,
+    /// Whether the model endpoint answers (a network stop waits for it).
+    reach: Arc<dyn crate::auto_resume::Reachability>,
     /// The previous turn's view, to measure how much of it stayed (cache).
     prev_view: Option<String>,
     /// When the current settle wait and turn began.
@@ -597,6 +620,13 @@ impl Brain {
             sub_starter: None,
             max_live: None,
             sub_close_on_finish: false,
+            resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
+            reach: Arc::new(crate::auto_resume::TcpProbe::from_env(
+                |k| std::env::var(k).ok(),
+                std::env::var_os("HOME")
+                    .map(std::path::PathBuf::from)
+                    .as_deref(),
+            )),
             prev_view: None,
             settle_clock: None,
             settle_status: None,
@@ -671,6 +701,19 @@ impl Brain {
     /// mark (false, the default).
     pub fn set_sub_close_on_finish(&mut self, close: bool) {
         self.sub_close_on_finish = close;
+    }
+
+    /// Auto-resume of subagents that stop on an error (None: off), and the
+    /// probe a network stop waits on.
+    pub fn set_auto_resume(
+        &mut self,
+        policy: Option<crate::auto_resume::ResumePolicy>,
+        reach: Option<Arc<dyn crate::auto_resume::Reachability>>,
+    ) {
+        self.resume_policy = policy;
+        if let Some(reach) = reach {
+            self.reach = reach;
+        }
     }
 
     /// Where queued subagents are started when a slot frees.
@@ -789,6 +832,20 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::TerminalStopped { text, quiet } => {
+                if quiet {
+                    self.notice(format!("notice:optchat:terminal-resume:{}", now_ms()), text);
+                } else {
+                    self.queue(text, Source::Note);
+                }
+            }
+            Input::AutoResume {
+                id,
+                attempt,
+                reason,
+                after_network,
+                online,
+            } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
             Input::TurnView { reply } => {
                 let _ = reply.send(self.turn_view.clone());
             }

@@ -5,7 +5,7 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
-import { safeHref } from "./replyHref";
+import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
@@ -499,7 +499,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
-export { safeHref };
+export { appHref, linkHref, safeHref };
 
 /// The text `renderInline` in conversation/Markdown.tsx draws for `tokens`, as the estimator
 /// measures it. Inline code draws in 12px monospace (conversation.css), no wider per character than the prose font's digits,
@@ -510,7 +510,7 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
   return tokens
     .map((token) => {
       if (token.type === "codespan") return (token as Tokens.Codespan).text.replace(/\S/g, "0").replace(/ /g, "0 ");
-      if (token.type === "link" && !safeHref((token as Tokens.Link).href)) return (token as Tokens.Link).text;
+      if (token.type === "link" && !linkHref((token as Tokens.Link).href)) return (token as Tokens.Link).text;
       if ("tokens" in token) return measuredText(token.tokens, "text" in token ? token.text : (token.raw ?? ""));
       return token.raw ?? ("text" in token ? token.text : "");
     })
