@@ -16,7 +16,7 @@ impl Hub {
         profile: &HarnessProfile,
         session_id: Option<&str>,
     ) -> Value {
-        let all = crate::agent_tools::lists_all_tools(&meta.harness, profile);
+        let all = crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env);
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});

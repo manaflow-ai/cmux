@@ -34,6 +34,8 @@ fn hub() -> Arc<Hub> {
             "fake": {"argv": ["python3", FAKE]},
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "fakecodex": {"argv": ["python3", FAKE], "family": "codex"},
+            "fakeclaude-nosearch": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"ENABLE_TOOL_SEARCH": "false"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -196,6 +198,15 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert_eq!(config["mcpServers"]["cmux-cua"]["command"], json!(cua), "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["command"], json!(cmux), "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve", "--all-tools"]));
+    // Fail safe: a Claude Code whose profile turns tool search off keeps it
+    // off and gets code mode, never every schema in every turn.
+    let off = local.new_session("fakeclaude-nosearch").await;
+    assert_eq!(local.ask(&off, "env: ENABLE_TOOL_SEARCH").await, "ENABLE_TOOL_SEARCH=false");
+    let argv: Vec<String> = serde_json::from_str(&local.ask(&off, "hi").await).unwrap();
+    let at = argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
+    let off_config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&argv[at + 1]).unwrap()).unwrap();
+    assert_eq!(off_config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]), "{off_config}");
     assert_eq!(config["mcpServers"]["cmux-sessions"]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");

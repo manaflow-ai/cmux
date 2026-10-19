@@ -248,10 +248,25 @@ pub const TOOL_SEARCH_ENV: &str = "ENABLE_TOOL_SEARCH";
 /// (315k without), Codex 20k (the same as with two tools). OpenCode 1.19
 /// and the others send every schema.
 /// `name` is the profile's name: its family comes from it when the profile
-/// declares none (`config::derive_family`).
-pub fn lists_all_tools(name: &str, profile: &crate::config::HarnessProfile) -> bool {
-    let family = crate::config::derive_family(name, profile);
-    family == "codex" || is_claude_code(name, profile)
+/// declares none (`config::derive_family`); `env` is the env the harness
+/// starts with. Fail safe: an unknown harness, or a Claude Code whose env
+/// turns tool search off, gets code mode, never every schema in every turn.
+pub fn lists_all_tools(
+    name: &str,
+    profile: &crate::config::HarnessProfile,
+    env: &BTreeMap<String, String>,
+) -> bool {
+    if is_claude_code(name, profile) {
+        return tool_search_on(env);
+    }
+    crate::config::derive_family(name, profile) == "codex"
+}
+
+/// Whether Claude Code's tool search is on for a process with `env`:
+/// unset (acpmux sets it, `hub/spawn.rs`), `true` or `1`. `false`, `auto`
+/// (which turns it off behind a router) or anything else is off.
+pub fn tool_search_on(env: &BTreeMap<String, String>) -> bool {
+    env.get(TOOL_SEARCH_ENV).is_none_or(|v| matches!(v.trim(), "true" | "1"))
 }
 
 /// Whether the harness is Claude Code (directly or through an ACP adapter):
@@ -290,8 +305,8 @@ pub fn claude_args_for(
         current()
             .scoped(env)
             .for_session(session_id)
-            // Claude Code has tool search (`TOOL_SEARCH_ENV`, spawn.rs).
-            .listing(true)
+            // Claude Code has tool search unless its env turns it off.
+            .listing(tool_search_on(env))
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
 }
