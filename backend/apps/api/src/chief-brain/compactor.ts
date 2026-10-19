@@ -1,11 +1,14 @@
 import type { Api, AssistantMessage, Context, Message, Model, Models, ModelThinkingLevel, Usage } from "@earendil-works/pi-ai";
-import { cutAtMarks, finishLine, type Memory, RETRY_MS, sizeCheck } from "./memory.ts";
+import { blockPieces, CACHE_BLOCKS_HEADER, marksHeader, type PrefixCache, prefixNames, viewWrite } from "./cache-prefix.ts";
+import { finishLine, type Memory, RETRY_MS, sizeCheck } from "./memory.ts";
 
 /**
  * The compactor (spec section 4): one model call per node, no tools, in the core's strict order.
- * The `<chat>` context goes first, cut at the core's cache marks so consecutive calls read it from
- * the cache; the step (SCALE line + the message or the two lines) goes last. The size loop runs in
- * the same conversation with the core's `sizeCheck`.
+ * The `<chat>` context goes first, in 4-line blocks as the turn view; its last whole block is marked
+ * (the next node's context starts with it) and so is the longest prefix an earlier compaction wrote
+ * (cache-prefix.ts: Bedrock reads only at a mark); a call whose prefix another call is still writing
+ * waits for that call's first event. The step (ruler + the message or the two lines) goes last. The
+ * size loop runs in the same conversation with the core's `sizeCheck`.
  */
 export interface CallRecord {
   readonly kind: "turn" | "compact";
@@ -25,6 +28,8 @@ export interface CompactorDeps {
   readonly prompt: string;
   readonly agent: string;
   readonly record: (call: CallRecord) => void;
+  /** The object's compaction prefixes (who writes which, which are live); none: no read marks, no waits. */
+  readonly cache?: PrefixCache;
   /** Builds a node the main model refuses (a refusal repeats on every try, and rule 3 would block every turn). */
   readonly fallback?: { readonly model: Model<Api>; readonly thinking?: ModelThinkingLevel };
 }
@@ -59,7 +64,21 @@ export async function buildNode(deps: CompactorDeps, l: number, i: number): Prom
 
 async function buildWith(deps: Omit<CompactorDeps, "fallback">, l: number, i: number): Promise<string> {
   const req = deps.memory.compactRequest(l, i, deps.prompt, deps.agent);
-  const context = req.context ? cutAtMarks(req.context, req.marks) : [];
+  const context = req.context ? blockPieces(req.context) : [];
+  const names = prefixNames(`${deps.model.provider}/${deps.model.id}\n${req.system}`, context);
+  const lead = deps.cache
+    ? await deps.cache.acquire(names, viewWrite(context))
+    : { plan: { read: undefined, write: viewWrite(context), names }, begun: () => undefined, end: () => undefined };
+  const headers = { ...(context.length > 0 ? { [CACHE_BLOCKS_HEADER]: marksHeader(lead.plan) } : {}) };
+  try {
+    return await sizeLoop(deps, req, context, headers, lead.begun, l, i);
+  } finally {
+    // A call that never got an event (failed before the model answered) leaves no entry: forget it.
+    lead.end();
+  }
+}
+
+async function sizeLoop(deps: Omit<CompactorDeps, "fallback">, req: ReturnType<Memory["compactRequest"]>, context: string[], headers: Record<string, string>, begun: () => void, l: number, i: number): Promise<string> {
   const messages: Message[] = [
     {
       role: "user",
@@ -76,7 +95,10 @@ async function buildWith(deps: Omit<CompactorDeps, "fallback">, l: number, i: nu
       ...(deps.thinking && deps.thinking !== "off" ? { reasoning: deps.thinking } : {}),
       // The model's whole output budget: thinking at medium effort must not crowd out the line.
       maxTokens: deps.model.maxTokens,
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
       onProviderStreamEvent: (data: unknown) => {
+        // The first event: the model read or wrote this prefix, so calls waiting on it may go.
+        begun();
         const type = (data as { type?: unknown } | null)?.type;
         if (typeof type === "string" && type.startsWith("response.refusal.")) refusalEvent = true;
       },
@@ -94,6 +116,7 @@ async function buildWith(deps: Omit<CompactorDeps, "fallback">, l: number, i: nu
     });
     if (refused) throw new Refused(`${deps.model.provider}/${deps.model.id} refused: ${reply.errorMessage ?? "refusal"}`);
     if (failed) throw new Error(reply.errorMessage ?? `model ${reply.stopReason}`);
+    begun();
     tries.push(textOf(reply));
     const check = JSON.parse(sizeCheck(JSON.stringify(tries), req.room)) as
       | { accept: string }
@@ -249,18 +272,27 @@ export class Compactor {
 
   /** Spec 6: true once every view line is a summary; false if `signal` aborts first. */
   settle(signal?: AbortSignal): Promise<boolean> {
-    if (this.host.memory.settled()) return Promise.resolve(true);
+    return this.settleWhen(() => this.host.memory.settled(), signal);
+  }
+
+  /** The reference client's `Memory.settle(mem, from)`: true once every message before `end` is summarized (its view line built). */
+  settleTo(end: number, signal?: AbortSignal): Promise<boolean> {
+    return this.settleWhen(() => this.host.memory.first() >= end, signal);
+  }
+
+  private settleWhen(done: () => boolean, signal?: AbortSignal): Promise<boolean> {
+    if (done()) return Promise.resolve(true);
     if (signal?.aborted) return Promise.resolve(false);
     return new Promise<boolean>((resolve) => {
-      const done = (value: boolean) => {
+      const finish = (value: boolean) => {
         this.waiters.delete(check);
         signal?.removeEventListener("abort", onAbort);
         resolve(value);
       };
       const check = () => {
-        if (this.host.memory.settled()) done(true);
+        if (done()) finish(true);
       };
-      const onAbort = () => done(false);
+      const onAbort = () => finish(false);
       this.waiters.add(check);
       signal?.addEventListener("abort", onAbort, { once: true });
       this.pump();

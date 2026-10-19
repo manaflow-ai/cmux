@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 import { claudeAuthFor, forgetClaudeAuth, HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
 import { claudeModel } from "../chief-brain/models.ts"
+import { costOf } from "./bedrock-price.ts"
 import { Credits, CreditsLive, creditsRequired, maxCallCostUsd, payerTeam, type Reservation } from "../credits.ts"
 import type { Env } from "../env.ts"
 import { claudeRoute, HAIKU, isClaude, meteredOwner, offers, OPUS, SONNET } from "./routes.ts"
@@ -125,7 +126,7 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   if (!isClaude(name)) return err(400, "invalid_request_error", "this gateway serves Claude models (opus, sonnet, haiku)")
   if (body.stream !== true) return err(400, "invalid_request_error", "stream must be true")
   if (!offers(env, name) || !meteredOwner(env, who.owner)) return err(403, "permission_error", `${name} is not available for this account here`)
-  const model = claudeModel(name, claudeRoute(env).url)
+  const model = claudeModel(name, claudeRoute(env).url, "1h")
   const maxTokens = typeof body.max_tokens === "number" && body.max_tokens > 0 ? Math.min(body.max_tokens, 128_000) : model.maxTokens
   const team = who.team
   const request_id = safeId(`gw:${who.run}:${crypto.randomUUID()}`)
@@ -150,7 +151,8 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
     held = r.res
   }
   const settle = async (u: Usage): Promise<void> => {
-    const usd = (u.input * model.cost.input + u.output * model.cost.output + u.cacheRead * model.cost.cacheRead + u.cacheWrite * model.cost.cacheWrite) / 1_000_000
+    // The Bedrock price (bedrock-price.ts); the client's own marks choose the TTL, so a write is charged at the 1-hour rate.
+    const usd = costOf(name, u, "1h")?.total ?? (u.input * model.cost.input + u.output * model.cost.output + u.cacheRead * model.cost.cacheRead + u.cacheWrite * model.cost.cacheWrite) / 1_000_000
     await unhold(usd)
     if (!held) return
     const h = held
