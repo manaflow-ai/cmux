@@ -62,6 +62,43 @@ struct AgentMemorySearchHandlerTests {
         #expect(await index.queries.isEmpty)
     }
 
+    @Test func onlyTheAgentMemoryAppReadsTheIndex() async {
+        let index = AgentMemoryTestIndex(hits: [])
+        let handler = AgentMemorySearchHandler(enabled: { true }, index: index)
+        do throws(AppHostCapabilityError) {
+            _ = try await handler.handle(.init(app: "acme/notes", op: "memory.search", params: ["roots": [], "query": "deploy"], origin: "script"))
+            Issue.record("another app read the agent memory index")
+        } catch {
+            #expect(error.code == "operation.unsupported")
+        }
+        #expect(await index.queries.isEmpty)
+    }
+
+    @Test func aCancelledSearchIsCancelledNotAnOutage() async throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let slow = try script(in: dir, "exec sleep 30")
+        let task = Task { () -> String? in
+            do throws(AppHostCapabilityError) {
+                _ = try await BundledAgentMemoryIndex(executable: slow).search(query: "deploy", limit: 5)
+                return nil
+            } catch {
+                return error.code
+            }
+        }
+        task.cancel()
+        #expect(await task.value == "operation.cancelled")
+    }
+
+    @Test func theBundledIndexNeedsAnExecutableTool() throws {
+        let dir = try scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(BundledAgentMemoryIndex.bundled(resources: dir) == nil)
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        _ = try script(in: dir.appendingPathComponent("bin"), "exit 0")
+        #expect(BundledAgentMemoryIndex.bundled(resources: dir) != nil)
+    }
+
     @Test func theLimitDefaultsAndIsCapped() async throws {
         let index = AgentMemoryTestIndex(hits: [])
         let handler = AgentMemorySearchHandler(enabled: { true }, index: index)
