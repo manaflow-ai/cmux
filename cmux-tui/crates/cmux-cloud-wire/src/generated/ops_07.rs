@@ -384,6 +384,7 @@ pub struct ServerPairApproveParams {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ServerPairApproveResultNetwork {
+    pub state: LitReserved,
     pub tenant: String,
     pub mesh: String,
     pub device: String,

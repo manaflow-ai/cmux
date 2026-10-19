@@ -2724,6 +2724,7 @@ export interface CloudOps {
       readonly user: UserId
       readonly install: InstallId
       readonly network?: {
+        readonly state: "reserved"
         readonly tenant: string
         readonly mesh: string
         readonly device: string

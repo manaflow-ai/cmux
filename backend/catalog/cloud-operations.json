@@ -47721,6 +47721,15 @@
                 "type": {
                   "kind": "object",
                   "fields": {
+                    "state": {
+                      "required": true,
+                      "type": {
+                        "kind": "enum",
+                        "values": [
+                          "reserved"
+                        ]
+                      }
+                    },
                     "tenant": {
                       "required": true,
                       "type": {
@@ -47837,6 +47846,16 @@
           "network": {
             "type": "object",
             "properties": {
+              "state": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "reserved"
+                    ]
+                  }
+                ]
+              },
               "tenant": {
                 "type": "string"
               },
@@ -47848,6 +47867,7 @@
               }
             },
             "required": [
+              "state",
               "tenant",
               "mesh",
               "device"

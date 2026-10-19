@@ -41,7 +41,7 @@ const fixture = async () => {
     })
   } } as unknown as Env
   const frame = { op: "server.pair.approve", params: { code: begun.res.json.code, team, name: "Studio", mesh: MESH }, idempotency_key: "network-approval" }
-  const approve = (params = frame.params, submit = userSubmit) => pairApprove(e, sessionPrincipal(user, team), { ...frame, params }, submit as never, { session: token, fetch: fetchFn })
+  const approve = (params: unknown = frame.params, submit = userSubmit) => pairApprove(e, sessionPrincipal(user, team), { ...frame, params }, submit as never, { session: token, fetch: fetchFn })
   return { token, team, user, begun, binding, grant, calls, e, frame, approve, setTarget: (value: typeof target) => { target = value }, setResponse: (value: unknown) => { response = value }, setUnavailable: (value: boolean) => { unavailable = value } }
 }
 
@@ -77,6 +77,7 @@ describe("network enrollment over approved server pairing", () => {
 
   it("uses the authoritative Native tenant and delivers a pinned code only to the collect socket", async () => {
     const f = await fixture()
+    f.setResponse({ ...f.grant, accountCredential: f.token })
     const waiter = await waitFor(f.begun.res.json.code, f.begun.res.json.collect_secret)
     await waiter.until(() => waiter.frames.length > 0)
     const approved = await f.approve()
@@ -108,10 +109,11 @@ describe("network enrollment over approved server pairing", () => {
     expect(JSON.stringify(await team.debug(f.team))).not.toContain(CODE)
   })
 
-  it.each(["tenant", "install", "wireguard", "mesh", "expiry"])("refuses a mismatched %s response before registering an install or host", async (field) => {
+  it.each(["tenant", "name", "install", "wireguard", "mesh", "expiry"])("refuses a mismatched %s response before registering an install or host", async (field) => {
     const f = await fixture()
     const wrong = { ...f.grant, binding: { ...f.binding } }
     if (field === "tenant") wrong.tenantId = "different_native_team"
+    if (field === "name") wrong.binding.name = "unapproved-name"
     if (field === "install") wrong.binding.installPublicKey = "B" + "A".repeat(86) + "="
     if (field === "wireguard") wrong.binding.wgPublicKey = "A".repeat(43) + "="
     if (field === "mesh") wrong.meshId = "mesh_11111111111111111111111111"
@@ -131,6 +133,8 @@ describe("network enrollment over approved server pairing", () => {
     f.setUnavailable(false)
     expect((await f.approve({ ...f.frame.params, mesh: "mesh_11111111111111111111111111" })).ok).toBe(false)
     expect((await f.approve({ ...f.frame.params, name: "changed" })).ok).toBe(false)
+    const { mesh: _mesh, ...withoutMesh } = f.frame.params
+    expect((await f.approve(withoutMesh)).ok).toBe(false)
     expect(f.calls).toHaveLength(1)
     expect((await f.approve()).ok).toBe(true)
     expect(f.calls).toHaveLength(2)
@@ -154,5 +158,18 @@ describe("network enrollment over approved server pairing", () => {
     expect((await f.approve()).ok).toBe(true)
     expect(f.calls).toHaveLength(1)
     expect((await read(f.token, "install.list", {})).json.value.installs.filter((item: any) => item.kind === "daemon")).toHaveLength(1)
+  })
+
+  it("keeps legacy claimed approvals resumable without upgrading their unknown intent into a network grant", async () => {
+    const f = await fixture()
+    const stub = testEnv.PAIRING_DO.get(testEnv.PAIRING_DO.idFromName(f.begun.res.json.code)) as any
+    expect((await stub.claim(f.begun.res.json.code, f.user, Date.now())).ok).toBe(true)
+    expect((await f.approve()).ok).toBe(false)
+    expect(f.calls).toHaveLength(0)
+    const { mesh: _mesh, ...plain } = f.frame.params
+    const basic = await f.approve(plain)
+    expect(basic.ok).toBe(true)
+    expect(basic.value).not.toHaveProperty("network")
+    expect(f.calls).toHaveLength(0)
   })
 })

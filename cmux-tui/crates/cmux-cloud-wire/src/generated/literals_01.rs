@@ -97,6 +97,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitReserved = "reserved"
+}
+
+wire_literal! {
     LitSleep = "sleep"
 }
 
