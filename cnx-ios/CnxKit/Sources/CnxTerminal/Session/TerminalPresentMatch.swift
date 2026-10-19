@@ -14,13 +14,18 @@ public struct TerminalPresentMatch: Equatable, Sendable {
     public var recentRequests: [Int]
     /// The active area's top (the bottom of the scrollback).
     public var activeTop: Int
+    /// The last request was sent after the last report (`TerminalViewportTop`):
+    /// Ghostty's viewport is the request, and the report is older.
+    public var requestIsNewer: Bool
 
-    public init(presentedTop: Int, reportedTop: Int, requestedTop: Int, recentRequests: [Int], activeTop: Int) {
+    public init(presentedTop: Int, reportedTop: Int, requestedTop: Int, recentRequests: [Int], activeTop: Int,
+                requestIsNewer: Bool = false) {
         self.presentedTop = presentedTop
         self.reportedTop = reportedTop
         self.requestedTop = requestedTop
         self.recentRequests = recentRequests
         self.activeTop = activeTop
+        self.requestIsNewer = requestIsNewer
     }
 
     /// Shifts from `presentedTop` to every viewport a frame in flight may
@@ -39,7 +44,7 @@ public struct TerminalPresentMatch: Equatable, Sendable {
     }
 
     /// The frame's top row: the best matching candidate (at least 90 % of the
-    /// non-blank rows equal), else the last report.
+    /// non-blank rows equal), else the newer of the last request and report.
     public func top(previous: [UInt64], current: [UInt64]) -> Int {
         match(previous: previous, current: current).top
     }
@@ -58,6 +63,12 @@ public struct TerminalPresentMatch: Equatable, Sendable {
             if score > (best?.score ?? -1) + 0.02 { best = (shift, score) }
         }
         if let best, best.score >= 0.9 { return (presentedTop + best.shift, true) }
+        // No candidate matched (a jump: the frame shares no rows with the
+        // one on screen). Ghostty's viewport is the request when it is newer
+        // than the report (termqa N1: a restore's first frame came before
+        // the report for its request, was placed at the report's end of
+        // the replay, and every later frame matched it there).
+        if requestIsNewer, requestedTop >= 0 { return (min(requestedTop, max(0, activeTop)), false) }
         return (reportedTop, false)
     }
 
