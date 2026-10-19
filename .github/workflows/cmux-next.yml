@@ -100,6 +100,7 @@ on:
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
+      - tests/test_ci_target_graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -288,6 +289,7 @@ on:
       - scripts/cmux-next/swift-exports-cache.sh
       - scripts/cmux-next/swift-exports-key.py
       - scripts/cmux-next/ci-target-graph.py
+      - tests/test_ci_target_graph.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
@@ -1249,6 +1251,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_route.py
+          python3 tests/test_ci_target_graph.py
           python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
 
