@@ -196,7 +196,10 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                 "parts": [wire.textPart(draft.text, mentions: draft.mentions)],
             ]
             if let reply = draft.replyToID { fields["reply_to"] = ["message_id": reply, "part_index": 0] }
-            return try await messageOp("message.send", fields, key: draft.clientMessageID)
+            let message = try await messageOp("message.send", fields, key: draft.clientMessageID)
+            // Committed: Chief's answer is on its way (the typing indicator shows).
+            updateLive(live.sent(seq: message.seq))
+            return message
         }
 
         func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage {
@@ -489,7 +492,14 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             case "conversation-typing":
                 guard object["conversation"] as? String == conversationID,
                       let who = object["participant"] as? String, who != identity.meID else { return false }
-                continuation?.yield(.typing(participantID: who, isTyping: object["on"] as? Bool ?? false))
+                let on = object["on"] as? Bool ?? false
+                // Chief's typing is the live status line (one indicator, not
+                // also the transcript's typing bubble); anyone else's is the store's.
+                if who == identity.chiefID {
+                    updateLive(live.typing(on))
+                } else {
+                    continuation?.yield(.typing(participantID: who, isTyping: on))
+                }
             case "conversation-run-changed":
                 try await applyLive(live.runChanged(object), on: task)
             case "step.delta":
@@ -642,6 +652,11 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             try await frame(["t": "run.live.get", "type": "run.live.get", "conversation": conversationID], on: task)
         }
 
+        /// A live change that needs no answer from the owner.
+        private func updateLive(_ outcome: ChiefLiveState.Outcome) {
+            if outcome != .ignored { liveFeed.update(live.current) }
+        }
+
         private func resetLive() {
             live = ChiefLiveState(conversation: conversationID)
             liveResyncPending = false
@@ -673,6 +688,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         }
 
         private func yieldMessage(_ message: ConversationMessage) {
+            if message.senderID == identity.chiefID { updateLive(live.chiefMessage(seq: message.seq)) }
             remember(message)
             eventSeq += 1
             continuation?.yield(.message(message, eventSeq: eventSeq))

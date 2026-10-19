@@ -208,7 +208,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     private lazy var liveBubble: UIHostingController<ChiefLiveBubble> = {
         let host = UIHostingController(rootView: ChiefLiveBubble(session: session))
         host.view.backgroundColor = .clear
-        host.view.isUserInteractionEnabled = false
+        // The status line takes a tap (details); the view is only as wide
+        // as what it draws, so the transcript beside it still scrolls.
         host.sizingOptions = .intrinsicContentSize
         host.view.translatesAutoresizingMaskIntoConstraints = false
         return host
@@ -223,7 +224,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         liveBubble.didMove(toParent: self)
         NSLayoutConstraint.activate([
             liveBubble.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            liveBubble.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            liveBubble.view.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor),
+            liveBubble.view.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
         ])
         anchorLiveBubble()
     }
