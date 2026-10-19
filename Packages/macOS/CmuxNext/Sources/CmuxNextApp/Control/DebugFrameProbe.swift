@@ -41,11 +41,15 @@ final class DebugFrameProbe {
     private func start() {
         intervals.removeAll(keepingCapacity: true)
         last = 0
+        DragMarginProbe.install()
+        DragMarginProbe.reset()
+        DragMarginProbe.recording = true
         client.activate()
         expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
     }
 
     private func stop() {
+        DragMarginProbe.recording = false
         client.deactivate()
         expiry.cancel()
     }
@@ -84,6 +88,7 @@ final class DebugFrameProbe {
             // Missed vsyncs: intervals longer than 1.5 refresh periods.
             "missed": JSONValue(expected > 0 ? sorted.filter { $0 > expected * 1_500 }.count : 0),
             // When the missed vsyncs happened: ms from the first frame to the end of each (at most 16).
+            "dragmargins": DragMarginProbe.json,
             "missed_at_ms": .array(missedOffsets.prefix(16).map { .number($0.rounded()) }),
         ]
     }
