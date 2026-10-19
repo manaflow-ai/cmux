@@ -279,13 +279,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         y += h + m.rowSpacing
                         return
                     }
-                    let memberIDs = Self.workspaceIDs(members)
-                    let drawn = Self.treeOrder(memberIDs, parents: o.sessionTree?.parents, collapsed: o.sessionTree?.collapsed ?? [])
-                    let memberWorkspaces = Dictionary(entry.children.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                    let memberState: (Int) -> SidebarAgentState = { i in
-                        guard let id = memberIDs[i], let ws = memberWorkspaces[id] else { return .idle }
-                        return SidebarAgentState.of(ws, lane: o.sessionTree?.states[id])
-                    }
+                    let drawn = Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents)
                     for (position, (childIndex, depth)) in drawn.enumerated() {
                         let member = members[childIndex]
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
@@ -305,7 +299,6 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                         var content = o.rowContent(ws, machine: machineLabel)
                         content.treeDepth = depth
-                        (content.treeFold, content.rollUp) = Self.treeFold(childIndex, memberIDs, tree: o.sessionTree, states: memberState)
                         let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
