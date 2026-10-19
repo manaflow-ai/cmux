@@ -1,0 +1,75 @@
+import CoreGraphics
+
+/// The markdown viewer's Settings rows (diff-host S6, reading settings 2026-10-19): the keys the
+/// viewer's Reading Settings popover (the toolbar's Aa button) writes, with the page's defaults and
+/// ranges (webviews/src/pages/markdown/settings.ts `MARKDOWN_READING`). `markdown.font.size` is the
+/// size every viewer starts at, and Cmd-0 there goes back to it after Cmd-= and Cmd--.
+nonisolated enum MarkdownViewerSettingsSchema {
+    /// `markdown.font.size`: the body text size in points (CSS pixels in the page).
+    static let fontSizePath = ["markdown", "font", "size"]
+    /// The sizes the row offers; the page clamps its own Cmd-= and Cmd-- to the same range.
+    static let fontSizeRange: ClosedRange<CGFloat> = 8...40
+    /// The page's default (`--cmux-md-font-size`, 16px).
+    static let fontSizeFallback: Double = 16
+
+    /// Every row's key (agents may set them: looks only).
+    static var keys: Set<String> { Set(descriptors.map(\.id)) }
+
+    static var descriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.markdownViewer", "Markdown Viewer")
+        func row(_ path: [String], _ title: SettingText, help: SettingText? = nil, _ kind: SettingKind,
+                 _ value: JSONValue, _ keywords: [String]) -> SettingDescriptor {
+            SettingDescriptor(["markdown"] + path, section: .appearance, group: group, title: title, help: help,
+                              kind: kind, default: value, keywords: ["markdown", "viewer", "reading"] + keywords)
+        }
+        return [
+            row(["layout", "width"], SettingsText.keyed("settings.markdown.width", "Text Width"),
+                help: SettingsText.keyed("settings.markdown.width.help",
+                                         "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box."),
+                .number(SettingNumber(40...160, step: 2, unit: .count, placeholder: 72)), .number(72),
+                ["width", "max width", "column", "measure", "line length"]),
+            row(["layout", "fullWidth"], SettingsText.keyed("settings.markdown.fullWidth", "Full Width"),
+                help: SettingsText.keyed("settings.markdown.fullWidth.help", "Text fills the whole pane instead of the text width."),
+                .toggle, .bool(false), ["full", "width", "wide"]),
+            SettingDescriptor(
+                fontSizePath, section: .appearance, group: group,
+                title: SettingsText.keyed("settings.markdown.fontSize", "Default Font Size"),
+                help: SettingsText.keyed("settings.markdown.fontSize.help",
+                                         "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."),
+                kind: .number(SettingsSchema.points(fontSizeRange, step: 1, placeholder: fontSizeFallback)),
+                default: .number(fontSizeFallback),
+                keywords: ["markdown", "font", "size", "text", "zoom", "viewer", "reading"]
+            ),
+            row(["font", "preset"], SettingsText.keyed("settings.markdown.fontPreset", "Font"),
+                .choice([
+                    SettingChoice("system", SettingsText.keyed("settings.choice.markdownFontSystem", "System")),
+                    SettingChoice("serif", SettingsText.keyed("settings.choice.markdownFontSerif", "Serif")),
+                    SettingChoice("mono", SettingsText.keyed("settings.choice.markdownFontMono", "Monospaced")),
+                ]),
+                .string("system"), ["font", "family", "serif", "monospace", "typeface"]),
+            row(["font", "lineHeight"], SettingsText.keyed("settings.markdown.lineHeight", "Line Height"),
+                .number(SettingNumber(1...2.4, step: 0.05, unit: .fraction, placeholder: 1.6)), .number(1.6),
+                ["line height", "leading", "line spacing"]),
+            row(["spacing", "paragraph"], SettingsText.keyed("settings.markdown.paragraphSpacing", "Paragraph Spacing"),
+                help: SettingsText.keyed("settings.markdown.paragraphSpacing.help", "The gap after each paragraph, as a share of the text size."),
+                .number(SettingNumber(0...3, step: 0.1, unit: .fraction, placeholder: 1)), .number(1),
+                ["paragraph", "spacing", "gap", "margin"]),
+            row(["code", "blockSize"], SettingsText.keyed("settings.markdown.codeSize", "Code Font Size"),
+                .number(SettingsSchema.points(8...32, step: 1, placeholder: 14)), .number(14),
+                ["code", "font", "size", "monospace"]),
+            row(["tables"], SettingsText.keyed("settings.markdown.tables", "Wide Tables"),
+                .choice([
+                    SettingChoice("scroll", SettingsText.keyed("settings.choice.markdownTablesScroll", "Scroll Sideways")),
+                    SettingChoice("wrap", SettingsText.keyed("settings.choice.markdownTablesWrap", "Wrap to Fit")),
+                ]),
+                .string("scroll"), ["table", "wrap", "scroll", "wide"]),
+            row(["theme"], SettingsText.keyed("settings.markdown.theme", "Page Theme"),
+                .choice([
+                    SettingChoice("app", SettingsText.keyed("settings.choice.markdownThemeApp", "Match App")),
+                    SettingChoice("light", SettingsText.keyed("settings.choice.markdownThemeLight", "Light")),
+                    SettingChoice("dark", SettingsText.keyed("settings.choice.markdownThemeDark", "Dark")),
+                ]),
+                .string("app"), ["theme", "light", "dark", "appearance", "paper"]),
+        ]
+    }
+}

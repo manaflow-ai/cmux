@@ -51,13 +51,14 @@ pub(super) fn identify(mux: &Arc<Mux>, machine_metadata: bool) -> anyhow::Result
         "registry_id": registry_id,
         "generation": generation,
         "workspace_revision": mux.with_state(|state| state.workspace_revision),
-        "terminal_revision": mux.terminal_registry_snapshot()?.revision,
+        "terminal_revision": mux.terminal_registry_revision()?,
         "daemon_handoff": 1,
         "lifecycle_ready": mux.server_lifecycle_ready(),
         "launch_snapshot_path": mux.launch_snapshot_path(),
     });
     if machine_metadata {
         identity["machine_id"] = json!(mux.machine_public_id);
+        identity["session_resource_id"] = json!(mux.session_public_id);
         identity["machine_platform"] = crate::resource_api::machine_platform();
         identity["machine_capabilities"] = crate::resource_api::machine_capabilities();
     }

@@ -17,7 +17,7 @@ extension BrowserPageScripts {
         """
 
     static func hover(_ selector: String) -> String {
-        wrap(inputHelpers + find(selector) + "el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); hover(el); return { value: true };")
+        wrap(inputHelpers + find(selector) + "el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); hover(el); return { value: true, at: cmuxAt(el) };")
     }
 
     static func scrollIntoView(_ selector: String) -> String {
@@ -32,7 +32,7 @@ extension BrowserPageScripts {
         }
         return wrap(find(selector) + """
         if (typeof el.scrollBy === 'function') { el.scrollBy(\(by)); } else { el.scrollLeft += \(dx); el.scrollTop += \(dy); }
-        return { value: { x: el.scrollLeft, y: el.scrollTop } };
+        return { value: { x: el.scrollLeft, y: el.scrollTop }, at: cmuxAt(el) };
         """)
     }
 
@@ -52,7 +52,7 @@ extension BrowserPageScripts {
         if (setter) { setter.call(el, next); } else { el.value = next; }
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { value: el.value };
+        return { value: el.value, at: cmuxAt(el) };
         """)
     }
 
@@ -81,7 +81,7 @@ extension BrowserPageScripts {
           }
         }
         if (el.checked !== desired) { return { error: 'The page kept the element ' + (desired ? 'unchecked' : 'checked'), code: 'not_changed' }; }
-        return { value: el.checked };
+        return { value: el.checked, at: cmuxAt(el) };
         """)
     }
 }

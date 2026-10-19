@@ -121,7 +121,10 @@ fi
 
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
-SPARKLE_PUBLIC_KEY_DERIVED=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+SPARKLE_PUBLIC_KEY_DERIVED=$(
+  printf '%s' "$SPARKLE_PRIVATE_KEY" |
+    env -u SPARKLE_PRIVATE_KEY swift scripts/derive_sparkle_public_key.swift --stdin
+)
 APP_PLIST="$APP_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" 2>/dev/null || true
@@ -223,7 +226,7 @@ cask "cmux" do
   url "https://github.com/manaflow-ai/cmux/releases/download/v#{version}/cmux-macos.dmg"
   name "cmux"
   desc "Lightweight native macOS terminal with vertical tabs for AI coding agents"
-  homepage "https://github.com/manaflow-ai/cmux"
+  homepage "https://cmux.com/"
 
   livecheck do
     url :url
@@ -234,6 +237,7 @@ cask "cmux" do
 
   app "cmux.app"
   binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
+  generate_completions_from_executable "#{HOMEBREW_PREFIX}/bin/cmux", "completion"
 
   zap trash: [
     "~/Library/Application Support/cmux",
