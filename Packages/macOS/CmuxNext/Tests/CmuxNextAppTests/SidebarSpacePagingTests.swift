@@ -25,10 +25,13 @@ struct SidebarSpacePagingTests {
         sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.1)
         #expect(sidebar.spacePaging.pendingTarget == ProfileKey("space1"))
 
+        // The person picks space2 directly before the swipe's switch to space1 lands.
+        model.activeProfileID = ProfileKey("space2")
         #expect(!sidebar.spacePaging.modelDidSwitch(to: ProfileKey("space2")))
         #expect(sidebar.spacePaging.pendingTarget == nil)
 
-        sidebar.spacePaging.page(by: 1)
-        #expect(model.activeProfileID == ProfileKey("space2"))
+        // Wheel paging works again, from the space the person picked.
+        sidebar.spacePaging.page(by: -1)
+        #expect(model.activeProfileID == ProfileKey("space1"))
     }
 }
