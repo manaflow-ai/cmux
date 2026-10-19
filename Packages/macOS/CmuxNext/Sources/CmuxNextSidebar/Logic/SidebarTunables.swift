@@ -92,7 +92,7 @@ public nonisolated enum SidebarTunables {
         default: .slide, code: "SidebarTunables.collapseMotion")
 
     /// The transition used when a workspace row receives its generated or
-    /// agent-derived title after creation. Instant remains the shipped default.
+    /// agent-derived title after creation. Crossfade is the shipped default (#21242).
     public static let workspaceTitleMotion = Tunable<SidebarWorkspaceTitleMotionVariant>.choice(
         "sidebar.workspaceTitleMotion", .sidebar, "Workspace title motion",
         help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
