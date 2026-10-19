@@ -37,24 +37,20 @@
    its two columns and file list, so Changes takes about half the pane. */
 .acpmux-stage{--acpmux-viewer-width:320px}
 .acpmux-stage:has(>.acpmux-diff-panel:not(.acpmux-file-viewer)){--acpmux-viewer-width:min(600px,50%)}
-/* The header runs over the viewer, which starts under it, so the header's buttons stay in the pane's
-   top-right corner (Lucas 2026-10-19). */
 @container (min-width:820px){
   html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-header,html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-scroll{visibility:visible;margin-right:var(--acpmux-viewer-width)}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-header:not([data-tab-row]){margin-right:0}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-diff-panel{left:auto;width:var(--acpmux-viewer-width);border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-header:not([data-tab-row])~.acpmux-diff-panel{top:44px}
+  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-diff-panel{left:auto;bottom:auto;height:100vh;width:var(--acpmux-viewer-width);border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
+  /* A full-height column on the right, as the browser beside the chat is; its header row is the chat
+     header's height, so the two lines meet. Thread details floats over it (chatViewerPanels.ts). */
+  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-diff-panel>.acpmux-diff-header{height:44px}
+  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-summary-card[data-placement=popover]{visibility:visible;z-index:6;right:calc(var(--acpmux-viewer-width) + 10px)}
 }
 /* The composer and the pull request dock sit under the transcript, not centered on the whole pane (the
    pane is the page, so the page width stands in for the stage's container query above). */
 @media (min-width:820px){
-  html[data-lab-chat-viewer="on"] .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel.acpmux-file-viewer)>:is(.acpmux-composer,.acpmux-pr-dock){margin-right:320px;--cv-inset:max(var(--cv-edge),calc((100% - 320px - min(var(--cv-column),max(720px,(100% - 320px) * .625)))/2))}
-  html[data-lab-chat-viewer="on"] .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel:not(.acpmux-file-viewer))>:is(.acpmux-composer,.acpmux-pr-dock){margin-right:min(600px,50%);--cv-inset:max(var(--cv-edge),calc((100% - min(600px,50%) - min(var(--cv-column),max(720px,(100% - min(600px,50%)) * .625)))/2))}
+  html[data-lab-chat-viewer="on"] .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel.acpmux-file-viewer)>:is(.acpmux-composer,.acpmux-pr-dock,.acpmux-asks-stack){margin-right:320px;--cv-inset:max(var(--cv-edge),calc((100% - 320px - min(var(--cv-column),max(720px,(100% - 320px) * .625)))/2))}
+  html[data-lab-chat-viewer="on"] .acpmux-main:has(>.acpmux-stage.acpmux-reviewing>.acpmux-diff-panel:not(.acpmux-file-viewer))>:is(.acpmux-composer,.acpmux-pr-dock,.acpmux-asks-stack){margin-right:min(600px,50%);--cv-inset:max(var(--cv-edge),calc((100% - min(600px,50%) - min(var(--cv-column),max(720px,(100% - min(600px,50%)) * .625)))/2))}
 }
-/* The same for Thread details' column beside the chat: the header runs over it, and it starts under the
-   header, so the buttons do not stop at its edge. */
-html[data-lab-chat-viewer="on"] .acpmux-shell:has(>.acpmux-summary-card[data-placement=inline]) .acpmux-stage>.acpmux-header:not([data-tab-row]){position:relative;z-index:6;margin-right:-300px}
-html[data-lab-chat-viewer="on"] .acpmux-shell:has(.acpmux-stage>.acpmux-header:not([data-tab-row]))>.acpmux-summary-card[data-placement=inline]{margin-top:44px}
 .acpmux-file-viewer{background:var(--agent-page-bg)}
 /* No Back chevron (only the X closes it): the name lines up with the search field below. */
 .acpmux-file-viewer>.acpmux-diff-header{padding-left:16px}
