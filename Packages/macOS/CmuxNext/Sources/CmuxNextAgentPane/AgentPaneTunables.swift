@@ -281,6 +281,11 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.labs.chatViewer", PageTunables.section, "Files and changes beside the chat",
         help: "Changes and files from the chat open in one viewer beside the transcript, inside the chat, instead of a new column or a tab over the chat. New agent tabs.",
         default: true, code: "AgentPaneTunables.chatViewer")
+    /// Thread details sources show each site's icon, fetched by the favicon loader (Lucas 2026-10-19).
+    public static let sourceIcons = Tunable<Bool>.toggle(
+        "agentPane.labs.sourceIcons", PageTunables.section, "Site icons for sources",
+        help: "Thread details shows each source's site icon, fetched from the site without cookies. New agent tabs.",
+        default: true, code: "AgentPaneTunables.sourceIcons")
     public static let shortcutsHelp = Tunable<Bool>.toggle(
         "agentPane.labs.shortcutsHelp", PageTunables.section, "Keyboard shortcuts in the chat menu",
         help: "The chat menu shows the keyboard shortcuts available in the pane. New agent tabs.",
@@ -289,7 +294,7 @@ public nonisolated struct AgentPaneTunables {
     static let labTunables: [String: Tunable<Bool>] = [
         "live-render": liveRender, "render-guide": renderGuide, "render-kit": renderKit, "render-preview": renderPreview, "render-expand": renderExpand, "table-scroll": tableScroll, "context-meter": contextMeter, "prompt-collapse": promptCollapse,
         "message-times": messageTimes, "code-wrap": codeWrap, "plan-progress": planProgress,
-        "shortcuts-help": shortcutsHelp, "chat-viewer": chatViewer
+        "shortcuts-help": shortcutsHelp, "chat-viewer": chatViewer, "source-icons": sourceIcons
     ]
     /// What a folded long thought's line reads: how long the agent thought, or its first line.
     /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
@@ -408,5 +413,5 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, chatViewer.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, chatViewer.descriptor, sourceIcons.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
 }

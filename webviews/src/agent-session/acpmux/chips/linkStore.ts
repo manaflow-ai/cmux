@@ -1,7 +1,9 @@
 // What the host says about a reply's paths and links (`link.inspect`, decision D4): where each
 // path is (inside the session's folders, outside, on the deny list, missing) and the favicon and
 // title cmux already has for each URL. Requests from one render are batched into one call; the
-// answers are kept for the page's life. The host never fetches anything for this.
+// answers are kept for the page's life. The host never fetches anything for this; the one
+// exception is a Thread details source's site icon (`link.favicon`, labs `sourceIcons`), fetched
+// once per site by the host's favicon loader, without cookies.
 import { useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 
@@ -21,6 +23,8 @@ const MAX_KEPT = 2000;
 
 const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
+/// Fetched site icons by host: a data URL, null when the site had none or the fetch is off.
+const favicons = new Map<string, string | null>();
 /// Paths sent to the host and not answered yet.
 const asking = new Set<string>();
 let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click" };
@@ -120,6 +124,34 @@ export function useSiteInfo(url: string | undefined): SiteInfo | undefined {
   return url ? (sites.get(url) ?? undefined) : undefined;
 }
 
+/// A source's icon: the one cmux already holds (an open tab of the site), else, with `fetch`
+/// (labs `sourceIcons`), the site's own icon, asked once per site.
+export function useSourceIcon(url: string | undefined, fetch: boolean): string | undefined {
+  useSyncExternalStore(subscribe, snapshot, snapshot);
+  if (!url) return undefined;
+  ask(undefined, url);
+  const held = sites.get(url)?.icon;
+  if (held) return held;
+  let host: string;
+  try {
+    host = new URL(url).host.toLowerCase();
+  } catch {
+    return undefined;
+  }
+  if (!fetch || !host) return undefined;
+  if (!favicons.has(host)) {
+    favicons.set(host, null);
+    void callChipHost("link.favicon", { url }).then((reply) => {
+      const icon = (reply as { icon?: unknown } | undefined)?.icon;
+      if (typeof icon === "string" && icon.startsWith("data:image/")) {
+        favicons.set(host, icon);
+        changed();
+      }
+    });
+  }
+  return favicons.get(host) ?? undefined;
+}
+
 /// `agentPane.images.remote` and `agentPane.links.outsideRoots` as the host last said.
 export function useReplyPolicy(): ReplyPolicy {
   useSyncExternalStore(subscribe, snapshot, snapshot);
@@ -132,6 +164,7 @@ export function resetLinkStore(): void {
   paths.clear();
   asking.clear();
   sites.clear();
+  favicons.clear();
   queuedPaths = [];
   queuedUrls = [];
   scheduled = false;
