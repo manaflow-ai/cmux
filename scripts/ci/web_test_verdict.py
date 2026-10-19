@@ -25,6 +25,9 @@ and prints one verdict per file:
   unrelated flake    the PR cannot reach it, and it failed only on other PRs
   probably unrelated the PR cannot reach it, and nothing else failed it in the
                      window; a re-run settles it
+  can't analyse safely the head has an import attribute clause (or similar)
+                     that could run code while bundling, so no import graph;
+                     the history is still printed
 
 "Cannot reach" means outside the import graph, tree-shaken, or (--coverage)
 imported without running a changed line. The head and base commits must be
@@ -51,6 +54,7 @@ import web_test_failure_census as census  # noqa: E402
 MARKER = "<!-- cmux-web-test-verdict -->"
 LIKELY, TOUCHED_FLAKY, ON_MAIN, FLAKE, PROBABLY = "likely this PR's", "touched, also flaky", "also red on main", \
     "unrelated flake", "probably unrelated"
+UNSAFE = "can't analyse safely"
 MAX_FILES = 5
 
 
@@ -63,7 +67,9 @@ def decide(own: list[Mapping], others: list[Mapping], touch: Mapping, days: int)
                + (f" ({on_main} on main, {len(elsewhere)} other PR branch{'es' if len(elsewhere) != 1 else ''})"
                   if others else ""))
     reach = touch["summary"]
-    if touch["touches"]:
+    if touch["touches"] is None:  # the import graph was refused; the history still stands
+        verdict = UNSAFE
+    elif touch["touches"]:
         verdict = TOUCHED_FLAKY if others else LIKELY
     elif on_main:
         verdict = ON_MAIN
@@ -165,7 +171,10 @@ def main(argv: list[str] | None = None) -> int:
         history = census.census(src, test=args.test, file=file, days=args.days, source=args.source,
                                 max_main_runs=args.max_main_runs, max_runs=args.max_runs, branches=[branch])
         own, others = own_and_others(history, branch, head_repo.get("id"))
-        touch = graph.check(repo, file, base, head, coverage=args.coverage)
+        try:
+            touch = graph.check(repo, file, base, head, coverage=args.coverage)
+        except graph.UnsafeToAnalyse as error:
+            touch = {"touches": None, "summary": str(error), "files": []}
         results.append({"file": file, "own": own, "others": others, "touch": touch, "source": history["source"],
                         "verdict": decide(own, others, touch, args.days)})
     body = render(pr, results, args.days)  # type: ignore[arg-type]

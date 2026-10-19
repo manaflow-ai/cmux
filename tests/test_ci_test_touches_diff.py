@@ -98,28 +98,85 @@ class Verdicts(unittest.TestCase):
         text = "SF:/w/web/services/a.ts\nDA:1,2\nDA:2,0\nend_of_record\nSF:services/b.ts\nDA:5,1\nend_of_record\n"
         self.assertEqual(touches.parse_lcov(text, root), {"services/a.ts": {1: 2, 2: 0}, "services/b.ts": {5: 1}})
 
-    def test_credentials_stay_out_of_buns_environment(self):
+    def test_buns_environment_is_an_allowlist(self):
         import os
         saved = dict(os.environ)
-        os.environ.update({"GH_TOKEN": "x", "GITHUB_TOKEN": "x", "AWS_SECRET_ACCESS_KEY": "x", "MY_API_KEY": "x",
-                           "PATH_KEEP": "1"})
+        os.environ.update({"GH_TOKEN": "x", "DBUS_SESSION_BUS_ADDRESS": "x", "XDG_CONFIG_HOME": "/x",
+                           "SOMETHING": "x", "LANG": "C.UTF-8"})
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                env = touches.scrubbed_env(Path(tmp) / "home")
+                env = touches.bun_env(Path(tmp) / "home")
         finally:
             os.environ.clear()
             os.environ.update(saved)
-        self.assertFalse({"GH_TOKEN", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "MY_API_KEY"} & set(env))
-        self.assertEqual(env["PATH_KEEP"], "1")
-        self.assertTrue(env["HOME"].endswith("home"))
+        self.assertEqual(set(env) - {"PATH", "LANG", "LC_ALL", "TERM"}, {"HOME", "TMPDIR", "NO_COLOR"})
+        self.assertEqual(env["LANG"], "C.UTF-8")
 
     def test_render_names_what_the_graph_cannot_see(self):
         report = {"summary": "s", "test": "web/tests/a.test.ts", "head": "abc", "graph_size": 1, "entries": ["a"],
-                  "changed": 1, "files": [], "deleted": ["web/lib/gone.ts"], "macros_neutralized": ["m.ts"]}
+                  "changed": 1, "files": [], "deleted": ["web/lib/gone.ts"], "sandboxed": False}
         text = touches.render(report)
         self.assertIn("1 deleted file(s) not checked: web/lib/gone.ts", text)
-        self.assertIn("macro imports bundled without running: m.ts", text)
+        self.assertIn("unsandboxed", text)
         self.assertIn("mock.module()", text)
+
+
+class FailClosed(unittest.TestCase):
+    """Anything that could carry import attributes refuses the bundle; ordinary code passes."""
+
+    UNSAFE = {
+        "plain": 'import { b } from "./m" with { type: "macro" };',
+        "quoted key": "import { b } from './m' with { \"type\": \"macro\" };",
+        "extra attribute": 'import { b } from "./m" with { type: "macro", x: "y" };',
+        "comment in braces": 'import { b } from "./m" with { /* hi */ type: "macro" };',
+        "escaped value": 'import { b } from "./m" with { type: "\\x6dacro" };',
+        "comment before clause": 'import { b } from "./m" /* c */ with // d\n { type: "macro" };',
+        "assert": 'import { b } from "./m" assert { type: "macro" };',
+        "json attribute": 'import data from "./d.json" with { type: "json" };',
+        "re-export": 'export { b } from "./m" with { type: "macro" };',
+        "dynamic": 'const m = await import("./m", { with: { type: "macro" } });',
+        "dynamic quoted": 'const m = await import("./m", { "assert": { type: "macro" } });',
+    }
+    SAFE = {
+        "doc comment": "/** Rejects with {@link VmModelPlaneError}; the workflow fails. */\nexport const a = 1;",
+        "plain import": 'import { b } from "./m";\nconst o = { with: 1 };',
+        "dynamic": "const m = await import(pathToFileURL(resolve(root, path)).href);",
+    }
+
+    def reasons(self, files):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name, text in files.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text)
+            return touches.unsafe_reasons(root)
+
+    def test_every_attribute_spelling_is_refused(self):
+        for label, text in self.UNSAFE.items():
+            with self.subTest(label):
+                self.assertTrue(self.reasons({"lib/a.ts": text}), label)
+
+    def test_ordinary_code_is_not(self):
+        for label, text in self.SAFE.items():
+            with self.subTest(label):
+                self.assertEqual(self.reasons({"lib/a.ts": text}), [], label)
+
+    def test_a_package_json_that_mentions_macros_is_refused(self):
+        self.assertTrue(self.reasons({"package.json": '{"macros": {"x": "./m"}}'}))
+        self.assertEqual(self.reasons({"package.json": '{"name": "web"}'}), [])
+
+
+@unittest.skipUnless(touches.can_sandbox() and shutil.which("bun"), "needs Linux user namespaces and bun")
+class Sandbox(unittest.TestCase):
+    def test_bun_sees_no_home_directory_and_no_network(self):
+        home = str(Path.home())
+        script = ("const fs = require('fs');"
+                  f"console.log(fs.readdirSync({home!r}).length);"
+                  "try { await fetch('https://api.github.com'); console.log('net'); } catch { console.log('no-net'); }")
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            result = touches.run_bun(["-e", script], Path(tmp), Path(tmp), sandbox=True)
+        self.assertEqual(result.stdout.split(), ["0", "no-net"], result.stderr)
+
 
     def test_test_paths(self):
         self.assertEqual(touches.test_path("tests/a.test.ts"), "web/tests/a.test.ts")
@@ -176,20 +233,20 @@ class RealBundle(unittest.TestCase):
         report = touches.check(self.repo, "web/tests/a.test.ts", "main~1", "main")
         self.assertEqual(by_file(report["files"])["web/lib/used.ts"]["verdict"], "imported")
 
-    def test_a_macro_in_the_head_is_bundled_but_never_run(self):
-        # bun runs `with { type: "macro" }` imports while bundling; the check must not.
+    def test_a_macro_in_the_head_is_refused_and_never_run(self):
+        # bun runs `with { type: "macro" }` imports while bundling; the check must refuse first.
         canary = self.repo / "PWNED"
         self.write("web/lib/boom.ts", 'import { writeFileSync } from "node:fs";\n'
                    f'export function boom() {{ writeFileSync({str(canary)!r}, "x"); return 1; }}\n')
         self.write("web/tests/a.test.ts", 'import { test } from "bun:test";\n'
-                   'import { boom } from "../lib/boom" with { type: "macro" };\n'
+                   'import { boom } from "../lib/boom" with { "type": "macro", x: "y" };\n'
                    'test("a", () => { boom(); });\n')
         self.git("add", "-A")
         self.git("commit", "-qm", "macro")
-        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        with self.assertRaises(touches.UnsafeToAnalyse) as raised:
+            touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        self.assertIn("tests/a.test.ts has an import attribute clause", str(raised.exception))
         self.assertFalse(canary.exists(), "bun build ran the head's macro")
-        self.assertEqual(report["macros_neutralized"], ["tests/a.test.ts"])
-        self.assertEqual(by_file(report["files"])["web/lib/boom.ts"]["verdict"], "imported")
 
     def test_deleted_files_are_listed(self):
         self.git("rm", "-q", "web/lib/other.ts")

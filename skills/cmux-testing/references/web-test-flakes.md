@@ -7,12 +7,12 @@ command before rerunning, de-flaking or holding the merge:
 python3 scripts/ci/web_test_verdict.py --pr 21651
 ```
 
-This runs none of the PR's code. It prints one line per failed test file, for example:
+It's built not to run the PR's code (see [What runs](#what-runs)). It prints one line per failed test file, for example:
 
 > `tests/vm-route-deadlines.test.ts`: **also red on main**. 1 other failure in 7 days (1 on main, 0 other PR branches); vm-route-deadlines.test.ts imports 1 changed file(s); 2 of 2 failure(s) here passed on a re-run of the same SHA
 
 When the test imports changed code, `--coverage` tells you whether it runs any
-of it. **`--coverage` runs the PR head's test code on your machine**, with your
+of it. **`--coverage` runs the PR head's test code**, with your
 `web/node_modules`. Use it only for a PR from this repository whose code you'd
 run anyway; the script refuses it for forks.
 
@@ -23,6 +23,7 @@ run anyway; the script refuses it for forks.
 | also red on main | the PR can't reach it, and it also failed on main | check main's runs first: main may be broken, not flaky |
 | unrelated flake | the PR can't reach it, and it failed on other PRs too | rerun; file or fix the flake separately |
 | probably unrelated | the PR can't reach it, and nothing else failed it in the window | rerun the shard; a pass settles it |
+| can't analyse safely | the head has an import attribute clause or similar, so no import graph | read the diff yourself; the history is still printed |
 
 `--post` comments the verdict on the PR. Without it, the script only prints.
 
@@ -36,9 +37,22 @@ Each part also runs on its own:
 - `scripts/ci/test_touches_diff.py <test> --base <ref> --head <ref> [--coverage]`
   bundles the test with `bun build --metafile` and reports each changed file
   as not imported, tree-shaken, imported, or (`--coverage`) executed or not
-  executed. Without `--coverage` it needs only git and bun, not `node_modules`,
-  and runs nothing from the head: it bundles a `git archive` copy with macro
-  imports stripped and the head's bunfig.toml withheld.
+  executed. Without `--coverage` it needs only git and bun, not `node_modules`.
+
+## What runs
+
+- bun runs `with { type: "macro" }` imports while bundling, and `--no-macros`
+  doesn't stop it. So the check fails closed: it refuses to bundle ("can't
+  analyse safely") when any file in the head's `web/` has an import attribute
+  clause, passes attributes to `import()`, or has a package.json that mentions
+  macros. The head's bunfig.toml is read as data and never handed to bun.
+- bun gets only `PATH`, `LANG`, `LC_ALL`, `TERM`, and a throwaway `HOME` and
+  `TMPDIR`. On Linux it runs in a user namespace (`unshare`) with no network
+  and your home directory hidden behind an empty tmpfs.
+- On macOS there's no such sandbox: bun runs as you and can read your files,
+  and the output says so. `--coverage` is then refused unless you pass
+  `--allow-unsandboxed`. For a PR you don't trust, run the check on a Linux
+  machine or a throwaway VM instead.
 
 ## Cost and limits
 
