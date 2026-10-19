@@ -91,9 +91,9 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
 - Never hand-edit or hand-merge generated files (`settings-schema.json`, `settings-schema.sources.sha256`,
-  strings tables). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21970, #21985).
+  `docs/mdm/*`). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21985).
 - Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
-  macOS tours are only for native/AppKit UI or real end-to-end flows.
+  Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
 - Every `feat-cmux-next` PR gets a `risk:low|medium|high` label from its paths, and the
   `risk evidence` check stays red until the description has that tier's evidence
   ([risk tiers](docs/ci/risk-tiers.md)). Low: green CI. Medium (UI): a screenshot under

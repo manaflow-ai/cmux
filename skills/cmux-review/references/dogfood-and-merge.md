@@ -21,9 +21,8 @@ image, so lower `--gif-fps` or `--gif-width` if the tool refuses one; replacing
 evidence already uploaded for that PR needs `--force`.
 
 **Merge fast, not blind.** `main` is our nightly: stack fixes, do not revert.
-Before merging, wait for the checks that judge the change (macOS compile
-admission plus the package and CLI tests CI selected for it) and skip slow
-unrelated lanes. If you merge without them, say on the PR what was not verified; the merge
+Merge under the [merge bar](../../../CLAUDE.md#ci-review-and-merge). If a check
+that judges the change is still pending, say on the PR what was not verified; the merge
 receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`. A
 main-regression comment on your PR (`main_regression_attribution.py`) is a
 fix-forward ask.
@@ -39,5 +38,6 @@ acknowledgement is required only for an actual shared landing resource or freeze
 not simply for a reviewed fork branch.
 
 **Re-dogfood.** If a fix changes runtime behavior mid-dogfood, rebuild the tag
-and re-notify, since the earlier verdict covers only the build the user tested.
+and re-notify (`cmux notify` when a socket is available), since the earlier
+verdict covers only the build the user tested.
 
