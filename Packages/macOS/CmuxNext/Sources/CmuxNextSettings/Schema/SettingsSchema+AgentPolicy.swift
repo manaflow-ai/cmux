@@ -244,6 +244,8 @@ extension SettingsSchema {
         "notifications.dockBounce": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
+        // An agent must not let itself, or another agent, skip the person's approvals.
+        "sessions.allowFullAccess": .destructive,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,

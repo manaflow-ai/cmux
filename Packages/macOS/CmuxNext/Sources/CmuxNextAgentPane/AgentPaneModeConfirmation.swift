@@ -17,6 +17,12 @@ public nonisolated enum AgentPaneModeConfirmation: Equatable, Sendable, CustomSt
         }
     }
 
+    /// A mode that skips approvals (bypass permissions, full access, yolo), by the rule the
+    /// page's mode picker uses to draw it in the warning color (`unrestricted`, ComposerPickers.tsx).
+    public static func isFullAccess(_ mode: String) -> Bool {
+        mode.range(of: #"bypass|full|yolo|dangerous|auto[-_ ]?approve"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
     /// For logs and tests: the mode, or `id = value`.
     public var description: String {
         switch self {

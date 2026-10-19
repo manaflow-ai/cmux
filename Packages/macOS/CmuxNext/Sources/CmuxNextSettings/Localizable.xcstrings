@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sessions.allowFullAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Full-Access Modes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بأوضاع الوصول الكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli načine punog pristupa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad tilstande med fuld adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollzugriffsmodi erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir modos de acceso total"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser les modes d’accès complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti le modalità con accesso completo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルアクセスモードを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតរបៀបចូលប្រើពេញលេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 접근 모드 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat moduser med full tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwalaj na tryby pełnego dostępu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir modos de acesso total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить режимы полного доступа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตโหมดสิทธิ์เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam erişim modlarına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити режими повного доступу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép chế độ toàn quyền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许完全访问模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許完整存取模式"
+          }
+        }
+      }
+    },
+    "settings.sessions.allowFullAccess.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسمح أوضاع مثل تجاوز الأذونات أو الوصول الكامل أو yolo للوكيل بتشغيل الأوامر وتغيير الملفات دون أن يسأل، ما قد يؤدي إلى فقدان البيانات أو تسريبها عبر حقن الأوامر. عند الإيقاف، لن يحوّل cmux أي وكيل إليها. مفعّل افتراضيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Načini poput zaobilaženja dozvola, punog pristupa ili yolo omogućavaju agentu da pokreće naredbe i mijenja datoteke bez pitanja, što može izgubiti podatke ili ih otkriti putem prompt injection napada. Kada je isključeno, cmux neće prebaciti agenta u njih. Uključeno je po zadanim postavkama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilstande som omgåelse af tilladelser, fuld adgang eller yolo lader en agent køre kommandoer og ændre filer uden at spørge, hvilket kan miste data eller lække dem via prompt injection. Når det er slået fra, skifter cmux ikke en agent til dem. Slået til som standard."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modi wie das Umgehen von Berechtigungen, Vollzugriff oder yolo lassen einen Agenten Befehle ausführen und Dateien ändern, ohne zu fragen. Das kann Daten zerstören oder sie über eine Prompt-Injection preisgeben. Ausgeschaltet versetzt cmux keinen Agenten in diese Modi. Standardmäßig eingeschaltet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los modos como omitir permisos, acceso total o yolo permiten que un agente ejecute comandos y cambie archivos sin preguntar, lo que puede perder datos o filtrarlos mediante una inyección de prompt. Si está desactivado, cmux no cambiará ningún agente a ellos. Activado de forma predeterminada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les modes comme le contournement des autorisations, l’accès complet ou yolo laissent un agent exécuter des commandes et modifier des fichiers sans demander, ce qui peut faire perdre des données ou les divulguer par injection de prompt. Désactivé, cmux ne fait passer aucun agent dans ces modes. Activé par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità come bypass dei permessi, accesso completo o yolo permettono a un agente di eseguire comandi e modificare file senza chiedere, con il rischio di perdere dati o diffonderli tramite prompt injection. Se disattivato, cmux non porta nessun agente in queste modalità. Attivo per impostazione predefinita."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限のバイパス、フルアクセス、yolo などのモードでは、エージェントが確認なしでコマンドを実行しファイルを変更できます。データが失われたり、プロンプトインジェクションで漏れたりするおそれがあります。オフにすると、cmux はエージェントをこれらのモードに切り替えません。デフォルトではオンです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដូចជាការរំលងការអនុញ្ញាត ការចូលប្រើពេញលេញ ឬ yolo អនុញ្ញាតឱ្យភ្នាក់ងាររត់ពាក្យបញ្ជា និងប្ដូរឯកសារដោយមិនសួរ ដែលអាចធ្វើឱ្យបាត់ទិន្នន័យ ឬលេចធ្លាយតាម prompt injection។ ពេលបិទ cmux នឹងមិនប្ដូរភ្នាក់ងារទៅរបៀបទាំងនោះទេ។ បើកតាមលំនាំដើម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 우회, 전체 접근, yolo 같은 모드에서는 에이전트가 묻지 않고 명령을 실행하고 파일을 변경할 수 있어, 데이터가 손실되거나 프롬프트 인젝션으로 유출될 수 있습니다. 끄면 cmux는 에이전트를 이 모드로 전환하지 않습니다. 기본적으로 켜져 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moduser som omgåelse av tillatelser, full tilgang eller yolo lar en agent kjøre kommandoer og endre filer uten å spørre, noe som kan føre til tap av data eller lekkasje via prompt injection. Når det er av, bytter ikke cmux en agent til dem. På som standard."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryby takie jak pomijanie uprawnień, pełny dostęp czy yolo pozwalają agentowi uruchamiać polecenia i zmieniać pliki bez pytania, co może prowadzić do utraty danych lub ich wycieku przez prompt injection. Po wyłączeniu cmux nie przełączy agenta w te tryby. Domyślnie włączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modos como ignorar permissões, acesso total ou yolo deixam um agente executar comandos e alterar arquivos sem perguntar, o que pode perder dados ou vazá-los por injeção de prompt. Desativado, o cmux não muda nenhum agente para eles. Ativado por padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режимы вроде обхода разрешений, полного доступа или yolo позволяют агенту выполнять команды и менять файлы без вопросов, из-за чего данные могут потеряться или утечь через внедрение промптов. Если выключено, cmux не переключит агента в эти режимы. По умолчанию включено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหมดอย่างข้ามการอนุญาต สิทธิ์เต็ม หรือ yolo ให้เอเจนต์รันคำสั่งและแก้ไฟล์ได้โดยไม่ถาม ซึ่งอาจทำให้ข้อมูลสูญหายหรือรั่วไหลผ่าน prompt injection เมื่อปิด cmux จะไม่สลับเอเจนต์ไปยังโหมดเหล่านี้ เปิดอยู่โดยค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzinleri atlama, tam erişim veya yolo gibi modlar bir ajanın sormadan komut çalıştırmasına ve dosyaları değiştirmesine izin verir; bu da verilerin kaybolmasına ya da prompt injection ile sızmasına yol açabilir. Kapalıyken cmux hiçbir ajanı bu modlara geçirmez. Varsayılan olarak açık."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режими на кшталт обходу дозволів, повного доступу чи yolo дають агентові виконувати команди й змінювати файли без запитань, через що дані можуть загубитися або витекти через ін’єкцію промптів. Якщо вимкнено, cmux не перемкне агента в ці режими. Типово ввімкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các chế độ như bỏ qua quyền, toàn quyền hay yolo cho phép tác tử chạy lệnh và sửa tệp mà không hỏi, có thể làm mất dữ liệu hoặc rò rỉ qua tấn công chèn prompt. Khi tắt, cmux sẽ không chuyển tác tử sang các chế độ đó. Mặc định bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "绕过权限、完全访问或 yolo 等模式会让智能体不经询问就运行命令和修改文件，可能导致数据丢失，或因提示词注入而泄露。关闭后，cmux 不会把智能体切换到这些模式。默认开启。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過權限、完整存取或 yolo 等模式會讓代理程式不經詢問就執行指令和修改檔案，可能導致資料遺失，或因提示詞注入而外洩。關閉後，cmux 不會把代理程式切換到這些模式。預設為開啟。"
+          }
+        }
+      }
+    },
     "settings.group.phone": {
       "extractionState": "manual",
       "localizations": {

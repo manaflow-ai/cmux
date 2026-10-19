@@ -57,6 +57,30 @@
             "power",
             "agents"
           ]
+        },
+        {
+          "key": "sessions.allowFullAccess",
+          "name": "allowFullAccess",
+          "note": "Off: AgentPaneTransport refuses session/set_mode and the mode config option into a mode that skips approvals (AgentPaneModeConfirmation.isFullAccess, the picker's warning-color rule). On by default: today's behavior, and Lawrence 2026-10-07 (no sheet for full access).",
+          "title": {
+            "key": "settings.sessions.allowFullAccess",
+            "text": "Allow Full-Access Modes"
+          },
+          "help": {
+            "key": "settings.sessions.allowFullAccess.help",
+            "text": "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "bypass",
+            "permissions",
+            "yolo",
+            "full access",
+            "dangerous",
+            "approve",
+            "safety"
+          ]
         }
       ]
     },
