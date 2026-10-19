@@ -358,7 +358,7 @@ class SettingsExportStampTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("settings exports are stale", result.stdout)
 
-    def test_two_branches_editing_different_sources_merge_to_a_fresh_stamp(self):
+    def merge_two_branches(self):
         for branch, name in (("one", "Alpha.swift"), ("two", "Gamma.swift")):
             self.repo.git("checkout", "-q", "-b", branch, "main")
             self.repo.write(f"{SETTINGS_SOURCES}/{name}", f"// {name}, edited on {branch}\n")
@@ -366,8 +366,26 @@ class SettingsExportStampTests(unittest.TestCase):
             self.repo.commit(branch, snapshot=False)
         self.repo.git("checkout", "-q", "one")
         self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-edit", "two")
+
+    def test_a_clone_with_the_merge_drivers_keeps_one_stamp_so_check_fresh_fails(self):
+        """A line-merged stamp would match the merged sources while settings-schema.json and docs/mdm
+        (cmux-generated-v1: one side's copy) miss the other branch's rows, so check-fresh would pass
+        on stale exports. With the repository's drivers (the bots, a lane's local merge) the stamp
+        keeps one side too, and check-fresh names the other side's source until the exports are
+        regenerated. GitHub ignores drivers: there the stamp merges by line and the base autofix
+        regenerates the exports, which it does whenever CmuxNextSettings changed."""
+        self.repo.write(".gitattributes", (ROOT / ".gitattributes").read_text(encoding="utf-8"))
+        self.repo.commit("attributes", snapshot=False)
+        self.repo.git("config", "merge.cmux-generated-v1.driver", "true")
+        self.merge_two_branches()
         result = self.fresh()
-        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Gamma.swift", result.stdout)
+
+    def test_two_branches_editing_different_sources_merge_by_line_without_drivers(self):
+        """GitHub's view (no drivers): the two stamps merge cleanly, so neither pull request shows a
+        conflict, and the merged stamp is the merged sources'."""
+        self.merge_two_branches()
         self.assertEqual(self.repo.root.joinpath(STAMP).read_text(), stamp_for(self.repo.root))
 
     def test_check_fresh_reads_a_commit_as_it_reads_a_checkout(self):
