@@ -230,4 +230,24 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await panel(page).getByRole("region", { name: "Active · 1" }).waitFor({ timeout: 5_000 });
     await context.close();
   });
+  test("a popover keeps a compact fold button beside its tabs", async () => {
+    // 1280px: no room for the inline column, so the summary is a popover.
+    const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    await open(page);
+    if (!(await panel(page).isVisible())) await page.getByRole("button", { name: "Chat summary" }).click();
+    await panel(page).waitFor({ timeout: 5_000 });
+    expect(await panel(page).getAttribute("data-placement")).toBe("popover");
+    await panel(page).getByRole("button", { name: "Subagents · 1 running" }).click();
+    const tabs = panel(page).locator(".acpmux-summary-tabs");
+    await tabs.waitFor({ timeout: 5_000 });
+    const fold = panel(page).getByRole("button", { name: "Collapse summary" });
+    const foldBox = await fold.boundingBox();
+    const tabsBox = await tabs.boundingBox();
+    // An icon-sized control right before the tabs, not a bar spanning the empty head.
+    expect(foldBox!.width).toBeLessThanOrEqual(32);
+    expect(tabsBox!.x).toBeGreaterThanOrEqual(foldBox!.x + foldBox!.width);
+    expect(tabsBox!.x - (foldBox!.x + foldBox!.width)).toBeLessThanOrEqual(8);
+    await context.close();
+  });
 });
