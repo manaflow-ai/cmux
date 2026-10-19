@@ -174,11 +174,14 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             await page.keyboard.press("Escape");
             await page.mouse.move(1, 1);
             await page.waitForTimeout(200);
+            // The chip never moves under a press, whatever tone it shows.
+            expect({ name, box: pressed.box }).toEqual({ name, box: hover.box });
+            expect({ name, box: held.box }).toEqual({ name, box: hover.box });
             // Chromium leaves :active when focus moves into the model picker's search on the press;
-            // the open chip keeps its wash. WebKit, the app's engine, holds it.
+            // the open chip keeps its wash. WebKit, the app's engine, holds it. A press that keeps the
+            // hover tone (the quiet chips) has no separate pressed tone to compare.
             if (held.background === hover.background) continue;
             expect({ name, pressed: pressed.background }).toEqual({ name, pressed: held.background });
-            expect({ name, box: pressed.box }).toEqual({ name, box: hover.box });
           }
           await page.close();
         });
