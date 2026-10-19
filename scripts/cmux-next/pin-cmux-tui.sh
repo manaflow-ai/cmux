@@ -184,9 +184,8 @@ download() {
 }
 
 # The tree key of <rev> (default HEAD) is derived from
-# cmux-tui-tree-inputs.txt. That one list is also the trusted workflow's PR
-# path filter, so changes such as the layout-reducer FFI build script cannot
-# silently reuse a stale publication.
+# cmux-tui-tree-inputs.txt, so changes such as the layout-reducer FFI build
+# script cannot silently reuse a stale publication.
 tree_key() {
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "${1:-HEAD}"
 }

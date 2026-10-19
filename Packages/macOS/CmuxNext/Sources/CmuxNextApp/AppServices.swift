@@ -4,6 +4,7 @@ import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextChromiumWarmup
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -191,8 +192,7 @@ final class AppServices {
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
-    /// Internal page tabs (Settings, Debug Settings, the App Store).
-    let pages = InternalPageTabStore()
+    let pages = InternalPageTabStore()  // internal page tabs (Settings, Debug Settings, the App Store)
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
