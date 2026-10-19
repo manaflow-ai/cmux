@@ -373,6 +373,9 @@ async fn concurrent_reloads_apply_in_order_and_read_the_file_after_admission() {
         updates.try_recv().is_err(),
         "a second reload reached overlay I/O before the first ended"
     );
+    // A newer file arrives while the second caller waits for admission.
+    fresh.peers[0].user = "newest-owner".into();
+    fresh.save(&path).unwrap();
     overlay.release.add_permits(1);
     within(first).await.unwrap().unwrap();
     std::future::poll_fn(|cx| {
