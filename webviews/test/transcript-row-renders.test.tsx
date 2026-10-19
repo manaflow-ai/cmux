@@ -157,8 +157,7 @@ test("a turn's footer shows on hover after the rows change under a resting point
         />,
       ),
     );
-  const node = (id: string) =>
-    dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`);
+  const node = (id: string) => dom.window.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${id}"]`);
   const hover = async (id: string) =>
     act(async () => {
       node(id)!.dispatchEvent(new dom.window.MouseEvent("pointerover", { bubbles: true }));
