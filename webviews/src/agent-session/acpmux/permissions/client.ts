@@ -138,6 +138,8 @@ export class PermissionGroupClient {
   /// (a tab or workspace switch), until the refresh answers: the panel and the access chip's grant
   /// keep their place instead of leaving for one read (Leo 2026-10-19). A chat never read starts empty.
   private readonly lastRead = new Map<string, Pick<PermissionClientState, "groups" | "chatAllowance">>();
+  /// The shown groups and grant are `lastRead`'s, not this selection's read: a failed refresh drops them.
+  private restored = false;
 
   constructor(request: Request, changed: () => void, storage: PermissionStorage = defaultStorage) {
     this.request = request;
@@ -165,6 +167,7 @@ export class PermissionGroupClient {
     if (sessionId === this.sessionId) return;
     this.remember();
     const last = sessionId ? this.lastRead.get(sessionId) : undefined;
+    this.restored = last !== undefined && this.state.supported;
     this.generation += 1;
     this.refreshSerial += 1;
     this.sessionId = sessionId;
@@ -240,6 +243,7 @@ export class PermissionGroupClient {
       if (generation !== this.generation || refreshSerial !== this.refreshSerial || this.sessionId !== sessionId)
         return;
       this.authoritative = true;
+      this.restored = false;
       if (result.groups.some((group) => group.sessionId !== sessionId))
         throw new PermissionRpcError({
           code: "operation.failed",
@@ -278,7 +282,11 @@ export class PermissionGroupClient {
       const parsed = asError(error);
       if (generation === this.generation && refreshSerial === this.refreshSerial) {
         this.authoritative = false;
-        this.state = { ...this.state, ready: false };
+        // Groups shown from the chat's last read may have been answered since: an unread chat shows none.
+        this.state = this.restored
+          ? { ...this.state, ready: false, groups: [], chatAllowance: false }
+          : { ...this.state, ready: false };
+        this.restored = false;
         this.markFailure(parsed, generation);
       }
       throw parsed;

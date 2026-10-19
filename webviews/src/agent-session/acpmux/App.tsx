@@ -5040,7 +5040,11 @@ function AcpmuxPane() {
             {
               id: "chat-permission",
               label: t("permission.allowChat"),
-              onRemove: () => void callNative("chat.permission_chat.revoke", {}),
+              // A grant shown from the chat's last read until its refresh lands: removable once it is read.
+              onRemove: () =>
+                snapshot.permissionGroups?.ready === false
+                  ? undefined
+                  : void callNative("chat.permission_chat.revoke", {}),
             },
           ]
         : []),
