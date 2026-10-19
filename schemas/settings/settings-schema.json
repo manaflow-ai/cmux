@@ -32,11 +32,13 @@
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
+              "tabs.overflow",
+              "appearance.metrics.tabMaxWidth",
+              "appearance.metrics.tabMinActiveWidth",
+              "appearance.metrics.tabMinInactiveWidth",
+              "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
-              "tabs.swapCmdTAndCmdN",
-              "tabs.tabBar.terminal",
-              "tabs.tabBar.browser",
-              "tabs.tabBar.agent"
+              "tabs.swapCmdTAndCmdN"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -125,6 +127,16 @@
             "title" : {
               "key" : "settings.group.diffViewer",
               "text" : "Diff Viewer"
+            }
+          },
+          {
+            "key" : "settings.group.files",
+            "rows" : [
+              "files.textEditor"
+            ],
+            "title" : {
+              "key" : "settings.group.files",
+              "text" : "Files"
             }
           },
           {
@@ -246,11 +258,35 @@
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
-              "ui.animationSpeed"
+              "ui.animationSpeed",
+              "ui.paneAnimations",
+              "ui.animations.newTab",
+              "ui.animations.newWorkspace",
+              "ui.animations.bounce"
             ],
             "title" : {
               "key" : "settings.group.densityMotion",
               "text" : "Density and Motion"
+            }
+          },
+          {
+            "key" : "settings.group.colorTransition",
+            "rows" : [
+              "appearance.colorTransition.enabled",
+              "appearance.colorTransition.duration",
+              "appearance.colorTransition.curve",
+              "appearance.colorTransition.springResponse",
+              "appearance.colorTransition.springDamping",
+              "appearance.colorTransition.bezierX1",
+              "appearance.colorTransition.bezierY1",
+              "appearance.colorTransition.bezierX2",
+              "appearance.colorTransition.bezierY2",
+              "appearance.colorTransition.colorSpace",
+              "appearance.colorTransition.reduceMotion"
+            ],
+            "title" : {
+              "key" : "settings.group.colorTransition",
+              "text" : "Color Changes"
             }
           },
           {
@@ -269,6 +305,7 @@
           {
             "key" : "settings.group.panes",
             "rows" : [
+              "appearance.chromeStyle",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -301,6 +338,7 @@
             "rows" : [
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
+              "workspaces.autoName",
               "appearance.sidebarSurface",
               "sidebar.border",
               "sidebar.borderWidth",
@@ -320,7 +358,10 @@
               "sidebar.cards.tips",
               "sidebar.side",
               "sidebar.spacesPosition",
-              "sidebar.spacesVisibility"
+              "sidebar.spacesVisibility",
+              "sidebar.hoverCards.enabled",
+              "sidebar.hoverCards.delay",
+              "home.channelsEnabled"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -354,6 +395,7 @@
             "key" : "settings.group.statusIndicator",
             "rows" : [
               "appearance.statusIndicator.style",
+              "appearance.statusIndicator.animation",
               "appearance.statusIndicator.size",
               "appearance.statusIndicator.thickness",
               "appearance.statusIndicator.color",
@@ -471,6 +513,7 @@
               "agentPane.showContextUsage",
               "agentPane.showDictation",
               "agentPane.zoom",
+              "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -487,6 +530,26 @@
             "title" : {
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
+            }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
+            }
+          },
+          {
+            "key" : "settings.group.sessions",
+            "rows" : [
+              "sessions.keepAwake"
+            ],
+            "title" : {
+              "key" : "settings.group.sessions",
+              "text" : "Agent Sessions"
             }
           }
         ],
@@ -522,7 +585,8 @@
               "notifications.suppressWhileTypingSeconds",
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
-              "notifications.dockBadge"
+              "notifications.dockBadge",
+              "notifications.dockBounce"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -630,7 +694,8 @@
               "browser.omnibar.glassTint",
               "browser.omnibar.glassTintStrength",
               "browser.omnibar.cornerRadius",
-              "browser.omnibar.shadow"
+              "browser.omnibar.shadow",
+              "browser.omnibar.backgroundOpacity"
             ],
             "title" : {
               "key" : "settings.group.addressBar",
@@ -658,6 +723,16 @@
             }
           },
           {
+            "key" : "settings.group.extensions",
+            "rows" : [
+              "browser.builtInAdBlocker"
+            ],
+            "title" : {
+              "key" : "settings.group.extensions",
+              "text" : "Extensions"
+            }
+          },
+          {
             "key" : "settings.group.links",
             "rows" : [
               "browser.links.cmdClick",
@@ -672,15 +747,15 @@
             }
           },
           {
-            "key" : "settings.group.terminalLinks",
+            "key" : "settings.group.openingLinks",
             "rows" : [
-              "browser.openTerminalLinksInCmuxBrowser",
+              "browser.openLinksInCmuxBrowser",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
             ],
             "title" : {
-              "key" : "settings.group.terminalLinks",
-              "text" : "Terminal Links"
+              "key" : "settings.group.openingLinks",
+              "text" : "Opening Links"
             }
           },
           {
@@ -927,6 +1002,7 @@
             "key" : "settings.group.labs",
             "rows" : [
               "labs.previewFeatures",
+              "labs.classicHome",
               "appearance.experimentalControls"
             ],
             "title" : {
@@ -2046,6 +2122,323 @@
     },
     {
       "accepts" : [
+        "shrink",
+        "scroll"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.tabOverflowShrink",
+            "text" : "Shrink"
+          },
+          "value" : "shrink"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.tabOverflowScroll",
+            "text" : "Scroll"
+          },
+          "value" : "scroll"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "shrink",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.overflow.help",
+        "text" : "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.overflow",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "overflow",
+        "scroll",
+        "scrolling",
+        "shrink",
+        "crowded",
+        "width",
+        "many"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "overflow"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.overflow",
+        "text" : "Tab Overflow"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        120,
+        320,
+        220
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabMaxWidth.help",
+        "text" : "Widest a tab gets when the strip has room."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabMaxWidth",
+      "keywords" : [
+        "tab",
+        "width",
+        "max",
+        "maximum",
+        "wide",
+        "tabMaxWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabMaxWidth"
+      ],
+      "range" : {
+        "max" : 320,
+        "min" : 120,
+        "placeholder" : 200,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -80,
+        520,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.tabMaxWidth",
+        "text" : "Maximum Tab Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        32,
+        200,
+        116
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabMinActiveWidth.help",
+        "text" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabMinActiveWidth",
+      "keywords" : [
+        "tab",
+        "width",
+        "min",
+        "minimum",
+        "selected",
+        "active",
+        "crowded",
+        "narrow",
+        "tabMinActiveWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabMinActiveWidth"
+      ],
+      "range" : {
+        "max" : 200,
+        "min" : 32,
+        "placeholder" : 56,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -136,
+        368,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.tabMinActiveWidth",
+        "text" : "Minimum Selected Tab Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        16,
+        120,
+        68
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabMinInactiveWidth.help",
+        "text" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabMinInactiveWidth",
+      "keywords" : [
+        "tab",
+        "width",
+        "min",
+        "minimum",
+        "inactive",
+        "crowded",
+        "narrow",
+        "scroll",
+        "tabMinInactiveWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabMinInactiveWidth"
+      ],
+      "range" : {
+        "max" : 120,
+        "min" : 16,
+        "placeholder" : 32,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -88,
+        224,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.tabMinInactiveWidth",
+        "text" : "Minimum Tab Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        24,
+        120,
+        72
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.tabPinnedWidth.help",
+        "text" : "Width of a pinned tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.tabPinnedWidth",
+      "keywords" : [
+        "tab",
+        "width",
+        "pinned",
+        "pin",
+        "tabPinnedWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "tabPinnedWidth"
+      ],
+      "range" : {
+        "max" : 120,
+        "min" : 24,
+        "placeholder" : 64,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -72,
+        216,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.tabPinnedWidth",
+        "text" : "Pinned Tab Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -2188,234 +2581,6 @@
       "title" : {
         "key" : "settings.tabs.swapCmdTAndCmdN",
         "text" : "Swap Cmd-T and Cmd-N"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.tabBarAuto",
-            "text" : "Automatic"
-          },
-          "value" : "auto"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.always",
-            "text" : "Always"
-          },
-          "value" : "always"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.never",
-            "text" : "Never"
-          },
-          "value" : "never"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "auto",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.tabBar.terminal",
-      "keywords" : [
-        "tab bar",
-        "tabs",
-        "strip",
-        "horizontal",
-        "show",
-        "hide",
-        "terminal",
-        "pane"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "tabBar",
-        "terminal"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.tabBar.terminal",
-        "text" : "Tab Bar in Terminal Panes"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.tabBarAuto",
-            "text" : "Automatic"
-          },
-          "value" : "auto"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.always",
-            "text" : "Always"
-          },
-          "value" : "always"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.never",
-            "text" : "Never"
-          },
-          "value" : "never"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "auto",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.tabBar.browser",
-      "keywords" : [
-        "tab bar",
-        "tabs",
-        "strip",
-        "horizontal",
-        "show",
-        "hide",
-        "browser",
-        "pane"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "tabBar",
-        "browser"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.tabBar.browser",
-        "text" : "Tab Bar in Browser Panes"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "auto",
-        "always",
-        "never"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.tabBarAuto",
-            "text" : "Automatic"
-          },
-          "value" : "auto"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.always",
-            "text" : "Always"
-          },
-          "value" : "always"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.never",
-            "text" : "Never"
-          },
-          "value" : "never"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "auto",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.tabBar.help",
-        "text" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.tabBar.agent",
-      "keywords" : [
-        "tab bar",
-        "tabs",
-        "strip",
-        "horizontal",
-        "show",
-        "hide",
-        "agent",
-        "pane"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "tabBar",
-        "agent"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.tabBar.agent",
-        "text" : "Tab Bar in Agent Chats"
       },
       "validation" : "portable"
     },
@@ -3601,6 +3766,131 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.freeModel",
+        "text" : "AI Models"
+      },
+      "help" : {
+        "key" : "settings.freeModel.enabled.help",
+        "text" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "freeModel.enabled",
+      "keywords" : [
+        "ai",
+        "model",
+        "free",
+        "sign in",
+        "agents",
+        "models"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "freeModel",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.freeModel.enabled.summary",
+        "text" : "Free AI model while signed out"
+      },
+      "title" : {
+        "key" : "settings.freeModel.enabled",
+        "text" : "Free AI Model Without Sign-In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakePluggedIn",
+            "text" : "While Plugged In"
+          },
+          "value" : "pluggedIn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "pluggedIn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.keepAwake.help",
+        "text" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.keepAwake",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "caffeinate",
+        "battery",
+        "power",
+        "agents"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "keepAwake"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.keepAwake",
+        "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -4323,6 +4613,59 @@
       "title" : {
         "key" : "settings.sidebar.groupByComputer",
         "text" : "Group Workspaces by Computer"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.workspaces.autoName.help",
+        "text" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.autoName",
+      "keywords" : [
+        "workspace",
+        "name",
+        "rename",
+        "auto",
+        "title",
+        "tab",
+        "chat",
+        "page",
+        "folder",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "autoName"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaces.autoName",
+        "text" : "Name Workspaces from Tabs"
       },
       "validation" : "portable"
     },
@@ -9481,10 +9824,6 @@
         "font",
         "text",
         "size",
-        "zoom",
-        "scale",
-        "bigger",
-        "smaller",
         "chromeFontSize"
       ],
       "kind" : "number",
@@ -9504,6 +9843,68 @@
       "refuses" : [
         4,
         22,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.interfaceSize",
+        "text" : "Interface Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.9,
+        1.25,
+        1.075
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.interfaceSize.help",
+        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.interfaceScale",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "zoom",
+        "scale",
+        "bigger",
+        "smaller",
+        "interfaceScale"
+      ],
+      "kind" : "number",
+      "page_hidden" : true,
+      "path" : [
+        "appearance",
+        "interfaceScale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.9,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.09999999999999998,
+        2.25,
         "1"
       ],
       "section" : "appearance",
@@ -9977,6 +10378,349 @@
       "title" : {
         "key" : "settings.ui.animationSpeed",
         "text" : "Animations"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "default",
+        "card",
+        "card-outlined",
+        "flat",
+        "flat-sidebar-line",
+        "bare",
+        "panes",
+        "two-tone",
+        "floating"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.default",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.card",
+            "text" : "Card"
+          },
+          "value" : "card"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.cardOutlined",
+            "text" : "Card with Outlines"
+          },
+          "value" : "card-outlined"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.flat",
+            "text" : "Flat"
+          },
+          "value" : "flat"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.flatSidebarLine",
+            "text" : "Flat with Sidebar Line"
+          },
+          "value" : "flat-sidebar-line"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.bare",
+            "text" : "Bare"
+          },
+          "value" : "bare"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.panes",
+            "text" : "Panes"
+          },
+          "value" : "panes"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.twoTone",
+            "text" : "Two-Tone"
+          },
+          "value" : "two-tone"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.floating",
+            "text" : "Floating Panes"
+          },
+          "value" : "floating"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "flat-sidebar-line",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.chromeStyle.help",
+        "text" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.chromeStyle",
+      "keywords" : [
+        "window",
+        "style",
+        "chrome",
+        "card",
+        "flat",
+        "border",
+        "borders",
+        "lines",
+        "divider",
+        "outline",
+        "seam",
+        "sidebar",
+        "two-tone",
+        "minimal",
+        "bare",
+        "floating",
+        "gaps"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "chromeStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.chromeStyle.summary",
+        "text" : "Card, lines and sidebar background"
+      },
+      "title" : {
+        "key" : "settings.appearance.chromeStyle",
+        "text" : "Window Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.paneAnimations.help",
+        "text" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.paneAnimations",
+      "keywords" : [
+        "motion",
+        "animation",
+        "pane",
+        "split",
+        "zoom",
+        "slide",
+        "spring"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "paneAnimations"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.paneAnimations",
+        "text" : "Animate Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.newTab.help",
+        "text" : "A new tab grows into its place in the tab bar. Off shows it there at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.newTab",
+      "keywords" : [
+        "motion",
+        "animation",
+        "tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "newTab"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.newTab",
+        "text" : "Animate New Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.newWorkspace.help",
+        "text" : "A new workspace row opens in the sidebar. Off shows it there at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.newWorkspace",
+      "keywords" : [
+        "motion",
+        "animation",
+        "workspace",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "newWorkspace"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.newWorkspace",
+        "text" : "Animate New Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "none",
+        "subtle"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.none",
+            "text" : "None"
+          },
+          "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.subtle",
+            "text" : "Subtle"
+          },
+          "value" : "subtle"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "none",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.bounce.help",
+        "text" : "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.bounce",
+      "keywords" : [
+        "motion",
+        "spring",
+        "bounce"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "bounce"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.bounce",
+        "text" : "Animation Bounce"
       },
       "validation" : "portable"
     },
@@ -12318,6 +13062,75 @@
     },
     {
       "accepts" : [
+        "animated",
+        "static"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.animated",
+            "text" : "Animated"
+          },
+          "value" : "animated"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.static",
+            "text" : "Static"
+          },
+          "value" : "static"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "animated",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.animation.help",
+        "text" : "Static draws a still, distinct shape for each state. Reduce Motion always uses Static."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.animation",
+      "keywords" : [
+        "animation",
+        "motion",
+        "blink",
+        "pulse",
+        "flash",
+        "static",
+        "reduce motion",
+        "accessibility",
+        "headache"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "animation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.statusIndicator.animation",
+        "text" : "Status Indicators"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.5,
         1.5,
         1
@@ -13997,6 +14810,7 @@
     {
       "accepts" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -14008,6 +14822,13 @@
             "text" : "Compact"
           },
           "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.comfortable",
+            "text" : "Comfortable"
+          },
+          "value" : "comfortable"
         },
         {
           "title" : {
@@ -14028,7 +14849,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -14037,9 +14858,11 @@
         "density",
         "expanded",
         "compact",
+        "comfortable",
         "rows",
         "preview",
         "two lines",
+        "taller",
         "t3",
         "codex"
       ],
@@ -14657,6 +15480,787 @@
       "default" : true,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.enabled.help",
+        "text" : "A card with details opens when the pointer rests on a workspace or a tab."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.enabled",
+      "keywords" : [
+        "hover",
+        "card",
+        "preview",
+        "tooltip",
+        "workspace",
+        "tab"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.enabled",
+        "text" : "Show Hover Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        5000,
+        2500
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1300,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.delay.help",
+        "text" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.delay",
+      "keywords" : [
+        "hover",
+        "card",
+        "delay",
+        "wait",
+        "milliseconds"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "delay"
+      ],
+      "range" : {
+        "max" : 5000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 100,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -5000,
+        10000,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.delay",
+        "text" : "Hover Card Delay"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.enabled.help",
+        "text" : "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.enabled",
+      "keywords" : [
+        "color",
+        "theme",
+        "transition",
+        "animation",
+        "fade",
+        "blend",
+        "workspace",
+        "instant"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.enabled",
+        "text" : "Animate Color Changes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        2000,
+        1000
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 200,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.duration.help",
+        "text" : "How long a color change takes. 0 changes colors at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.duration",
+      "keywords" : [
+        "color",
+        "theme",
+        "transition",
+        "duration",
+        "speed",
+        "milliseconds"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "duration"
+      ],
+      "range" : {
+        "max" : 2000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 10,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -2000,
+        4000,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.duration",
+        "text" : "Color Change Duration"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "easeOut",
+        "easeInOut",
+        "linear",
+        "spring",
+        "cubicBezier"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveEaseOut",
+            "text" : "Ease Out"
+          },
+          "value" : "easeOut"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveEaseInOut",
+            "text" : "Ease In and Out"
+          },
+          "value" : "easeInOut"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveLinear",
+            "text" : "Linear"
+          },
+          "value" : "linear"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveSpring",
+            "text" : "Spring"
+          },
+          "value" : "spring"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorCurveCubicBezier",
+            "text" : "Custom (Bezier)"
+          },
+          "value" : "cubicBezier"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "easeOut",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.curve.help",
+        "text" : "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.curve",
+      "keywords" : [
+        "color",
+        "theme",
+        "transition",
+        "curve",
+        "easing",
+        "spring",
+        "bezier"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "curve"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.curve",
+        "text" : "Color Change Curve"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.05,
+        2,
+        1.025
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.3,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.springResponse.help",
+        "text" : "Seconds a spring color change takes to reach its new colors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.springResponse",
+      "keywords" : [
+        "color",
+        "spring",
+        "response"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "springResponse"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : 0.05,
+        "placeholder" : 0.05,
+        "step" : 0.01,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -1.9,
+        3.95,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.springResponse",
+        "text" : "Spring Response"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.1,
+        2,
+        1.05
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.springDamping.help",
+        "text" : "1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.springDamping",
+      "keywords" : [
+        "color",
+        "spring",
+        "damping",
+        "bounce"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "springDamping"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : 0.1,
+        "placeholder" : 0.1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1.7999999999999998,
+        3.9,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.springDamping",
+        "text" : "Spring Damping"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.42,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.bezierX1.help",
+        "text" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.bezierX1",
+      "keywords" : [
+        "color",
+        "bezier",
+        "curve",
+        "easing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "bezierX1"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.01,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.bezierX1",
+        "text" : "Bezier X1"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        -1,
+        2,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.bezierY1.help",
+        "text" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.bezierY1",
+      "keywords" : [
+        "color",
+        "bezier",
+        "curve",
+        "easing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "bezierY1"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : -1,
+        "placeholder" : -1,
+        "step" : 0.01,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -4,
+        5,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.bezierY1",
+        "text" : "Bezier Y1"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.58,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.bezierX2.help",
+        "text" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.bezierX2",
+      "keywords" : [
+        "color",
+        "bezier",
+        "curve",
+        "easing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "bezierX2"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.01,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.bezierX2",
+        "text" : "Bezier X2"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        -1,
+        2,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.bezierY2.help",
+        "text" : "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.bezierY2",
+      "keywords" : [
+        "color",
+        "bezier",
+        "curve",
+        "easing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "bezierY2"
+      ],
+      "range" : {
+        "max" : 2,
+        "min" : -1,
+        "placeholder" : -1,
+        "step" : 0.01,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -4,
+        5,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.bezierY2",
+        "text" : "Bezier Y2"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "oklab",
+        "srgb"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.colorSpaceOklab",
+            "text" : "OKLab"
+          },
+          "value" : "oklab"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorSpaceSrgb",
+            "text" : "sRGB"
+          },
+          "value" : "srgb"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "oklab",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.colorSpace.help",
+        "text" : "OKLab blends with even lightness. sRGB mixes the red, green and blue channels."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.colorSpace",
+      "keywords" : [
+        "color",
+        "oklab",
+        "srgb",
+        "blend",
+        "interpolation"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "colorSpace"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.colorSpace",
+        "text" : "Color Blend Space"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "crossfade",
+        "instant",
+        "full"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.colorReduceCrossfade",
+            "text" : "Short Crossfade"
+          },
+          "value" : "crossfade"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorReduceInstant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.colorReduceFull",
+            "text" : "Same as Usual"
+          },
+          "value" : "full"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "crossfade",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.colorTransition",
+        "text" : "Color Changes"
+      },
+      "help" : {
+        "key" : "settings.appearance.colorTransition.reduceMotion.help",
+        "text" : "What color changes do while Reduce Motion is on in macOS."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.colorTransition.reduceMotion",
+      "keywords" : [
+        "color",
+        "reduce motion",
+        "accessibility",
+        "instant",
+        "crossfade"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "colorTransition",
+        "reduceMotion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.colorTransition.reduceMotion",
+        "text" : "With Reduce Motion"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.workspaceRows",
         "text" : "Workspace Rows"
       },
@@ -15221,7 +16825,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -18734,6 +20338,54 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.extensions",
+        "text" : "Extensions"
+      },
+      "help" : {
+        "key" : "settings.browser.builtInAdBlocker.help",
+        "text" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.builtInAdBlocker",
+      "keywords" : [
+        "ublock",
+        "ad blocker",
+        "adblock",
+        "extensions",
+        "trackers"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "builtInAdBlocker"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.builtInAdBlocker",
+        "text" : "Built-in uBlock Origin"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "moderate",
         "aggressive",
         "off",
@@ -19388,7 +21040,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "transparent",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",
@@ -19676,6 +21328,64 @@
       "title" : {
         "key" : "settings.browser.omnibar.shadow",
         "text" : "Address Bar Shadow"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.backgroundOpacity.help",
+        "text" : "How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.backgroundOpacity",
+      "keywords" : [
+        "opacity",
+        "transparency",
+        "background",
+        "translucent",
+        "address bar",
+        "omnibox"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "backgroundOpacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.omnibar.backgroundOpacity",
+        "text" : "Address Bar Opacity"
       },
       "validation" : "portable"
     },
@@ -20126,8 +21836,57 @@
       "default" : true,
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.terminalLinks",
-        "text" : "Terminal Links"
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.openLinks.help",
+        "text" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.openLinksInCmuxBrowser",
+      "keywords" : [
+        "link",
+        "url",
+        "click",
+        "default browser",
+        "terminal",
+        "chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "openLinksInCmuxBrowser"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.openLinks",
+        "text" : "Open Links in cmux Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
       },
       "help" : {
         "key" : "settings.browser.openTerminalLinks.help",
@@ -20142,7 +21901,7 @@
         "default browser"
       ],
       "kind" : "toggle",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "browser",
         "openTerminalLinksInCmuxBrowser"
@@ -20180,8 +21939,8 @@
       ],
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.terminalLinks",
-        "text" : "Terminal Links"
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
       },
       "help" : {
         "key" : "settings.browser.hostWhitelist.help",
@@ -20235,12 +21994,12 @@
       ],
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.terminalLinks",
-        "text" : "Terminal Links"
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
       },
       "help" : {
-        "key" : "settings.browser.externalPatterns.help",
-        "text" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+        "key" : "settings.browser.externalLinkPatterns.help",
+        "text" : "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.urlsToAlwaysOpenExternally",
@@ -20271,12 +22030,60 @@
       ],
       "section" : "browser",
       "summary" : {
-        "key" : "settings.browser.externalPatterns.summary",
-        "text" : "Terminal links that open in your default browser"
+        "key" : "settings.browser.externalLinkPatterns.summary",
+        "text" : "Links that open in your default browser"
       },
       "title" : {
         "key" : "settings.browser.externalPatterns",
         "text" : "URLs to Always Open Externally"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.files",
+        "text" : "Files"
+      },
+      "help" : {
+        "key" : "settings.files.textEditor.help",
+        "text" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "files.textEditor",
+      "keywords" : [
+        "editor",
+        "open with",
+        "app",
+        "path",
+        "file",
+        "code"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "files",
+        "textEditor"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.files.textEditor",
+        "text" : "Text Editor"
       },
       "validation" : "portable"
     },
@@ -20473,6 +22280,55 @@
       "title" : {
         "key" : "settings.home.keepLocation",
         "text" : "Keep Location in Photos and Videos"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.home.channelsEnabled.help",
+        "text" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.channelsEnabled",
+      "keywords" : [
+        "home",
+        "channels",
+        "slack",
+        "threads",
+        "sidebar",
+        "messages"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "channelsEnabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.channelsEnabled",
+        "text" : "Channels"
       },
       "validation" : "portable"
     },
@@ -21261,6 +23117,77 @@
     },
     {
       "accepts" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOnce",
+            "text" : "Once"
+          },
+          "value" : "once"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceUntilActive",
+            "text" : "Until You Switch to cmux"
+          },
+          "value" : "untilActive"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "once",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.dockBounce.help",
+        "text" : "When a notification alerts while cmux isn't the active app."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.dockBounce",
+      "keywords" : [
+        "dock",
+        "bounce",
+        "attention",
+        "badge"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "dockBounce"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.dockBounce",
+        "text" : "Bounce Dock Icon"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -21988,6 +23915,54 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.classicHome.help",
+        "text" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.classicHome",
+      "keywords" : [
+        "home",
+        "chief",
+        "classic",
+        "dock",
+        "page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "classicHome"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.labs.classicHome",
+        "text" : "Classic Home"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -22591,6 +24566,82 @@
       "title" : {
         "key" : "settings.agentPane.zoom",
         "text" : "Agent Chat Zoom"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.permissionFullAccess",
+            "text" : "Full Access"
+          },
+          "value" : "fullAccess"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionStandard",
+            "text" : "Harness Default"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionAsk",
+            "text" : "Ask Before Changes"
+          },
+          "value" : "ask"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "fullAccess",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.defaultPermissionMode.help",
+        "text" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.defaultPermissionMode",
+      "keywords" : [
+        "permission",
+        "mode",
+        "full access",
+        "ask",
+        "approval",
+        "yolo",
+        "bypass",
+        "agent",
+        "new chat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "defaultPermissionMode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.defaultPermissionMode",
+        "text" : "Permission Mode for New Chats"
       },
       "validation" : "portable"
     },
@@ -23386,7 +25437,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "0749fa32215f4fe14b76e1bbd83f13fd141d49854724d2d21f3fcc7a931fa8e4",
+  "schema_hash" : "33c4f0b43ec04781ec054774d448395f0a1f5614f5181b580b09346ebad28fb4",
   "sections" : [
     {
       "id" : "general",
