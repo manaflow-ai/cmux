@@ -11,7 +11,8 @@
 //!   user's own servers stay).
 //! - Skills: Claude Code gets a session-only plugin named `cmux`
 //!   (`--plugin-dir`) whose skills are `cmux:cmux-browser` and
-//!   `cmux:cmux-cua`. The skill text is compiled in from `skills/` and
+//!   `cmux:cmux-cua`, and `cmux:acpmux`, the CLI guide for driving other
+//!   sessions from a shell. The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
 //!   Only the skill descriptions reach the prompt (progressive disclosure);
 //!   `cmux-cua` keeps `disable-model-invocation`, so only the user starts it.
@@ -113,6 +114,8 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-browser/templates/form-automation.sh"),
     ),
     ("cmux-cua/SKILL.md", include_str!("../../../../skills/cmux-cua/SKILL.md")),
+    // The `acpmux` CLI guide: the shell fallback for the session tools.
+    ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
 ];
 
 /// One stdio MCP server.
@@ -159,6 +162,9 @@ pub struct Inputs {
     /// The app shows offered chats as chips ([`OFFER_TOOLS_ENV`] is `1`):
     /// sessions get `offer_session` (`offer_mcp.rs`).
     pub offers: bool,
+    /// Sessions get the session tools (`session_mcp.rs`): on unless
+    /// [`SESSION_TOOLS_ENV`] is `0`.
+    pub sessions: bool,
     /// The display allocation folder when this daemon runs with
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
@@ -168,6 +174,10 @@ pub struct Inputs {
 pub const SECRET_TOOLS_ENV: &str = "ACPMUX_SECRET_TOOLS";
 /// Set to `1` by an app that shows offered chats as chips (cx-807da).
 pub const OFFER_TOOLS_ENV: &str = "ACPMUX_OFFER_TOOLS";
+/// `0` takes the session tools (`start_session`, `list_sessions`,
+/// `read_session`, `send_to_session`) away from this daemon's sessions; the
+/// app sets it while the Debug toggle `agent.sessionTools` is off.
+pub const SESSION_TOOLS_ENV: &str = "ACPMUX_SESSION_TOOLS";
 /// A profile or preset env key: the comma-separated MCP server names of
 /// these tools a session keeps (`cmux`: only `cmux mcp serve`). Unset or
 /// empty keeps every server. The Chief's built-in turn presets set `cmux`
@@ -192,6 +202,7 @@ impl Inputs {
             acpmux: std::env::current_exe().ok(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
             offers: var(OFFER_TOOLS_ENV).is_some_and(|v| v == "1"),
+            sessions: var(SESSION_TOOLS_ENV).is_none_or(|v| v != "0"),
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
         }
@@ -319,13 +330,18 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
-    if let (true, Some(acpmux)) = (inputs.offers, &inputs.acpmux) {
-        // offer_session (`offer_mcp.rs`): `for_session` names the session.
+    if let (true, Some(acpmux)) = (inputs.offers || inputs.sessions, &inputs.acpmux) {
+        // offer_session and the session tools (`offer_mcp.rs`): its env says
+        // which it lists, and `for_session` adds the session and socket.
+        let flag = |on: bool| if on { "1" } else { "0" }.to_owned();
         servers.push(McpServer {
             name: crate::offer_mcp::SERVER_NAME.into(),
             command: acpmux.clone(),
             args: vec!["offer-mcp".into()],
-            env: vec![],
+            env: vec![
+                (crate::offer_mcp::OFFERS_ENV.into(), flag(inputs.offers)),
+                (crate::offer_mcp::SESSIONS_ENV.into(), flag(inputs.sessions)),
+            ],
         });
     }
     if let Some(cmux) = executable("cmux")
@@ -423,10 +439,10 @@ impl AgentTools {
             };
             if let Some(key) = session_env {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
-                server.env = vec![
-                    (key.to_owned(), session_id.to_owned()),
-                    ("ACPMUX_SOCKET".to_owned(), socket),
-                ];
+                let sets = [crate::offer_mcp::OFFERS_ENV, crate::offer_mcp::SESSIONS_ENV];
+                server.env.retain(|(k, _)| sets.contains(&k.as_str()));
+                server.env.push((key.to_owned(), session_id.to_owned()));
+                server.env.push(("ACPMUX_SOCKET".to_owned(), socket));
             }
         }
         self
