@@ -31,7 +31,8 @@
 //! permission policy; on the same harness family it starts in the parent's
 //! current mode (the start gate's inherit rule), on another family in the
 //! person's default start mode only when the parent runs with full access,
-//! else in that harness's own (asking) mode.
+//! else in that harness's own (asking) mode. What the tools read back of a
+//! child (its title, last reply and error) is masked (`secret_scan`).
 //!
 //! The index of open children per parent is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
@@ -660,6 +661,16 @@ impl Hub {
         });
         if with_reply {
             row["lastReply"] = json!(self.last_reply(s));
+        }
+        // The tools hand this to another session's agent: a secret in the
+        // child's text (one it read from a file, say) is masked.
+        for key in ["title", "lastReply"] {
+            if let Some(text) = row[key].as_str() {
+                row[key] = json!(crate::secret_scan::mask(text));
+            }
+        }
+        if let Some(text) = row["lastTurn"]["errorText"].as_str() {
+            row["lastTurn"]["errorText"] = json!(crate::secret_scan::mask(text));
         }
         row
     }
