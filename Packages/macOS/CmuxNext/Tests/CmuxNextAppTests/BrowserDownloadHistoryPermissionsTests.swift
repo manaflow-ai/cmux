@@ -25,12 +25,31 @@ import Testing
             filename: "download.txt", source: "https://example.test/download", destination: "/Downloads/download.txt",
             status: "finished", reason: nil, received: 8, total: 8
         )])
-        let deadline = ContinuousClock.now + .seconds(5)
-        while (try? permissions(of: file)) != 0o600, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        await history.waitForPendingWrites()
         #expect(FileManager.default.fileExists(atPath: file.path))
         #expect(try permissions(of: file) == 0o600)
+        let rows = await history.load()
+        #expect(rows.map(\.filename) == ["download.txt"])
+    }
+
+    @Test func newBrowserMetadataIsPrivate() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-download-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let file = root.appendingPathComponent("downloads.json")
+        let history = BrowserDownloadHistory(url: file)
+        history.record([BrowserDownloadHistory.Row(
+            filename: "new-download.txt", source: "https://example.test/new", destination: nil,
+            status: "finished", reason: nil, received: 3, total: 3
+        )])
+        await history.waitForPendingWrites()
+
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        #expect(try permissions(of: root) == 0o700)
+        #expect(try permissions(of: file) == 0o600)
+        let rows = await history.load()
+        #expect(rows.map(\.filename) == ["new-download.txt"])
     }
 
     private func permissions(of url: URL) throws -> Int {

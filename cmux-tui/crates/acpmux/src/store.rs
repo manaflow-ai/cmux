@@ -558,7 +558,6 @@ impl LocalStore {
             if let Some(stem) = name.strip_suffix(".ndjson")
                 && let Ok(idx) = stem.parse::<u32>()
             {
-                drop(crate::config::private_state_file(&entry.path())?);
                 out.push((idx, entry.path()));
             }
         }
@@ -862,6 +861,10 @@ mod permission_tests {
                 },
             )
             .unwrap();
+        // Old segments are authenticated and narrowed when a read reaches
+        // them. Merely finding their names stays lazy so a tail page never
+        // opens an older segment it does not need.
+        store.events("session-1", 0, usize::MAX).unwrap();
 
         assert_eq!(mode(&root), 0o700, "the sessions root contains every chat");
         assert_eq!(mode(&session), 0o700);
