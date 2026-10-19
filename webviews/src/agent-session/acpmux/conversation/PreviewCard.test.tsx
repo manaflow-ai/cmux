@@ -93,11 +93,15 @@ test("loading a gallery stage does not move the transcript: placeholder, frame a
   expect(conversation).toMatch(
     new RegExp(`\\.acpmux-turn-preview-unloaded--live \\{\\s*height: ${GALLERY_FRAME_HEIGHT}px;`),
   );
-  expect(conversation).toMatch(new RegExp(`\\.acpmux-turn-preview-unloaded \\{[^}]*height: ${PREVIEW_FRAME_HEIGHT}px;`));
+  expect(conversation).toMatch(
+    new RegExp(`\\.acpmux-turn-preview-unloaded \\{[^}]*height: ${PREVIEW_FRAME_HEIGHT}px;`),
+  );
   // The placeholder takes the live height before the click.
   root = createRoot(container);
   act(() => root!.render(<PreviewCard url={stage} onOpen={() => {}} />));
-  expect(container.querySelector(".acpmux-turn-preview-unloaded")!.classList.contains("acpmux-turn-preview-unloaded--live")).toBe(true);
+  expect(
+    container.querySelector(".acpmux-turn-preview-unloaded")!.classList.contains("acpmux-turn-preview-unloaded--live"),
+  ).toBe(true);
   // The virtualizer's estimate: the 58px head, the frame, and 14px below (model.ts).
   const heights = layoutConversation(
     [

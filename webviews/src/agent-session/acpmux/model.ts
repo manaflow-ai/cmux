@@ -463,7 +463,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;
   // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
-  if (row.kind === PREVIEW) return 58 + PREVIEW_FRAME_HEIGHT + 6 + 8;
+  // A gallery stage's live frame is taller (previewFrameHeight).
+  if (row.kind === PREVIEW) return 58 + (row.text ? previewFrameHeight(row.text) : PREVIEW_FRAME_HEIGHT) + 6 + 8;
   // The render card: its 36px head over the frame before it reports a height, and 6px below.
   if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
@@ -603,7 +604,8 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
-  if (!row.text) return fallbackRowHeight(row, width);
+  // A preview row's text is its address, not prose: the card's height is fixed.
+  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
@@ -753,7 +755,7 @@ export function scrollLeadRanges(
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
-import { PREVIEW_FRAME_HEIGHT } from "./conversation/previewUrl";
+import { PREVIEW_FRAME_HEIGHT, previewFrameHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";

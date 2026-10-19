@@ -47,7 +47,11 @@ export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string
         <OpenInMenu url={url} onOpenInPane={onOpen} />
       </div>
       {!own && !loaded && (
-        <div className="acpmux-turn-preview-unloaded">
+        <div
+          className={
+            live ? "acpmux-turn-preview-unloaded acpmux-turn-preview-unloaded--live" : "acpmux-turn-preview-unloaded"
+          }
+        >
           <button
             type="button"
             className="acpmux-turn-preview-load"

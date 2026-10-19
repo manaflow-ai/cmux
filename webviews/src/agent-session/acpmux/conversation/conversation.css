@@ -1946,6 +1946,10 @@ pre.cv-math-source {
   height: 180px;
   background: var(--agent-page-bg);
 }
+/* A gallery stage's placeholder takes its live frame's height (previewUrl.ts GALLERY_FRAME_HEIGHT). */
+.acpmux-turn-preview-unloaded--live {
+  height: 360px;
+}
 .acpmux-turn-preview-load {
   height: 28px;
   padding: 0 10px;
