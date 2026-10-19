@@ -576,6 +576,11 @@
       "size": 2024
     },
     {
+      "path": "CloudHostReplicaNeededEvent.java",
+      "sha256": "1a4fe7f051e2e780aa50d6894b4e4ded786ea30a9410862d5df6f696519f0d30",
+      "size": 3122
+    },
+    {
       "path": "CloudHostReplicaSetRequest.java",
       "sha256": "803d5c83ca507f26058579a491156a32ebae07dea89ecf25e993ec8bf7ad6fbf",
       "size": 5297
@@ -1232,8 +1237,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "a1674ab0b20b2b59a1bbdb7f6f093c4682402f84efca064d42d456a8b3fda5a4",
-      "size": 18023
+      "sha256": "de7b15646b536b4cf64aecda4ae9b5a5ed52d53a4690c04630f9d7dc0d3bddef",
+      "size": 18270
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -2057,8 +2062,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "0f4ffaaf96356d89e068732669d5909d79bee3f857dcc83523d0f430be4b203a",
-      "size": 7393
+      "sha256": "21e2bb04e1f3ea630c7ef80f8f250f5a461d07d9cde33ecf2988943e73c52d7d",
+      "size": 7486
     },
     {
       "path": "ProtocolEvent.java",
@@ -3317,7 +3322,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85",
+  "ir_sha256": "2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
