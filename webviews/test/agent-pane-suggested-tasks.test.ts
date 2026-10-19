@@ -14,6 +14,9 @@
 //   draws as "Received message from <title>", not as the person's bubble.
 // - Off (no Debug toggle, no experiment) nothing draws; the `agent.suggestedTasks` Debug toggle
 //   (`applySuggestedTasks`) alone draws the card; `applyPreview` does not.
+// - Another agent's message (`agent_message` provenance, a Claude Code `<cross-session-message>`)
+//   draws as a message card from that agent, toggle or not; Claude Code's task notifications and
+//   reminders in a prompt draw no raw XML.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -465,6 +468,96 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.waitForTimeout(500);
       expect(await line.count()).toBe(1);
       expect(await page.locator("body").innerText()).not.toContain("Result from the suggested task");
+      await page.close();
+    });
+  });
+
+  // Another agent's message to this chat, with or without the suggested tasks toggle: acpmux's
+  // `agent_message` provenance (`send_to_session`, `cmux agent message`), or Claude Code's own
+  // envelopes in a prompt (an adopted Claude session's history).
+  describe("messages from other agents", () => {
+    const incoming = (page: Page) => page.locator(".cv-message.is-incoming");
+
+    test("a prompt with agent_message provenance draws as that agent's message, not the person's", async () => {
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          record("user_message", {
+            text: "The grid fix is on cmux/grid-fix; tests pass.",
+            _meta: {
+              provenance: {
+                kind: "agent_message",
+                from: "child-3",
+                fromName: "Grid fix",
+                to: SESSION,
+                msgId: "m-1",
+                threadId: "t-1",
+              },
+            },
+          }),
+        ],
+      });
+      const card = incoming(page);
+      await card.waitFor({ timeout: 10_000 });
+      expect(await card.innerText()).toContain("Grid fix");
+      expect(await card.innerText()).toContain("The grid fix is on cmux/grid-fix; tests pass.");
+      expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
+      // The sender is a chat here: the card opens it.
+      expect(await card.getByRole("button", { name: "Open Grid fix" }).count()).toBe(1);
+      await page.close();
+    });
+
+    test("a Claude Code cross-session message draws as a card with its raw envelope folded", async () => {
+      const text = [
+        '<cross-session-message from="uds:/tmp/cc-socks/72618.sock" from-name="leoli-fb" from-mode="bypass">',
+        "Please review #123 &amp; report back.",
+        "</cross-session-message>",
+        "",
+        "This came from another Claude session — not typed by your user.",
+      ].join("\n");
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          record("user_message", { text }),
+        ],
+      });
+      const card = incoming(page);
+      await card.waitFor({ timeout: 10_000 });
+      expect(await card.innerText()).toContain("leoli-fb");
+      expect(await card.innerText()).toContain("Please review #123 & report back.");
+      const body = await page.locator("body").innerText();
+      expect(body).not.toContain("<cross-session-message");
+      expect(body).not.toContain("This came from another Claude session");
+      expect(await page.locator(".cv-user__bubble").count()).toBe(1);
+      // Opened, the card shows the prompt as the agent got it.
+      await card.getByRole("button", { name: /Message from leoli-fb/ }).click();
+      await card.locator("pre").getByText("from-mode=").first().waitFor({ timeout: 5_000 });
+      await page.close();
+    });
+
+    test("task notifications and reminders in a prompt draw no raw XML", async () => {
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          record("user_message", {
+            text: "<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Build finished</summary>\n</task-notification>",
+          }),
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          record("user_message", { text: "<system-reminder>\nThe date changed.\n</system-reminder>" }),
+        ],
+      });
+      await page.getByText("Build finished").first().waitFor({ timeout: 10_000 });
+      const body = await page.locator("body").innerText();
+      expect(body).not.toContain("<task-notification>");
+      expect(body).not.toContain("<system-reminder>");
+      expect(body).not.toContain("The date changed.");
+      expect(await page.locator(".cv-user__bubble").count()).toBe(1);
       await page.close();
     });
   });
