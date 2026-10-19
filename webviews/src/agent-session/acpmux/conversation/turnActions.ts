@@ -20,6 +20,9 @@ export type TurnActions = {
   edit?: {
     seqs: ReadonlyMap<string, number>;
     send: (rowId: string, throughSeq: number, text: string) => Promise<boolean>;
+    /// The prompt whose editor opens now (↑ on an empty composer, the menu's Edit and Resend);
+    /// each request is a new object, so the same prompt opens again.
+    opening?: { rowId: string };
   };
   /// A prompt's versions (cx-ncc.61): the prompts an edit replaced or made, each with its sibling chats,
   /// and the open that shows one of them in this pane.

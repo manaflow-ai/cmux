@@ -335,6 +335,12 @@
   text-align: center;
   color: var(--cv-text-muted);
 }
+/* Edited, after the versions of a prompt an edit made. */
+.cv-user__edited {
+  padding: 0 4px;
+  font-size: var(--text-caption);
+  color: var(--cv-text-muted);
+}
 /* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it. */
 .cv-user__edit {
   box-sizing: border-box;

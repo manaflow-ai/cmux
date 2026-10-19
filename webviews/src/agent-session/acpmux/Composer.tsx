@@ -154,6 +154,9 @@ type Props = {
   /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
   onSend(text: string, attachments?: ComposerAttachment[], steer?: boolean): boolean | void | Promise<unknown>;
   onStop(): void;
+  /// ↑ on an empty prompt: opens the chat's last sent prompt in place to edit (Codex parity); false
+  /// when it has none that edits, and ↑ steps through the chat's prompts as before.
+  onEditLast?(): boolean;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
   /// Changes a queued prompt (`_acpmux/queue_edit`): its text, its place, or send it now.
@@ -240,6 +243,7 @@ export function Composer({
   chips: Chips,
   onSend,
   onStop,
+  onEditLast,
   onQueueRemove,
   onQueueChange,
   onQueueLost,
@@ -851,6 +855,12 @@ export function Composer({
         last.focus();
         return;
       }
+    }
+    // ↑ on an empty prompt edits the last prompt sent, in its bubble (Codex parity); a chat whose
+    // last prompt cannot edit keeps ↑'s recall below.
+    if (event.key === "ArrowUp" && plain && !open && !shell && !recalling && !text.trim() && onEditLast?.()) {
+      event.preventDefault();
+      return;
     }
     // ↑ and ↓ on an empty prompt (or one they brought back) step through the chat's prompts. In a
     // recalled prompt of several lines they move the caret first, and recall from its first (↑)

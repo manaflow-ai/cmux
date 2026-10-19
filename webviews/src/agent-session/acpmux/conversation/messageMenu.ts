@@ -21,6 +21,8 @@ export type MessageMenuTarget = {
   sideChat?: true;
   /// A prompt that was not sent: its row, for Retry (`chat.retryPrompt`).
   retryRowId?: string;
+  /// A prompt's row, for Edit and Resend (`chat.editPrompt` edits it in place where it can).
+  promptRowId?: string;
   /// The message's web links and images, each once, for Open Link.
   links?: string[];
 };
@@ -76,6 +78,7 @@ export function messageMenuTarget(
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   if (row.kind === "user" && row.failed) target.retryRowId = row.id;
+  if (row.kind === "user") target.promptRowId = row.id;
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;
   return target;

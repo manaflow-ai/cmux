@@ -15,6 +15,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var sideChat: Bool
     /// A prompt that was not sent: its row, for Retry.
     var retryRowId: String?
+    /// A prompt's row, for Edit and Resend: the page edits it in its bubble where the chat can fork before it.
+    var promptRowId: String?
     /// The message's web links and images, for Open Link.
     var links: [URL]
     /// The pointer is on an image the page opens on click.
@@ -23,12 +25,13 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var part: AgentPaneMenuPart?
 
     init(text: String, markdown: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
-         links: [URL] = [], opensImage: Bool = false, part: AgentPaneMenuPart? = nil) {
+         promptRowId: String? = nil, links: [URL] = [], opensImage: Bool = false, part: AgentPaneMenuPart? = nil) {
         self.text = text
         self.markdown = markdown
         self.forkSeq = forkSeq
         self.sideChat = sideChat
         self.retryRowId = retryRowId
+        self.promptRowId = promptRowId
         self.links = links
         self.opensImage = opensImage
         self.part = part
@@ -50,6 +53,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         forkSeq = (object["forkSeq"] as? NSNumber).map(\.intValue)
         sideChat = (object["sideChat"] as? NSNumber)?.boolValue ?? false
         retryRowId = (object["retryRowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        promptRowId = (object["promptRowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         links = (object["links"] as? [Any] ?? []).compactMap { ($0 as? String).flatMap(URL.init(string:)) }.filter(Self.isWebLink)
     }
 
@@ -84,6 +88,8 @@ enum AgentPaneContextMenu {
         var fork: (Int) -> Void
         var retry: (String) -> Void = { _ in }
         var edit: (String) -> Void = { _ in }
+        /// Edit and Resend on a prompt: its text and row (the page edits it in place where it can).
+        var editPrompt: ((String, String?) -> Void)? = nil
         var open: (URL) -> Void = { _ in }
         /// A link part's rows (``LinkMenu``): Open in cmux Browser, ..., Copy Link; nil: Open Link and Copy Link.
         var linkItems: ((URL) -> [NSMenuItem])? = nil
@@ -147,7 +153,9 @@ enum AgentPaneContextMenu {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry) { actions.retry(row) })
             }
             if target.isPrompt {
-                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.editAndResend) { actions.edit(target.text) })
+                message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.editAndResend) {
+                    if let editPrompt = actions.editPrompt { editPrompt(target.text, target.promptRowId) } else { actions.edit(target.text) }
+                })
             }
             if let seq = target.forkSeq {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) })

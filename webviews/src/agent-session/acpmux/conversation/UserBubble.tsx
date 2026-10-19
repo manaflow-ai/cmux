@@ -2,7 +2,7 @@
 // place; Send forks the chat through the turn before it and sends the edited text there (the App's
 // `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
 // before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
-// it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Copy is on the prompt's right-click
+// it) shows < n/m > before them, always (branches.ts, cx-ncc.61); a later version says Edited. Copy is on the prompt's right-click
 // menu (Copy Message; Leo dogfood 2026-10-13: one hover action); the `hover-actions` experiment's
 // "all" arm keeps it under the bubble. The images a prompt sent show above its bubble, each opening
 // the image viewer (Leo, 2026-10-13: they vanished once sent).
@@ -24,6 +24,11 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const [copied, setCopied] = useState(false);
   const through = edit?.seqs.get(row.id);
   const copies = experimentArm(hoverActions) === "all";
+  // ↑ on an empty composer or the menu's Edit and Resend opens this prompt's editor.
+  const opening = edit?.opening;
+  useEffect(() => {
+    if (opening?.rowId === row.id && through !== undefined) setEditing(true);
+  }, [opening, row.id, through]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -76,6 +81,8 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               </button>
             </span>
           )}
+          {/* A later version of the prompt is an edit (its chat forked before the one it replaced). */}
+          {branch && branch.index > 0 && <span className="cv-user__edited">{t("message.edited")}</span>}
           {copies && (
             <button
               type="button"

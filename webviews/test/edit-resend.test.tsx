@@ -114,6 +114,79 @@ test("a prompt edited in place forks the chat through the turn before it and sen
 test("only a chat that can fork through an earlier turn offers Edit", async () => {
   const { editableTurns } = await import("../src/agent-session/acpmux/conversation/editPrompt");
   expect([...editableTurns(rows, "claude")]).toEqual([["user-4", 3]]);
+  // acpmux cuts a Codex rollout at an earlier turn too (hub/fork_at.rs).
+  expect([...editableTurns(rows, "codex")]).toEqual([["user-4", 3]]);
   // Other agents fork only at a chat's end, so no earlier turn can be edited.
-  expect(editableTurns(rows, "codex").size).toBe(0);
+  expect(editableTurns(rows, "gemini").size).toBe(0);
+});
+
+test("the last sent prompt is the one ↑ edits, when it edits", async () => {
+  const { editableTurns, lastEditable } = await import("../src/agent-session/acpmux/conversation/editPrompt");
+  const seqs = editableTurns(rows, "claude");
+  expect(lastEditable(rows, seqs)).toBe("user-4");
+  // A queued prompt was never sent: ↑ skips it.
+  const queued = [
+    ...rows,
+    { id: "user-7", version: 1, at: 0, kind: "user", seq: 7, text: "Then ship it", queued: true },
+  ] as Parameters<typeof editableTurns>[0];
+  expect(lastEditable(queued, editableTurns(queued, "claude"))).toBe("user-4");
+  // The chat's only prompt has no turn before it: nothing, so ↑ recalls prompts as before.
+  expect(lastEditable(rows.slice(0, 3), editableTurns(rows.slice(0, 3), "claude"))).toBeUndefined();
+});
+
+test("an edit request opens the prompt's editor in its bubble", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+  const { editableTurns } = await import("../src/agent-session/acpmux/conversation/editPrompt");
+  const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+  const seqs = editableTurns(rows, "claude");
+  const send = async () => true;
+  const draw = (opening?: { rowId: string }) =>
+    act(() =>
+      root!.render(
+        <TurnActionsContext.Provider value={{ edit: { seqs, send, opening } }}>
+          <UserBubble row={rows[3]!} text={rows[3]!.text ?? ""} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  act(() => root?.unmount());
+  root = createRoot(host);
+  draw();
+  expect(host.querySelector("textarea")).toBeNull();
+  // A request for another prompt leaves this one.
+  draw({ rowId: "user-1" });
+  expect(host.querySelector("textarea")).toBeNull();
+  draw({ rowId: "user-4" });
+  expect(host.querySelector("textarea")?.value).toBe("Now cover it with a test");
+  // Escape closes it; a new request (a new object) opens it again.
+  act(() => {
+    host
+      .querySelector("textarea")!
+      .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(host.querySelector("textarea")).toBeNull();
+  draw({ rowId: "user-4" });
+  expect(host.querySelector("textarea")).not.toBeNull();
+});
+
+test("a later version of a prompt says Edited; the version it replaced does not", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+  const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+  const draw = (index: number) =>
+    act(() =>
+      root!.render(
+        <TurnActionsContext.Provider
+          value={{ branches: { of: new Map([["user-4", { sessions: ["a", "b"], index }]]), open: () => {} } }}
+        >
+          <UserBubble row={rows[3]!} text={rows[3]!.text ?? ""} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  act(() => root?.unmount());
+  root = createRoot(host);
+  draw(0);
+  expect(host.querySelector(".cv-user__edited")).toBeNull();
+  draw(1);
+  expect(host.querySelector(".cv-user__edited")?.textContent).toBe("Edited");
 });

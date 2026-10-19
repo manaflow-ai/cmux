@@ -125,6 +125,9 @@ extension AgentPaneView {
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
+            editPrompt: { [weak self] text, row in
+                self?.runMessageAction("chat.editPrompt", row.map { ["text": text, "rowId": $0] } ?? ["text": text])
+            },
             open: { [weak self] url in self?.openLink(url) },
             linkItems: { LinkMenu().linkItems(for: $0) },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },

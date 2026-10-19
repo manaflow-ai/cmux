@@ -145,7 +145,7 @@ import {
 } from "./turnChanges/sessionRows";
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
-import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
+import { editableKey, editableSeqs, editableTurns, lastEditable } from "./conversation/editPrompt";
 import {
   clearFindHighlights,
   FindReveal,
@@ -2525,6 +2525,13 @@ function AcpmuxPane() {
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
+  // The prompt whose editor opens in place (↑ on an empty composer, the menu's Edit and Resend).
+  const [editOpening, setEditOpening] = useState<{ rowId: string }>();
+  const lastEditableRow = lastEditable(snapshot.rows, stableEditSeqs);
+  const lastEditableRef = useRef(lastEditableRow);
+  lastEditableRef.current = lastEditableRow;
+  const stableEditSeqsRef = useRef(stableEditSeqs);
+  stableEditSeqsRef.current = stableEditSeqs;
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
   const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
@@ -3034,6 +3041,7 @@ function AcpmuxPane() {
       ...(stableEditSeqs.size > 0 && {
         edit: {
           seqs: stableEditSeqs,
+          opening: editOpening,
           send: (rowId: string, throughSeq: number, text: string) =>
             callNative<boolean>("chat.editResend", { rowId, throughSeq, text }).then(
               (sent) => sent === true,
@@ -3082,6 +3090,7 @@ function AcpmuxPane() {
       forkSeq,
       forkAny,
       stableEditSeqs,
+      editOpening,
       connected,
       hunkReview,
       loginCommand,
@@ -4176,7 +4185,13 @@ function AcpmuxPane() {
           },
           // Edit and Resend (the message menu): the prompt goes back into the composer, before
           // anything typed since, with the caret in it.
-          "chat.editPrompt": async ({ text }) => {
+          // A prompt the chat can fork before opens in its bubble instead (cx-ncc.60's editor).
+          "chat.editPrompt": async ({ text, rowId }) => {
+            const row = typeof rowId === "string" ? rowId : undefined;
+            if (row && stableEditSeqsRef.current.has(row)) {
+              setEditOpening({ rowId: row });
+              return;
+            }
             restorePrompt(String(text ?? ""), []);
             composerHandle.current?.focus();
           },
@@ -5238,6 +5253,12 @@ function AcpmuxPane() {
             if (!target) return false;
             setContinuing(false);
             ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
+            return true;
+          }}
+          onEditLast={() => {
+            const row = lastEditableRef.current;
+            if (!row) return false;
+            setEditOpening({ rowId: row });
             return true;
           }}
           onSend={(text, chips, steer) => {
