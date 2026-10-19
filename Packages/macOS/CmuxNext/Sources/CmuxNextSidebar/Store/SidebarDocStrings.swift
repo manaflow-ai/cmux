@@ -13,6 +13,10 @@ enum SidebarDocStrings {
         switch code {
         case "cross_machine":
             String(localized: "sidebar.doc.refused.crossMachine", defaultValue: "Workspaces stay on their machine.", bundle: .module)
+        case "too_deep":
+            String(localized: "sidebar.doc.refused.tooDeep", defaultValue: "Groups nest at most 3 levels deep.", bundle: .module)
+        case "nesting":
+            String(localized: "sidebar.doc.refused.nesting", defaultValue: "A group cannot go into itself or a group inside it.", bundle: .module)
         case "provider_owned":
             String(localized: "sidebar.doc.refused.providerOwned", defaultValue: "An app fills this section.", bundle: .module)
         default:

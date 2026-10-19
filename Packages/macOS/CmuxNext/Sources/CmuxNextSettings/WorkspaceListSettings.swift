@@ -22,12 +22,15 @@ public nonisolated enum NewWorkspacePlacement: String, Hashable, Sendable, CaseI
 /// headers unless `sidebar.groupByComputer` is on
 /// (`SidebarSectionsPreferences.groupsByComputer`). A workspace the user
 /// never named takes its front tab's name unless `workspaces.autoName` is
-/// off (hq#1957, `SidebarSectionsPreferences.autoNamesWorkspaces`).
+/// off (hq#1957, `SidebarSectionsPreferences.autoNamesWorkspaces`). A new
+/// Cloud workspace joins the Cloud group unless `sidebar.cloudGroup` is off
+/// (`SidebarSectionsPreferences.cloudGroup`).
 nonisolated extension CmuxConfigSnapshot {
     public static let newWorkspacePlacementPath = ["workspaces", "newPlacement"]
     public static let newWorkspacePlacementFallback: NewWorkspacePlacement = .top
     public static let groupByComputerPath = ["sidebar", "groupByComputer"]
     public static let autoNameWorkspacesPath = ["workspaces", "autoName"]
+    public static let cloudGroupPath = ["sidebar", "cloudGroup"]
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic. Runs after `sidebarSections` is parsed.
@@ -36,6 +39,7 @@ nonisolated extension CmuxConfigSnapshot {
                                                                      diagnostics: &snapshot.diagnostics)
         if let flag = flag(root, groupByComputerPath, diagnostics: &snapshot.diagnostics) { snapshot.sidebarSections.groupsByComputer = flag }
         if let flag = flag(root, autoNameWorkspacesPath, diagnostics: &snapshot.diagnostics) { snapshot.sidebarSections.autoNamesWorkspaces = flag }
+        if let flag = flag(root, cloudGroupPath, diagnostics: &snapshot.diagnostics) { snapshot.sidebarSections.cloudGroup = flag }
     }
 
     /// The boolean at `path`; nil when missing, or invalid (plus a diagnostic).
@@ -47,12 +51,14 @@ nonisolated extension CmuxConfigSnapshot {
     }
 }
 
-/// The three rows, in the General section's Sidebar group.
+/// The four rows, in the General section's Sidebar group.
 nonisolated enum WorkspaceListSettingsSchema {
-    /// Agents may change all three: list shape and order choices, like `layout.newPanePlacement`, and
-    /// whether unnamed workspaces take their tab's name (a user's name always wins).
+    /// Agents may change all four: list shape and order choices, like `layout.newPanePlacement`,
+    /// whether unnamed workspaces take their tab's name (a user's name always wins), and whether new
+    /// Cloud workspaces join the Cloud group.
     static var agentSettableKeys: Set<String> {
-        [CmuxConfigSnapshot.newWorkspacePlacementPath, CmuxConfigSnapshot.groupByComputerPath, CmuxConfigSnapshot.autoNameWorkspacesPath]
+        [CmuxConfigSnapshot.newWorkspacePlacementPath, CmuxConfigSnapshot.groupByComputerPath, CmuxConfigSnapshot.autoNameWorkspacesPath,
+         CmuxConfigSnapshot.cloudGroupPath]
             .reduce(into: []) { $0.insert($1.joined(separator: ".")) }
     }
 
@@ -88,6 +94,14 @@ nonisolated enum WorkspaceListSettingsSchema {
                                         "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."),
                 kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.autoNamesWorkspaces),
                 keywords: ["workspace", "name", "rename", "auto", "title", "tab", "chat", "page", "folder", "sidebar"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.cloudGroupPath, section: .general, group: sidebar,
+                title: SettingsText.keyed("settings.sidebar.cloudGroup", "Put Cloud Workspaces in a Cloud Group"),
+                help: SettingsText.keyed("settings.sidebar.cloudGroup.help",
+                                        "A new Cloud workspace goes into the sidebar's Cloud group, unless you picked a group for it. A workspace you move out stays where you put it."),
+                kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.cloudGroup),
+                keywords: ["sidebar", "cloud", "group", "vm", "machine", "remote", "workspace", "new"]
             ),
         ]
     }

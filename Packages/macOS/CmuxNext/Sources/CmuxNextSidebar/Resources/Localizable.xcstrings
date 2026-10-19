@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "sidebar.doc.refused.nesting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A group cannot go into itself or a group inside it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループをそれ自体やその中のグループに入れることはできません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن وضع مجموعة داخل نفسها أو داخل مجموعة بداخلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupa ne može ući u samu sebe ni u grupu unutar sebe."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En gruppe kan ikke lægges i sig selv eller i en gruppe inden i den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Gruppe kann nicht in sich selbst oder in eine Gruppe in ihr verschoben werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un grupo no puede ir dentro de sí mismo ni de un grupo que contiene."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un groupe ne peut pas aller dans lui-même ni dans un groupe qu'il contient."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un gruppo non può andare in sé stesso o in un gruppo al suo interno."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមមិនអាចដាក់ចូលខ្លួនឯង ឬក្រុមនៅក្នុងខ្លួនបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹을 자기 자신이나 그 안의 그룹에 넣을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En gruppe kan ikke legges i seg selv eller i en gruppe inni den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupy nie można umieścić w niej samej ani w grupie w jej wnętrzu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um grupo não pode entrar em si mesmo nem em um grupo dentro dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группу нельзя поместить в саму себя или во вложенную в неё группу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถใส่กลุ่มไว้ในตัวเองหรือในกลุ่มที่อยู่ข้างในได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir grup kendi içine veya içindeki bir gruba giremez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групу не можна помістити в неї саму або у вкладену в неї групу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đưa nhóm vào chính nó hoặc vào nhóm bên trong nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分组不能放入自身或其内部的分组。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組不能放入自身或其內部的群組。"
+          }
+        }
+      }
+    },
+    "sidebar.doc.refused.tooDeep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groups nest at most 3 levels deep."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループは3階層までしか入れ子にできません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن تداخل المجموعات حتى 3 مستويات فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupe se mogu ugnijezditi najviše 3 nivoa duboko."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupper kan højst indlejres 3 niveauer dybt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppen lassen sich höchstens 3 Ebenen tief verschachteln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los grupos se anidan como máximo 3 niveles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les groupes s'imbriquent sur 3 niveaux au plus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I gruppi si annidano al massimo su 3 livelli."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមអាចដាក់ក្នុងគ្នាបានយ៉ាងច្រើន 3 កម្រិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹은 최대 3단계까지 중첩할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupper kan nestes høyst 3 nivåer dypt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grupy można zagnieżdżać najwyżej na 3 poziomach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os grupos se aninham no máximo em 3 níveis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Группы можно вкладывать не глубже 3 уровней."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ้อนกลุ่มได้ลึกสุด 3 ระดับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruplar en fazla 3 düzey iç içe olabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Групи можна вкладати не глибше 3 рівнів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm chỉ lồng nhau tối đa 3 cấp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分组最多嵌套 3 层。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組最多巢狀 3 層。"
+          }
+        }
+      }
+    },
     "sidebar.a11y.closeWorkspace": {
       "extractionState": "manual",
       "localizations": {

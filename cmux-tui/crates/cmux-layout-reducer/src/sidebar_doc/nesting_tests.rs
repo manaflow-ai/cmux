@@ -364,3 +364,44 @@ fn a_group_split_by_unpin_leaves_no_empty_nested_group() {
     assert!(doc.item(&a).unwrap().parent.is_none() && doc.item(&b).unwrap().parent.is_none());
     check(&doc).unwrap();
 }
+
+/// The ops the app sends for a new Cloud workspace (`SidebarDocStore.cloudGroupOps`), as JSON.
+fn app_ops(json: serde_json::Value) -> Vec<Op> {
+    serde_json::from_value(json).unwrap()
+}
+
+#[test]
+fn new_cloud_workspaces_of_two_machines_join_one_cloud_group() {
+    let mut doc = Doc::from_parts(1, Vec::new(), Vec::new());
+    for section in [Section::pinned(), Section::machine(LOCAL), Section::machine(CLOUD_A), Section::machine(CLOUD_B)] {
+        run(&mut doc, &[Op::SectionAdd { section, place: SectionPlace::default() }]).unwrap();
+    }
+    let first = workspace(&mut doc, CLOUD_A, "w1", into(&machine_section_id(CLOUD_A), None));
+    // The first one makes the untitled section above the list and the group.
+    let make = app_ops(serde_json::json!([
+        {"op": "section.add", "place": {"region": "middle", "before": local()}, "section": {
+            "id": "sec_cloud", "kind": {"type": "custom"}, "shows_title": false, "region": "middle",
+            "look": "list", "arrangement": "list", "align": "leading"}},
+        {"op": "group.create", "id": "grp_cloud", "name": "Cloud", "color": "blue", "items": [first], "to": {"section": "sec_cloud"}},
+    ]));
+    run(&mut doc, &make).unwrap();
+    // The next one, on another machine and not adopted yet, is adopted and moves in.
+    let reference = WorkspaceRef::new(CLOUD_B, "w2");
+    let second = workspace_item_id(&reference);
+    let join = app_ops(serde_json::json!([
+        {"op": "adopt", "refs": [{"session_id": CLOUD_B, "workspace_id": "w2"}]},
+        {"op": "move", "items": [second], "to": {"section": "sec_cloud", "parent": "grp_cloud"}},
+    ]));
+    run(&mut doc, &join).unwrap();
+    check(&doc).unwrap();
+    assert_eq!(doc.item("grp_cloud").unwrap().section, "sec_cloud");
+    assert_eq!(doc.item(&first).unwrap().parent.as_deref(), Some("grp_cloud"));
+    assert_eq!(doc.item(&second).unwrap().parent.as_deref(), Some("grp_cloud"));
+    // A workspace the person moves out stays out (the app never joins it again).
+    move_to(&mut doc, &first, into(&machine_section_id(CLOUD_A), None)).unwrap();
+    assert_eq!(doc.item(&first).unwrap().parent, None);
+    // A nested group inside Cloud is allowed.
+    group(&mut doc, "project", "sec_cloud", Some("grp_cloud")).unwrap();
+    move_to(&mut doc, &second, into("sec_cloud", Some("project"))).unwrap();
+    check(&doc).unwrap();
+}
