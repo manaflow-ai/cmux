@@ -1,22 +1,27 @@
-//! The event loop of a shared terminal host (`shared_host.rs`): one poller
-//! thread and a small pool of workers, instead of six threads per terminal.
+//! The event loop of a shared terminal host (`shared_host.rs`): a small
+//! pool of workers that share one poller, instead of six threads per
+//! terminal.
 //!
 //! The poller (kqueue on macOS, epoll on Linux; the design of
 //! `cmux-mux2/src/unix/mux2d_poll.rs`) watches every terminal's PTY master,
 //! listener, accept waker, client sockets and bootstrap socket, plus child
 //! exits (EVFILT_PROC, pidfd) and timers. Registrations are one-shot: an
-//! event runs its handler once, as a pool job, and the handler re-arms the
-//! descriptor when it wants the next event. So the host code that used to run
-//! on a dedicated thread per terminal runs unchanged, one readiness at a
-//! time, on whichever worker is free.
+//! event runs its handler once, and the handler re-arms the descriptor when
+//! it wants the next event. So the host code that used to run on a dedicated
+//! thread per terminal runs unchanged, one readiness at a time, on whichever
+//! worker is free.
 //!
-//! The pool keeps `core` workers (the parse workers) and starts more only
-//! while every worker is busy: a job may still block (a PTY write to a
-//! program that reads no input, a client that reads slowly), exactly where
-//! its dedicated thread blocked before. Extra workers end after two idle
+//! Leader and followers: one idle worker (the leader) waits in the poller;
+//! the others wait for jobs. The leader runs the first event's handler
+//! itself, so a readiness reaches its handler with one wakeup, as it reached
+//! a blocked thread before; a follower takes the leader's place. The pool
+//! keeps `core` workers (the parse workers) and starts another one whenever
+//! a worker is about to run a job and no other worker is idle: a job may
+//! still block (a PTY write to a program that reads no input, a client that
+//! reads slowly), exactly where its dedicated thread blocked before, and the
+//! poller must keep a waiting worker. Extra workers end after two idle
 //! seconds. An idle shared host therefore runs its control thread, the
-//! signal writer, the poller and the core workers, whatever its terminal
-//! count.
+//! signal writer and the core workers, whatever its terminal count.
 //!
 //! [`SerialJob`] keeps one terminal's work in order: jobs of one serial
 //! queue never run at once, and a wake while it runs makes it run again.
@@ -37,8 +42,6 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// How long an extra worker waits for a job before it ends.
 const EXTRA_WORKER_IDLE: Duration = Duration::from_secs(2);
-/// No more workers than this, whatever blocks: a bound, not a target.
-const MAX_WORKERS: usize = 1024;
 
 static EXECUTOR: OnceLock<&'static Executor> = OnceLock::new();
 
@@ -58,20 +61,25 @@ pub(crate) fn start(core: usize) -> io::Result<&'static Executor> {
         handlers: Mutex::new(HashMap::new()),
         timers: Mutex::new(BinaryHeap::new()),
         next_token: AtomicU64::new(1),
-        pool: Pool {
-            state: Mutex::new(PoolState::default()),
-            ready: Condvar::new(),
-            core: core.max(1),
-        },
+        state: Mutex::new(PoolState::default()),
+        ready: Condvar::new(),
+        core: core.max(1),
     }));
     let _ = EXECUTOR.set(executor);
-    std::thread::Builder::new()
-        .name("terminal-host-poller".into())
-        .spawn(move || executor.run_poller())?;
-    for _ in 0..executor.pool.core {
-        executor.pool.spawn_worker(true)?;
+    for _ in 0..executor.core {
+        executor.spawn_worker(true)?;
     }
     Ok(executor)
+}
+
+#[derive(Default)]
+struct PoolState {
+    jobs: VecDeque<Job>,
+    workers: usize,
+    /// Workers waiting for a job.
+    followers: usize,
+    /// A worker waits in the poller.
+    leader: bool,
 }
 
 pub(crate) struct Executor {
@@ -79,7 +87,10 @@ pub(crate) struct Executor {
     handlers: Mutex<HashMap<u64, Handler>>,
     timers: Mutex<BinaryHeap<std::cmp::Reverse<(Instant, u64)>>>,
     next_token: AtomicU64,
-    pool: Pool,
+    state: Mutex<PoolState>,
+    ready: Condvar,
+    /// Workers that never end: the parse workers.
+    core: usize,
 }
 
 impl Executor {
@@ -89,7 +100,35 @@ impl Executor {
 
     /// Run `job` on a worker.
     pub(crate) fn submit(&'static self, job: impl FnOnce() + Send + 'static) {
-        self.pool.submit(Box::new(job));
+        let mut state = lock(&self.state);
+        state.jobs.push_back(Box::new(job));
+        self.dispatch(state);
+    }
+
+    /// Hand the queued jobs to idle workers: a follower, else the leader
+    /// (woken out of the poller), else a new worker.
+    fn dispatch(&'static self, state: std::sync::MutexGuard<'_, PoolState>) {
+        if state.followers > 0 {
+            drop(state);
+            self.ready.notify_one();
+        } else if state.leader {
+            drop(state);
+            self.poller.wake();
+        } else {
+            drop(state);
+            self.spawn_or_report();
+        }
+    }
+
+    fn spawn_or_report(&'static self) {
+        if let Err(error) = self.spawn_worker(false) {
+            // The running workers take the job when one is free.
+            static REPORTED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if !REPORTED.swap(true, Ordering::AcqRel) {
+                eprintln!("terminal-host: starting a shared host worker failed: {error}");
+            }
+        }
     }
 
     /// Run `handler` (as a job) once `fd` is readable, hung up or failed.
@@ -154,69 +193,6 @@ impl Executor {
         }
     }
 
-    fn fire(&'static self, token: u64) {
-        if let Some(handler) = lock(&self.handlers).remove(&token) {
-            self.pool.submit(handler);
-        }
-    }
-
-    fn run_poller(&'static self) {
-        let mut events = Vec::new();
-        loop {
-            let now = Instant::now();
-            let timeout = {
-                let mut timers = lock(&self.timers);
-                while let Some(top) = timers.peek()
-                    && top.0.0 <= now
-                {
-                    let std::cmp::Reverse((_, token)) = timers.pop().expect("peeked timer");
-                    events.push(token);
-                }
-                timers.peek().map(|top| top.0.0.saturating_duration_since(now))
-            };
-            for token in events.drain(..) {
-                self.fire(token);
-            }
-            if self.poller.wait(timeout, &mut events).is_err() {
-                // A failed wait (EINTR is retried inside) must not spin.
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            for token in events.drain(..) {
-                self.fire(token);
-            }
-        }
-    }
-}
-
-#[derive(Default)]
-struct PoolState {
-    jobs: VecDeque<Job>,
-    workers: usize,
-    idle: usize,
-}
-
-struct Pool {
-    state: Mutex<PoolState>,
-    ready: Condvar,
-    /// Workers that never end: the parse workers.
-    core: usize,
-}
-
-impl Pool {
-    fn submit(&'static self, job: Job) {
-        let spawn = {
-            let mut state = lock(&self.state);
-            state.jobs.push_back(job);
-            // Every worker is busy (or blocked): start one more, so a job
-            // that blocks never holds up the others.
-            state.idle < state.jobs.len() && state.workers < MAX_WORKERS
-        };
-        if spawn && self.spawn_worker(false).is_err() {
-            // The running workers take the job when one is free.
-        }
-        self.ready.notify_one();
-    }
-
     fn spawn_worker(&'static self, core: bool) -> io::Result<()> {
         lock(&self.state).workers += 1;
         let started = std::thread::Builder::new()
@@ -229,28 +205,89 @@ impl Pool {
         Ok(())
     }
 
+    /// Wait in the poller; returns the handlers whose events (and timers)
+    /// fired.
+    fn lead(&'static self) -> Vec<Handler> {
+        let now = Instant::now();
+        let mut tokens = Vec::new();
+        let timeout = {
+            let mut timers = lock(&self.timers);
+            while let Some(top) = timers.peek()
+                && top.0.0 <= now
+            {
+                let std::cmp::Reverse((_, token)) = timers.pop().expect("peeked timer");
+                tokens.push(token);
+            }
+            timers.peek().map(|top| top.0.0.saturating_duration_since(now))
+        };
+        if tokens.is_empty() {
+            let timeout =
+                if lock(&self.state).jobs.is_empty() { timeout } else { Some(Duration::ZERO) };
+            if self.poller.wait(timeout, &mut tokens).is_err() {
+                // A failed wait (EINTR is retried inside) must not spin.
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        let mut handlers = lock(&self.handlers);
+        tokens.into_iter().filter_map(|token| handlers.remove(&token)).collect()
+    }
+
+    fn run_job(&'static self, job: Job) {
+        // A job's panic ends only that job; the host code it runs
+        // attributes and handles its own failures.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+        // The next job may serve another terminal.
+        super::super::shared::host_crash::clear_thread_terminal();
+    }
+
     fn run_worker(&'static self, core: bool) {
         let mut state = lock(&self.state);
         loop {
             if let Some(job) = state.jobs.pop_front() {
+                // Keep a worker waiting for events: this job may block.
+                let alone = state.followers == 0 && !state.leader;
                 drop(state);
-                // A job's panic ends only that job; the host code it runs
-                // attributes and handles its own failures.
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+                if alone {
+                    self.spawn_or_report();
+                }
+                self.run_job(job);
                 state = lock(&self.state);
                 continue;
             }
-            state.idle += 1;
+            if !state.leader {
+                state.leader = true;
+                drop(state);
+                let mut fired = self.lead().into_iter();
+                state = lock(&self.state);
+                state.leader = false;
+                let Some(first) = fired.next() else { continue };
+                // The rest to the queue; another worker leads meanwhile.
+                state.jobs.extend(fired);
+                let alone = state.followers == 0;
+                let more = !state.jobs.is_empty();
+                drop(state);
+                if alone {
+                    self.spawn_or_report();
+                } else if more {
+                    self.ready.notify_all();
+                } else {
+                    self.ready.notify_one();
+                }
+                self.run_job(first);
+                state = lock(&self.state);
+                continue;
+            }
+            state.followers += 1;
             if core {
                 state = self.ready.wait(state).unwrap_or_else(PoisonError::into_inner);
-                state.idle -= 1;
+                state.followers -= 1;
             } else {
                 let (next, timeout) = self
                     .ready
                     .wait_timeout(state, EXTRA_WORKER_IDLE)
                     .unwrap_or_else(PoisonError::into_inner);
                 state = next;
-                state.idle -= 1;
+                state.followers -= 1;
                 if timeout.timed_out() && state.jobs.is_empty() {
                     state.workers -= 1;
                     return;

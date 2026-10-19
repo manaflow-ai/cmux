@@ -106,11 +106,23 @@ pub(crate) fn attribute<R>(
 ) -> impl FnMut() -> R + Send + 'static {
     let target = THREAD_TERMINAL.with(|current| current.borrow().clone());
     move || {
-        let previous = THREAD_TERMINAL.with(|current| current.replace(target.clone()));
-        let result = body();
-        THREAD_TERMINAL.with(|current| *current.borrow_mut() = previous);
-        result
+        // Restored also when `body` panics (a pool worker runs other
+        // terminals' jobs next).
+        struct Restore(Option<Arc<CrashTarget>>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                let previous = self.0.take();
+                THREAD_TERMINAL.with(|current| *current.borrow_mut() = previous);
+            }
+        }
+        let _restore = Restore(THREAD_TERMINAL.with(|current| current.replace(target.clone())));
+        body()
     }
+}
+
+/// Forget the calling thread's terminal (a pool worker between jobs).
+pub(crate) fn clear_thread_terminal() {
+    THREAD_TERMINAL.with(|current| current.borrow_mut().take());
 }
 
 /// Run `body` once, off the calling thread: a job of a shared host's pool,

@@ -76,7 +76,8 @@ pub(crate) fn serve(executor: &'static Executor, parts: ServingParts) {
     };
     let job = SerialJob::new();
     let wake = job.clone();
-    job.install(executor, move || serving.run(executor, &wake));
+    // The slot's job named this terminal (host_crash::enter_terminal).
+    job.install(executor, shared::host_crash::attribute(move || serving.run(executor, &wake)));
 }
 
 impl SharedServing {
@@ -128,6 +129,17 @@ impl SharedServing {
             None
         };
         self.waker_token = rearm(waker_fd, self.waker_token);
+        // A registration that failed (descriptor or kernel memory
+        // exhaustion) is retried after the backoff, as the thread loop
+        // retries a failed wait; the loop never stalls for good.
+        let failed = self.waker_token.is_none() || (listen && self.listener_token.is_none());
+        let deadline = if failed {
+            Some(deadline.map_or(Instant::now() + MAX_BACKOFF, |deadline| {
+                deadline.min(Instant::now() + MAX_BACKOFF)
+            }))
+        } else {
+            deadline
+        };
         if let Some(deadline) = deadline
             && self.timer.is_none_or(|armed| armed <= Instant::now() || armed > deadline)
         {

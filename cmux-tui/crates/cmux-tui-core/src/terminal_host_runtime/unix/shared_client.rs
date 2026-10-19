@@ -15,7 +15,7 @@ use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
-use super::super::shared::host_serve::{ClientInput, InputFlow, write_client_frame};
+use super::super::shared::host_serve::{ClientInput, InputFlow};
 use super::super::shared::host_state::HostTap;
 use super::super::sys::HostStream;
 use super::shared_exec::{Executor, SerialJob};
@@ -45,14 +45,40 @@ pub(crate) fn serve(executor: &'static Executor, connection: Connection) -> std:
         shared::host_crash::attribute(move || {
             let Some((stream, receiver, tap, _)) = writer.as_mut() else { return false };
             loop {
+                // What ends the writer, and whether the socket is shut down.
                 let ended = match receiver.try_recv() {
-                    Ok(frame) => !write_client_frame(stream, tap, frame),
+                    Ok(frame)
+                        if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 =>
+                    {
+                        tap.release(&frame);
+                        Some(false)
+                    }
+                    Ok(frame) => {
+                        let written = write_frame(stream, &frame);
+                        tap.release(&frame);
+                        match written {
+                            // A client that stopped reading must not keep an
+                            // ended terminal alive through its input side: shut
+                            // the socket down, so the input job reads EOF (a
+                            // one-terminal host's process exit did that).
+                            Err(_) => Some(true),
+                            Ok(()) if frame.kind == MessageKind::Exit => Some(false),
+                            Ok(()) => None,
+                        }
+                    }
                     Err(TryRecvError::Empty) => return true,
-                    Err(TryRecvError::Disconnected) => true,
+                    Err(TryRecvError::Disconnected) => Some(false),
                 };
-                if ended {
+                if let Some(shut_down) = ended {
                     host.remove_client(client);
-                    writer.take();
+                    if shut_down {
+                        tap.close();
+                    }
+                    if let Some((stream, receiver, tap, keep)) = writer.take() {
+                        // As the writer thread's frame: its guards first.
+                        drop(keep);
+                        drop((stream, receiver, tap));
+                    }
                     return false;
                 }
             }
@@ -96,7 +122,11 @@ pub(crate) fn serve(executor: &'static Executor, connection: Connection) -> std:
 fn pump(stream: &HostStream, buffer: &mut Vec<u8>, input: &ClientInput) -> Option<bool> {
     let mut chunk = [0u8; 64 * 1024];
     let mut ended = false;
-    loop {
+    let mut read = 0usize;
+    // One pass reads at most about one maximal frame; the level-triggered
+    // re-arm runs the next pass at once, so a client that writes as fast as
+    // the host reads cannot grow the buffer without bound.
+    while read < MAX_FRAME_PAYLOAD {
         // SAFETY: a valid buffer; MSG_DONTWAIT keeps the shared descriptor
         // blocking for the writer.
         let count = unsafe {
@@ -109,6 +139,7 @@ fn pump(stream: &HostStream, buffer: &mut Vec<u8>, input: &ClientInput) -> Optio
         };
         if count > 0 {
             buffer.extend_from_slice(&chunk[..count.unsigned_abs()]);
+            read += count.unsigned_abs();
             continue;
         }
         if count == 0 {

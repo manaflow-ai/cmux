@@ -58,9 +58,20 @@ pub(crate) fn start(executor: &'static Executor, host: &Arc<HostShared>, parts: 
     start_exit_publisher(executor, host, exit_requests);
     start_parser(executor, host, parser, parser_commands);
     let reader_host = host.clone();
-    host.when_launch_owner_stream_ready(Box::new(move || {
-        start_pty_reader(executor, reader_host, pty_reader, pty_poll_fd, pty_drain_waiter);
-    }));
+    let mut reader = Some((pty_reader, pty_drain_waiter));
+    // Attributed to this terminal now, not to whoever releases the barrier.
+    let start_reader = attribute(move || {
+        if let Some((pty_reader, pty_drain_waiter)) = reader.take() {
+            start_pty_reader(
+                executor,
+                reader_host.clone(),
+                pty_reader,
+                pty_poll_fd,
+                pty_drain_waiter,
+            );
+        }
+    });
+    host.when_launch_owner_stream_ready(Box::new(start_reader));
     watch_child_exit(executor, host, child);
 }
 
@@ -215,8 +226,13 @@ impl PtyReader {
                     Err(_) => return false,
                 },
                 Ok(PtyPoll::Pending(remaining)) => {
-                    self.arm(executor, job, remaining.map(|remaining| Instant::now() + remaining));
-                    return true;
+                    // A registration that failed ends the stream as a
+                    // failed wait ends the reader thread: Drain follows.
+                    return self.arm(
+                        executor,
+                        job,
+                        remaining.map(|remaining| Instant::now() + remaining),
+                    );
                 }
                 Ok(PtyPoll::Ended) | Err(_) => return false,
             }
@@ -228,7 +244,7 @@ impl PtyReader {
         executor: &'static Executor,
         job: &Arc<SerialJob>,
         deadline: Option<Instant>,
-    ) {
+    ) -> bool {
         let rearm = |fd: RawFd, old: Option<u64>| {
             if let Some(old) = old {
                 executor.forget_handler(old);
@@ -251,6 +267,7 @@ impl PtyReader {
             let wake = job.clone();
             executor.at(deadline, move || wake.wake(executor));
         }
+        self.pty_token.is_some() && (self.waiter_closed || self.waiter_token.is_some())
     }
 
     fn forget(&mut self, executor: &'static Executor) {
@@ -266,23 +283,22 @@ impl PtyReader {
 fn watch_child_exit(executor: &'static Executor, host: &Arc<HostShared>, child: HostChild) {
     let pid = child.process_id().and_then(|pid| libc::pid_t::try_from(pid).ok());
     // Taken once: by the exit event, or at once when the child already
-    // ended (a zombie may raise no exit event).
-    let child = Arc::new(Mutex::new(Some(child)));
-    let run = {
-        let host = host.clone();
+    // ended (a zombie may raise no exit event). The host lives in the same
+    // slot, so a handler that never fires keeps nothing alive.
+    let slot = Arc::new(Mutex::new(Some((host.clone(), child))));
+    let fire = || {
+        let slot = slot.clone();
         attribute(move || {
-            let taken = child.lock().unwrap_or_else(PoisonError::into_inner).take();
-            if let Some(child) = taken {
+            let taken = slot.lock().unwrap_or_else(PoisonError::into_inner).take();
+            if let Some((host, child)) = taken {
                 watch_child(&host, child);
             }
         })
     };
-    let run = Arc::new(Mutex::new(run));
-    let fire = { move || (run.lock().unwrap_or_else(PoisonError::into_inner))() };
-    let watched = pid.is_some_and(|pid| executor.on_exit(pid, fire.clone()).is_ok());
+    let watched = pid.is_some_and(|pid| executor.on_exit(pid, fire()).is_ok());
     if !watched || pid.is_some_and(child_ended) {
         // Not watchable (the body waits itself), or ended already.
-        executor.submit(fire);
+        executor.submit(fire());
     }
 }
 
