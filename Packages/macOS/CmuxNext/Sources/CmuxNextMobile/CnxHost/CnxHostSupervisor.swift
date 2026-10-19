@@ -69,6 +69,22 @@ public actor CnxHostSupervisor {
 
     /// A run up this long (seconds) resets the backoff.
     static let healthyRun: TimeInterval = 60
+    /// A run online this long (seconds) resets the backoff: it reached the
+    /// service and served, so its end is not a crash loop.
+    static let healthyOnline: TimeInterval = 5
+
+    /// Whether a run that started at `started`, came online at `online` (nil:
+    /// never) and ended at `ended` starts the next restart from the first delay.
+    /// Only a minute-long run counted before, so a hostd killed every 13-45 s
+    /// (a crash, a kill, an update) came back after 7, 16, 32 and 61 s, and
+    /// phones waited that long for the Mac (termqa round 4).
+    static func resetsBackoff(started: Date, online: Date?, ended: Date) -> Bool {
+        if ended.timeIntervalSince(started) >= healthyRun { return true }
+        guard let online else { return false }
+        return ended.timeIntervalSince(online) >= healthyOnline
+    }
+    /// When the current run came online (nil until then).
+    private var onlineSince: Date?
 
     public init(clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
         (states, continuation) = AsyncStream.makeStream(of: CnxHostState.self, bufferingPolicy: .bufferingNewest(1))
@@ -146,7 +162,7 @@ public actor CnxHostSupervisor {
                 publish { $0.reset(to: .removed) }
                 return
             }
-            if now().timeIntervalSince(started) >= Self.healthyRun { backoff.reset() }
+            if Self.resetsBackoff(started: started, online: onlineSince, ended: now()) { backoff.reset() }
             logger.notice("cnx-hostd ended (\(reason, privacy: .public)); restarting after backoff")
             publish { $0.reset(to: .waiting(reason)) }
             do {
@@ -160,6 +176,7 @@ public actor CnxHostSupervisor {
 
     /// One hostd process from start to exit; returns why it ended.
     private func runOnce(_ inputs: Inputs) async -> String {
+        onlineSince = nil
         publish { $0.reset(to: .connecting) }
         let child = CnxHostProcess()
         do {
@@ -231,6 +248,7 @@ public actor CnxHostSupervisor {
                 }
             default:
                 let at = now()
+                if case .online = event, onlineSince == nil { onlineSince = at }
                 publish { $0.apply(event, at: at) }
             }
         }
