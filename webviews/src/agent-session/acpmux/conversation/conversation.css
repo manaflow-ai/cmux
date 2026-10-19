@@ -2431,6 +2431,11 @@ pre.cv-math-source {
   color: var(--agent-danger);
 }
 
+/* ---------- A compaction (CompactionNote.tsx) ---------- */
+.cv-compaction[data-state="failed"] .cv-tool__icon {
+  color: var(--agent-danger);
+}
+
 /* One rhythm for steps (tool calls, thoughts, a background task's end) across transcript rows:
    a step row next to another adds no gap, so they sit 26px apart as inside one row (Leo 2026-10-13). */
 .acpmux-row.acpmux-row--before-step,
