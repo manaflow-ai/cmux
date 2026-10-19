@@ -344,6 +344,28 @@ impl Hub {
         resumed
     }
 
+    /// Runs only the held prompts named in `ids` (the ones one failed turn held, `auto_resume.rs`).
+    /// False when none of them was held.
+    pub(super) fn resume_held(&self, session: &Arc<Session>, ids: &[String]) -> bool {
+        let mut resumed = false;
+        for q in session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter_mut()
+        {
+            if ids.contains(&q.prompt_id) {
+                resumed |= std::mem::take(&mut q.held);
+            }
+        }
+        if resumed {
+            session.queue_moved.notify_waiters();
+            self.append(
+                session,
+                "mux",
+                "queue_resumed",
+                json!({"queued": session.queued(), "promptIds": ids}),
+            );
+        }
+        resumed
+    }
+
     /// Puts a waiting prompt sent now at the head of the queue; a failed turn no longer holds
     /// it, nor does the turn it stops. False when it no longer waits.
     pub(super) fn put_next(&self, session: &Arc<Session>, prompt_id: &str) -> bool {

@@ -248,7 +248,7 @@ impl Hub {
         message: &str,
     ) -> Option<Value> {
         let lower = message.to_lowercase();
-        let route_class = super::turns::is_limit_error(message)
+        let route_class = super::turn_errors::is_limit_error(message)
             || [
                 "500",
                 "502",
