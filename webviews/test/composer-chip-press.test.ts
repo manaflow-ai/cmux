@@ -162,9 +162,8 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
                 const box = element.getBoundingClientRect();
                 return {
                   background: getComputedStyle(element).backgroundColor,
-                  box: [box.x + box.width / 2, box.y + box.height / 2, element.offsetWidth, element.offsetHeight].map(
-                    Math.round,
-                  ),
+                  centre: [box.x + box.width / 2, box.y + box.height / 2],
+                  size: [(element as HTMLElement).offsetWidth, (element as HTMLElement).offsetHeight],
                 };
               });
             const box = (await locator.boundingBox())!;
@@ -179,9 +178,17 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             await page.keyboard.press("Escape");
             await page.mouse.move(1, 1);
             await page.waitForTimeout(200);
-            // The chip never moves under a press, whatever tone it shows (#21986).
-            expect({ name, box: pressed.box }).toEqual({ name, box: hover.box });
-            expect({ name, box: held.box }).toEqual({ name, box: hover.box });
+            // The chip never moves under a press, whatever tone it shows (#21986). The shrink's drawn
+            // centre can land a subpixel off the unscaled one (a 51.5 px centre rounds either way),
+            // so a move is a whole pixel or more.
+            const moved = (read: { centre: number[] }) =>
+              Math.max(...read.centre.map((value, axis) => Math.abs(value - hover.centre[axis]!))) >= 1;
+            expect({ name, size: pressed.size, moved: moved(pressed) }).toEqual({
+              name,
+              size: hover.size,
+              moved: false,
+            });
+            expect({ name, size: held.size, moved: moved(held) }).toEqual({ name, size: hover.size, moved: false });
             // Chromium leaves :active when focus moves into the model picker's search on the press;
             // the open chip keeps its wash. WebKit, the app's engine, holds it. A press that keeps the
             // hover tone (the quiet chips) has no separate pressed tone to compare.
@@ -274,7 +281,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
     });
 
   for (const [engine] of engines)
-    test(`${engine}: the 400 px picker rail uses tonal pills and visible hover/open fills`, async () => {
+    test(`${engine}: the 400 px picker rail draws no pill at rest, and a pill on hover and while open`, async () => {
       const page = await open(engine, PILL_STAGE, 400);
       const state = (name: string) =>
         page
@@ -292,7 +299,9 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
           });
       const idle = await Promise.all(PILL_STAGE.chips.map(state));
       for (const [index, value] of idle.entries()) {
-        expect(value.background, `${PILL_STAGE.chips[index]} has a tonal idle fill`).not.toBe("rgba(0, 0, 0, 0)");
+        // No pill at rest: the label and chevron only (Leo 2026-10-19, the Claude app's chips).
+        expect(value.background, `${PILL_STAGE.chips[index]} draws no fill at rest`).toBe("rgba(0, 0, 0, 0)");
+        expect(value.boxShadow, `${PILL_STAGE.chips[index]} draws no edge at rest`).toBe("none");
         expect(value.radius, `${PILL_STAGE.chips[index]} is pill-shaped`).toBeGreaterThanOrEqual(
           value.height / 2 - 0.5,
         );
@@ -304,7 +313,7 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       await page.mouse.move(modelBox.x + modelBox.width / 2, modelBox.y + modelBox.height / 2);
       await page.waitForTimeout(100);
       const hover = await state("Model");
-      expect(hover.background, "hover strengthens the pill fill").not.toBe(idle[0]!.background);
+      expect(hover.background, "hover draws the pill").not.toBe(idle[0]!.background);
 
       await page.locator(chip("Effort")).first().click();
       await page.locator('[role="menuitemradio"][aria-checked="true"]:visible').first().waitFor();
