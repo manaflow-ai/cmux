@@ -78,7 +78,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
     })
 }
 
-/// `cmux-tui wg hub --config <wg-quick> --socket <unix path> [--control
+/// `cmux-tui wg hub --config <wg-quick or -> --socket <unix path> [--control
 /// <unix path>] [--probes] [--send-buffer <bytes>]`: own one WireGuard tunnel and serve SOCKS5 CONNECT for
 /// sidecars on a Unix socket, plus, with `--control`, path events and the
 /// datagram service (transport.md 12a).
@@ -199,7 +199,11 @@ fn start_wireguard_hub_tunnel(
     options: HubTunnel,
     timeout: Duration,
 ) -> anyhow::Result<(Arc<cmux_wg::WgNet>, cmux_wg::MultipathControl)> {
-    let config = read_wireguard_config(path)?;
+    let config = if path == Path::new("-") {
+        read_wireguard_config_input(&mut io::stdin().lock())?
+    } else {
+        read_wireguard_config(path)?
+    };
     let probes = options.probes.then(cmux_wg::ProbeConfig::default);
     let send_buffer = options.send_buffer;
     let kind = cmux_wg::PathKind::ViaCloudRegion;
@@ -216,6 +220,24 @@ fn start_wireguard_hub_tunnel(
             anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
         })?;
     Ok((Arc::new(net), paths))
+}
+
+/// An owned pipe supplies one bounded configuration, ending at EOF. Raw bytes
+/// stay zeroizing even when reading, UTF-8 validation or parsing fails.
+fn read_wireguard_config_input(input: &mut impl io::Read) -> anyhow::Result<cmux_wg::WgConfig> {
+    let refused = || anyhow!(catalog().remote_client.wireguard_config_input_invalid);
+    let mut bytes = Zeroizing::new(Vec::new());
+    input
+        .take((MAX_WIREGUARD_CONFIG_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| refused())?;
+    if bytes.is_empty() || bytes.len() > MAX_WIREGUARD_CONFIG_BYTES {
+        return Err(refused());
+    }
+    let text = std::str::from_utf8(&bytes).map_err(|_| refused())?;
+    cmux_wg::WgConfig::parse_wg_quick(text).map_err(|error| {
+        anyhow!(catalog().remote_client.wireguard_config_invalid(&error.to_string()))
+    })
 }
 
 #[cfg(test)]
@@ -287,5 +309,39 @@ mod tests {
             Duration::from_secs(5),
         );
         drop(started);
+    }
+}
+
+#[cfg(test)]
+mod stdin_config_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn wg_hub_stdin_config_rejects_invalid_input_without_echoing_it() {
+        for input in [Vec::new(), vec![0xff], vec![b'x'; MAX_WIREGUARD_CONFIG_BYTES + 1]] {
+            let error = read_wireguard_config_input(&mut Cursor::new(input)).err().unwrap();
+            assert!(error.to_string().contains("stdin"));
+            assert!(!error.to_string().contains("xxxxxxxx"));
+        }
+    }
+
+    #[test]
+    fn wg_hub_stdin_config_reads_only_one_byte_beyond_the_bound() {
+        let mut input = Cursor::new(vec![b'x'; MAX_WIREGUARD_CONFIG_BYTES * 2]);
+        assert!(read_wireguard_config_input(&mut input).is_err());
+        assert_eq!(input.position(), (MAX_WIREGUARD_CONFIG_BYTES + 1) as u64);
+    }
+
+    #[test]
+    fn wg_hub_stdin_config_accepts_the_exact_bound_and_preserves_routes() {
+        let mut text = String::from(
+            "[Interface]\nPrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=\nAllowedIPs = 10.0.0.0/24\nEndpoint = 127.0.0.1:1\n#",
+        );
+        text.extend(std::iter::repeat_n('x', MAX_WIREGUARD_CONFIG_BYTES - text.len()));
+        let config = read_wireguard_config_input(&mut Cursor::new(text)).unwrap();
+        assert_eq!(config.allowed_ips.len(), 1);
+        assert_eq!(config.allowed_ips[0].to_string(), "10.0.0.0/24");
+        assert_eq!(config.mtu, 1200);
     }
 }

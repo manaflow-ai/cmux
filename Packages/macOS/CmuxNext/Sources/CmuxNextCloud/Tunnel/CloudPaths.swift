@@ -1,8 +1,8 @@
 import CryptoKit
 public import Foundation
 
-/// Per-installation Cloud state: the WireGuard key, device id, completed
-/// config, hub socket, and cmux-tui link client state. Owner-only (0700
+/// Per-installation Cloud state: the WireGuard key, device id, hub socket
+/// and cmux-tui link client state. Owner-only (0700
 /// directories, 0600 files). Namespaced by bundle id so tagged builds do not
 /// share a WireGuard identity with the stable app (one key = one live
 /// session).
@@ -20,6 +20,7 @@ public struct CloudPaths: Sendable {
 
     var privateKey: URL { root.appendingPathComponent("wireguard.private.key") }
     var deviceIDFile: URL { root.appendingPathComponent("device-id") }
+    /// Historical config location; new hubs receive the completed config through stdin.
     var wireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
     var linkState: URL { root.appendingPathComponent("link-state", isDirectory: true) }
 

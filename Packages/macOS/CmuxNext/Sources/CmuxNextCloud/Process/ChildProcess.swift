@@ -28,12 +28,13 @@ package final class ChildProcess: Sendable {
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
-    package func start() throws {
+    package func start(input: Data? = nil) throws {
+        let input = try input.map(ChildProcessInput.init)
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
         process.environment = environment
-        process.standardInput = FileHandle.nullDevice
+        process.standardInput = input?.pipe.fileHandleForReading ?? FileHandle.nullDevice
         let stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
@@ -68,7 +69,13 @@ package final class ChildProcess: Sendable {
             for waiter in waiters { waiter.resume(returning: status) }
         }
         state.withLock { $0.process = process }
-        try process.run()
+        do {
+            try process.run()
+            try input?.send()
+        } catch {
+            if process.isRunning { process.terminate() }
+            throw error
+        }
     }
 
     package var pid: Int32? { state.withLock { $0.process?.processIdentifier } }

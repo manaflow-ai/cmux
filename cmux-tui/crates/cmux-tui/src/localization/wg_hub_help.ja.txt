@@ -5,7 +5,8 @@
 セッションしか維持できないため、このマシンの `remote connect --wireguard-hub パス`
 サイドカーはそれぞれハンドシェイクせず、このハブを共有します。
 
-  --config パス   所有者のみ読める wg-quick ファイル（PrivateKey、Address、AllowedIPs、Endpoint）
+  --config パス   所有者のみ読める wg-quick ファイル。- は標準入力から最大 16384 バイトの UTF-8 を読みます
+                  （PrivateKey、Address、AllowedIPs、Endpoint）
   --socket パス   提供する Unix ソケット。親ディレクトリは 0700、ソケットは 0600 で作成します
   --control パス  制御ソケット（改行区切り JSON）も提供します: `path.get`、
                   `path.subscribe`（`path.changed` イベント）、`datagram.bind`（オーバーレイ UDP
