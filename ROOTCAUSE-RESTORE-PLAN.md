@@ -96,15 +96,19 @@ Gate: classify as causal, amplifying, or unrelated only with timestamped evidenc
   WindowServer/cmux lines for these historical intervals; the `.ips`
   stackshots are the authoritative retained evidence for this comparison.
 
-### Updated confidence
+### Updated evidence classification
 
-- **High:** Restore/session fan-out and cmux process growth are an independent
-  WindowServer pressure source; M3 demonstrates the pattern without QEMU.
-- **Medium-high:** Renderer/thread/IOSurface pressure from cmux can make
-  WindowServer watchdog failures more likely, especially during restore.
-- **Medium:** QEMU graphics presentation is an additional M5S/local trigger,
-  not a necessary cause.
-- **Low:** Governor/TOML changes caused the initial failures.
+- **Observed with high confidence:** Restore/session fan-out coincides with
+  substantial cmux process and thread growth; M3 demonstrates that the same
+  pressure pattern occurs without QEMU.
+- **Plausible contributor, not yet causal proof:** Renderer/thread/IOSurface
+  pressure from cmux could make WindowServer watchdog failures more likely,
+  especially during restore. A controlled before/after run is still required.
+- **Possible machine-specific amplifier:** QEMU graphics presentation is
+  present in the M5S incident and absent from the M3 incidents; this does not
+  establish that QEMU initiated either class of failure.
+- **Unsupported as an initiating cause:** The available governor/TOML
+  timestamps do not show that the fleet update caused the crashes.
 
 The October 18 local WindowServer report is independently hashed as
 `9b728ffedcff4b168330040f5a174b28742c941f956e32bb16db5ed31332b8f5`. It is
@@ -226,7 +230,11 @@ after Xcode reported `BUILD SUCCEEDED`.
 
 ## Exact-head validation update (2026-10-19)
 
-The current repair worktree head is
+The receipts in this historical section refer to earlier heads. The current
+landing receipt is the later section naming the exact repair head
+`ae15ec073830caf6a6cf4eae7be419a5832431d0`.
+
+The historical repair worktree head was
 [`12aa332ac53e331e8307db0a8531c062de20fe81`](https://github.com/danielraffel/cmux/commit/12aa332ac53e331e8307db0a8531c062de20fe81).
 The code head for the implementation change is
 [`63814044655fcac6f862ca86ee88fb346e6a2112`](https://github.com/danielraffel/cmux/commit/63814044655fcac6f862ca86ee88fb346e6a2112).
@@ -235,9 +243,9 @@ The earlier provider repair remains at
 with subsequent commits recording receipts and the custom-path fix.
 It contains the restore identity and fallback hardening, the managed-binding
 persistence validation, and the `cmux feed clear` revision-floor fix. The
-portable CMUXAgentLaunch suite passes **887 tests in 100 suites**; the focused
-agent-restore regression passes **8 tests**; and the Dock lifecycle suite passes
-**54 tests**. Swift syntax, test wiring, and `git diff --check` also pass.
+historical portable CMUXAgentLaunch suite passed **887 tests in 100 suites**; the focused
+agent-restore regression passed **8 tests**; and the Dock lifecycle suite passed
+**54 tests**. Swift syntax, test wiring, and `git diff --check` also passed.
 Astra reviewed the exact committed repair slice; its final adversarial pass
 caught and corrected an overly broad compatibility bypass before this head was
 recorded. Claude proxy review was attempted again but remained unavailable.
@@ -251,8 +259,8 @@ decode budget, and return strict progress cursors when a backward scan cannot
 reach the preceding newline in one request. A cumulative recovery-depth cap
 prevents consecutive oversized rows from expanding one page request without
 bound. The focused persistence suite passes **26 tests**, including repeated
-paging across a complete 33 MiB row and consecutive oversized rows; the full
-package suite passes **887 tests in 100 suites**.
+paging across a complete 33 MiB row and consecutive oversized rows; the historical full
+package suite passed **887 tests in 100 suites**.
 
 The adversarial pass also found a managed custom-Codex edge: legacy workspace
 restore previously required the executable basename to be literally `codex`,
@@ -333,7 +341,7 @@ CoreSimulator-version warning on this host. This is the authoritative focused
 receipt for the current repair head; the earlier 21-test persistence receipt
 remains a subset of it.
 
-The isolated `CMUXAgentLaunch` package suite also passed on this head: **887
+The historical isolated `CMUXAgentLaunch` package suite passed: **887
 tests in 100 suites**. It includes the lease-transfer tests proving that the
 launched agent does not inherit the lease and that the exit watcher retains it
 until the agent exits, plus the bounded persistence, provider-routing, and
@@ -461,7 +469,7 @@ time.
 
 At commit [`3243eb4b82d51d74a2a3fce07b593a74dc9b527a`](https://github.com/danielraffel/cmux/commit/3243eb4b82d51d74a2a3fce07b593a74dc9b527a),
 `swift test --package-path Packages/macOS/CMUXAgentLaunch --disable-sandbox`
-rebuilt the package and passed **883 tests in 100 suites**. This refresh is
+rebuilt the package and passed the historical **883 tests in 100 suites**. This refresh is
 portable/package evidence only; the tagged full-app dogfood remains pending
 authenticated dev credentials and has not been substituted by this result.
 
@@ -579,9 +587,8 @@ The older exact-head sections above are historical receipts from earlier
 repair iterations. The current landing worktree is
 `/Volumes/Atelier/Code/cmux-pr21423-update`, branch
 `codex/pr21423-rootcause-update`. The last pushed fork head is
-[`878ffb0c5686c6f22ed42a62e2a9a2d19664d336`](https://github.com/danielraffel/cmux/commit/878ffb0c5686c6f22ed42a62e2a9a2d19664d336); the current working tree adds
-the cross-process helper launch lease and two fail-closed recovery guards and
-has not yet been pushed.
+[`878ffb0c5686c6f22ed42a62e2a9a2d19664d336`](https://github.com/danielraffel/cmux/commit/878ffb0c5686c6f22ed42a62e2a9a2d19664d336); the exact repair head is
+[`ae15ec073830caf6a6cf4eae7be419a5832431d0`](https://github.com/danielraffel/cmux/commit/ae15ec073830caf6a6cf4eae7be419a5832431d0), including the cross-process helper launch lease and the fail-closed recovery guards.
 
 The helper lease is an owner-validated `flock` in the private runtime scope,
 held across helper health checks, replacement, installation, launch, and
@@ -601,5 +608,5 @@ lease coverage and its negative controls.
 These changes reduce the known duplicate-helper and provider-mismatch paths;
 they do not by themselves prove that WindowServer will never fail. The crash
 evidence still supports bounded restore, workstream history limits, and
-renderer admission as the primary reliability work, with QEMU graphics as an
-additional machine-specific amplifier.
+renderer admission as the primary reliability work, with QEMU graphics as a
+possible machine-specific amplifier.
