@@ -32,12 +32,12 @@ final class CreationInputCoordinator {
         return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
     }
 
-    /// The person closed provisional tab `tab` of `pane` before the daemon made it: the keys held
+    /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
     /// for it (here, or by the New Tab page's hold) are dropped and the rest go on
     /// (``CreationInputBuffer/cancel(tab:)``).
-    func drop(tab: String, in pane: PaneController) {
-        router?.newTabInputCoordinator.drop(pane: pane)
-        if let window = pane.view.window, buffers[window.windowNumber]?.cancel(tab: tab) == true { scheduleFlush(in: window) }
+    func drop(tab: String, in window: NSWindow?) {
+        router?.newTabInputCoordinator.drop(tab: tab, in: window)
+        if let window, buffers[window.windowNumber]?.cancel(tab: tab) == true { scheduleFlush(in: window) }
     }
 
     /// A selection shows a terminal whose surface comes later: keys wait for it, at most `holdLimit`.

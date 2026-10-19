@@ -147,7 +147,7 @@ runs, summary = [], {}
 for name, create, close in SCENARIOS:
     if opts.only and name not in opts.only:
         continue
-    clean, growth = 0, 0
+    clean, growth, wrong = 0, 0, 0
     for index in range(opts.runs):
         before = chrome()
         _, _, topology = focus()
@@ -190,19 +190,24 @@ for name, create, close in SCENARIOS:
             "focus": [resolved_pane, resolved_tab],
             "focus_live": resolved_pane in topology and resolved_tab in topology.get(resolved_pane, []),
             "close_toasts": len(toasts()) - toasts0,
+            # The tabs that were there before the creation are all still there (the close took the new one).
+            "kept_tabs_before": base_tabs <= {t for tabs in topology.values() for t in tabs},
+            "back_ms_after_close": round((samples[back][0] - t1) * 1000, 1) if back is not None else None,
         }
         # Terminals are reported, not judged here: a close after the creation landed (New Terminal
         # Tab's held Cmd-W) detaches its terminal for Reopen Closed, and the daemon reaps it later.
         record["terminal_growth"] = (terminals1 - terminals0) if terminals0 is not None and terminals1 is not None else None
-        record["clean"] = (panes1, tabs1) == (panes0, tabs0) and not reappeared and record["focus_live"]
+        record["clean"] = (panes1, tabs1) == (panes0, tabs0) and not reappeared and record["focus_live"] and record["kept_tabs_before"]
         clean += record["clean"]
         growth += record["terminal_growth"] or 0
+        wrong += not record["kept_tabs_before"]
         runs.append(record)
         print(json.dumps(record)[:600], flush=True)
         if (panes1, tabs1) != (panes0, tabs0):
             cleanup(base_panes, base_tabs)
-    summary[name] = {"runs": opts.runs, "clean": clean, "terminal_growth": growth}
-    print("scenario %s: %d/%d clean, terminals +%d" % (name, clean, opts.runs, growth), flush=True)
+    summary[name] = {"runs": opts.runs, "clean": clean, "terminal_growth": growth, "closed_an_older_tab": wrong,
+                     "reappeared_runs": sum(1 for r in runs if r["scenario"] == name and r["reappeared_ms_after_close"])}
+    print("scenario %s: %d/%d clean, %d closed an older tab, terminals +%d" % (name, clean, opts.runs, wrong, growth), flush=True)
 
 with open(os.path.join(opts.out, "runs.json"), "w") as handle:
     json.dump(runs, handle, indent=1)
