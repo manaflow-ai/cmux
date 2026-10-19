@@ -636,6 +636,8 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn(name, result.stderr)
+            # The base is asked whether it fails the same way before refusing.
+            self.assertIn(f"'{name}' on {HEAD}, not excused by feat-cmux-next", result.stderr)
 
     def test_override_still_merges_when_lint_checks_are_green(self):
         name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
