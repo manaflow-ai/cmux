@@ -1,6 +1,9 @@
 // While a turn runs, a prompt sent from the composer waits behind it (⌘Return steers instead), so
-// the empty prompt says "Queue a follow-up" rather than the idle "Do anything". An idle chat, and a
-// running one whose composer cannot send (blocked), keep the usual placeholder.
+// the empty prompt teaches both keys, as Claude's composer does ("↵ to send, ⌘↵ to queue for
+// later"; Leo 2026-10-18): "↵ to queue, ⌘↵ to steer", or "⌘↵ to interrupt" for an agent that
+// cannot take a prompt mid-turn. The Quick Composer, whose ⌘Return opens the window, says "Queue a
+// follow-up". An idle chat, and a running one whose composer cannot send (blocked), keep the usual
+// placeholder.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -72,7 +75,11 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot, blocked?: { reason?: never }) {
+async function render(
+  snapshot: AcpmuxSnapshot,
+  blocked?: { reason?: never },
+  extra: { onOpenInWindow?: () => void } = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -89,6 +96,7 @@ async function render(snapshot: AcpmuxSnapshot, blocked?: { reason?: never }) {
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
         blocked={blocked}
+        {...extra}
       />,
     ),
   );
@@ -106,8 +114,23 @@ function started(fields: Partial<AcpmuxSnapshot> = {}): AcpmuxSnapshot {
   return snapshot;
 }
 
-test("a running turn turns the empty prompt into a queue prompt", async () => {
+const steering = (fields: Partial<AcpmuxSnapshot> = {}) => {
+  const snapshot = started(fields);
+  return { ...snapshot, summary: { ...snapshot.summary!, steering: true } };
+};
+
+test("a running turn teaches its two keys: Return queues, ⌘Return steers", async () => {
+  await render(steering({ isWorking: true }));
+  expect(shown()).toBe("↵ to queue, ⌘↵ to steer");
+});
+
+test("an agent that cannot steer says ⌘Return interrupts", async () => {
   await render(started({ isWorking: true }));
+  expect(shown()).toBe("↵ to queue, ⌘↵ to interrupt");
+});
+
+test("the Quick Composer, whose ⌘Return opens the window, only says it queues", async () => {
+  await render(steering({ isWorking: true }), undefined, { onOpenInWindow: () => {} });
   expect(shown()).toBe("Queue a follow-up");
 });
 
@@ -115,7 +138,7 @@ test("an idle chat keeps the usual placeholder", async () => {
   await render(started({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] }));
   expect(shown()).toBe("Do anything");
   await render(started({ isWorking: true }));
-  expect(shown()).toBe("Queue a follow-up");
+  expect(shown()).toBe("↵ to queue, ⌘↵ to interrupt");
   // The turn ended: back to the idle placeholder.
   await render(started({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] }));
   expect(shown()).toBe("Do anything");
