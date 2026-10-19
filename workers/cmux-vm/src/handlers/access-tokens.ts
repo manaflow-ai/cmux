@@ -9,7 +9,6 @@ import { badRequest, Forbidden, NotFound, unavailable, missingScope } from "../e
 import { parseVmId, type VmId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { tenantOwnsVm } from "../proofs/tenant-owns-resource.ts";
-import { mintAccessTokenAllows } from "../proofs/access-token-allows.ts";
 import { UpstreamAccessTokens } from "../upstream/access-tokens.ts";
 import { CmuxVmApi } from "../api.ts";
 import { audited } from "./common.ts";
@@ -58,7 +57,7 @@ const tokenVmProof = (record: AccessTokenRecord) =>
       accessTokenScopes: record.scopes,
       accessTokenLinuxUser: record.linuxUser,
     };
-    return { synthetic };
+    return synthetic;
   });
 
 const create = (payload: CreateAccessTokenRequest) =>
@@ -152,14 +151,15 @@ const ssh = (rawId: string) =>
       if (vmRaw === undefined) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
       const parsed = parseVm(vmRaw);
       if (parsed === null) return yield* Effect.fail(new NotFound({ message: "VM not found" }));
-      const { synthetic } = yield* tokenVmProof(record);
+      const synthetic = yield* tokenVmProof(record);
+      const verifier = yield* AccessTokens;
       const upstream = yield* UpstreamAccessTokens;
       const delegated = yield* name(synthetic, <C>(caller: import("@gdp-ts/core").Named<C, Principal>) =>
         name(parsed, <V>(vm: import("@gdp-ts/core").Named<V, import("../lib/ids.ts").VmId>) =>
           Effect.flatMap(tenantOwnsVm(caller, vm), (owns): Effect.Effect<import("../upstream/access-tokens.ts").DelegatedSsh, NotFound | import("../upstream/client.ts").UpstreamError> =>
             owns === null
               ? Effect.fail(new NotFound({ message: "VM not found" }))
-              : upstream.mintSsh(vm, { owns, allows: mintAccessTokenAllows(caller, record.id, record.tenantId, record.principal, record.vmIds) }, record.linuxUser),
+              : upstream.mintSsh(vm, { owns, allows: verifier.proofFor(caller, record) }, record.linuxUser),
           ),
         ),
       ).pipe(Effect.mapError((error) => error instanceof NotFound ? error : unavailable()));
