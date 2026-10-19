@@ -32,6 +32,8 @@ public final class PopupLocationBarView: NSView {
         chip.onPress = { [weak self] in self?.pageInfo.toggle() }
         field.translatesAutoresizingMaskIntoConstraints = false
         field.isSelectable = true
+        // Selectable text takes the keyboard on a click; the bar shows no ring of its own.
+        field.focusRingType = .none
         field.isEditable = false
         field.lineBreakMode = .byTruncatingTail
         field.cell?.usesSingleLineMode = true
