@@ -14912,133 +14912,133 @@
       }
     },
     "dictation.recordingTooLong": {
-      "comment": "Agent pane: notice when a dictation session's audio is left out because it ran past two minutes",
+      "comment": "Agent pane: notice when a dictation session's audio is left out because it ran past two minutes or past the size cap",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تجاوز التسجيل الصوتي دقيقتين، لذا تتضمن المطالبة النص المكتوب فقط."
+            "value": "التسجيل الصوتي أطول من أن يُرفق، لذا تتضمن المطالبة النص المكتوب فقط."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Glasovni snimak je duži od 2 minute, pa upit dobija samo transkript."
+            "value": "Glasovni snimak je predug za prilaganje, pa upit dobija samo transkript."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stemmeoptagelsen varede over 2 minutter, så prompten får kun transskriptionen."
+            "value": "Stemmeoptagelsen er for lang til at blive vedhæftet, så prompten får kun transskriptionen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Sprachaufnahme war länger als 2 Minuten, daher enthält der Prompt nur das Transkript."
+            "value": "Die Sprachaufnahme ist zu lang zum Anhängen, daher enthält der Prompt nur das Transkript."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The voice recording ran past 2 minutes, so the prompt gets the transcript only."
+            "value": "The voice recording is too long to attach, so the prompt gets the transcript only."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La grabación de voz superó los 2 minutos, así que el prompt solo lleva la transcripción."
+            "value": "La grabación de voz es demasiado larga para adjuntarla, así que el prompt solo lleva la transcripción."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L'enregistrement vocal dépasse 2 minutes : le prompt ne contient que la transcription."
+            "value": "L'enregistrement vocal est trop long pour être joint : le prompt ne contient que la transcription."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La registrazione vocale ha superato i 2 minuti, quindi il prompt riceve solo la trascrizione."
+            "value": "La registrazione vocale è troppo lunga per essere allegata, quindi il prompt riceve solo la trascrizione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "音声録音が 2 分を超えたため、プロンプトには文字起こしのみが入ります。"
+            "value": "音声録音が長すぎて添付できないため、プロンプトには文字起こしのみが入ります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការថតសំឡេងលើសពី 2 នាទី ដូច្នេះប្រអប់បញ្ចូលទទួលបានតែអត្ថបទប្រែសម្រួលប៉ុណ្ណោះ។"
+            "value": "ការថតសំឡេងវែងពេកមិនអាចភ្ជាប់បាន ដូច្នេះប្រអប់បញ្ចូលទទួលបានតែអត្ថបទប្រែសម្រួលប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "음성 녹음이 2분을 넘어 프롬프트에는 받아쓴 텍스트만 들어갑니다."
+            "value": "음성 녹음이 너무 길어 첨부할 수 없으므로 프롬프트에는 받아쓴 텍스트만 들어갑니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stemmeopptaket varte over 2 minutter, så ledeteksten får bare transkripsjonen."
+            "value": "Stemmeopptaket er for langt til å legges ved, så ledeteksten får bare transkripsjonen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nagranie głosowe przekroczyło 2 minuty, więc prompt otrzyma tylko transkrypcję."
+            "value": "Nagranie głosowe jest za długie, by je dołączyć, więc prompt otrzyma tylko transkrypcję."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A gravação de voz passou de 2 minutos, então o prompt recebe só a transcrição."
+            "value": "A gravação de voz é longa demais para anexar, então o prompt recebe só a transcrição."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Голосовая запись длиннее 2 минут, поэтому в запрос попадёт только расшифровка."
+            "value": "Голосовая запись слишком длинная для вложения, поэтому в запрос попадёт только расшифровка."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การบันทึกเสียงยาวเกิน 2 นาที พรอมต์จึงได้เฉพาะข้อความถอดเสียง"
+            "value": "การบันทึกเสียงยาวเกินกว่าจะแนบได้ พรอมต์จึงได้เฉพาะข้อความถอดเสียง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ses kaydı 2 dakikayı aştı, bu yüzden isteme yalnızca döküm gider."
+            "value": "Ses kaydı eklenemeyecek kadar uzun, bu yüzden isteme yalnızca döküm gider."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Голосовий запис довший за 2 хвилини, тому запит отримає лише розшифровку."
+            "value": "Голосовий запис задовгий для вкладення, тому запит отримає лише розшифровку."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bản ghi âm dài quá 2 phút, nên lời nhắc chỉ nhận bản chép lời."
+            "value": "Bản ghi âm quá dài để đính kèm, nên lời nhắc chỉ nhận bản chép lời."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "语音录音超过 2 分钟，因此提示只包含转写文字。"
+            "value": "语音录音太长，无法附加，因此提示只包含转写文字。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "語音錄音超過 2 分鐘，因此提示只包含轉寫文字。"
+            "value": "語音錄音太長，無法附加，因此提示只包含轉寫文字。"
           }
         }
       }
