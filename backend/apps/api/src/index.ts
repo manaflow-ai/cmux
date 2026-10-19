@@ -1,5 +1,6 @@
 import { isMachineInstallKind } from "./machine-installs.ts"
 import { authenticate } from "./auth.ts"
+import type { Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
@@ -102,6 +103,7 @@ const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, 
   if (granted === null) return Response.json({ error: { code: "owner.unreachable", message: "team membership could not be checked; retry" } }, { status: 503 })
   const principal = granted && !("refused" in granted) ? granted : undefined
   if (!principal) return new Response("forbidden", { status: 403 })
+  if (scope === "host") return hostReplica(request, env, protocols, principal, conversation!)
   const [ns, entity] =
     scope === "user"
       ? [env.USER_DO, principal.user]
@@ -122,6 +124,23 @@ const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, 
   headers.set("x-cmux-principal", JSON.stringify(principal))
   const stub = (ns as DurableObjectNamespace).get((ns as DurableObjectNamespace).idFromName(entity))
   return stub.fetch(new Request(request.url, { headers, method: "GET" }))
+}
+
+/**
+ * `/v1/wire/host/<host>`: the host's read replica in its HostDO (host-replica/wire.ts). TeamDO names
+ * the role from the host record: the enrolling install publishes, the owner's other sessions and
+ * installs read, anyone else gets 403.
+ */
+const hostReplica = async (request: Request, env: Env, protocols: ReadonlyArray<string>, principal: Principal, host: string): Promise<Response> => {
+  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(principal.team!)) as unknown as { hostReplicaRole(entity: string, host: string, p: Principal): Promise<"publisher" | "reader" | null> }
+  const role = await team.hostReplicaRole(principal.team!, host, principal).catch(() => undefined)
+  if (role === undefined) return Response.json({ error: { code: "owner.unreachable", message: "the host directory could not be checked; retry" } }, { status: 503 })
+  if (role === null) return new Response("forbidden", { status: 403 })
+  const headers = forwardHeaders(request, protocols)
+  headers.set("x-cmux-host", host)
+  headers.set("x-cmux-replica-role", role)
+  headers.set("x-cmux-principal", JSON.stringify(principal))
+  return env.HOST_DO.get(env.HOST_DO.idFromName(host)).fetch(new Request(request.url, { headers, method: "GET" }))
 }
 
 /** The model router (src/inference): loaded only for its own paths. */
@@ -182,6 +201,9 @@ export default {
     // A chief's wake queue (mux:<agent>): the chief's agent token or its owner; install_kind is resolved.
     const mux = url.pathname.match(/^\/v1\/wire\/mux\/(agent_[A-Za-z0-9_.-]{1,64})$/)
     if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "mux", mux[1]!)
+    // A host's read replica (object-sync phase 3): its publisher and its owner's readers.
+    const hostWire = url.pathname.match(/^\/v1\/wire\/host\/(host_[a-z0-9]{20})$/)
+    if (hostWire && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "host", hostWire[1]!)
     // Chief hands (hand-routes.ts): the installer, pairing, the hand socket, and the person's hand management.
     if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
     // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
