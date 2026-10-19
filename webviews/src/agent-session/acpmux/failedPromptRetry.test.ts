@@ -98,8 +98,9 @@ test("Retry sends the same prompt again, and a sent one leaves no failed bubble"
     // The bubble's Retry button (FailedPrompt.tsx) runs `chat.retryPrompt` with its row id.
     await pane.client.retryPrompt(failed!.id);
     expect(pane.prompts).toEqual(["ship it", "ship it"]);
-    const users = pane.rows().filter((row) => row.kind === "user");
-    expect(users.map((row) => row.text)).toEqual(["ship it"]);
+    // The mock chat's own seeded prompts stay; this prompt has one bubble.
+    const users = pane.rows().filter((row) => row.kind === "user" && row.text === "ship it");
+    expect(users).toHaveLength(1);
     expect(users.some((row) => row.failed)).toBe(false);
   } finally {
     pane.client.close?.();
@@ -114,7 +115,8 @@ test("a Retry refused again says so, instead of drawing the same bubble back", a
     const first = pane.rows().find((row) => row.kind === "user" && row.failed);
     await pane.client.retryPrompt(first!.id).catch(() => undefined);
     expect(pane.prompts).toEqual(["ship it", "ship it"]);
-    const users = pane.rows().filter((row) => row.kind === "user");
+    // The mock chat's own seeded prompts stay; this prompt has one bubble.
+    const users = pane.rows().filter((row) => row.kind === "user" && row.text === "ship it");
     // One bubble, still failed, still with Retry: the second refusal is told apart from the first.
     expect(users).toHaveLength(1);
     expect(users[0]!.failed).toBe(true);
