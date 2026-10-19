@@ -2406,6 +2406,12 @@ enum CmuxEmbeddedConfigSchema {
           "default": true,
           "description": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
           "descriptionKey": "schemaDescriptions.canvas.snappingEnabled"
+        },
+        "showDotGrid": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw the orientation dot grid in empty canvas space.",
+          "descriptionKey": "schemaDescriptions.canvas.showDotGrid"
         }
       }
     },

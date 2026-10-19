@@ -224,6 +224,7 @@ struct SettingsSearchIndexTests {
         ("canvas", [
             "setting:app:canvas-pane-gap",
             "setting:app:canvas-snapping",
+            "setting:app:canvas-dot-grid",
             "setting:keyboardShortcuts:shortcuts",
         ]),
     ])

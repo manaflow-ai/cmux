@@ -34,6 +34,14 @@ final class CanvasDocumentView: NSView {
         }
     }
 
+    /// False when the user turned the orientation dot grid off.
+    var showsDotGrid = true {
+        didSet {
+            guard showsDotGrid != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { drawsBackground }
 
@@ -52,6 +60,7 @@ final class CanvasDocumentView: NSView {
             canvasBackground.setFill()
             dirtyRect.fill()
         }
+        guard showsDotGrid else { return }
 
         // Dots are aligned to canvas space so they stay put when the document
         // re-centers around content.

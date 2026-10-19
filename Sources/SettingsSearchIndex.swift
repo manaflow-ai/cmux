@@ -104,6 +104,7 @@ enum SettingsSearchIndex {
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
+        setting(.app, "canvas-dot-grid", String(localized: "settings.app.canvasDotGrid", defaultValue: "Canvas Dot Grid"), "canvas.showDotGrid canvas dot grid dots background pattern freeform layout"),
         setting(.themes, "terminal-theme", String(localized: "settings.terminal.theme", defaultValue: "Terminal Theme"), "ghostty theme themes color scheme palette colors light dark catppuccin gruvbox nord dracula solarized tokyonight rose pine github cmux themes"),
         setting(
             .themes,
@@ -311,6 +312,7 @@ enum SettingsSearchIndex {
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
         "canvas.paneGap": settingID(for: .app, idSuffix: "canvas-pane-gap"),
         "canvas.snappingEnabled": settingID(for: .app, idSuffix: "canvas-snapping"),
+        "canvas.showDotGrid": settingID(for: .app, idSuffix: "canvas-dot-grid"),
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
         "sidebar.wrapWorkspaceTitles": settingID(for: .sidebarAppearance, idSuffix: "wrap-workspace-titles"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),

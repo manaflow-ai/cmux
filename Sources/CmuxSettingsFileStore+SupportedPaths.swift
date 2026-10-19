@@ -224,6 +224,7 @@ extension CmuxSettingsFileStore {
         "customSidebars.renderer",
         "canvas.paneGap",
         "canvas.snappingEnabled",
+        "canvas.showDotGrid",
         "fileEditor.wordWrap",
         "fileEditor.syntaxHighlighting",
         "fileEditor.lineNumbers",

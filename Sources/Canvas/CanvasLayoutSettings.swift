@@ -9,9 +9,11 @@ import CmuxCanvas
 enum CanvasLayoutSettings {
     static let paneGapKey = "canvasPaneGap"
     static let snappingEnabledKey = "canvasSnappingEnabled"
+    static let showDotGridKey = "canvasShowDotGrid"
 
     static let defaultPaneGap = CanvasMetrics.defaultGap
     static let defaultSnappingEnabled = true
+    static let defaultShowDotGrid = true
 
     static let paneGapRange: ClosedRange<Double> = 0...64
 
@@ -26,6 +28,10 @@ enum CanvasLayoutSettings {
 
     static func snappingEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: snappingEnabledKey) as? Bool ?? defaultSnappingEnabled
+    }
+
+    static func showDotGrid(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: showDotGridKey) as? Bool ?? defaultShowDotGrid
     }
 
     /// The metrics every canvas operation should use right now.

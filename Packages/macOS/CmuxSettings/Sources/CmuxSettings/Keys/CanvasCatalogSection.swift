@@ -6,7 +6,8 @@ import Foundation
 /// canonical spacing every canvas operation respects (snapping targets,
 /// tidy/distribute commands, new-pane placement); ``snappingEnabled``
 /// turns edge/gap snapping during drags and resizes on or off (Command
-/// always suspends snapping for one gesture either way).
+/// always suspends snapping for one gesture either way); ``showDotGrid``
+/// turns the orientation dot grid in empty canvas space on or off.
 public struct CanvasCatalogSection: SettingCatalogSection {
     /// Gap between panes, in canvas points, used by snapping and every
     /// alignment/placement command.
@@ -22,6 +23,13 @@ public struct CanvasCatalogSection: SettingCatalogSection {
         id: "canvas.snappingEnabled",
         defaultValue: true,
         userDefaultsKey: "canvasSnappingEnabled"
+    )
+
+    /// Whether the canvas draws its orientation dot grid in empty space.
+    public let showDotGrid = DefaultsKey<Bool>(
+        id: "canvas.showDotGrid",
+        defaultValue: true,
+        userDefaultsKey: "canvasShowDotGrid"
     )
 
     /// Creates the canvas settings section with its default keys.

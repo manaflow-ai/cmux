@@ -296918,6 +296918,244 @@
         }
       }
     },
+    "settings.app.canvasDotGrid": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شبكة نقاط اللوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mreža tačaka platna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lærredets prikgitter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canvas-Punktraster"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canvas Dot Grid"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuadrícula de puntos del lienzo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grille de points du canevas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Griglia a punti del canvas"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンバスのドットグリッド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캔버스 점 격자"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lerretets punktrutenett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siatka punktów kanwy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grade de pontos do Canvas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Точечная сетка холста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตารางจุดของแคนวาส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanvas Nokta Izgarası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Точкова сітка полотна"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画布点状网格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "畫布點狀網格"
+          }
+        }
+      }
+    },
+    "settings.app.canvasDotGrid.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ارسم شبكة النقاط الإرشادية في المساحة الفارغة من اللوحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iscrtava orijentacionu mrežu tačaka u praznom prostoru platna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegn orienteringsprikgitteret i tomme områder af lærredet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeichnet das Orientierungs-Punktraster in leeren Bereichen des Canvas."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draw the orientation dot grid in empty canvas space."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dibuja la cuadrícula de puntos de orientación en el espacio vacío del lienzo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dessine la grille de points de repère dans l'espace vide du canevas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disegna la griglia a punti di orientamento nello spazio vuoto del canvas."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンバスの空いている領域に位置確認用のドットグリッドを表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캔버스의 빈 공간에 방향 안내용 점 격자를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegn orienteringspunktrutenettet i tomme områder av lerretet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rysuje orientacyjną siatkę punktów w pustej przestrzeni kanwy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenha a grade de pontos de orientação no espaço vazio do Canvas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рисует ориентировочную точечную сетку на пустом месте холста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วาดตารางจุดสำหรับบอกตำแหน่งในพื้นที่ว่างของแคนวาส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanvasın boş alanlarında yön bulma nokta ızgarasını çizer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Малює орієнтаційну точкову сітку на порожньому місці полотна."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在画布空白区域绘制用于定位的点状网格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在畫布空白區域繪製用於定位的點狀網格。"
+          }
+        }
+      }
+    },
     "settings.app.closeWorkspaceOnLastSurfaceShortcut": {
       "extractionState": "manual",
       "localizations": {
@@ -349303,6 +349541,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "canvas.snappingEnabled 캔버스 스냅 스내핑 활성화 가장자리 드래그 크기 조정 정렬 분할 창 자유 형식 레이아웃 canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.canvas-dot-grid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas.showDotGrid canvas dot grid dots background pattern freeform layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas.showDotGrid canvas dot grid dots background pattern freeform layout キャンバス ドット グリッド 点 背景 模様"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas.showDotGrid canvas dot grid dots background pattern freeform layout canvas.showDotGrid canvas punktraster punkte hintergrund muster freiform-layout"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas.showDotGrid canvas dot grid dots background pattern freeform layout canvas.showDotGrid canevas grille points arrière-plan motif disposition libre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas.showDotGrid canvas dot grid dots background pattern freeform layout canvas.showDotGrid لوحة رسم شبكة نقاط خلفية نمط تخطيط حر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas.showDotGrid canvas dot grid dots background pattern freeform layout canvas.showDotGrid lienzo cuadrícula puntos fondo patrón diseño libre"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas.showDotGrid canvas dot grid dots background pattern freeform layout canvas.showDotGrid 畫布 點狀網格 點 背景 圖樣 自由格式 版面配置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas.showDotGrid canvas dot grid dots background pattern freeform layout canvas.showDotGrid 画布 点状网格 点 背景 图案 自由布局"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "canvas.showDotGrid canvas dot grid dots background pattern freeform layout canvas.showDotGrid 캔버스 점 격자 점 배경 패턴 자유 형식 레이아웃"
           }
         }
       }

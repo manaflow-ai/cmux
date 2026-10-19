@@ -284,12 +284,14 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                 return CanvasTheme(
                     canvasBackground: background,
                     paneBackground: background,
-                    showsWindowBackdrop: showsWindowBackdrop
+                    showsWindowBackdrop: showsWindowBackdrop,
+                    showsDotGrid: CanvasLayoutSettings.showDotGrid()
                 )
             },
             // The signals split mode's window backdrop refreshes on: a Ghostty
             // background or opacity change (including a config reload) and a
-            // Display accessibility change such as Reduce Transparency.
+            // Display accessibility change such as Reduce Transparency. A
+            // defaults change also re-reads the dot grid setting.
             themeChangeSignals: [
                 CanvasThemeChangeSignal(name: .ghosttyDefaultBackgroundDidChange),
                 CanvasThemeChangeSignal(name: .ghosttyConfigDidReload),
@@ -297,6 +299,8 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                     name: DisplayAccessibilityOptions.didChangeNotification,
                     center: NSWorkspace.shared.notificationCenter
                 ),
+                // The Canvas Dot Grid setting writes UserDefaults.
+                CanvasThemeChangeSignal(name: UserDefaults.didChangeNotification),
             ]
         )
     }

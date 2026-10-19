@@ -96,6 +96,7 @@ struct SettingsRowAnchorResolutionTests {
         "browser.urlsToAlwaysOpenExternally",
         "canvas.paneGap",
         "canvas.snappingEnabled",
+        "canvas.showDotGrid",
         "customSidebars.renderer",
         "fileEditor.currentLineHighlight",
         "fileEditor.indentGuides",

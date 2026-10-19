@@ -57,6 +57,39 @@ struct CanvasThemeBackdropTests {
         #expect(pane.layer?.backgroundColor?.alpha == 1)
     }
 
+    @Test func dotGridFollowsTheme() {
+        let shown = makeRoot(theme: CanvasTheme(canvasBackground: .black, paneBackground: .black))
+        #expect(shown.documentView.showsDotGrid)
+
+        let hidden = makeRoot(theme: CanvasTheme(
+            canvasBackground: .black,
+            paneBackground: .black,
+            showsDotGrid: false
+        ))
+        #expect(!hidden.documentView.showsDotGrid)
+        // Turning the grid off keeps the canvas fill.
+        #expect(hidden.documentView.isOpaque)
+    }
+
+    @Test func themeChangeSignalTogglesDotGrid() {
+        let center = NotificationCenter()
+        let signal = Notification.Name("CanvasThemeBackdropTests.dotGridChanged")
+        var theme = CanvasTheme(canvasBackground: .black, paneBackground: .black)
+        let root = makeRoot(
+            themeProvider: { theme },
+            themeChangeSignals: [CanvasThemeChangeSignal(name: signal, center: center)]
+        )
+        #expect(root.documentView.showsDotGrid)
+
+        theme.showsDotGrid = false
+        center.post(name: signal, object: nil)
+        #expect(!root.documentView.showsDotGrid)
+
+        theme.showsDotGrid = true
+        center.post(name: signal, object: nil)
+        #expect(root.documentView.showsDotGrid)
+    }
+
     private func makeRoot(theme: CanvasTheme) -> CanvasRootView {
         makeRoot(themeProvider: { theme })
     }
