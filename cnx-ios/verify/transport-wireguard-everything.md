@@ -43,9 +43,14 @@ What was built (PROTOCOL.md "WireGuard paths" has the contract):
   of the TURN allocation (control, input, then bulk and media by bytes;
   byte bounds; media older than 250 ms dropped), which matters once the
   carrier is one ordered TLS stream.
-- Route confirmation moved into the tunnel (`{"t":"reach"}` on overlay UDP
-  7421, protocol `version: 2` in `wg-init`/`wg-resp`); a version-0 peer's
-  datagrams count as the confirmation. Endpoint announcements after a roam
+- Route confirmation moved into the tunnel (`{"t":"reach","from","via"}` on
+  overlay UDP 7421, protocol `version: 2` in `wg-init`/`wg-resp`); a
+  version-0 peer's datagrams count as the confirmation. Because nothing
+  carries every datagram any more, `reach` names which of the sender's
+  carriers arrived and whether at the peer's relayed address, and a side
+  whose own UDP to the peer's LAN is lost (inbound still working) moves to
+  that named route and keeps it while `reach` keeps naming it. The relay
+  used to hide this case. Endpoint announcements after a roam
   also go through signaling (`wg-endpoints`), which the relay used to make
   unnecessary for a peer behind an address-filtering NAT.
 - A Mac whose STUN servers never answer (UDP blocked on its side) takes its
