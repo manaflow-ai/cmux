@@ -25,8 +25,8 @@ This work composes existing cmux Next work rather than replacing it. On
   the web generates its typed client from that file. `_acpmux/attach`, `detach`,
   `view`, `markUnread`, `watch`, `events`, and the `_acpmux/event` notification are
   listed, but all of them are still untyped (`params` and `result` accept any
-  JSON). Clients read the committed file at build time; there is no RPC that serves
-  it at runtime.
+  JSON). Clients read the committed file at build time. `_acpmux/schema` serves the
+  hand-written `docs/acpmux-schema.json` at runtime; nothing serves the registry.
 - [#20929](https://github.com/manaflow-ai/cmux/pull/20929) added
   `_acpmux/complete`: one cheap, headless LLM text completion through the user's own
   harness login (hq#1957, used for auto-naming). It takes a short prompt and returns
@@ -35,7 +35,8 @@ This work composes existing cmux Next work rather than replacing it. On
   receipt and carries no operation id, final state, or journal sequence.
 - [#20924](https://github.com/manaflow-ai/cmux/pull/20924) lists the MCP servers a
   session's harness loaded in its summary, which gives a viewer enough context to
-  explain what the session can do.
+  explain what the session can do. Only Claude Code reports them today; ACP agents
+  and the Codex bridge report none.
 
 Still open, not in code:
 
