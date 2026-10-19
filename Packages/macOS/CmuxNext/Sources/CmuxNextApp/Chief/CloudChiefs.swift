@@ -66,7 +66,9 @@ enum CloudChiefs {
     static func place(_ place: CloudChief.BrainPlace, key: String, call: Call) async throws -> CloudChief {
         for attempt in 0..<2 {
             let chiefs = try await list(call: call)
-            let target = chiefs.first(where: \.isDefault) ?? chiefs.first
+            // A chief already placed on a server moves; else the default. The hosted
+            // default (``ensureHosted``) is placed only when no chief is placed yet.
+            let target = placed(in: chiefs) ?? chiefs.first(where: \.isDefault) ?? chiefs.first
             if let target, target.brainPlace == place { return target }
             let placeParams: [String: Any] = ["host": place.host, "install": place.install]
             let body: [String: Any]

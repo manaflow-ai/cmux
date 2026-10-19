@@ -61,9 +61,19 @@ final class HomeService {
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
     @ObservationIgnored let dock = HomeDock() // the Home dock's page tab and links (cx-ebm.59.5, cx-ebm.59.6)
-    /// The signed-in user's chief placed on a paired server (G6), as last
-    /// read on a connect or sign-in; its main conversation is the Chief tab.
-    private(set) var cloudChief: CloudChief?
+    /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
+    /// placed on a paired server), as last read on a connect or sign-in.
+    private(set) var cloudChiefs = HomeCloudChiefs()
+    /// The cloud Chief the Chief tab shows (``HomeChiefChoice``, kept on this Mac).
+    var chiefChoice = HomeChiefChoice.load()
+    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief).
+    var cloudChief: CloudChief? { cloudChiefs.shown(choice: chiefChoice) }
+    /// The one-time copy of the local Chief into the Hosted Chief (``HostedChiefMigration``).
+    @ObservationIgnored var hostedMigration: Task<Void, Never>?
+    /// This service runs Cloud Chief brains (nil: not asked yet this launch).
+    @ObservationIgnored var hostedBrains: Bool?
+    /// Shown on the Hosted Chief's conversation while its copy failed.
+    var hostedNotice: String?
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
@@ -179,9 +189,9 @@ final class HomeService {
     /// The Chief owner's connection, while it serves conversations.
     var connection: DaemonConnection? { isAvailable ? chief.connection : nil }
 
-    /// Records the placed chief the last read found (HomeService+Workspace).
-    func setCloudChief(_ chief: CloudChief?) {
-        if cloudChief != chief { cloudChief = chief }
+    /// Records the cloud Chiefs the last read found (HomeService+Workspace).
+    func setCloudChiefs(_ chiefs: HomeCloudChiefs) {
+        if cloudChiefs != chiefs { cloudChiefs = chiefs }
     }
 
     /// Home opened in a window (or its owner reconnected, not `asked`): start
