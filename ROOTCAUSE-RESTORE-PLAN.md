@@ -302,6 +302,14 @@ CoreSimulator-version warning on this host. This is the authoritative focused
 receipt for the current repair head; the earlier 21-test persistence receipt
 remains a subset of it.
 
+The isolated `CMUXAgentLaunch` package suite also passed on this head: **883
+tests in 100 suites**. It includes the lease-transfer tests proving that the
+launched agent does not inherit the lease and that the exit watcher retains it
+until the agent exits, plus the bounded persistence, provider-routing, and
+Subrouter recovery coverage. The package runner also printed an initial legacy
+XCTest summary of zero tests before executing the Swift Testing suites; the
+authoritative result is the final 883-test Swift Testing run.
+
 ## M5S wait-point sample (2026-10-19)
 
 A read-only `sample` of reclaim PID `48898` captured it spending the entire
