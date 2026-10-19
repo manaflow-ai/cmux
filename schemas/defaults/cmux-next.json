@@ -413,6 +413,7 @@
     "setting.layout.stripMargin": 0,
     "setting.layout.stripScrollbar": "system",
     "setting.layout.tileBrowsers": false,
+    "setting.mobile.allowIPhoneConnections": false,
     "setting.navigation.history.scope": "workspaces",
     "setting.navigation.historyScope": "workspace",
     "setting.newTerminal.opensWorkspace": false,

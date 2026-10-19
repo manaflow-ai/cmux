@@ -248,6 +248,8 @@ extension SettingsSchema {
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
         "phone.keepAwake": .userOnly,
+        // On, a phone signed in to the same account can open this Mac's terminals and agents.
+        "mobile.allowIPhoneConnections": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

@@ -106,7 +106,7 @@ pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
 }
 
 /// `sr claude proxy` (the subrouter account pool).
-fn is_subrouter_proxy(argv: &[String]) -> bool {
+pub fn is_subrouter_proxy(argv: &[String]) -> bool {
     argv.get(1).map(String::as_str) == Some("claude")
         && argv.get(2).map(String::as_str) == Some("proxy")
 }

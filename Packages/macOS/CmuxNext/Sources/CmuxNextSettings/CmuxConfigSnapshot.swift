@@ -185,6 +185,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var updates = UpdatesSettings()
     /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
     public var computerUse = ComputerUseSettings()
+    /// `mobile.*`: whether the app runs its iPhone host.
+    public var mobile = MobileSettings()
     /// `freeModel.*`: the free AI model while signed out (cx-ds09i).
     public var freeModel = FreeModelSettings()
     /// `sessions.*`: what this Mac does while agents work (keep awake).
@@ -329,6 +331,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)

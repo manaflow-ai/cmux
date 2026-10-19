@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextMobileHost
 import os
 import UserNotifications
 
@@ -58,7 +59,7 @@ final class DesktopNotifier: NSObject {
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
-              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false) {
+              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, category: String? = nil) {
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
                              approval: approval))
@@ -79,7 +80,7 @@ final class DesktopNotifier: NSObject {
         content.sound = defaultSound ? .default : nil
         content.interruptionLevel = .active
         if let workspace { content.threadIdentifier = workspace }
-        if reply { content.categoryIdentifier = Self.replyCategory }
+        if let category = category ?? (reply ? Self.replyCategory : nil) { content.categoryIdentifier = category }
         if approval { content.categoryIdentifier = AgentApprovalBanners.category }
         var info: [String: Any] = ["notification": id]
         if let surface { info["surface"] = NSNumber(value: surface) }
@@ -146,7 +147,7 @@ final class DesktopNotifier: NSObject {
         }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        center.setNotificationCategories([Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory()])
+        center.setNotificationCategories([Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory(), IPhonePairNotices.notificationCategory()])
         self.center = center
         // Asked once (the center is cached); a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
         if !["NX_REMOTE", "CMUX_TEST_REQUIRE_GUI"].contains(where: { ProcessInfo.processInfo.environment[$0] == "1" }) {
@@ -183,7 +184,7 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let id = info["notification"] as? String ?? response.notification.request.identifier
         let surface = (info["surface"] as? NSNumber)?.uint64Value
-        let isDefault = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        let isDefault = [UNNotificationDefaultActionIdentifier, IPhonePairNotices.reviewAction].contains(response.actionIdentifier)
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)
         Task { @MainActor [weak self] in

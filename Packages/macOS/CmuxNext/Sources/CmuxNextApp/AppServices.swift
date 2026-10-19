@@ -7,6 +7,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextPages
@@ -53,6 +54,8 @@ final class AppServices {
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     let mobile = MobileHostService(displayName: { await MacName.computerName() })  // phone access; the account layer starts it
+    /// The cnx iPhone host (Settings > Mobile): runs the bundled cnx-hostd for the cmux iPhone app.
+    let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()

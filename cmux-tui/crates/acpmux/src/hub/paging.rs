@@ -14,6 +14,12 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queued",
     "dequeued",
     "queue_removed",
+    // Edit queued prompt, Move up / Move down, and a queue a failed turn holds:
+    // the queue a chat client shows changes with them.
+    "queue_updated",
+    "queue_order",
+    "queue_paused",
+    "queue_resumed",
     "prompt_retracted",
     "turn_started",
     "turn_result",
@@ -181,5 +187,39 @@ impl Hub {
         found.reverse();
         page.events = found;
         Ok(page)
+    }
+}
+
+#[cfg(test)]
+mod transcript_kind_tests {
+    use super::*;
+
+    fn mux(kind: &str) -> EventRecord {
+        EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg: json!({}),
+            host_seq: None,
+        }
+    }
+
+    /// A chat client that follows `transcript` sees every change to the
+    /// queue it shows: Edit queued prompt (`queue_updated`), Move up / Move
+    /// down (`queue_order`), and a queue held after a failed turn.
+    #[test]
+    fn queue_edits_are_transcript_records() {
+        for kind in [
+            "queued",
+            "dequeued",
+            "queue_removed",
+            "queue_updated",
+            "queue_order",
+            "queue_paused",
+            "queue_resumed",
+        ] {
+            assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
+        }
     }
 }

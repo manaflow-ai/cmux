@@ -157,6 +157,7 @@
 				CE7A00000000000000000016 /* Bundle cmux-tui */,
 				CE7A00000000000000000020 /* Bundle acpmux */,
 				CE7A00000000000000000032 /* Bundle optchat-chief */,
+				CE7A00000000000000000044 /* Bundle cnx-hostd */,
 				CE7A00000000000000000017 /* Embed CEF */,
 				CE7A00000000000000000041 /* Embed remote browser host */,
 				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
@@ -360,6 +361,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-optchat-chief.sh\"\n";
+		};
+		CE7A00000000000000000044 /* Bundle cnx-hostd */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle cnx-hostd";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-cnx-hostd.sh\"\n";
 		};
 		CE7A00000000000000000017 /* Embed CEF */ = {
 			isa = PBXShellScriptBuildPhase;

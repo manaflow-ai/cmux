@@ -45,6 +45,21 @@ A Web source (fork, load, resume, handoff) is accepted only with no mode or a mo
 | codex | none: refused family | `read-only`, `agent` (its default), `agent-full-access` | codex-acp 1.10.0 `dist/index.js` `AgentMode`; see "Codex and opencode are refused" |
 | opencode | none: refused family | `build` (its default), `plan`, every primary agent | opencode 1.18.33 `Agent.state`; see "Codex and opencode are refused" |
 
+#### Update 2026-10-15: Codex on the app-server bridge starts asking
+
+The refusal below now covers the codex-acp adapter and opencode. Codex through
+`codex app-server`, bridged in process (cmux-codex-acp, `codex_app_server.rs`),
+already took any mode from an authenticated remote connection (Lawrence,
+2026-10-13, `any_mode_for_web`). A session such a connection starts now begins
+in the bridge's `ask` mode (`BRIDGE_ASKING_MODES`; cmux-codex-acp c30e6489:
+approval `untrusted`, workspace-write: Codex asks before every command that is
+not a known-safe read and before every file change), also as a new handoff
+target, and `_acpmux/harnesses` reports per profile what a remote device may start
+(`remote: {startable, modes}` or a reason). The cmux-next iOS app's link
+(cnx-hostd) narrows further: a phone sets only asking modes and drives only
+sessions whose current mode asks (cnx-ios/SECURITY.md, round 2). Tests:
+`tests/remote_guard_codex_bridge.rs`.
+
 #### Codex and opencode are refused (D10, 2026-10-06)
 
 Decision (coordinator, 2026-10-06, secure by default): a remote connection never drives Codex or opencode. D10 allows a remote client to edit through a harness only in a mode that asks before EVERY edit and EVERY command, writes inside the workspace included, and the investigation below found no such mode in either harness. The modes accepted before (Codex `read-only`, opencode `plan`) do not ask either, so they were removed too.

@@ -160,7 +160,7 @@ async fn dispatch_request(
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory", "promptWithdraw", "processes", "harnessInventory", super::inventory_watch::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory", "promptWithdraw", "processes", "harnessInventory", "approverDecisions", super::inventory_watch::FEATURE], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -175,6 +175,24 @@ async fn dispatch_request(
                 )
                 .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
             }
+        }
+        // The person only (`Hub::person_check`): never reached otherwise.
+        method::MUX_APPROVERS_SET if conn.is_person() => hub.person.approvers.set(&params),
+        method::MUX_APPROVERS if conn.is_person() => Ok(hub.person.approvers.list()),
+        method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
+            Err(crate::hub::person::person_required("changing or reading trusted approvers"))
+        }
+        method::MUX_WORKSPACE_ROOTS_SET if conn.is_person() => {
+            hub.person.set_workspace_roots(&params)
+        }
+        method::MUX_WORKSPACE_ROOTS_SET => {
+            Err(crate::hub::person::person_required("changing the workspace folders"))
+        }
+        method::MUX_NEW_CHAT_PICKS_SET if conn.is_person() => {
+            hub.person.set_new_chat_picks(&params)
+        }
+        method::MUX_NEW_CHAT_PICKS_SET => {
+            Err(crate::hub::person::person_required("changing the new chat picks"))
         }
         method::MUX_PERSON_HOLDS => {
             // The unix socket only: the app reaches a daemon it started over
