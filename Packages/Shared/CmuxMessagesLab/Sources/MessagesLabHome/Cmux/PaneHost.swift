@@ -316,7 +316,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var demo: MessagesWindowView?
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
-    /// cmux: a click on an app link (`URL.isChiefSubagentLink`): the host runs it; nil opens nothing.
+    /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
     /// cmux: a click on any other link (`otherTarget`: Shift-Command held); the system opens it unless the host routes it.
     var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void = { url, _ in NSWorkspace.shared.open(url) }
