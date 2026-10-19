@@ -3569,10 +3569,7 @@ function AcpmuxPane() {
   // so does a page on another machine's daemon, whose chats are not this Mac's.
   const newTabSessions = useSharedSessions(
     composerSnapshot.sessions,
-    !!newTab &&
-      !newTab.privateChatLists &&
-      composerSnapshot.origin !== "remote" &&
-      composerSnapshot.origin !== "peer",
+    !!newTab && !newTab.privateChatLists && composerSnapshot.origin !== "remote" && composerSnapshot.origin !== "peer",
   );
   const newTabSnapshot = useMemo(
     () =>
