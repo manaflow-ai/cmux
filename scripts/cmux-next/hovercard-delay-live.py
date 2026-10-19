@@ -15,7 +15,7 @@ moves a synthetic pointer through the windows' tracking areas (`debug.pointer_ho
 the mouse-button check. The state is read from `debug.hover_cards`. Checks, for a workspace row
 and for a tab:
 
-  1. the default delay is 300 ms (HoverCardTiming.showDelay): no card at 0.14 s, the card at 0.26-1.8 s;
+  1. the default delay is 250 ms (HoverCardTiming.showDelay): no card at 0.11 s, the card at 0.21-1.75 s;
   2. warm: with a card shown, the next row's (tab's) card shows at once (under 0.35 s);
   3. leaving a row before the delay cancels its card;
   4. quick return: a hover just after the card went shows at once;
@@ -26,7 +26,7 @@ and for a tab:
 With $NX_CAPTURE and --shots it writes PNGs of the window with the card and without it.
 Exits 1 when a check fails.
 """
-DEFAULT_DELAY_MS = 300  # HoverCardTiming.showDelay
+DEFAULT_DELAY_MS = 250  # HoverCardTiming.showDelay
 OTHER_DELAY_MS = 1000
 
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time

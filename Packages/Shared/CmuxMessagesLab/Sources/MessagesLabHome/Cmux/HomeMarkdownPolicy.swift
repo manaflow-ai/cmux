@@ -24,10 +24,10 @@ enum HomeMarkdownPolicy {
             guard !was else { return }
             was = true
             // Only http, https and mailto become links, and the app's own links
-            // (URL.isCmuxAppLink: a workspace, pane, tab, chat or Chief subagent), which a
-            // click hands to the app.
+            // (URL.isCmuxAppLink: a workspace, pane, tab, chat or Chief subagent; URL.isHomePathLink:
+            // an absolute path), which a click hands to the app, never to the system.
             MarkdownLinkPolicy.extraSchemes = []
-            MarkdownLinkPolicy.extraRule = { $0.isCmuxAppLink }
+            MarkdownLinkPolicy.extraRule = { $0.isCmuxAppLink || $0.isHomePathLink }
             MarkdownImages.provider = images
         }
     }
@@ -117,5 +117,19 @@ final class HomeMarkdownImages: MarkdownImageProvider {
               let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
         lock.lock(); pictures[file.path] = image; lock.unlock()
         return image
+    }
+}
+
+/// cmux: a path an agent wrote, as Home links it (`file:///Users/me/a.md`): an absolute local
+/// path, no host other than `localhost`, no user, port, query or fragment. A click hands it to
+/// the host's `onAppLink` (the app's file pages, or a terminal for a folder), never to the
+/// system, so a path link never launches anything.
+extension URL {
+    /// Whether this URL is a path link Home renders (see the extension's discussion).
+    public var isHomePathLink: Bool {
+        guard scheme?.lowercased() == "file", let c = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              c.user == nil, c.password == nil, c.port == nil, c.query == nil, c.fragment == nil,
+              (c.host ?? "").isEmpty || c.host == "localhost" else { return false }
+        return path.hasPrefix("/")
     }
 }

@@ -7,7 +7,7 @@ extension HoverCardSettings {
     public nonisolated static let enabledDefault = true
     /// `sidebar.hoverCards.delay`: Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). While a card shows, or within 500 ms after it went, the next one opens at once.
     public nonisolated static let delayPath = ["sidebar", "hoverCards", "delay"]
-    public nonisolated static let delayDefault: Double = 300
+    public nonisolated static let delayDefault: Double = 250
     public nonisolated static let delayRange: ClosedRange<Double> = 0...5000
 }
 
