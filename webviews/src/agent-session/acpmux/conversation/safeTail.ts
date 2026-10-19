@@ -10,7 +10,7 @@
 // until its closer, and an inline `$…$`, `$$…$$` or `\(…\)` from its opening delimiter, so half
 // an equation never draws as source and then turns into math.
 
-const FENCE = /^\s*```/;
+import { advanceFence, type MarkdownFence } from "./markdownFence";
 /// Complete inline math on one line (Markdown.tsx's INLINE_RE and normalizeMath's `\(…\)`).
 const INLINE_MATH =
   /`[^`]*`|\\[\\$]|\$\$[^$\n]+?\$\$|(?<![\\$])\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d)|\\\(.+?\\\)/g;
@@ -21,7 +21,7 @@ const OPEN_MATH = /\$\$|\\\(|(?<!\\)\$(?=[^\s\d$]|$)|\\$/;
 /// The index of the line that opens a display equation not yet closed (-1 when none), and
 /// whether the last line closes one (it is the equation's, not inline math).
 function openDisplay(lines: string[]): { open: number; closesLast: boolean } {
-  let fence = false;
+  let fence: MarkdownFence | undefined;
   let open = -1;
   let closer: RegExp = /\$\$/;
   for (let index = 0; index < lines.length; index += 1) {
@@ -33,7 +33,7 @@ function openDisplay(lines: string[]): { open: number; closesLast: boolean } {
       }
       continue;
     }
-    if (FENCE.test(line)) fence = !fence;
+    fence = advanceFence(fence, line);
     if (fence) continue;
     const dollars = line.match(/^\s*\$\$(.*)$/);
     if (dollars && !dollars[1]!.includes("$$")) [open, closer] = [index, /\$\$/];
@@ -52,10 +52,10 @@ function closedMath(line: string): string {
 export function safeTail(tail: string): string {
   const display = openDisplay(tail.split("\n"));
   const lines = display.open >= 0 ? tail.split("\n").slice(0, display.open).concat("") : tail.split("\n");
-  let fence = false;
-  for (let index = 0; index < lines.length - 1; index += 1) if (FENCE.test(lines[index]!)) fence = !fence;
+  let fence: MarkdownFence | undefined;
+  for (let index = 0; index < lines.length - 1; index += 1) fence = advanceFence(fence, lines[index]!);
   let last = lines.at(-1) ?? "";
-  if (/^\s*`{1,3}[^`]*$/.test(last)) last = "";
+  if (/^\s*(?:`+[^`]*|~{1,2}|~{3,}[^~]*)$/.test(last)) last = "";
   else if (!fence) {
     if (!display.closesLast) last = closedMath(last);
     if (/^\s*\|/.test(last)) last = "";

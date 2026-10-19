@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowserImport
+import CmuxNextBrowserAutomation
+import CmuxNextDaemonService
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextErrorJournal
@@ -16,6 +18,7 @@ import CmuxNextWakeups
 final class AppControl {
     let watchdog = MainThreadWatchdog()
     private let frames = FrameBatcher(owner: "Control.frames")
+    private let renderPreview = AgentRenderPreviewControl()
     private let frameProbe = DebugFrameProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
@@ -43,6 +46,11 @@ final class AppControl {
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
         registerSyncBarrier(service.router, daemon: services.daemon)
+        service.router.register(renderPreview.methods(pane: { [weak services] session in services?.agentTabs.tab(showing: session).flatMap { services?.agentTabs.existingView($0) } }, park: { webView in
+            let panel = AgentRenderPanel(viewport: webView.bounds.size, screens: NSScreen.screens.map(\.frame), privateCalls: WebKitPrivateCalls())
+            panel.park(webView, webView: webView)
+            return { panel.finish() }
+        }))
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
         service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
