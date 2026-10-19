@@ -551,6 +551,17 @@
               "key" : "settings.group.sessions",
               "text" : "Agent Sessions"
             }
+          },
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
           }
         ],
         "id" : "agents",
@@ -22434,6 +22445,174 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPet",
+        "text" : "Chief Pet"
+      },
+      "help" : {
+        "key" : "settings.home.chiefPetEnabled.help",
+        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPetEnabled",
+      "keywords" : [
+        "chief",
+        "pet",
+        "mascot",
+        "floating",
+        "notifications",
+        "reply",
+        "dock"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPetEnabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPetEnabled",
+        "text" : "Show Chief Pet"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "orb",
+        "orb-spark",
+        "orb-hood",
+        "machine",
+        "machine-cyan",
+        "machine-blue",
+        "moon",
+        "moon-blue",
+        "fox"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb",
+            "text" : "Orb"
+          },
+          "value" : "orb"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-spark",
+            "text" : "Orb Spark"
+          },
+          "value" : "orb-spark"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-hood",
+            "text" : "Hooded Orb"
+          },
+          "value" : "orb-hood"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine",
+            "text" : "Machine"
+          },
+          "value" : "machine"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-cyan",
+            "text" : "Cyan Machine"
+          },
+          "value" : "machine-cyan"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-blue",
+            "text" : "Blue Machine"
+          },
+          "value" : "machine-blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon",
+            "text" : "Moon"
+          },
+          "value" : "moon"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon-blue",
+            "text" : "Blue Moon"
+          },
+          "value" : "moon-blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.fox",
+            "text" : "Fox"
+          },
+          "value" : "fox"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "orb",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPet",
+        "text" : "Chief Pet"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPetMascot",
+      "keywords" : [
+        "chief",
+        "pet",
+        "mascot",
+        "character",
+        "avatar",
+        "pixel"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPetMascot"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPetMascot",
+        "text" : "Character"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -25537,7 +25716,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "01618b3130227f81d62bb56dc71fc908906b1043090b7c672dd20fa25772ee5c",
+  "schema_hash" : "4f3e303e605fd3971ac989580f2d7f056cb60a0e0ba8fab2db7d2dbee3eddab4",
   "sections" : [
     {
       "id" : "general",
