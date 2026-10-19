@@ -30,3 +30,6 @@ pub mod view;
 
 pub use doc::Doc;
 pub use model::*;
+
+#[cfg(test)]
+mod nesting_tests;

@@ -168,17 +168,14 @@ impl Doc {
     }
 
     /// Every item in display order: per section, its top-level list with
-    /// each group's children right after the group. Items no list reaches
-    /// (an unknown section or parent, possible only in a document that
-    /// fails the invariants) follow, by id.
+    /// each group's descendants right after the group (depth first). Items
+    /// no list reaches (an unknown section or parent, possible only in a
+    /// document that fails the invariants) follow, by id.
     pub fn items_in_order(&self) -> Vec<&Item> {
         let mut out = Vec::with_capacity(self.items.len());
         for section in &self.sections {
             for item in self.list(&section.id, None) {
-                out.push(item);
-                if item.body.is_group() {
-                    out.extend(self.list(&section.id, Some(item.id.as_str())));
-                }
+                self.push_drawn(item, &mut out);
             }
         }
         if out.len() != self.items.len() {
@@ -190,6 +187,87 @@ impl Doc {
             out.extend(rest);
         }
         out
+    }
+
+    /// `item`, then its descendants depth first. The depth is bounded, so a
+    /// parent cycle (only in a document that fails the invariants) stops.
+    fn push_drawn<'a>(&'a self, item: &'a Item, out: &mut Vec<&'a Item>) {
+        self.push_drawn_at(item, out, 0);
+    }
+
+    fn push_drawn_at<'a>(&'a self, item: &'a Item, out: &mut Vec<&'a Item>, level: usize) {
+        out.push(item);
+        if item.body.is_group() && level <= MAX_GROUP_DEPTH {
+            for child in self.list(&item.section, Some(item.id.as_str())) {
+                self.push_drawn_at(child, out, level + 1);
+            }
+        }
+    }
+
+    /// The descendants of `group` in display order (children, and the
+    /// children of each nested group right after it). Empty for an item
+    /// that is not a group.
+    pub fn descendants(&self, group: &str) -> Vec<&Item> {
+        let Some(item) = self.items.get(group) else { return Vec::new() };
+        let mut out = Vec::new();
+        self.push_drawn(item, &mut out);
+        out.remove(0);
+        out
+    }
+
+    /// The groups above `id`, nearest first. Stops at a missing parent. In
+    /// a parent cycle (only in a document that fails the invariants) it
+    /// stops at the first repeat and returns more than
+    /// [`MAX_GROUP_DEPTH`] entries, so every depth check refuses it.
+    pub fn ancestors(&self, id: &str) -> Vec<&Item> {
+        let mut out: Vec<&Item> = Vec::new();
+        let mut cursor = self.items.get(id).and_then(|item| item.parent.as_deref());
+        while let Some(parent) = cursor {
+            let Some(item) = self.items.get(parent) else { break };
+            if out.iter().any(|seen| seen.id == item.id) || item.id == id {
+                // A cycle: report more ancestors than any valid depth.
+                out.resize(MAX_GROUP_DEPTH + 1, item);
+                break;
+            }
+            out.push(item);
+            cursor = item.parent.as_deref();
+        }
+        out
+    }
+
+    /// Whether `ancestor` is `id` or a group above it.
+    pub fn is_within(&self, id: &str, ancestor: &str) -> bool {
+        id == ancestor || self.ancestors(id).iter().any(|item| item.id == ancestor)
+    }
+
+    /// How many group levels `group` and its nested groups take: 1 for a
+    /// group with no nested group, 0 for an item that is not a group.
+    pub fn group_height(&self, id: &str) -> usize {
+        self.group_height_at(id, 0)
+    }
+
+    fn group_height_at(&self, id: &str, level: usize) -> usize {
+        let Some(item) = self.items.get(id).filter(|item| item.body.is_group()) else {
+            return 0;
+        };
+        if level > MAX_GROUP_DEPTH {
+            return level;
+        }
+        1 + self
+            .list(&item.section, Some(id))
+            .map(|child| self.group_height_at(&child.id, level + 1))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// The machines of the workspaces in `id` (itself, or anywhere under a
+    /// group).
+    pub fn machines_of(&self, id: &str) -> BTreeSet<String> {
+        let Some(item) = self.items.get(id) else { return BTreeSet::new() };
+        std::iter::once(item)
+            .chain(self.descendants(id))
+            .filter_map(|item| item.body.workspace().map(|r| r.session_id.clone()))
+            .collect()
     }
 
     /// The ordered entries of one sibling list.
@@ -228,14 +306,11 @@ impl Doc {
         self.counts.get(section).copied().unwrap_or(0)
     }
 
-    /// The items of `section`: top level, each group's children after it.
+    /// The items of `section`: top level, each group's descendants after it.
     pub fn section_items(&self, section: &str) -> Vec<&Item> {
         let mut out = Vec::new();
         for item in self.list(section, None) {
-            out.push(item);
-            if item.body.is_group() {
-                out.extend(self.list(section, Some(item.id.as_str())));
-            }
+            self.push_drawn(item, &mut out);
         }
         out
     }
@@ -263,13 +338,16 @@ impl Doc {
     }
 
     /// The machine a group or workspace item belongs to: a workspace's
-    /// session, a group's first workspace child's session (None for an empty
-    /// group or another body).
+    /// session, the session of a group's first workspace in display order,
+    /// nested groups included (None for a group with no workspace or
+    /// another body). A group outside a machine section may hold
+    /// workspaces of several machines; [`Doc::machines_of`] names them all.
     pub fn item_machine(&self, item: &Item) -> Option<String> {
         match &item.body {
             Body::Workspace { reference } => Some(reference.session_id.clone()),
             Body::Group { .. } => self
-                .list(&item.section, Some(item.id.as_str()))
+                .descendants(&item.id)
+                .into_iter()
                 .find_map(|child| child.body.workspace().map(|r| r.session_id.clone())),
             _ => None,
         }
@@ -279,13 +357,20 @@ impl Doc {
         self.sections.iter().find(|section| section.kind.machine() == Some(session_id))
     }
 
-    /// The last row a top-level item draws: its last child for a group
-    /// with children, else itself.
+    /// The last row an item draws: its last descendant for a group with
+    /// children, else itself.
     fn last_drawn<'a>(&'a self, item: &'a Item) -> &'a Item {
-        if item.body.is_group() {
-            return self.list(&item.section, Some(item.id.as_str())).next_back().unwrap_or(item);
+        let mut last = item;
+        for _ in 0..=MAX_GROUP_DEPTH {
+            if !last.body.is_group() {
+                break;
+            }
+            match self.list(&last.section, Some(last.id.as_str())).next_back() {
+                Some(child) => last = child,
+                None => break,
+            }
         }
-        item
+        last
     }
 
     /// The item right before `id` in display order (across sections).
@@ -297,7 +382,9 @@ impl Doc {
                 .list_entries(&item.section, Some(parent.as_str()))
                 .and_then(|set| set.range(..&entry).next_back())
                 .and_then(|(_, id)| self.items.get(id));
-            return earlier.or_else(|| self.items.get(parent));
+            return earlier
+                .map(|earlier| self.last_drawn(earlier))
+                .or_else(|| self.items.get(parent));
         }
         if let Some(earlier) = self
             .list_entries(&item.section, None)
@@ -320,19 +407,23 @@ impl Doc {
             .map(|top| self.last_drawn(top))
     }
 
-    /// A key that sorts items into display order (section, the top-level
-    /// entry of the item or its group, depth, own entry).
-    pub fn display_key(&self, item: &Item) -> (usize, ListEntry, u8, ListEntry) {
+    /// A key that sorts items into display order: the section, then the
+    /// entries from the item's top-level ancestor down to the item (a
+    /// group sorts before its descendants).
+    pub fn display_key(&self, item: &Item) -> (usize, Vec<ListEntry>) {
         let section = self
             .sections
             .iter()
             .position(|section| section.id == item.section)
             .unwrap_or(usize::MAX);
-        let own = (item.order.clone(), item.id.clone());
-        match item.parent.as_deref().and_then(|parent| self.items.get(parent)) {
-            Some(parent) => (section, (parent.order.clone(), parent.id.clone()), 1, own),
-            None => (section, own.clone(), 0, own),
-        }
+        let mut path: Vec<ListEntry> = self
+            .ancestors(&item.id)
+            .into_iter()
+            .map(|ancestor| (ancestor.order.clone(), ancestor.id.clone()))
+            .collect();
+        path.reverse();
+        path.push((item.order.clone(), item.id.clone()));
+        (section, path)
     }
 
     /// The first entry after `entry` in a list, skipping `skip`.

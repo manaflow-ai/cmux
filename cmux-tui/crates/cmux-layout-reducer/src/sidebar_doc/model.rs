@@ -24,6 +24,9 @@ pub const MAX_ORDER_KEY_CHARS: usize = 32;
 pub const MAX_TITLE_CHARS: usize = 80;
 pub const MAX_SECTIONS: usize = 64;
 pub const MAX_ITEMS: usize = 20_000;
+/// The most group levels one row sits under: a top-level group and two
+/// nested levels. A group deeper than this is refused (`too_deep`).
+pub const MAX_GROUP_DEPTH: usize = 3;
 /// The space between a section's rows or tiles, in points (as the old
 /// layout's `arrangement.gap`).
 pub const GAP_RANGE: std::ops::RangeInclusive<i64> = 0..=32;
@@ -710,7 +713,11 @@ pub enum Refusal {
     DuplicateRef,
     CrossMachine,
     ProviderOwned,
+    /// A group placed into itself or one of its own groups, or an item
+    /// under something that is not a group of its section.
     Nesting,
+    /// A group would sit deeper than [`MAX_GROUP_DEPTH`] levels.
+    TooDeep,
     InvalidTarget,
     MachineRequired,
     NoMachine,
@@ -729,6 +736,7 @@ impl Refusal {
             Refusal::CrossMachine => "cross_machine",
             Refusal::ProviderOwned => "provider_owned",
             Refusal::Nesting => "nesting",
+            Refusal::TooDeep => "too_deep",
             Refusal::InvalidTarget => "invalid_target",
             Refusal::MachineRequired => "machine_required",
             Refusal::NoMachine => "no_machine",

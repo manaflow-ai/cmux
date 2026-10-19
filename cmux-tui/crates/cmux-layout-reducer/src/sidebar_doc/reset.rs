@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use super::migrate::{body_of_layout_ref, kind_of_layout_items_section, section_from_layout};
 use super::model::*;
 use super::order_key;
-use super::reduce::{Tx, ensure_machine_section, place};
+use super::reduce::{Tx, ensure_machine_section, place, rehome_in_machine_section, remove_tree};
 use crate::sidebar_layout::{self, Content};
 
 /// The default sections, in display order, each with its default items;
@@ -83,9 +83,10 @@ pub(super) fn reset(tx: &mut Tx) -> Result<(), Refusal> {
     // and a second reset finds the same order.
     for section in &cleared {
         for item in tx.doc.list(&section.id, None) {
-            let Some(machine) = tx.doc.item_machine(item) else { continue };
-            if !machines.iter().any(|m| m.kind.machine() == Some(machine.as_str())) {
-                machines.push(Section::machine(&machine));
+            for machine in tx.doc.machines_of(&item.id) {
+                if !machines.iter().any(|m| m.kind.machine() == Some(machine.as_str())) {
+                    machines.push(Section::machine(&machine));
+                }
             }
         }
     }
@@ -144,11 +145,12 @@ pub(super) fn reset(tx: &mut Tx) -> Result<(), Refusal> {
         for id in top {
             let Some(item) = tx.doc.item(&id) else { continue };
             if item.body.is_group() {
-                // Only workspaces stay in a moved group.
+                // Only workspaces and nested groups stay in a moved group.
                 let others: Vec<ItemId> = tx
                     .doc
-                    .list(&section.id, Some(id.as_str()))
-                    .filter(|child| child.body.workspace().is_none())
+                    .descendants(&id)
+                    .iter()
+                    .filter(|child| child.body.workspace().is_none() && !child.body.is_group())
                     .map(|child| child.id.clone())
                     .collect();
                 for child in others {
@@ -156,31 +158,24 @@ pub(super) fn reset(tx: &mut Tx) -> Result<(), Refusal> {
                 }
             }
             let Some(item) = tx.doc.item(&id) else { continue };
-            let machine = match &item.body {
-                Body::Workspace { reference } => Some(reference.session_id.clone()),
-                Body::Group { .. } => tx.doc.item_machine(item).or_else(|| first_machine.clone()),
-                _ => None,
-            };
-            match machine {
-                Some(machine) => {
-                    let target = ensure_machine_section(tx, &machine);
-                    place(tx, std::slice::from_ref(&id), &Target::end(&target))?;
-                }
-                None if item.body.is_group() => {
-                    // No machine section at all: the group stays in Pinned.
-                    place(tx, std::slice::from_ref(&id), &Target::end(PINNED_SECTION_ID))?;
-                }
-                None => {
-                    let children: Vec<ItemId> = tx
-                        .doc
-                        .list(&section.id, Some(id.as_str()))
-                        .map(|child| child.id.clone())
-                        .collect();
-                    for child in children {
-                        tx.remove_item(&child);
+            let machines = tx.doc.machines_of(&id);
+            match &item.body {
+                Body::Group { .. } if machines.is_empty() => match &first_machine {
+                    // An empty group (its nested groups too) to the first
+                    // machine section.
+                    Some(machine) => {
+                        let target = ensure_machine_section(tx, machine);
+                        place(tx, std::slice::from_ref(&id), &Target::end(&target))?;
                     }
-                    tx.remove_item(&id);
-                }
+                    // No machine section at all: the group stays in Pinned.
+                    None => {
+                        place(tx, std::slice::from_ref(&id), &Target::end(PINNED_SECTION_ID))?;
+                    }
+                },
+                // A workspace or a group: to its machine section; a group of
+                // several machines (Cloud) splits by machine.
+                Body::Workspace { .. } | Body::Group { .. } => rehome_in_machine_section(tx, &id)?,
+                _ => remove_tree(tx, &id),
             }
         }
         if !kept.contains(&section.id) {
@@ -248,15 +243,11 @@ pub(super) fn remove_ref(tx: &mut Tx, reference: &LayoutRef) -> Result<(), Refus
     }
     for id in ids {
         let Some(item) = tx.doc.item(&id).cloned() else { continue };
-        tx.remove_item(&id);
-        // As `close`: a group it leaves empty goes, except in a section
+        remove_tree(tx, &id);
+        // As `close`: the groups it leaves empty go, except in a section
         // that keeps closed items and empty groups.
-        if let Some(parent) = &item.parent
-            && tx.doc.section(&item.section).is_some_and(|section| !section.keeps_closed)
-            && tx.doc.list_len(&item.section, Some(parent.as_str())) == 0
-            && tx.doc.item(parent).is_some()
-        {
-            tx.remove_item(parent);
+        if tx.doc.section(&item.section).is_some_and(|section| !section.keeps_closed) {
+            super::reduce::remove_emptied_groups(tx, &item);
         }
     }
     Ok(())
