@@ -152,7 +152,8 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
     /// The text as the trust prompt should show it: printable characters,
     /// and tab and newline between them, as they are; any invisible or
     /// lookalike scalar (soft hyphen, word joiner, line separator, non-ASCII
-    /// space, Hangul filler, tag, private-use or unassigned code point) as
+    /// space, Hangul filler, variation selector outside an emoji, tag,
+    /// private-use or unassigned code point) as
     /// `<U+XXXX>`. Leading and trailing whitespace is escaped too, because
     /// the dialog trims it and a trailing newline runs the line wherever
     /// bracketed paste is off.
@@ -164,13 +165,26 @@ public struct CmuxTextActionPayload: Codable, Sendable, Hashable {
         var display = ""
         for (index, scalar) in scalars.enumerated() {
             let atEdge = index < leading || index >= scalars.count - trailing
-            if atEdge || Self.isHiddenInPrompt(scalar) {
+            let previous = index > 0 ? scalars[index - 1] : nil
+            if atEdge || Self.isHiddenInPrompt(scalar) || Self.isStrayVariationSelector(scalar, after: previous) {
                 display += "<U+" + String(format: "%04X", scalar.value) + ">"
             } else {
                 display.unicodeScalars.append(scalar)
             }
         }
         return display
+    }
+
+    /// A variation selector draws nothing of its own. After an emoji it picks
+    /// the emoji's presentation (`❤️`) and stays; after anything else it only
+    /// hides inside a word the shell still sees as different.
+    static func isStrayVariationSelector(_ scalar: Unicode.Scalar, after previous: Unicode.Scalar?) -> Bool {
+        switch scalar.value {
+        case 0x180B...0x180D, 0x180F, 0xFE00...0xFE0F, 0xE0100...0xE01EF:
+            return !(previous?.properties.isEmoji ?? false)
+        default:
+            return false
+        }
     }
 
     static func isHiddenInPrompt(_ scalar: Unicode.Scalar) -> Bool {

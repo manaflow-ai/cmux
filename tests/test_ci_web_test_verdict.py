@@ -67,6 +67,30 @@ class Decide(unittest.TestCase):
     def test_log_text_cannot_format_or_mention_in_the_comment(self):
         self.assertEqual(verdict.safe("a `b`\n@team [x](y)"), "`a 'b' @\u200bteam [x](y)`")
 
+    def test_unreadable_runs_are_named_in_the_verdict(self):
+        result = verdict.decide(OWN, [OTHER_PR], OUTSIDE, 7, unreadable=3)
+        self.assertEqual(result["verdict"], "unrelated flake")
+        self.assertIn("3 CI run(s) unreadable, so the history may be incomplete", result["line"])
+
+    def test_posting_again_edits_the_verdict_comment(self):
+        class Recorder:
+            def __init__(self, comments):
+                self.existing, self.sent = comments, []
+
+            def comments(self, number):
+                return self.existing
+
+            def request(self, method, path, body=None, text=False):
+                self.sent.append((method, path))
+                return {}
+
+        first = Recorder([{"id": 5, "body": "unrelated"}])
+        verdict.post(first, "manaflow-ai/cmux", 21651, f"{verdict.MARKER}\nnew")
+        self.assertEqual(first.sent, [("POST", "repos/manaflow-ai/cmux/issues/21651/comments")])
+        again = Recorder([{"id": 5, "body": "unrelated"}, {"id": 9, "body": f"{verdict.MARKER}\nold"}])
+        verdict.post(again, "manaflow-ai/cmux", 21651, f"{verdict.MARKER}\nnew")
+        self.assertEqual(again.sent, [("PATCH", "repos/manaflow-ai/cmux/issues/comments/9")])
+
     def test_render_names_each_job(self):
         pr = {"number": 21651, "head": {"sha": "43c75ca3529fe64132ceaf8309bb6af851153192", "ref": "fix/repause"}}
         result = {"file": "tests/vm-route-deadlines.test.ts", "own": OWN, "others": [MAIN, OTHER_PR],

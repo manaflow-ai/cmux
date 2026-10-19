@@ -154,7 +154,17 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_window_display_arguments.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_workspace_mutation_arguments.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_workspace_group_arguments.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -1641,6 +1651,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_merge_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_status.py"
 lane = "linux-guard"
 
 [[test]]

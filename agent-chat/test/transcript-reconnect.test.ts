@@ -1,7 +1,8 @@
 // A transcript chat page reconnecting to a cached terminal session: the same
 // transcript keeps its reader, history and hook attention (#15891), a moved
 // transcript replaces the old history, and a missing hook record keeps what
-// the page already has. Re-cut from #16070's test without its server change.
+// the page already has. A same-path reconnect from another terminal surface
+// re-targets focus-terminal at the new surface (#16070).
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,6 +13,7 @@ const priorHooks = process.env.CMUX_AGENT_HOOK_STATE_DIR;
 const priorClaude = process.env.CMUX_CLAUDE_HOOK_STATE_PATH;
 const opened: string[] = [];
 const messages: any[] = [];
+const rpcCalls: { method: string; params: any }[] = [];
 // One page per session: moving a page to another session would schedule the
 // old one's five-minute idle dispose and keep this script alive.
 const page = () => ({
@@ -32,7 +34,10 @@ async function until(check: () => boolean, label: string) {
 let root: string | undefined;
 try {
   // Queued-message reads go to the cmux control socket; keep them local.
-  setTranscriptRpcForTest(async () => ({ ok: true, result: { messages: [] } }));
+  setTranscriptRpcForTest(async (method, params) => {
+    rpcCalls.push({ method, params });
+    return { ok: true, result: { messages: [] } };
+  });
   const scratch = join(import.meta.dir, "../scratch");
   await mkdir(scratch, { recursive: true });
   root = await mkdtemp(join(scratch, "transcript-reconnect-"));
@@ -73,6 +78,17 @@ try {
     assert.deepEqual(texts(history()?.events), ["old transcript input"], "same-path reconnect keeps cached history without a replay");
     assert.equal(history()?.session?.attention, "Allow Bash?", "same-path reconnect restores terminal attention");
 
+    // Same path, but the agent resumed in another surface: focus-terminal
+    // (and sends and queued-message reads) must follow the new surface.
+    await record(oldPath, { surfaceId: "SURFACE-RESUMED" });
+    subscribe();
+    assert.deepEqual(texts(history()?.events), ["old transcript input"], "surface change keeps cached history");
+    rpcCalls.length = 0;
+    handleSessionMessage(ws, { op: "focus-terminal", sessionId });
+    await until(() => rpcCalls.some((call) => call.method === "surface.focus"), `${agent} focus-terminal`);
+    assert.deepEqual(rpcCalls.find((call) => call.method === "surface.focus")?.params, { surface_id: "SURFACE-RESUMED" },
+      "focus-terminal targets the surface the agent resumed in");
+
     // The hook now points at another file: the old history is dropped and the
     // page streams the new transcript.
     await record(newPath);
@@ -91,7 +107,7 @@ try {
   messages.length = 0;
   handleSessionMessage(ws, { op: "subscribe", sessionId: "t-missing-session-id" });
   assert.deepEqual(messages, [{ kind: "no-session", sessionId: "t-missing-session-id" }]);
-  console.log("Claude and Codex reconnects keep same-path history and attention, follow a moved transcript, and keep history on hook misses: OK");
+  console.log("Claude and Codex reconnects keep same-path history and attention, follow a resumed surface, a moved transcript, and keep history on hook misses: OK");
 } finally {
   for (const sessionId of opened) handleSessionMessage(ws, { op: "delete", sessionId });
   setTranscriptRpcForTest(null);
