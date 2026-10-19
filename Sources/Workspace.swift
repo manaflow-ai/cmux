@@ -15565,7 +15565,7 @@ extension Workspace: BonsplitDelegate {
             requestPaletteRenamePanel(tabId: tab.id)
         case .clearName:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            setPanelCustomTitle(panelId: panelId, title: nil)
+            setPanelCustomTitle(panelId: panelId, title: nil, renameOrigin: "ui")
         case .copyIdentifiers:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             copyIdentifiersToPasteboard(surfaceId: panelId)
