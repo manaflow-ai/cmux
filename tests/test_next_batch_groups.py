@@ -270,6 +270,43 @@ class GroupCycle(unittest.TestCase):
         self.assertEqual(ran, ["a"])
         self.assertIn("tried at these heads", skipped[1])
 
+    def cycle(self, group_result, base_now):
+        item = controller()
+        item.base_sha = ""
+        item.base_probe_result = {"branch": "next-batch/local-1-base", "run": 9}
+        item.base_probe = mock.Mock(is_alive=lambda: True)
+        item.reported = lambda target, kinds: ""
+        item.current_base = lambda: base_now
+        item.after_landing = lambda: None
+        posted, deleted = [], []
+        item.post_sticky = posted.append
+        item.delete_branch = deleted.append
+
+        def run_groups(prs, only, skipped):
+            item.base_sha = "b" * 40
+            item.validations.append(nb.Validation(name="group a", stack=nb.Stack(base="b" * 40, head="c" * 40),
+                                                  branch="next-batch/local-1-1"))
+            return [(pr(1), group_result)]
+
+        item.run_groups = run_groups
+        with mock.patch.object(nb, "open_prs", return_value=[]), \
+                mock.patch.object(nb, "select", return_value=([pr(7)], {})), \
+                mock.patch.object(nb, "admit_reviewed", return_value=([], {7: "waiting: no review"})), \
+                mock.patch.object(nb, "write_summary"):
+            item.run()
+        return item, posted, deleted
+
+    def test_a_cycle_with_nothing_reviewed_still_cleans_up_and_reports_the_groups(self):
+        item, posted, deleted = self.cycle("not landed: lane did not run", "b" * 40)
+        self.assertEqual(sorted(deleted), ["next-batch/local-1-1", "next-batch/local-1-base"])
+        self.assertIn(("run", "cancel", "9"), [call.args[:3] for call in item.gh.gh.call_args_list])
+        self.assertTrue(posted and "#1: not landed: lane did not run" in posted[0])
+
+    def test_the_ordinary_batch_does_not_reuse_a_base_that_moved_during_the_groups(self):
+        item, posted, deleted = self.cycle("not landed: lane did not run", "d" * 40)
+        self.assertEqual(item.base_sha, "")
+        self.assertIn("next-batch/local-1-base", deleted)
+
     def test_lanes_use_each_members_full_diff(self):
         item = controller()
         item.git = mock.Mock(return_value="\n".join(f"webviews/src/f{index}.ts" for index in range(150)))
