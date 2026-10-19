@@ -388,3 +388,56 @@ test("compiled sources fetch after inspection and display the completed icon", a
     rmSync(out, { recursive: true, force: true });
   }
 });
+
+// Lucas 2026-10-20: the links in a reply (the chat's own Sources list) kept the globe while Thread
+// details showed each site's icon. A web chip fetches the same way, unless it has its own mark.
+async function renderChips(asked: string[], chips: { href: string; own?: boolean }[]) {
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  setChipHost(async (method, params) => {
+    if (method === "link.favicon") {
+      asked.push(new URL(String(params.url)).host);
+      return { icon: ICON };
+    }
+    return {};
+  });
+  const { createRoot } = await import("react-dom/client");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <ul>
+        {chips.map(({ href, own }) => (
+          <li key={href}>
+            <UrlChip href={href} {...(own ? { icon: <svg data-icon="own" /> } : {})}>
+              {href}
+            </UrlChip>
+          </li>
+        ))}
+      </ul>,
+    ),
+  );
+  for (let tick = 0; tick < 4; tick++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  return [...host.querySelectorAll("li")].map((row) =>
+    row.querySelector("img.cv-chip__favicon") ? "site" : row.querySelector("svg[data-icon='own']") ? "own" : "globe",
+  );
+}
+
+test("a reply's web links show their site's icon, once per site, and a chip's own mark wins", async () => {
+  const asked: string[] = [];
+  expect(
+    await renderChips(asked, [
+      { href: "https://en.wikipedia.org/wiki/Albert_Einstein" },
+      { href: "https://en.wikipedia.org/wiki/Outline_of_Albert_Einstein" },
+      { href: "https://github.com/manaflow-ai/cmux", own: true },
+    ]),
+  ).toEqual(["site", "site", "own"]);
+  expect(asked).toEqual(["en.wikipedia.org"]);
+});
+
+test("with sourceIcons off a reply's web links fetch nothing and keep the globe", async () => {
+  const { configureLabs } = await import("../src/agent-session/acpmux/labs");
+  configureLabs({ labs: { sourceIcons: false } });
+  const asked: string[] = [];
+  expect(await renderChips(asked, [{ href: "https://en.wikipedia.org/wiki/Albert_Einstein" }])).toEqual(["globe"]);
+  expect(asked).toEqual([]);
+});
