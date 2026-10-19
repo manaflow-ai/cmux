@@ -36,8 +36,8 @@
 //! With `worktree: true` a child works in a new git worktree of its folder's
 //! repository (`subsession_worktree.rs`, laid out as the app's
 //! `git.worktree.create`), made in the daemon without running anything from
-//! that repository; a repository whose own config sets a checkout filter is
-//! refused (`subsessions.worktree_refused`).
+//! that repository: its files are checked out without the repository's
+//! config. A start that fails after it is made removes it again.
 //!
 //! The index of open children per parent is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
@@ -290,6 +290,29 @@ pub struct StartRequest {
     pub worktree: bool,
 }
 
+/// A sub-session's new worktree (and the folder it was made from) until its
+/// start succeeds: dropped before that (a later refusal or failure), it is
+/// removed, off the async runtime.
+struct KeptWorktree(Option<(PathBuf, crate::subsession_worktree::Worktree)>);
+
+impl KeptWorktree {
+    fn get(&self) -> &crate::subsession_worktree::Worktree {
+        &self.0.as_ref().expect("kept until keep()").1
+    }
+
+    fn keep(mut self) -> crate::subsession_worktree::Worktree {
+        self.0.take().expect("kept until keep()").1
+    }
+}
+
+impl Drop for KeptWorktree {
+    fn drop(&mut self) {
+        if let Some((folder, made)) = self.0.take() {
+            std::thread::spawn(move || crate::subsession_worktree::remove_worktree(&folder, &made));
+        }
+    }
+}
+
 fn refused(reason: &str, message: String, data: Value) -> RpcError {
     let mut data = data;
     data["reason"] = json!(reason);
@@ -529,8 +552,9 @@ impl Hub {
         let mut cwd = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
         let worktree = if req.worktree {
             let made = self.subsession_worktree(pm, &cwd, &short).await?;
-            cwd = made.root.clone();
-            Some(made)
+            let kept = KeptWorktree(Some((cwd.clone(), made)));
+            cwd = kept.get().cwd.clone();
+            Some(kept)
         } else {
             None
         };
@@ -608,7 +632,8 @@ impl Hub {
             "turnId": accepted.get("turnId"),
             "session": summary,
         });
-        if let Some(w) = worktree {
+        if let Some(kept) = worktree {
+            let w = kept.keep();
             reply["worktree"] = json!({"root": w.root, "branch": w.branch, "base": w.base});
         }
         Ok((probe, reply))
