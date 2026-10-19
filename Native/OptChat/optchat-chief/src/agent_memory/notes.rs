@@ -152,9 +152,18 @@ pub fn check(text: &str) -> Result<String, String> {
 }
 
 /// Appends a checked note; the caller holds the index lock. Returns the
-/// note and its position in the log.
-pub fn append(path: &Path, text: &str, from: &Provenance) -> Result<(usize, Note), String> {
+/// note, its position in the log, and whether it was added: a note whose
+/// text the log already holds (an agent that retried after a lost answer)
+/// is that note, not a second copy.
+pub fn append(path: &Path, text: &str, from: &Provenance) -> Result<(usize, Note, bool), String> {
     let text = check(text)?;
+    if let Some((i, note)) = read(path)
+        .into_iter()
+        .enumerate()
+        .find(|(_, note)| note.text == text)
+    {
+        return Ok((i, note, false));
+    }
     let note = Note {
         date: chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
         text,
@@ -189,7 +198,7 @@ pub fn append(path: &Path, text: &str, from: &Provenance) -> Result<(usize, Note
     let saved = read(path);
     match saved.last() {
         Some(last) if last.text == note.text && last.date == note.date => {
-            Ok((saved.len() - 1, note))
+            Ok((saved.len() - 1, note, true))
         }
         _ => Err(format!(
             "the note did not read back from {}; check that file",
@@ -300,7 +309,8 @@ mod tests {
             session: Some("s1".into()),
             cwd: None,
         };
-        let (i, note) = append(&log, " new lesson ", &from).unwrap();
+        let (i, note, added) = append(&log, " new lesson ", &from).unwrap();
+        assert!(added);
         assert_eq!(i, 1);
         assert_eq!(note.text, "new lesson");
         let notes = read(&log);

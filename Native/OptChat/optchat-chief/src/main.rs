@@ -38,18 +38,35 @@ fn main() -> std::process::ExitCode {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // Agent memory parses its own arguments: note text keeps every word,
+    // including the Chief's own flags below.
+    if args.first().is_some_and(|a| a == "agent-memory") {
+        return match optchat_chief::agent_memory::run(&args[1..]) {
+            Ok(out) => {
+                if !out.is_empty() {
+                    println!("{out}");
+                }
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("optchat-chief agent-memory: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
     // A boolean flag: taken out before parsing, which would read the next
     // argument as its value.
     let append_after_live = args.iter().any(|a| a == "--append-after-live");
     args.retain(|a| a != "--append-after-live");
+    let mut flags = Flags::parse(&args);
     // `memory search --json` (and only there: `trace` and `stats` read their
-    // own `--json` from the raw arguments).
+    // own `--json` from the raw arguments). The verb may follow options.
     let memory_json =
-        args.first().is_some_and(|a| a == "memory") && args.iter().any(|a| a == "--json");
+        flags.words.first().is_some_and(|w| w == "memory") && args.iter().any(|a| a == "--json");
     if memory_json {
         args.retain(|a| a != "--json");
+        flags = Flags::parse(&args);
     }
-    let flags = Flags::parse(&args);
     let code = match flags.words.first().map(String::as_str) {
         Some("host") => optchat_chief::host::run(&flags, started_ms),
         Some("mcp") => {
@@ -259,18 +276,6 @@ fn main() -> std::process::ExitCode {
             }
             Err(e) => {
                 eprintln!("optchat-chief cloud: {e}");
-                1
-            }
-        },
-        Some("agent-memory") => match optchat_chief::agent_memory::run(&args[1..]) {
-            Ok(out) => {
-                if !out.is_empty() {
-                    println!("{out}");
-                }
-                0
-            }
-            Err(e) => {
-                eprintln!("optchat-chief agent-memory: {e}");
                 1
             }
         },

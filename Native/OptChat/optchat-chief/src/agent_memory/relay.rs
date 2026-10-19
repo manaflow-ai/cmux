@@ -22,19 +22,23 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use serde_json::{Value, json};
 
+/// The whole relayed call, every step and the one retry: Codex stops
+/// waiting for an MCP tool after 60s (ACP's `McpServer` cannot raise its
+/// `tool_timeout_sec`), so this leaves room for the local fallback.
+const CALL_BUDGET: Duration = Duration::from_secs(40);
 /// The wait for the owner's server to finish: it may rebuild a stale index
-/// first. Under Codex's 120s tool timeout with room for the local fallback.
-const PROCESS_STEP_TIMEOUT: Duration = Duration::from_secs(100);
+/// first. Capped by what is left of the budget.
+const PROCESS_STEP_TIMEOUT: Duration = Duration::from_secs(35);
 /// The process deadline the owner's daemon enforces.
-const PROCESS_TIMEOUT_MS: u64 = 95_000;
+const PROCESS_TIMEOUT_MS: u64 = 30_000;
 /// Every other request's wait (open, spawn, write, read events).
-const STEP_TIMEOUT: Duration = Duration::from_secs(20);
+const STEP_TIMEOUT: Duration = Duration::from_secs(15);
 /// Route options that keep a dead owner from holding a call: `cmux remote
 /// rpc` otherwise waits 90s to connect and reconnects forever. Given before
 /// `ownerArgs`, so the user's own values win.
 const CONNECT_ARGS: [&str; 4] = [
     "--connect-timeout-seconds",
-    "30",
+    "15",
     "--reconnect-attempts",
     "1",
 ];
@@ -90,17 +94,23 @@ pub struct Relay {
     pub args: Vec<String>,
     pub argv: Vec<String>,
     pub cmux: PathBuf,
+    /// How long one call may take in all (see [`CALL_BUDGET`]).
+    pub budget: Duration,
     conn: Option<Conn>,
     /// Until when the owner counts as down, and why.
     down: Option<(Instant, String)>,
+    /// Whether the last failed call may have run on the owner.
+    ran: bool,
 }
 
 /// A failed call, and whether it may be retried on a new connection: only
 /// when a kept connection broke before the owner's server was started, so
-/// a retry never runs a call (a remember) twice.
+/// a retry never runs a call (a remember) twice. `ran`: the call was sent
+/// to the owner's server, which may have run it.
 struct Failure {
     message: String,
     retry: bool,
+    ran: bool,
 }
 
 impl Failure {
@@ -108,6 +118,7 @@ impl Failure {
         Failure {
             message,
             retry: false,
+            ran: false,
         }
     }
 }
@@ -118,6 +129,9 @@ struct Conn {
     lines: Receiver<String>,
     stderr: Arc<Mutex<String>>,
     workspace: Value,
+    /// When the current call's budget runs out, and the budget.
+    deadline: Instant,
+    budget: Duration,
 }
 
 impl Drop for Conn {
@@ -134,9 +148,17 @@ impl Relay {
             args,
             argv,
             cmux,
+            budget: CALL_BUDGET,
             conn: None,
             down: None,
+            ran: false,
         }
+    }
+
+    /// Whether the last failed call may have run on the owner: its message
+    /// reached the owner's server before the failure.
+    pub fn may_have_run(&self) -> bool {
+        self.ran
     }
 
     /// The owner's answer to one JSON-RPC message. A kept connection that
@@ -144,18 +166,24 @@ impl Relay {
     /// while idle) is reopened once. After a failure the owner counts as
     /// down for a minute, so calls in that time fail at once.
     pub fn call(&mut self, message: &Value) -> Result<Value, String> {
+        self.ran = false;
         if let Some((until, why)) = &self.down {
             if Instant::now() < *until {
                 return Err(format!("{why} (not retried for {}s)", DOWN_FOR.as_secs()));
             }
             self.down = None;
         }
-        let result = match self.call_once(message) {
+        let deadline = Instant::now() + self.budget;
+        let result = match self.call_once(message, deadline) {
             Ok(answer) => Ok(answer),
-            Err(first) if first.retry => self
-                .call_once(message)
-                .map_err(|second| format!("{} (first try: {})", second.message, first.message)),
-            Err(first) => Err(first.message),
+            Err(first) if first.retry => self.call_once(message, deadline).map_err(|second| {
+                self.ran = second.ran;
+                format!("{} (first try: {})", second.message, first.message)
+            }),
+            Err(first) => {
+                self.ran = first.ran;
+                Err(first.message)
+            }
         };
         if let Err(why) = &result {
             self.down = Some((Instant::now() + DOWN_FOR, why.clone()));
@@ -163,22 +191,28 @@ impl Relay {
         result
     }
 
-    fn call_once(&mut self, message: &Value) -> Result<Value, Failure> {
+    fn call_once(&mut self, message: &Value, deadline: Instant) -> Result<Value, Failure> {
         let kept = self.conn.is_some();
         if !kept {
-            self.conn = Some(self.connect().map_err(Failure::fatal)?);
+            self.conn = Some(self.connect(deadline).map_err(Failure::fatal)?);
         }
-        let result = self.run(message);
-        if let Err(failure) = &result {
-            self.conn = None;
-            if !kept {
-                return Err(Failure::fatal(failure.message.clone()));
+        if let Some(conn) = self.conn.as_mut() {
+            conn.deadline = deadline;
+        }
+        match self.run(message) {
+            Err(failure) => {
+                self.conn = None;
+                // A fresh connection that failed is not retried either.
+                Err(Failure {
+                    retry: failure.retry && kept,
+                    ..failure
+                })
             }
+            ok => ok,
         }
-        result
     }
 
-    fn connect(&self) -> Result<Conn, String> {
+    fn connect(&self, deadline: Instant) -> Result<Conn, String> {
         let mut child = Command::new(&self.cmux)
             .args(["remote", "rpc", &self.route])
             .args(CONNECT_ARGS)
@@ -225,6 +259,8 @@ impl Relay {
             lines,
             stderr,
             workspace: Value::Null,
+            deadline,
+            budget: self.budget,
         };
         let opened = conn.request(
             &json!({"type": "open-workspace", "root": WORKSPACE_ROOT}),
@@ -256,10 +292,15 @@ impl Relay {
             .map_err(|message| Failure {
                 message,
                 retry: true,
+                ran: false,
             })?;
         let process = expect(&started, "process-started", "process").map_err(Failure::fatal)?;
         // From here the owner may have run the call: no retry.
-        conn.finish(&process, message).map_err(Failure::fatal)
+        conn.finish(&process, message).map_err(|message| Failure {
+            message,
+            retry: false,
+            ran: true,
+        })
     }
 }
 
@@ -302,9 +343,14 @@ impl Conn {
         writeln!(self.stdin, "{request}")
             .and_then(|()| self.stdin.flush())
             .map_err(|e| format!("cmux remote rpc: {e}{}", self.why()))?;
-        match self.lines.recv_timeout(timeout) {
+        let left = self.deadline.saturating_duration_since(Instant::now());
+        match self.lines.recv_timeout(timeout.min(left)) {
             Ok(line) => serde_json::from_str(&line)
                 .map_err(|e| format!("cmux remote rpc answered {line:?}: {e}")),
+            Err(RecvTimeoutError::Timeout) if left <= timeout => Err(format!(
+                "the owner did not answer within the call's {}s budget",
+                self.budget.as_secs()
+            )),
             Err(RecvTimeoutError::Timeout) => Err(format!(
                 "cmux remote rpc took longer than {}s",
                 timeout.as_secs()
