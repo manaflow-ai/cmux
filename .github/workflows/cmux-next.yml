@@ -1387,6 +1387,11 @@ jobs:
             echo "All cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          # One named annotation per red check: the red steps' own annotations
+          # all read "Process completed with exit code 1." (% escaped for ::error).
+          for check in "${failed[@]}"; do
+            echo "::error title=cmux-next check failed::${check//%/%25}"
+          done
           {
             echo "### ${#failed[@]} cmux-next check(s) failed"
             echo
