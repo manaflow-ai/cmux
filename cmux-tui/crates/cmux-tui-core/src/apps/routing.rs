@@ -16,8 +16,8 @@ use super::supervisor::OpRouter;
 use crate::mux::Mux;
 use crate::{Actor, MuxEvent, resource_router};
 
-pub(crate) use super::envelope::{answer, is_daemon_op, request};
 use super::envelope::error;
+pub(crate) use super::envelope::{answer, is_daemon_op, request};
 
 pub struct MuxRouter {
     mux: Weak<Mux>,
