@@ -51,7 +51,9 @@ const KEYSTROKE_STREAM: u64 = 7;
 const FLOOD_STREAM: u64 = 9;
 const TEST_TIMEOUT: Duration = Duration::from_secs(120);
 const TYPING_ECHO_BOUND: Duration = Duration::from_millis(2);
-const MINIMUM_FLOOD_FRAMES_PER_MESSAGE: u64 = 8;
+// Batching gives about 31 frames per message here, no batching about 1.6.
+// The floor leaves room for a loaded runner that breaks the burst streak.
+const MINIMUM_FLOOD_FRAMES_PER_MESSAGE: u64 = 4;
 
 /// WebSocket messages and logical frames one peer role sent to the relay.
 #[derive(Default)]

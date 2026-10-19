@@ -54,8 +54,11 @@ const MAX_RELAY_BATCH_FRAMES: usize = 32;
 const RELAY_BATCH_QUEUE_FRAMES: usize = 128;
 // A batched sender lingers to fill a batch only after this many consecutive
 // sends each began within RELAY_BURST_LINGER of the previous one finishing.
-// A flood builds that streak within microseconds; typed input, its echo and
-// their acknowledgements do not, so they never wait on the timer.
+// A flood builds that streak within microseconds; typed input at human pace,
+// its echo and their acknowledgements do not. Interactive frames wait on the
+// timer (at most RELAY_BURST_LINGER per hop, as every frame did before) only
+// while the sender is saturated or a request-response loop runs faster than
+// one round trip per RELAY_BURST_LINGER.
 const RELAY_BURST_SENDS: usize = 4;
 const RELAY_BURST_LINGER: Duration = Duration::from_millis(1);
 const MAX_RELAY_INCOMING_TASKS: usize = 64;
@@ -640,7 +643,7 @@ async fn run_batched_relay_sender(
         let result = match command {
             RelayCircuitCommand::Frame(first) => {
                 let mut frames = vec![first];
-                // Interactive traffic leaves without a timer: one yield lets
+                // Interactive traffic normally leaves without a timer: one yield lets
                 // frames produced in the same scheduler pass join this batch,
                 // and frames queued while the previous send was in flight are
                 // drained below. Only sustained output waits to fill a batch,
