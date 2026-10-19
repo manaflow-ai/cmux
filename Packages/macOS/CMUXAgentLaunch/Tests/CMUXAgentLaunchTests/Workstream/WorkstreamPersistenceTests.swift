@@ -162,6 +162,38 @@ struct WorkstreamPersistenceTests {
         #expect(loaded.last?.workstreamId == "s4")
     }
 
+    @Test("loadRecent skips a complete oversized row without losing older history")
+    func loadRecentSkipsCompleteOversizedRow() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-oversized-complete-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "old",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "oversized",
+            source: .claude,
+            kind: .toolUse,
+            payload: .toolUse(
+                toolName: "Write",
+                toolInputJSON: String(repeating: "x", count: 9 * 1024 * 1024)
+            )
+        ))
+        try await persistence.append(WorkstreamItem(
+            workstreamId: "new",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+
+        let loaded = try await persistence.loadRecent(limit: 2)
+        #expect(loaded.map(\.workstreamId) == ["old", "new"])
+    }
+
     @Test("loadPage pages older rows before a stable byte cursor")
     func loadPageBeforeCursor() async throws {
         let tmp = FileManager.default.temporaryDirectory
