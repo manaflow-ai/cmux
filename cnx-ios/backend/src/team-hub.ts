@@ -23,22 +23,23 @@ export interface MacPresence {
   ownerUserId: string
 }
 
-const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "bye"])
+const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "bye"])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MEMBER_TTL_MS = 60_000
 const NON_MEMBER_TTL_MS = 15_000
 const SESSION_TTL_MS = 24 * 3600_000
 const MAX_TEXT_FRAME = 64 * 1024
-const MAX_BINARY_FRAME = 32 + 65_535
 /**
- * At most one relay refusal per socket and session in this interval. A tunnel whose peer left keeps sending
- * (WireGuard keepalives, TCP retransmits); answering every frame flooded the socket with `offline` errors.
+ * The WireGuard relay frames (`[16 sessionId][16 to][datagram]`) are retired (PROTOCOL.md): WireGuard without a
+ * UDP path uses TURN over TLS. An older client still sends them until its route is confirmed; each is dropped,
+ * and its sender hears `relay_retired` at most once per socket and session in this interval. The error always
+ * names the frame's session: a sessionless error would fail every dial that client has in progress.
  */
 export const RELAY_ERROR_INTERVAL_MS = 5000
 
 /**
- * Token buckets: text (signaling) and binary (WireGuard relay) per socket, in memory only. The binary rate
- * covers about 100 Mbit/s of 1280-byte WireGuard datagrams plus their ACKs; excess frames are dropped.
+ * Token buckets per socket, in memory only: text (signaling), and binary (an older client's retired relay
+ * frames), which bounds how often a flood of them costs a refusal check; excess frames are dropped silently.
  */
 export const BUCKETS = { text: { rate: 20, burst: 60 }, binary: { rate: 12000, burst: 24000 } } as const
 
@@ -55,7 +56,7 @@ export const bytesToUuid = (b: Uint8Array): string => {
 }
 
 /**
- * One per team (idFromName(teamId)): signaling, Mac presence and the WireGuard relay of
+ * One per team (idFromName(teamId)): signaling (introductions) and Mac presence of
  * PROTOCOL.md, on hibernating WebSockets. SQLite holds Mac presence rows and link sessions so a
  * hibernation wake keeps the admission state; the membership cache and rate buckets are memory only.
  */
@@ -64,11 +65,11 @@ export class TeamHub extends DurableObject<Env> {
   private readonly members = new Map<string, { ok: boolean; at: number }>()
   private readonly buckets = new WeakMap<WebSocket, { text: { t: number; at: number }; binary: { t: number; at: number } }>()
   private readonly sessions = new Map<string, { initiator: string; responder: string }>()
-  /** Deserialized attachments: the relay reads one per frame, and deserializing each time is the costly part. */
+  /** Deserialized attachments: read on every frame, and deserializing each time is the costly part. */
   private readonly attachments = new WeakMap<WebSocket, Attachment>()
   private colo: string | null | undefined
   private readonly relayErrors = new WeakMap<WebSocket, Map<string, number>>()
-  /** The open socket of each device, so a relay frame needs no socket scan (rebuilt lazily after hibernation). */
+  /** The open socket of each device, so a signal needs no socket scan (rebuilt lazily after hibernation). */
   private readonly live = new Map<string, WebSocket>()
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -142,7 +143,7 @@ export class TeamHub extends DurableObject<Env> {
 
   /**
    * A device was deleted (PROTOCOL.md `DELETE /v1/devices/:deviceId`): drop a Mac from presence with a last
-   * `removed` frame, close the device's socket with 4002 `removed`, and end its relay sessions.
+   * `removed` frame, close the device's socket with 4002 `removed`, and end its signaling sessions.
    */
   async forgetDevice(deviceId: string): Promise<void> {
     this.sql.exec(`DELETE FROM devices WHERE device_id = ?`, deviceId)
@@ -251,8 +252,9 @@ export class TeamHub extends DurableObject<Env> {
       if (typeof f.to !== "string" || !UUID.test(f.to)) return this.error(ws, "bad_request", "to must be a deviceId")
       if (f.from !== undefined && f.from !== att.deviceId) return this.error(ws, "bad_request", "from must be your deviceId")
       if (typeof f.sessionId !== "string" || !UUID.test(f.sessionId)) return this.error(ws, "bad_request", "sessionId must be a UUID")
+      // Named by session: a refused signal of one session must not fail the client's other dials.
       if (typeof f.payload !== "object" || f.payload === null || typeof f.payload.kind !== "string" || !SIGNAL_KINDS.has(f.payload.kind))
-        return this.error(ws, "bad_request", "unknown payload kind")
+        return this.error(ws, "bad_request", "unknown payload kind", f.sessionId)
       if (!this.admit(att, f.to, f.sessionId)) return this.error(ws, "not_owner", "not allowed to signal this device", f.sessionId)
       const target = this.open(f.to)
       if (!target) return this.error(ws, "offline", "device is offline", f.sessionId)
@@ -261,20 +263,11 @@ export class TeamHub extends DurableObject<Env> {
       if (f.payload.kind === "bye") this.endSession(f.sessionId)
       return
     }
-    // WireGuard relay: [16 sessionId][16 to][datagram]; `to` is rewritten to the sender.
+    // A retired relay frame from an older client: [16 sessionId][16 to][datagram]. Never forwarded.
     if (!this.take(ws, "binary")) return
-    if (message.byteLength <= 32 || message.byteLength > MAX_BINARY_FRAME) return
-    const bytes = new Uint8Array(message)
-    const sessionId = bytesToUuid(bytes.subarray(0, 16))
-    const to = bytesToUuid(bytes.subarray(16, 32))
-    const s = this.session(sessionId)
-    const ok = s && ((s.initiator === att.deviceId && s.responder === to) || (s.initiator === to && s.responder === att.deviceId))
-    if (!ok) return this.relayError(ws, "not_owner", "no relay session with this device", sessionId)
-    const target = this.open(to)
-    if (!target) return this.relayError(ws, "offline", "device is offline", sessionId)
-    const out = new Uint8Array(bytes)
-    out.set(uuidToBytes(att.deviceId), 16)
-    target.send(out)
+    if (message.byteLength < 16) return
+    const sessionId = bytesToUuid(new Uint8Array(message, 0, 16))
+    this.relayError(ws, "relay_retired", "WireGuard relay frames are retired; this app version needs an update to connect without UDP", sessionId)
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
