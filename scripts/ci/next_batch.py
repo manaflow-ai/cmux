@@ -1687,11 +1687,15 @@ class Controller:
 
     # -- landing
     def merge_green(self) -> Path:
-        path = Path(tempfile.gettempdir()) / "gh-merge-green"
-        if not path.exists():
+        """main's gh-merge-green, fetched once per batch: every merge goes through
+        it and its base-red rule, and serve outlives any one copy of it."""
+        path = getattr(self, "merge_green_path", None)
+        if path is None:
             self.git("fetch", "--quiet", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main")
+            path = Path(tempfile.mkdtemp(prefix="next-batch-")) / "gh-merge-green"
             path.write_text(self.git("show", "refs/remotes/origin/main:scripts/gh-merge-green") + "\n")
             path.chmod(0o755)
+            self.merge_green_path = path
         return path
 
     def land(self, validation: Validation) -> list[tuple[PullRequest, str]]:
@@ -2013,9 +2017,10 @@ class Controller:
         return outcome
 
     def land_group(self, name: str, validation: Validation) -> list[tuple[PullRequest, str]]:
-        """Merge the members in stack order with no per-PR CI wait: the group's
-        combined run is their CI. Stops at the first member that cannot land, so
-        a later member never lands without what it was tested on."""
+        """Merge the members in stack order, each through gh-merge-green (its own
+        checks green, or red only where the base is, or a heavy job the group ran
+        green). Stops at the first member that cannot land, so a later member
+        never lands without what it was tested on."""
         included = validation.stack.included
         if self.args.dry_run or self.args.no_land:
             return [(pr, "validated; landing disabled for this run") for pr in included]
@@ -2032,6 +2037,7 @@ class Controller:
             return [(pr, f"not landed: {BASE} changed the group's files since validation; {REVALIDATE}")
                     for pr in included]
         fresh = self.fresh_members(included)
+        helper = self.merge_green()
         outcome: list[tuple[PullRequest, str]] = []
         for index, pr in enumerate(included):
             current = fresh.get(pr.number)
@@ -2052,23 +2058,22 @@ class Controller:
                 f"[Batch]({self.run_url}), stack `{validation.stack.head[:12]}` on `{validation.stack.base[:12]}`, "
                 f"[heavy tier]({validation.heavy_url}), lanes: "
                 + (", ".join(f"{lane} {result}" for lane, result in sorted(validation.lanes.items())) or "none")
-                + ". The group's combined run stands in for this PR's own CI."))
-            command = ["gh", "pr", "merge", str(pr.number), "-R", self.args.repo, "--squash",
-                       "--match-head-commit", pr.sha]
+                + ". It merges through gh-merge-green."))
+            # gh-merge-green, like every merge: the member's own checks must be green
+            # or red only where the base is (or a heavy job the group ran green).
             for attempt in range(MERGE_RETRIES + 1):
-                completed = subprocess.run(command, capture_output=True, text=True, env=self.writer.env)
-                error = (completed.stdout + completed.stderr).strip()[-300:]
+                text = self.merge_one(helper, pr, validation)
                 # Right after the previous member lands GitHub can still see the old
                 # base; the head is pinned, so trying again merges the same commit.
-                if completed.returncode == 0 or "Base branch was modified" not in error or attempt == MERGE_RETRIES:
+                if text.startswith("landed") or "Base branch was modified" not in text or attempt == MERGE_RETRIES:
                     break
                 time.sleep(5 * (attempt + 1))
-            if completed.returncode != 0:
-                outcome.append((pr, f"not landed: GitHub refused to merge: {error}"))
+            if not text.startswith("landed"):
+                outcome.append((pr, text))
                 outcome += [(rest, f"not landed: #{pr.number} did not land") for rest in included[index + 1:]]
                 break
             outcome.append((pr, "landed"))
-            log(f"group {name}: #{pr.number} landed")
+            log(f"group {name}: #{pr.number} {text}")
         return outcome
 
     def run_groups(self, prs: list[PullRequest], only: set[int] | None,

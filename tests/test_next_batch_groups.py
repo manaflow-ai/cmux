@@ -177,6 +177,7 @@ class GroupBisectAndLand(unittest.TestCase):
         item.fresh_members = lambda prs: {target.number: target for target in prs}
         item.member_files = lambda target, base: list(target.files)
         item.merge_green = lambda: Path("/opt/gh-merge-green")
+        item.writer.env = {}
 
         refusals = list(getattr(self, "refusals", []))
 
