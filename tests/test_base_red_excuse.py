@@ -341,6 +341,27 @@ class LintFindings(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "findings not on feat-cmux-next.*sidebar.doc.rename"):
             self.judge()
 
+    def test_digits_inside_a_name_are_not_masked(self):
+        self.gh.logs[1] = l10n_log(103765, f"{XCSTRINGS}:onboarding.step2.title: missing uk")
+        self.gh.logs[2] = l10n_log(611, f"{XCSTRINGS}:onboarding.step1.title: missing uk")
+        with self.assertRaisesRegex(excuse.Refused, "onboarding.step2.title"):
+            self.judge()
+
+    def test_one_more_copy_of_a_base_finding_blocks(self):
+        # A second blocking call in the same file prints the same line once more.
+        call = "concurrency: Sources/Home/HomeHostView.swift:159: synchronous NSWorkspace open"
+        self.gh.logs[1] = l10n_log(1, call, call.replace("159", "201"))
+        self.gh.logs[2] = l10n_log(1, call)
+        with self.assertRaisesRegex(excuse.Refused, "HomeHostView"):
+            self.judge()
+
+    def test_output_cut_short_blocks(self):
+        # check-l10n.sh prints 200 errors and then "... N more": what it hid can't be compared.
+        self.gh.logs[1] = l10n_log(1, f"{XCSTRINGS}:sidebar.doc.move: missing uk", "... 12 more")
+        self.gh.logs[2] = l10n_log(1, f"{XCSTRINGS}:sidebar.doc.move: missing uk", "... 40 more")
+        with self.assertRaisesRegex(excuse.Refused, "cut short"):
+            self.judge()
+
     def test_a_red_step_that_printed_no_finding_blocks(self):
         self.gh.logs[1] = log(CHECKS, L10N, "##[group]Run x", "##[endgroup]",
                               "##[error]Process completed with exit code 1.")
