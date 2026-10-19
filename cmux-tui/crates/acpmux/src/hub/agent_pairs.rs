@@ -531,5 +531,28 @@ mod tests {
             json!({"title": "Bash", "rawInput": {"command": "cmux agent message acp:b hi"}})
         )));
         assert!(progress_record(&rec(json!({"title": "Edit notes.md", "kind": "edit"}))));
+        assert!(!progress_record(&rec(json!({"title": "cmux-sessions.send_to_session"}))));
+        assert!(!progress_record(&rec(
+            json!({"title": "Shell", "rawInput": {"command": ["bash", "-lc", "cmux agent inbox"]}})
+        )));
+    }
+
+    #[test]
+    fn only_a_whole_messaging_call_is_not_progress() {
+        let rec = |update: Value| EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "in".into(),
+            kind: "tool_call".into(),
+            msg: json!({"params": {"update": update}}),
+            host_seq: None,
+        };
+        // An edit of a file that mentions a messaging tool is an edit.
+        assert!(progress_record(&rec(json!({"title": "Edit send_to_session.rs", "kind": "edit"}))));
+        // A command that also runs something else is work.
+        assert!(progress_record(&rec(json!({"title": "Bash",
+            "rawInput": {"command": "cargo test && cmux agent message acp:b done"}}))));
+        assert!(progress_record(&rec(json!({"title": "Bash",
+            "rawInput": {"command": "grep -r 'cmux agent message' docs"}}))));
     }
 }
