@@ -26,6 +26,7 @@ import Testing
         func openExternal(_ url: URL) {}
         func openAppLink(_ url: URL) -> Bool { false }
         func openFile(_ url: URL) {}
+        func openAppLink(_ url: URL) -> Bool { false }
         func isRecent(_ path: String) -> Bool { false }
         func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool { false }
         func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance { .kept }
