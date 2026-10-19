@@ -9121,7 +9121,11 @@ auto-update choice), waits for it (each may take 15 minutes) and checks
 again: `ok` with the installed `version`, or `error` with the update's last
 output line or why it did not run (an update that needs elevated rights
 names the command to run by hand). A harness already current is `ok`
-without a run. With `continue_threads: true` every live chat (as counted by
+without a run only when its installed and latest known versions are
+comparable and the installed version is at least the latest. Missing or
+unparseable latest-version evidence cannot turn a false `outdated` flag
+into success; the named harness is refused without running an updater.
+With `continue_threads: true` every live chat (as counted by
 the plan) of a harness that ended `ok` then restarts its agent process on
 the installed version and resumes the same conversation: a chat between
 turns now (`threads_restarted`), a chat in a turn when that turn ends
