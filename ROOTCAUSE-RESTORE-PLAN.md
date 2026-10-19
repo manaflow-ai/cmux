@@ -11,8 +11,9 @@ Restore the protected cmux session without overwriting it, then make restore det
 - Protected process: PID 49398
 - Protected binary: `/Users/danielraffel/Library/Developer/Xcode/DerivedData/cmux-restore-openat/Build/Products/Debug/cmux DEV restore-openat.app`
 - Protected socket: `/tmp/cmux-debug-restore-openat.sock`
-- Backup: `/Users/danielraffel/Library/Application Support/cmux/recovery-backup-20261019T005641Z-live-session`
-- Evidence: `/Users/danielraffel/Library/Application Support/cmux/recovery-evidence-20261019T004648Z-windowserver-restore`
+- Latest JSONL backup: `/Users/danielraffel/.cmuxterm/backups/workstream-20261019T083000Z.jsonl`
+- Latest backup sidecar: `/Users/danielraffel/.cmuxterm/backups/workstream-20261019T083000Z.jsonl.sha256`
+- Recovery evidence bundle: `/Users/danielraffel/Library/Application Support/cmux/recovery-evidence-20261019T004648Z-windowserver-restore`
 
 No worker may signal, restart, focus, or launch against this namespace.
 
@@ -46,7 +47,9 @@ Gate: classify as causal, amplifying, or unrelated only with timestamped evidenc
 
 ## Review gates
 
-- High-effort Astra and Claude proxy reviews already completed the safety/adversarial pass.
+- High-effort Astra review completed the safety/adversarial pass on the repair code.
+- Two fresh max-effort `sr claude proxy` review attempts produced no output and are
+  treated as unavailable, not as a verdict.
 - Re-review after implementation changes must inspect exact diff and negative controls.
 - No merge, publish, or replacement of the protected build until copied restore evidence is clean.
 
@@ -220,16 +223,18 @@ after Xcode reported `BUILD SUCCEEDED`.
 
 ## Exact-head validation update (2026-10-19)
 
-The current repair branch is
-[`bd24baf383ba3ef3249866d58f93d454182b9a2f`](https://github.com/danielraffel/cmux/commit/bd24baf383ba3ef3249866d58f93d454182b9a2f).
+The current repair code head is
+[`bd24baf383ba3ef3249866d58f93d454182b9a2f`](https://github.com/danielraffel/cmux/commit/bd24baf383ba3ef3249866d58f93d454182b9a2f);
+the worktree's documentation-only head is
+[`bd08b6aec9`](https://github.com/danielraffel/cmux/commit/bd08b6aec9).
 It contains the restore identity and fallback hardening, the managed-binding
 persistence validation, and the `cmux feed clear` revision-floor fix. The
 portable CMUXAgentLaunch suite passes **883 tests in 100 suites**; the focused
 agent-restore regression passes **8 tests**; and the Dock lifecycle suite passes
 **54 tests**. Swift syntax, test wiring, and `git diff --check` also pass.
-Astra and an independent Claude Opus review both reviewed the exact committed
-repair slice; the final adversarial pass caught and corrected an overly broad
-compatibility bypass before this head was recorded.
+Astra reviewed the exact committed repair slice; its final adversarial pass
+caught and corrected an overly broad compatibility bypass before this head was
+recorded. Claude proxy review was attempted again but remained unavailable.
 
 The host still has eight WindowServer reports, all macOS bug type 409 watchdog
 timeouts. At failure, cmux instances ranged from approximately 805 MB to
@@ -241,7 +246,7 @@ resident-renderer fan-out as the primary pressure vector, with QEMU an optional
 amplifier rather than a required cause.
 
 The protected PID `49398`, socket, live JSONL, and backup were not touched.
-The backup is 878,760,521 bytes with SHA-256
+The latest backup is 878,760,521 bytes with SHA-256
 `808c48a047244efe244a2a0f271793a04bfbef6028f89d4f3bbc5d1163bc09ba`.
 Native full app-target dogfood remains separate from these focused green gates
 and must use a tagged isolated build; no claim is made that it has passed.
