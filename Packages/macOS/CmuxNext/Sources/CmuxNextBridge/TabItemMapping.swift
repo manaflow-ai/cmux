@@ -33,7 +33,7 @@ public struct TabItemMapping {
                 : tab.cwd.map(SidebarMapping.shared.abbreviate),
             icon: isNewTabPage ? .icon(.tabNew) : icon(tab, isBrowser: isBrowser, isConversation: isConversation),
             isPinned: tab.pinned,
-            isUnread: tab.hasUnread,
+            isUnread: tab.showsUnread,
             isBusy: busy.state.isLoading || isReportingProgress(tab),
             status: status(tab)
         )

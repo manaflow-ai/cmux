@@ -191,6 +191,17 @@ fn nullable_string(fields: &Map<String, Value>, name: &str) -> Option<Option<Str
     fields.get(name).map(|value| value.as_str().map(str::to_string))
 }
 
+/// `None` when absent; a present field must be a boolean.
+fn optional_bool(fields: &Map<String, Value>, name: &str) -> Result<Option<bool>, ResourceError> {
+    match fields.get(name) {
+        None => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(_) => {
+            Err(validation_error(&format!("{name} must be a boolean"), json!({"field": name})))
+        }
+    }
+}
+
 fn index(fields: &Map<String, Value>, name: &str) -> Option<usize> {
     fields.get(name).and_then(Value::as_u64).and_then(|value| usize::try_from(value).ok())
 }
@@ -301,7 +312,7 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabUpdate => {
-            require_any(fields, &["zoom", "back", "forward", "owner", "icon"])?;
+            require_any(fields, &["zoom", "back", "forward", "owner", "icon", "marked_unread"])?;
             let update = TabStateUpdate {
                 zoom: fields.get("zoom").map(Value::as_f64),
                 back: fields.contains_key("back").then(|| strings(fields, "back")),
@@ -309,6 +320,7 @@ pub(crate) fn dispatch(
                 owner: string(fields, "owner"),
                 icon: nullable_string(fields, "icon"),
                 emulation: None,
+                marked_unread: optional_bool(fields, "marked_unread")?,
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)

@@ -8,13 +8,18 @@
 //! public ids, idempotency keys, read barriers and deadlines. Off by default:
 //! `serve` refuses unless cmux.json sets `"mcp": {"enabled": true}`, it
 //! speaks only on stdin and stdout, and nothing listens on the network
-//! (plans/cmux-next/mcp.md).
+//! (plans/cmux-next/mcp.md). `serve` speaks code mode (`code_mode`): two
+//! tools that search this tool list and run scripts against it;
+//! `serve --all-tools` lists every tool instead. `CMUX_MCP_TOOLS` (a
+//! comma-separated allowlist, the Chief's turns) lists exactly those tools
+//! and refuses every other call, from a script too.
 
 mod action_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
+mod code_mode;
 mod config;
 mod keybinding_tools;
 mod messages;
@@ -26,6 +31,7 @@ mod transport;
 mod v2_tools;
 mod watch;
 
+use std::collections::BTreeSet;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -230,7 +236,8 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
             println!("{usage}");
             0
         }
-        [command] if command == "serve" => serve(global),
+        [command] if command == "serve" => serve(global, true),
+        [command, flag] if command == "serve" && flag == "--all-tools" => serve(global, false),
         [command] if command == "tools" => list_tools(global),
         _ => {
             eprintln!("cmux: {usage}");
@@ -242,6 +249,26 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
 /// The env acpmux gives the cmux MCP server of an agent chat
 /// (`CMUX_AGENT_SESSION`, acpmux `agent_tools.rs`).
 const AGENT_SESSION_ENV: &str = "CMUX_AGENT_SESSION";
+
+/// The env acpmux gives the cmux MCP server of a session whose preset names
+/// the tools it may use (acpmux `agent_tools::MCP_TOOLS_ENV`, the Chief's
+/// turns). Fail closed: an empty value allows no tool.
+const ALLOWED_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The allowlist in `value`, or `None` when the env is unset.
+fn allowed_tools(value: Option<std::ffi::OsString>) -> Option<BTreeSet<String>> {
+    let value = value?;
+    Some(
+        value
+            .to_str()
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
+}
 
 /// Why `serve` must not run with the settings file at `path`, or `None`
 /// when cmux.json turns the server on. An agent chat that cmux started
@@ -264,7 +291,7 @@ fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
     }
 }
 
-fn serve(global: GlobalArgs) -> i32 {
+fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     let path = config::path();
     if let Some(message) = refusal(&path) {
         eprintln!("cmux: {message}");
@@ -277,6 +304,8 @@ fn serve(global: GlobalArgs) -> i32 {
     watch::spawn(global.clone(), output.clone());
     let mut server = Server::new(LiveBackend { global }, Some(path));
     server.list_changed = true;
+    server.code_mode = code_mode;
+    server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
     server.run(io::stdin().lock(), &output)
 }
 
@@ -341,6 +370,13 @@ pub(super) struct Server<B> {
     list_changed: bool,
     /// The client sent `notifications/initialized`.
     initialized: bool,
+    /// `tools/list` offers only `cmux_docs` and `cmux_exec` (`code_mode`).
+    code_mode: bool,
+    /// What one `cmux_exec` script may use.
+    script_limits: code_mode::Limits,
+    /// `CMUX_MCP_TOOLS`: the only tools listed and callable. It turns code
+    /// mode off (the few tools are listed directly).
+    allowed: Option<BTreeSet<String>>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
 }
@@ -355,6 +391,9 @@ impl<B: Backend> Server<B> {
             actions_loaded: false,
             list_changed: false,
             initialized: false,
+            code_mode: false,
+            script_limits: code_mode::Limits::default(),
+            allowed: None,
             notes: None,
         }
     }
@@ -416,8 +455,14 @@ impl<B: Backend> Server<B> {
         let id = id?;
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
-            "initialize" => Ok(initialize(&params, self.list_changed)),
+            "initialize" => {
+                Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
+            }
             "ping" => Ok(json!({})),
+            "tools/list" if self.code_mode && self.allowed.is_none() => {
+                let tools = self.list();
+                Ok(json!({ "tools": code_mode::descriptors(&tools) }))
+            }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => self.call(&params),
             _ => Err((-32601, format!("method not found: {method}"))),
@@ -448,6 +493,9 @@ impl<B: Backend> Server<B> {
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
+        if let Some(allowed) = &self.allowed {
+            tools.retain(|tool| tool["name"].as_str().is_some_and(|name| allowed.contains(name)));
+        }
         tools
     }
 
@@ -483,6 +531,34 @@ impl<B: Backend> Server<B> {
                 "retryable": false,
             });
             return Ok(tool_error(envelope(error, "not_run", None)));
+        }
+        if let Some(allowed) = &self.allowed
+            && !allowed.contains(name)
+        {
+            let error = json!({
+                "code": "tool.not_allowed",
+                "message": format!("this chat may not use {name}"),
+                "details": {},
+                "retryable": false,
+            });
+            return Ok(tool_error(envelope(error, "not_run", None)));
+        }
+        if name == code_mode::DOCS {
+            let tools = self.list();
+            return Ok(match code_mode::docs(&tools, &arguments) {
+                Ok(value) => success(value, false),
+                Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
+            });
+        }
+        if name == code_mode::EXEC {
+            // One tool list per script, for its docs searches.
+            let mut tools = None;
+            let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
+                self.script_request(request, &mut tools)
+            });
+            return Ok(answered.unwrap_or_else(|message| {
+                tool_error(envelope(v2_tools::invalid(message), "not_run", None))
+            }));
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -615,6 +691,36 @@ impl<B: Backend> Server<B> {
         Ok(self.call_action(tool, &arguments))
     }
 
+    /// One request from a running `cmux_exec` script: a tool call through
+    /// `call`, so a script has the rights of a direct call, or a docs search.
+    fn script_request(
+        &mut self,
+        request: code_mode::Request,
+        tools: &mut Option<Vec<Value>>,
+    ) -> Value {
+        match request {
+            code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
+                code_mode::script_answer(Err((
+                    -32602,
+                    "a script cannot start another script".into(),
+                )))
+            }
+            code_mode::Request::Call { name, arguments } => {
+                code_mode::script_answer(self.call(&json!({"name": name, "arguments": arguments})))
+            }
+            code_mode::Request::Docs { query } => {
+                let tools = match tools {
+                    Some(tools) => tools,
+                    None => tools.insert(self.list()),
+                };
+                let mut arguments = Map::new();
+                arguments.insert("query".into(), Value::String(query));
+                code_mode::docs(tools, &arguments)
+                    .unwrap_or_else(|message| json!({"error": message}))
+            }
+        }
+    }
+
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
         let call = match tool.plan(arguments) {
             Ok(call) => call,
@@ -652,7 +758,7 @@ impl<B: Backend> Server<B> {
             Ok(run) => run,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
         };
-        let timeout = super::app::WAITING_RUN_TIMEOUT;
+        let timeout = super::app::waiting_run_timeout(&tool.cli_name);
         match self.backend.app("action.run", params, timeout, key.as_deref(), true) {
             Ok(value) => success(value, true),
             Err(failure) => failure_result(failure),
@@ -660,7 +766,7 @@ impl<B: Backend> Server<B> {
     }
 }
 
-fn initialize(params: &Value, list_changed: bool) -> Value {
+fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
     let requested = params["protocolVersion"].as_str();
     let version = PROTOCOL_VERSIONS
         .iter()
@@ -670,7 +776,7 @@ fn initialize(params: &Value, list_changed: bool) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": INSTRUCTIONS,
+        "instructions": if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
     })
 }
 

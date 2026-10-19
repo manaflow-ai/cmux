@@ -55,6 +55,244 @@ struct ErrorJournalTests {
         #expect(disk.contains("request failed"))
     }
 
+    @Test func prefixedCredentialAssignmentsNeverReachTheJournal() async throws {
+        let journal = ErrorJournal(directory: directory)
+        let values = ["ordinarySecret123", "ordinary-api-value", "ordinary-password", "camel-secret-value"]
+        await journal.record(event(
+            "failed AWS_SECRET_ACCESS_KEY=\(values[0]) MY_API_KEY=\(values[1]) "
+                + "the_password=\(values[2]) secretAccessKey=\(values[3])"
+        ))
+        await journal.flush()
+
+        let entry = try #require(await journal.entries().first)
+        for value in values {
+            #expect(!entry.sample.contains(value))
+        }
+    }
+
+    @Test func completeCookieHeadersNeverReachTheJournal() async throws {
+        let journal = ErrorJournal(directory: directory)
+        let values = ["first-cookie", "second-cookie"]
+        await journal.record(event("request failed Cookie: session=\(values[0]); csrf=\(values[1])"))
+
+        let entry = try #require(await journal.entries().first)
+        for value in values {
+            #expect(!entry.sample.contains(value))
+        }
+    }
+
+    @Test func escapedAssignmentsAndNamespacedQuerySecretsNeverReachTheJournal() async throws {
+        let journal = ErrorJournal(directory: directory)
+        let values = [
+            "escaped-password", "raw-auth-value", "access-secret", "signature-secret", "encoded-credential-value",
+            "quoted-tail-value", "embedded-query-value", "nested-url-value", "nested-query-value",
+            "bare-tail-value", "bracket-tail-value", "question-tail-value", "comma-tail-value",
+        ]
+        await journal.record(event(
+            #"provider {\"password\":\"\#(values[0])\"} failed ?auth[token]=\#(values[1])"#
+                + #"&access_token[]=\#(values[2])&X-Amz-Signature=\#(values[3])&auth%5Btoken%5D=\#(values[4])"#
+                + #" credential {\"password\":\"prefix\\\"\#(values[5])\"} request failed auth[token]=\#(values[6])"#
+                + #" url=https://example.test/?auth[token]=\#(values[7]) query=auth[token]=\#(values[8])"#
+                + #" password=alpha \#(values[9])"#
+                + #" auth[password]=queryalpha \#(values[10]) completion_tokens=42"#
+                + #" auth[token]=question-left?\#(values[11]) completion_tokens=43"#
+                + #" auth[token]=comma-left,\#(values[12]) completion_tokens=44"#
+        ))
+
+        let entry = try #require(await journal.entries().first)
+        for value in values {
+            #expect(!entry.sample.contains(value))
+        }
+    }
+
+    @Test func legacySegmentsAreRedactedBeforeTheyAreReturnedOrRewritten() async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let values = ["legacy-secret-value", "legacy-password-value", "legacy-cookie-value"]
+        let legacy = ErrorEntry(
+            fingerprint: "legacy-fingerprint",
+            source: "app",
+            level: .error,
+            template: "AWS_SECRET_ACCESS_KEY=\(values[0])",
+            sample: "Pwd=\(values[1])",
+            topFrame: "token=\(values[0])",
+            context: ["header": "Cookie: session=\(values[2])"],
+            count: 1,
+            firstMs: 1,
+            lastMs: 1
+        )
+        var line = try JSONEncoder().encode(legacy)
+        line.append(UInt8(ascii: "\n"))
+        let clean = ErrorEntry(
+            fingerprint: legacy.fingerprint,
+            source: legacy.source,
+            level: legacy.level,
+            template: "newest clean template",
+            sample: "newest clean sample",
+            topFrame: nil,
+            context: [:],
+            count: 2,
+            firstMs: 1,
+            lastMs: 2
+        )
+        line.append(try JSONEncoder().encode(clean))
+        line.append(UInt8(ascii: "\n"))
+        let segment = directory.appendingPathComponent("segment-000001.ndjson")
+        try line.write(to: segment)
+
+        let journal = ErrorJournal(directory: directory)
+        let entry = try #require(await journal.entries().first)
+        let memory = String(decoding: try JSONEncoder().encode(entry), as: UTF8.self)
+        let segments = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "ndjson" }
+        let disk = try segments.map { try String(contentsOf: $0, encoding: .utf8) }.joined()
+        for value in values {
+            #expect(!memory.contains(value))
+            #expect(!disk.contains(value))
+        }
+    }
+
+    @Test func migratedEntriesKeepTheirFingerprintContinuity() async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let legacy = ErrorEntry(
+            fingerprint: "legacy-fingerprint",
+            source: "app",
+            level: .error,
+            template: "password=legacy-value",
+            sample: "password=legacy-value",
+            topFrame: nil,
+            context: [:],
+            count: 1,
+            firstMs: 1,
+            lastMs: 1
+        )
+        var line = try JSONEncoder().encode(legacy)
+        line.append(UInt8(ascii: "\n"))
+        try line.write(to: directory.appendingPathComponent("segment-000001.ndjson"))
+
+        let journal = ErrorJournal(directory: directory)
+        await journal.record(event("password=current-value", at: 1))
+
+        #expect(await journal.entryCount == 1)
+        #expect(await journal.entries().first?.count == 2)
+    }
+
+    @Test func migrationMergesEntriesThatCanonicalizeToOneFingerprint() async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let first = ErrorEntry(
+            fingerprint: "legacy-one",
+            source: "app",
+            level: .warning,
+            template: "password=first-value",
+            sample: "oldest-marker; password=first-value",
+            topFrame: nil,
+            context: ["generation": "old"],
+            count: 2,
+            firstMs: 1,
+            lastMs: 2
+        )
+        let second = ErrorEntry(
+            fingerprint: "legacy-two",
+            source: "app",
+            level: .fault,
+            template: "password=second-value",
+            sample: "newest-marker; password=second-value",
+            topFrame: nil,
+            context: ["generation": "new"],
+            count: 3,
+            firstMs: 3,
+            lastMs: 4
+        )
+        var lines = try JSONEncoder().encode(first)
+        lines.append(UInt8(ascii: "\n"))
+        lines.append(try JSONEncoder().encode(second))
+        lines.append(UInt8(ascii: "\n"))
+        try lines.write(to: directory.appendingPathComponent("segment-000001.ndjson"))
+
+        let entry = try #require(await ErrorJournal(directory: directory).entries().first)
+        #expect(entry.count == 5)
+        #expect(entry.level == .fault)
+        #expect(entry.firstMs == 1)
+        #expect(entry.lastMs == 4)
+        #expect(entry.sample.contains("newest-marker"))
+        #expect(entry.context["generation"] == "new")
+    }
+
+    @Test func failedLegacySegmentDeletionIsReportedAndRetried() async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let value = "undeletable-legacy-value"
+        let legacy = ErrorEntry(
+            fingerprint: "legacy-fingerprint",
+            source: "app",
+            level: .error,
+            template: "password=\(value)",
+            sample: "password=\(value)",
+            topFrame: nil,
+            context: [:],
+            count: 1,
+            firstMs: 1,
+            lastMs: 1
+        )
+        var line = try JSONEncoder().encode(legacy)
+        line.append(UInt8(ascii: "\n"))
+        let segment = directory.appendingPathComponent("segment-000001.ndjson")
+        try line.write(to: segment)
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: segment.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: segment.path) }
+
+        let blocked = ErrorJournal(directory: directory)
+        #expect(await blocked.writeError != nil)
+
+        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: segment.path)
+        await blocked.record(event("ordinary follow-up"))
+        await blocked.flush()
+        #expect(await blocked.writeError == nil)
+        let segments = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "ndjson" }
+        let disk = try segments.map { try String(contentsOf: $0, encoding: .utf8) }.joined()
+        #expect(!disk.contains(value))
+    }
+
+    @Test func clearDoesNotReportSuccessWhenAnOldSegmentCannotBeDeleted() async throws {
+        let journal = ErrorJournal(directory: directory)
+        await journal.record(event("clear failure"))
+        await journal.flush()
+        let segment = try #require(
+            FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+                .first { $0.pathExtension == "ndjson" }
+        )
+        try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: segment.path)
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: segment.path) }
+
+        #expect(await journal.clear() == 0)
+        #expect(await journal.writeError != nil)
+        #expect(await journal.entryCount == 1)
+        #expect(await ErrorJournal(directory: directory).entryCount == 1)
+
+        try FileManager.default.setAttributes([.immutable: false], ofItemAtPath: segment.path)
+        #expect(await journal.clear() == 1)
+        #expect(await ErrorJournal(directory: directory).entryCount == 0)
+    }
+
+    @Test func journalArtifactsAreOwnerOnly() async throws {
+        struct CursorSource: ErrorHarvestSource {
+            let id = "cursor"
+            func collect(after cursor: String?) async throws -> ErrorHarvest {
+                ErrorHarvest(events: [], cursor: "next")
+            }
+        }
+
+        let journal = ErrorJournal(directory: directory)
+        await journal.record(event("private diagnostic"))
+        await journal.flush()
+        _ = await journal.harvest([CursorSource()])
+
+        #expect(try permissions(of: directory) == 0o700)
+        let artifacts = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        for artifact in artifacts where artifact.pathExtension == "ndjson" || artifact.lastPathComponent == "cursors.json" {
+            #expect(try permissions(of: artifact) == 0o600, "\(artifact.lastPathComponent) was not owner-only")
+        }
+    }
+
     @Test func aNewLaunchReadsWhatTheLastOneKept() async {
         let first = ErrorJournal(directory: directory)
         await first.record(event("socket closed 3 times"))
@@ -148,5 +386,10 @@ struct ErrorJournalTests {
         #expect(await journal.entries(ErrorQuery(sources: ["journal"])).count == 1)
         // The cursor was saved: a second harvest finds nothing new.
         #expect(await ErrorJournal(directory: directory).harvest([Fixed()])["fixed"] == 0)
+    }
+
+    private func permissions(of url: URL) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes[.posixPermissions] as? NSNumber)?.intValue ?? -1
     }
 }

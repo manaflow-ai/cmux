@@ -43,6 +43,12 @@ public final class WorkspaceModel: Identifiable {
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int?
 
+    /// A stand-in Cmd-N shows before the daemon has the workspace (``ProvisionalWorkspace``):
+    /// its handle names no daemon workspace, so no command may target it yet.
+    public var isProvisional: Bool { ProvisionalWorkspace.isProvisional(handle) }
+    /// Its id in the store's list check: a stand-in's takeover by the daemon's workspace is a list change.
+    var listID: String { isProvisional ? id + "~" : id }
+
     /// Custom title when set, else the name.
     public var displayName: String {
         if let title, !title.isEmpty { return title }
