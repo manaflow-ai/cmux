@@ -18,7 +18,13 @@ spec.loader.exec_module(module)
 # No helper run reaches the real repository: merged-head checks use a fixture clone.
 os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(tempfile.gettempdir(), "gh-merge-green-no-repo")
 # Under GH_MERGE_GREEN_TEST the freeze check reads GH_MERGE_GREEN_FREEZE_ISSUES and
-# GH_MERGE_GREEN_FREEZE_EVENTS (default: none), never the repository's issues.
+# GH_MERGE_GREEN_FREEZE_EVENTS, never the repository's issues. Every run gets empty
+# fixtures (no freezes); a test run without them refuses.
+_NO_FREEZES = tempfile.NamedTemporaryFile("w", suffix="-freezes.json", delete=False)
+_NO_FREEZES.write("[]")
+_NO_FREEZES.close()
+os.environ["GH_MERGE_GREEN_FREEZE_ISSUES"] = _NO_FREEZES.name
+os.environ["GH_MERGE_GREEN_FREEZE_EVENTS"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_TEST"] = "1"
 HEAD = "a" * 40
 MERGED_SHA = "d" * 40
@@ -1106,6 +1112,20 @@ class FreezeRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("#16", result.stderr)
+
+    def test_test_mode_without_freeze_fixtures_refuses(self):
+        # GH_MERGE_GREEN_TEST left set in a real shell must not read as "no freezes".
+        for name in ("GH_MERGE_GREEN_FREEZE_ISSUES", "GH_MERGE_GREEN_FREEZE_EVENTS"):
+            with self.subTest(unset=name), tempfile.TemporaryDirectory() as directory:
+                saved = os.environ.pop(name)
+                try:
+                    marker = Path(directory) / "merged"
+                    result = InstalledHelperRegression.run_helper(self, directory, marker)
+                finally:
+                    os.environ[name] = saved
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertIn("freeze state unknown", result.stderr)
 
     def test_override_does_not_lift_a_freeze(self):
         with tempfile.TemporaryDirectory() as directory:
