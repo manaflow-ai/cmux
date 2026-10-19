@@ -381,6 +381,14 @@ class GroupCycle(unittest.TestCase):
             item.run_groups(prs, None, skipped)
         self.assertEqual(ran, [])
         self.assertIn("#2 red check ci-status", skipped[1])
+        # A red heavy job too: the waiver covers only a stack's last PR, so a middle member would be refused.
+        prs = [pr(1, labels=["batch:a"], checks=[("cmux-next swift test", "completed", "failure")]),
+               pr(2, labels=["batch:a"])]
+        skipped = {}
+        with mock.patch.object(nb, "now", return_value=NOW):
+            item.run_groups(prs, None, skipped)
+        self.assertEqual(ran, [])
+        self.assertIn("#1 red check cmux-next swift test", skipped[2])
 
     def test_lanes_use_each_members_full_diff(self):
         item = controller()
