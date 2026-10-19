@@ -18,7 +18,7 @@ until every step passes.
    adapter (`<name>-acp`).
 2. Start the file: `cmux harness add <id> --command <program>` (ACP) or
    `cmux harness add <id> --command <program> --protocol terminal` (no ACP).
-   For a known agent start from an example: `--example claude|codex|opencode|pi|gemini|aider|muse`.
+   For a known agent start from an example: `--example claude|codex|opencode|pi|gemini|aider|muse|unii`.
 3. Edit the file (schema below).
 4. Run `cmux harness doctor <id>`. It starts the harness in a temp folder,
    runs `initialize`, `session/new` and one prompt, and prints PASS/WARN/FAIL
@@ -109,6 +109,19 @@ Use `protocol = "terminal"`. cmux runs it in a terminal tab
 (`cmux harness run <id>`) instead of a chat. Doctor only checks that the
 program starts. If the vendor has an ACP adapter, prefer it: chats get
 streaming, tool calls, permissions and model switching.
+
+## When the program is a plain prompt-in, reply-out CLI
+
+A CLI with no ACP that reads a prompt on stdin (or as an argument) and
+prints a reply can still be a chat harness: point the profile at acpmux's
+generic adapter, `protocol = "acp"`, `command = "acpmux"` and
+`args = ["cli-agent", "--", "<program>", ...]`. Each prompt runs the
+program once in the session folder and streams its stdout; cancel kills it.
+Flags: `--prompt-arg` (prompt as the last argument), `--last-block` (only the
+prompt's last text block: for a program that keeps its own memory),
+`--after-echo` (drop output up to the frame that echoes the prompt),
+`--instructions` (prefix the session folder's AGENTS.md).
+Example: `--example unii`.
 
 ## Where cmux looks
 

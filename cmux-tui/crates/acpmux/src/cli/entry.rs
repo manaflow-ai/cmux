@@ -136,6 +136,16 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             // (a launcher `--version` check can take 20 s).
             std::process::exit(0)
         }
+        Some(Command::CliAgent { last_block, prompt_arg, after_echo, instructions, command }) => {
+            crate::cli::cli_agent::run(crate::cli::cli_agent::Options {
+                command,
+                last_block,
+                prompt_arg,
+                after_echo,
+                instructions,
+            })
+            .await
+        }
         Some(Command::Stdio { model, preset, effort, policy }) => {
             let (harness, model) = match model {
                 Some(target) => {

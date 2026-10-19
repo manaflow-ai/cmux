@@ -195,6 +195,27 @@ pub enum Command {
         #[arg(long)]
         policy: Option<String>,
     },
+    /// Be an ACP agent that answers each prompt by running a plain CLI once
+    /// (prompt on stdin, reply from stdout): makes any CLI a harness. In a
+    /// profile: `args = ["cli-agent", "--", "/path/to/program"]`.
+    CliAgent {
+        /// Send only the prompt's last text block (a Chief turn's new
+        /// messages), for a program that keeps its own memory.
+        #[arg(long)]
+        last_block: bool,
+        /// Pass the prompt as the last argument instead of on stdin.
+        #[arg(long)]
+        prompt_arg: bool,
+        /// Drop output up to the frame that echoes the prompt (unii).
+        #[arg(long)]
+        after_echo: bool,
+        /// Put the session folder's AGENTS.md before the prompt.
+        #[arg(long)]
+        instructions: bool,
+        /// The program and its arguments, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Print the dashboard URL and open it in the browser.
     Web {
         /// Only print the URL.
