@@ -22800,6 +22800,41 @@
     "A subscriber of the conversation only (not_subscribed). Asks the Cloud owner for its run.live snapshot on the shared socket (run.live.get); the answer arrives as a cloud-conversation-live event. Answers the subscription's state. See spec/commands.md."
    ]
   },
+  "cloud-conversation-typing": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversation-typing-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "on": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "While some client of the daemon subscribes the conversation (not_subscribed). Sends the owner's ephemeral typing {on, conversation} frame on the shared socket once it is live; the newest state replaces one not yet sent; nothing is stored. Answers the subscription's state. See spec/commands.md."
+   ]
+  },
   "browser-host-provider": {
    "authority": "local-admin",
    "since": 12,

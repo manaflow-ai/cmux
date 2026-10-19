@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb. */
+/* cmux-tui mux protocol 12, IR 84cd4c3f33af065e3de184ef0e7620f0a5ee2060ef94477fadee1b71ca92da36. */
 
 
 import type * as T from "./types.js";
@@ -497,6 +497,14 @@ export interface CloudConversationThreadRequest extends CmuxRequestBase {
   "root": string;
 }
 export type CloudConversationThreadResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationTypingRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-typing";
+  "conversation": string;
+  "on": boolean;
+}
+export type CloudConversationTypingResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudConversationUnsubscribeRequest extends CmuxRequestBase {
@@ -2824,6 +2832,7 @@ export type CmuxRequest =
   | CloudConversationSnapshotRequest
   | CloudConversationSubscribeRequest
   | CloudConversationThreadRequest
+  | CloudConversationTypingRequest
   | CloudConversationUnsubscribeRequest
   | CloudInboxListRequest
   | CloudInboxOpRequest
@@ -3406,6 +3415,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "conversation-thread-v1";
+    stream: null;
+  };
+  "cloud-conversation-typing": {
+    request: CloudConversationTypingRequest;
+    result: CloudConversationTypingResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversation-typing-v1";
     stream: null;
   };
   "cloud-conversation-unsubscribe": {
