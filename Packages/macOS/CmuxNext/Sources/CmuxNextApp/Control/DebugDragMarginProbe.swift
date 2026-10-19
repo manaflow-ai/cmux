@@ -48,7 +48,7 @@ enum DragMarginProbe {
                     if recording {
                         needs += 1
                         if let window = me as? NSObject {
-                            let flags = ["movableByWindowBackground", "movable", "titlebarAppearsTransparent"].map { "\($0)=\(window.value(forKey: $0) ?? "nil")" }
+                            let flags = ["movableByWindowBackground", "movable", "titlebarAppearsTransparent"].map { "\($0)=\(window.value(forKey: $0) ?? "nil")" } // crash-allow: probe only, never landed
                             movableFlags[flags.joined(separator: " "), default: 0] += 1
                         }
                         if needs <= 40 { needStacks[stackKey(), default: 0] += 1 }
