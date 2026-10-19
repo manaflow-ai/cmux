@@ -268,14 +268,14 @@ async fn a_worker_doing_work_between_alike_reports_is_never_paused() {
     let mut c = Client::open(&hub);
     let (worker, coordinator, other) =
         (c.new_session().await, c.new_session().await, c.new_session().await);
-    for i in 0..5 {
+    for (i, chatter) in CHATTER.iter().enumerate().take(5) {
         let report = c
             .message(&worker, &coordinator, &format!("s{i}"), &format!("CI run {i} pending"))
             .await;
         assert!(report.get("error").is_none(), "report {i} was delivered: {report}");
         // The worker's next turn makes a tool call before its next report.
         let work = c
-            .message(&other, &worker, &format!("k{i}"), &format!("do-work step {i} {}", CHATTER[i]))
+            .message(&other, &worker, &format!("k{i}"), &format!("do-work step {i} {chatter}"))
             .await;
         assert!(work.get("error").is_none(), "{work}");
     }
@@ -386,8 +386,8 @@ async fn a_new_message_never_overtakes_held_ones() {
     for i in 0..2 {
         c.message(&a, &b, &format!("o{i}"), "please check the build").await;
     }
-    for i in 2..6 {
-        let text = if i == 2 { "please check the build" } else { CHATTER[i] };
+    for (i, chatter) in CHATTER.iter().enumerate().take(6).skip(2) {
+        let text = if i == 2 { "please check the build" } else { chatter };
         assert!(held(&c.message(&a, &b, &format!("o{i}"), text).await));
     }
     let mut person = Client::person(&hub).await;

@@ -420,8 +420,9 @@ async fn dispatch_request(
                 provenance,
                 after_turn: None,
             };
-            // The person's own prompt resumes any agent pair this chat is in (`hub/agent_pairs.rs`).
-            if opts.provenance.is_none() {
+            // The person's own prompt (a connection that proved the person key, never a peer's)
+            // resumes any agent pair this chat is in (`hub/agent_pairs.rs`).
+            if opts.provenance.is_none() && conn.is_person() && !conn.origin.web_class() {
                 hub.agent_pair_person_prompt(&s);
             }
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
@@ -885,7 +886,11 @@ async fn dispatch_request(
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
         method::MUX_AGENT_PAIR_RESUME => {
-            // The person's call: the unix socket and the app; `remote_guard.rs` refuses the rest.
+            // The person's call only (`hub/person.rs`): an agent may not resume its own pair.
+            // `remote_guard.rs` refuses a Web or Peer connection first.
+            if !conn.is_person() || conn.origin.web_class() {
+                return Err(crate::hub::Hub::agent_pair_resume_refused());
+            }
             let s = hub.resolve(session_key(&params)?)?;
             let peer = str_param(&params, "peerSessionId");
             Ok(hub.agent_pair_resume(&s.id, peer))
