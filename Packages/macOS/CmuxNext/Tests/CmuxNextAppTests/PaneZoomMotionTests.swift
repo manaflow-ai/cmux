@@ -3,9 +3,9 @@ import AppKit
 import CmuxNextDesign
 import Testing
 
-/// Zoom and unzoom (Leo 2026-10-13): the expanding pane owns the motion and its terminal draws
-/// once at its final size; the panes it leaves fade out fast, the opposite corner first, and
-/// none sits around after the zoom is asked for. Frames step at a fixed 120 Hz dt, so every
+/// Zoom and unzoom (Leo 2026-10-13, Lawrence 2026-10-18): the expanding pane owns the motion and
+/// its terminal draws once at its final size; it covers the other panes, which never fade and
+/// are let go once it lands. Frames step at a fixed 120 Hz dt, so every
 /// assertion is about frame N, not wall time.
 @MainActor
 struct PaneZoomMotionTests {
@@ -82,47 +82,41 @@ struct PaneZoomMotionTests {
     static var scale: Double { Motion.spring(.move).response / MotionSpring.move.base.response }
 
     @Test(arguments: [("p1", "p4"), ("p4", "p1"), ("p2", "p3")])
-    func inA2x2ZoomTheOppositeCornerLeavesFirstAndTheZoomedPaneOwnsTheMotion(zoomed: String, opposite: String) throws {
+    func inA2x2ZoomTheZoomedPaneCoversTheOthersWhichNeverFade(zoomed: String, opposite: String) throws {
         let screen = Screen(Self.grid2)
         let pane = PaneID(zoomed), corner = PaneID(opposite)
-        let others = (Set(Self.grid2.panes) as Set<PaneID>).subtracting([pane, corner])
+        let others = (Set(Self.grid2.panes) as Set<PaneID>).subtracting([pane])
         screen.zoom(pane)
         let target = try #require(screen.screen?.geometry.panes[pane])
         let final = try #require(screen.hostSize(pane))
-        var cornerGone: Int?, othersGone: Int?, reached: Int?
+        var reached: Int?, released: Int?
         for frame in 1...120 {
             screen.step()
-            // The others fade: none is cut away under the zoomed pane's (full-size) host.
-            if frame == 1 { #expect(others.union([corner]).allSatisfy { screen.opacity($0) > 0.5 }, "a leaving pane vanished at once") }
+            // Lawrence 2026-10-18: cover, never fade. A covered pane is opaque until it is let go.
+            for other in others { if let host = screen.root.context.hosts[other], host.superview != nil { #expect(host.alphaValue == 1, "frame \(frame): \(other) faded") } }
+            if frame == 1 { #expect(screen.opacity(corner) == 1, "the opposite corner vanished at once") }
             #expect(screen.hostSize(pane) == final, "frame \(frame): the zoomed terminal resized mid-move")
-            if cornerGone == nil, screen.opacity(corner) < 0.05 { cornerGone = frame }
-            if othersGone == nil, others.allSatisfy({ screen.opacity($0) < 0.05 }) { othersGone = frame }
             if reached == nil, let shown = screen.shown(pane), shown.width >= target.width * 0.95, shown.height >= target.height * 0.95 {
                 reached = frame
             }
+            if released == nil, others.allSatisfy({ screen.root.context.hosts[$0]?.superview == nil }) { released = frame }
         }
-        // Final size is the screen: the terminal resized once, up front.
         #expect(abs(final.width - target.width) < 1 && abs(final.height - target.height) < 1)
-        // The opposite corner is gone within 0.1 s, before any other pane.
-        let corner100ms = Int((0.1 * Self.scale / Self.dt).rounded(.up))
-        #expect((cornerGone ?? .max) <= corner100ms, "opposite corner gone at frame \(cornerGone.map(String.init) ?? "never")")
-        #expect((cornerGone ?? .max) <= (othersGone ?? .max))
-        #expect((othersGone ?? .max) <= Int((0.16 * Self.scale / Self.dt).rounded(.up)))
-        // The zoomed pane reaches 95% within 0.35 s.
+        // The zoomed pane reaches 95% within 0.35 s; the covered panes are let go once it lands.
         #expect((reached ?? .max) <= Int((0.35 * Self.scale / Self.dt).rounded(.up)), "95% at frame \(reached.map(String.init) ?? "never")")
+        #expect((released ?? .max) >= (reached ?? 0), "a covered pane was let go before the zoom reached its rect")
+        #expect(released != nil, "the covered panes were never let go")
     }
 
-    @Test func aCenterZoomIn3x3ResizesItsTerminalOnceAndClearsEveryOtherPane() throws {
+    @Test func aCenterZoomIn3x3ResizesItsTerminalOnceAndLetsGoOfTheCoveredPanesWhenItLands() throws {
         let screen = Screen(Self.grid3)
         screen.zoom("p5")
         let final = try #require(screen.hostSize("p5"))
-        var gone: Int?
         for frame in 1...120 {
             screen.step()
             #expect(screen.hostSize("p5") == final, "frame \(frame): the zoomed terminal resized mid-move")
-            if gone == nil, Self.grid3.panes.filter({ $0 != "p5" }).allSatisfy({ screen.opacity($0) < 0.05 }) { gone = frame }
         }
-        #expect((gone ?? .max) <= Int((0.16 * Self.scale / Self.dt).rounded(.up)))
+        #expect(Self.grid3.panes.filter({ $0 != "p5" }).allSatisfy({ screen.opacity($0) == 0 }))
     }
 
     @Test func anUnzoomMidZoomKeepsTheMotionsVelocityAndTheLeavingPanesComeBackFromWhereTheyAre() throws {
@@ -152,7 +146,7 @@ struct PaneZoomMotionTests {
         #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
     }
 
-    @Test func anUnzoomResizesTheTerminalOnceAsItLandsAndTheOthersFadeBackIn() throws {
+    @Test func anUnzoomResizesTheTerminalOnceAsItLandsAndUncoversTheOthers() throws {
         let screen = Screen(Self.grid2)
         screen.zoom("p4")
         for _ in 1...120 { screen.step() }
@@ -160,12 +154,12 @@ struct PaneZoomMotionTests {
         // It keeps its zoomed size while the shrinking rect clips it, and takes its slot's once, as it lands.
         var sizes = [try #require(screen.hostSize("p4"))]
         let slot = try #require(screen.screen?.geometry.panes["p4"])
-        #expect(screen.opacity("p1") < 0.05, "the returning panes appear at once instead of fading in")
+        #expect(screen.opacity("p1") < 0.05, "a returning pane shows over the zoomed one before it shrinks")
         var shown: Int?
         for frame in 1...120 {
             screen.step()
             if let size = screen.hostSize("p4"), size != sizes.last { sizes.append(size) }
-            // Fading back in, not popping in as the zoomed pane lands.
+            // Uncovered as the zoomed pane shrinks, not popping in as it lands.
             if frame == 12 { #expect(["p1", "p2", "p3"].allSatisfy { screen.opacity($0) > 0.3 }, "a returning pane is still cut away") }
             if shown == nil, ["p1", "p2", "p3"].allSatisfy({ screen.opacity($0) > 0.95 }) { shown = frame }
         }
