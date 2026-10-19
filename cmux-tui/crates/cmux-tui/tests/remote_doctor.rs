@@ -109,7 +109,10 @@ fn remote_doctor_ssh_probe_overrides_config_that_could_change_state() {
     write_tool(
         tools.path(),
         "ssh",
-        &format!("[ \"$1\" = \"-G\" ] && exit 1\nprintf '%s\\n' \"$@\" > '{}'\nexit 0", argv.display()),
+        &format!(
+            "[ \"$1\" = \"-G\" ] && exit 1\nprintf '%s\\n' \"$@\" > '{}'\nexit 0",
+            argv.display()
+        ),
     );
 
     let output = doctor(tools.path(), &["127.0.0.1", "--port", &port, "--json"]);
@@ -143,7 +146,11 @@ fn remote_doctor_hands_a_proxied_host_straight_to_ssh() {
             "if [ \"$1\" = \"-G\" ]; then printf 'hostname 127.0.0.1\\nport {port}\\nproxyjump bastion\\n'; exit 0; fi\nexit 0"
         ),
     );
-    write_tool(tools.path(), "tailscale", "echo 'tailscale must not run for a proxied host' >&2; exit 1");
+    write_tool(
+        tools.path(),
+        "tailscale",
+        "echo 'tailscale must not run for a proxied host' >&2; exit 1",
+    );
 
     let output = doctor(tools.path(), &["behind-bastion", "--json"]);
 

@@ -30,6 +30,8 @@ pub(crate) enum TailnetProbe {
     Unreachable,
     /// No `tailscale` CLI on this machine, or it isn't running.
     Unavailable,
+    /// Skipped because ssh reaches the host through a proxy.
+    NotTried,
 }
 
 /// Result of one TCP connect to the SSH port.
@@ -41,6 +43,9 @@ pub(crate) enum TcpProbe {
     TimedOut,
     Unresolved,
     Failed,
+    /// Not tried: the SSH config sends the connection through `ProxyJump`
+    /// or `ProxyCommand`, so a direct connect says nothing about ssh.
+    Proxied,
 }
 
 /// Result of a noninteractive SSH login that runs `true`.
@@ -50,6 +55,8 @@ pub(crate) enum SshProbe {
     Ok,
     AuthRejected,
     HostKeyUnknown,
+    /// The server's host key differs from the one in known_hosts.
+    HostKeyChanged,
     Failed,
     /// Skipped because TCP didn't connect.
     NotTried,
@@ -62,6 +69,7 @@ pub(crate) enum Diagnosis {
     Ok,
     KeyNotAuthorized,
     HostKeyUnknown,
+    HostKeyChanged,
     SshFailed,
     SshOff,
     TailnetPolicyBlocks,
@@ -72,10 +80,11 @@ pub(crate) enum Diagnosis {
 impl Diagnosis {
     pub(crate) fn from_probes(tailnet: TailnetProbe, tcp: TcpProbe, ssh: SshProbe) -> Self {
         match (tcp, ssh) {
-            (TcpProbe::Open, SshProbe::Ok) => Self::Ok,
-            (TcpProbe::Open, SshProbe::AuthRejected) => Self::KeyNotAuthorized,
-            (TcpProbe::Open, SshProbe::HostKeyUnknown) => Self::HostKeyUnknown,
-            (TcpProbe::Open, _) => Self::SshFailed,
+            (TcpProbe::Open | TcpProbe::Proxied, SshProbe::Ok) => Self::Ok,
+            (TcpProbe::Open | TcpProbe::Proxied, SshProbe::AuthRejected) => Self::KeyNotAuthorized,
+            (TcpProbe::Open | TcpProbe::Proxied, SshProbe::HostKeyUnknown) => Self::HostKeyUnknown,
+            (TcpProbe::Open | TcpProbe::Proxied, SshProbe::HostKeyChanged) => Self::HostKeyChanged,
+            (TcpProbe::Open | TcpProbe::Proxied, _) => Self::SshFailed,
             (TcpProbe::Refused, _) => Self::SshOff,
             (TcpProbe::Unresolved, _) => Self::Unresolved,
             // A tailnet ACL drops packets instead of rejecting them, so the
@@ -87,11 +96,13 @@ impl Diagnosis {
         }
     }
 
-    fn hint(self, messages: &RemoteDoctorMessages, port: u16) -> String {
+    fn hint(self, messages: &RemoteDoctorMessages, port: u16, tailnet: TailnetProbe) -> String {
         let template = match self {
+            Self::Unreachable if tailnet != TailnetProbe::Unreachable => messages.tcp_unreachable,
             Self::Ok => messages.ok,
             Self::KeyNotAuthorized => messages.key_not_authorized,
             Self::HostKeyUnknown => messages.host_key_unknown,
+            Self::HostKeyChanged => messages.host_key_changed,
             Self::SshFailed => messages.ssh_failed,
             Self::SshOff => messages.ssh_off,
             Self::TailnetPolicyBlocks => messages.tailnet_policy_blocks,
@@ -127,10 +138,19 @@ struct Report<'a> {
 pub(crate) fn run(args: &[String]) -> anyhow::Result<()> {
     let args = parse_args(args)?;
     let target = resolve_target(&args);
-    let tailnet = probe_tailnet(&target.hostname, args.timeout);
-    let tcp = probe_tcp(&target.hostname, target.port, args.timeout);
-    let ssh =
-        if tcp == TcpProbe::Open { probe_ssh(&args, target.port) } else { SshProbe::NotTried };
+    let (tailnet, tcp) = if target.proxied {
+        (TailnetProbe::NotTried, TcpProbe::Proxied)
+    } else {
+        (
+            probe_tailnet(&target.hostname, args.timeout),
+            probe_tcp(&target.hostname, target.port, args.timeout),
+        )
+    };
+    let ssh = if matches!(tcp, TcpProbe::Open | TcpProbe::Proxied) {
+        probe_ssh(&args, target.port)
+    } else {
+        SshProbe::NotTried
+    };
     let diagnosis = Diagnosis::from_probes(tailnet, tcp, ssh);
     let messages = &catalog().remote_doctor;
     let report = Report {
@@ -141,7 +161,7 @@ pub(crate) fn run(args: &[String]) -> anyhow::Result<()> {
         tcp,
         ssh,
         diagnosis,
-        hint: diagnosis.hint(messages, target.port),
+        hint: diagnosis.hint(messages, target.port, tailnet),
     };
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -234,6 +254,8 @@ fn safe_word(value: String, option: &str) -> anyhow::Result<String> {
 struct Target {
     hostname: String,
     port: u16,
+    /// `ProxyJump` or `ProxyCommand` is set for this host.
+    proxied: bool,
 }
 
 fn resolve_target(args: &DoctorArgs) -> Target {
@@ -254,37 +276,68 @@ fn resolve_target(args: &DoctorArgs) -> Target {
         .filter(|output| output.status.success());
     let resolved = output.map(|output| parse_ssh_config(&String::from_utf8_lossy(&output.stdout)));
     let fallback_host = args.host.rsplit('@').next().unwrap_or(&args.host).to_owned();
-    let (hostname, config_port) = resolved.unwrap_or((None, None));
+    let config = resolved.unwrap_or_default();
     Target {
-        hostname: hostname.unwrap_or(fallback_host),
-        port: args.port.or(config_port).unwrap_or(DEFAULT_PORT),
+        hostname: config.hostname.unwrap_or(fallback_host),
+        port: args.port.or(config.port).unwrap_or(DEFAULT_PORT),
+        proxied: config.proxied,
     }
 }
 
-/// Reads `hostname` and `port` from `ssh -G` output.
-fn parse_ssh_config(config: &str) -> (Option<String>, Option<u16>) {
-    let mut hostname = None;
-    let mut port = None;
-    for line in config.lines() {
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SshConfig {
+    hostname: Option<String>,
+    port: Option<u16>,
+    proxied: bool,
+}
+
+/// Reads `hostname`, `port` and whether a proxy is set from `ssh -G` output.
+fn parse_ssh_config(output: &str) -> SshConfig {
+    let mut config = SshConfig::default();
+    for line in output.lines() {
         let mut fields = line.splitn(2, ' ');
         match (fields.next(), fields.next().map(str::trim)) {
             (Some("hostname"), Some(value)) if !value.is_empty() => {
-                hostname = Some(value.to_owned());
+                config.hostname = Some(value.to_owned());
             }
-            (Some("port"), Some(value)) => port = value.parse::<u16>().ok().filter(|p| *p > 0),
+            (Some("port"), Some(value)) => {
+                config.port = value.parse::<u16>().ok().filter(|port| *port > 0);
+            }
+            (Some("proxyjump" | "proxycommand"), Some(value))
+                if !value.is_empty() && value != "none" =>
+            {
+                config.proxied = true;
+            }
             _ => {}
         }
     }
-    (hostname, port)
+    config
 }
 
+/// The Mac App Store Tailscale app keeps its CLI inside the bundle and often
+/// isn't on PATH.
+#[cfg(target_os = "macos")]
+const TAILSCALE_APP_CLI: Option<&str> =
+    Some("/Applications/Tailscale.app/Contents/MacOS/Tailscale");
+#[cfg(not(target_os = "macos"))]
+const TAILSCALE_APP_CLI: Option<&str> = None;
+
 fn probe_tailnet(host: &str, timeout: Duration) -> TailnetProbe {
-    let output = Command::new("tailscale")
-        .args(["ping", "--tsmp", "-c", "1", "--timeout"])
-        .arg(format!("{}s", timeout.as_secs()))
-        .arg(host)
-        .stdin(Stdio::null())
-        .output();
+    let ping = |program: &str| {
+        Command::new(program)
+            .args(["ping", "--tsmp", "-c", "1", "--timeout"])
+            .arg(format!("{}s", timeout.as_secs()))
+            .arg(host)
+            .stdin(Stdio::null())
+            .output()
+    };
+    let output = match ping("tailscale") {
+        Err(error) if error.kind() == ErrorKind::NotFound => match TAILSCALE_APP_CLI {
+            Some(app_cli) => ping(app_cli),
+            None => Err(error),
+        },
+        other => other,
+    };
     match output {
         Ok(output) if output.status.success() => TailnetProbe::Reachable,
         Ok(output) if tailscale_not_running(&output.stderr) => TailnetProbe::Unavailable,
@@ -330,6 +383,9 @@ fn probe_ssh(args: &DoctorArgs, port: u16) -> SshProbe {
     command
         .args(["-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes"])
         .args(["-o", "ForwardAgent=no", "-o", "ForwardX11=no", "-o", "ClearAllForwardings=yes"])
+        // Options from the user's config that would change state or bypass the probe.
+        .args(["-o", "UpdateHostKeys=no", "-o", "ControlMaster=no", "-o", "ControlPath=none"])
+        .args(["-o", "RemoteCommand=none", "-o", "PermitLocalCommand=no", "-o", "LogLevel=ERROR"])
         .arg("-o")
         .arg(format!("ConnectTimeout={}", args.timeout.as_secs()))
         .arg("-p")
@@ -347,7 +403,9 @@ fn probe_ssh(args: &DoctorArgs, port: u16) -> SshProbe {
 
 fn classify_ssh_failure(stderr: &[u8]) -> SshProbe {
     let stderr = String::from_utf8_lossy(stderr);
-    if stderr.contains("Host key verification failed")
+    if stderr.contains("IDENTIFICATION HAS CHANGED") {
+        SshProbe::HostKeyChanged
+    } else if stderr.contains("Host key verification failed")
         || stderr.contains("No ED25519 host key")
         || stderr.contains("host key is known")
     {
@@ -445,9 +503,10 @@ mod tests {
     fn ssh_config_hostname_and_port_are_read() {
         assert_eq!(
             parse_ssh_config("user leo\nhostname 100.64.0.9\nport 2222\nproxyjump none\n"),
-            (Some("100.64.0.9".to_owned()), Some(2222))
+            SshConfig { hostname: Some("100.64.0.9".to_owned()), port: Some(2222), proxied: false }
         );
-        assert_eq!(parse_ssh_config("user leo\n"), (None, None));
+        assert_eq!(parse_ssh_config("user leo\n"), SshConfig::default());
+        assert!(parse_ssh_config("hostname h\nproxycommand nc %h %p\n").proxied);
     }
 
     #[test]
