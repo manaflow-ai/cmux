@@ -328,9 +328,9 @@ open class ChromeLabel: NSView {
     /// The glyph coverage, upright, in the text color's stem weight, at the backing scale.
     private func glyphImage(_ ink: Ink, color: CGColor?) -> CGImage? {
         guard ink.text.length > 0 else { return nil }
-        return GlyphMask.image(size: ink.size, scale: ink.scale, ink: color) { ctx, opaque in
+        return GlyphMask.image(size: ink.size, scale: ink.scale, ink: color) { ctx, drawn in
             let text = NSMutableAttributedString(attributedString: ink.text)
-            text.addAttribute(.foregroundColor, value: NSColor(cgColor: opaque) ?? .black, range: NSRange(location: 0, length: text.length))
+            text.addAttribute(.foregroundColor, value: NSColor(cgColor: drawn) ?? .black, range: NSRange(location: 0, length: text.length))
             LabelText.draw(text, shape: ink.shape, in: ink.size, context: ctx)
         }
     }
