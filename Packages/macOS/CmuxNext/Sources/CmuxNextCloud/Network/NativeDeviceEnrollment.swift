@@ -16,6 +16,7 @@ public actor NativeDeviceEnrollment {
     private var revoked = false
     private var inflight: Task<NativeDeviceBinding, Error>?
     private var saved: (context: NativeInstallContext, store: NativeDeviceStore)?
+    private var binding: NativeDeviceBinding?
 
     public init(scope: NativeDeviceScope, identity: MacInstallIdentity, paths: CloudPaths,
                 native: any NativeDeviceTransport, session: @escaping InstallAuthClient.SessionToken, name: String) throws {
@@ -37,12 +38,51 @@ public actor NativeDeviceEnrollment {
 
     /// Only the app-owned inherited channel calls this; it is not an app-server credential provider.
     package func cloudBrokerReply(_ bytes: Data) async throws -> Data {
-        _ = try NativeCloudBrokerRequest(bytes)
-        throw NativeDeviceEnrollmentError.invalidState
+        let request = try NativeCloudBrokerRequest(bytes)
+        try Task.checkCancellation()
+        let epoch = generation
+        if binding == nil { _ = try await enroll() }
+        guard let saved, let binding else { throw NativeDeviceEnrollmentError.invalidState }
+        try await check(saved.context, epoch)
+        // Every request mints in the immutable backend team, never the personal overload.
+        let context = try await identity.nativeContext(team: scope.team)
+        try await check(context, epoch)
+        guard context.account == saved.context.account, context.user == saved.context.user,
+              context.install == saved.context.install, context.point == saved.context.point,
+              context.environment == saved.context.environment else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        let record = try currentRecord(saved.store)
+        guard record.device == binding.device,
+              try record.key.publicKey.rawRepresentation.base64EncodedString() == binding.wgPublicKey else {
+            throw NativeDeviceEnrollmentError.invalidIdentity
+        }
+        let authorization: NativeDeviceProof?
+        switch request.op {
+        case .connectInfo: authorization = nil
+        case .linkToken:
+            authorization = try await proof("overlay-policy", target: binding.device, context: context)
+        }
+        try await check(context, epoch)
+        try Task.checkCancellation()
+        let call = NativeCloudBrokerCall(op: request.op.rawValue, params: .init(host: request.host, services: request.services, native_proof: authorization))
+        let body = try JSONEncoder().encode(call)
+        let response: (status: Int, body: Data)
+        switch request.op {
+        case .connectInfo: response = try await identity.nativeOwnerRead(body, context: context)
+        case .linkToken: response = try await identity.nativeOwnerPost(body, context: context)
+        }
+        try await check(context, epoch)
+        try Task.checkCancellation()
+        return try NativeCloudBrokerReply.encode(response, request: request)
+    }
+
+    private func currentRecord(_ store: NativeDeviceStore) throws -> NativeDeviceRecord {
+        let lock = try store.lock()
+        defer { withExtendedLifetime(lock) {} }
+        return try store.loadOrCreate()
     }
 
     /// Stop admitting enrollments. Sign-out also calls `revoke` while its Stack session is available.
-    public func stop() { generation &+= 1; revoked = true }
+    public func stop() { generation &+= 1; revoked = true; binding = nil }
 
     /// Drain an enrollment already on the wire, then delete the Native device as its original user.
     public func revoke() async throws {
@@ -115,7 +155,9 @@ public actor NativeDeviceEnrollment {
         try await check(context, epoch)
         guard ack.host == host.id, ack.network.state == "confirmed", ack.network.tenant == scope.tenant,
               ack.network.mesh == scope.mesh, ack.network.device == device else { throw NativeDeviceEnrollmentError.invalidIdentity }
-        return NativeDeviceBinding(host: host.id, team: scope.team, tenant: scope.tenant, mesh: scope.mesh, device: device, wgPublicKey: wg)
+        let confirmed = NativeDeviceBinding(host: host.id, team: scope.team, tenant: scope.tenant, mesh: scope.mesh, device: device, wgPublicKey: wg)
+        binding = confirmed
+        return confirmed
     }
 
     private func check(_ context: NativeInstallContext, _ epoch: UInt64) async throws {
