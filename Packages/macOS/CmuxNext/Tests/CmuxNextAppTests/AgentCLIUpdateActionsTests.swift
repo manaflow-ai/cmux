@@ -22,12 +22,17 @@ import Testing
         var outcome = "pending"
         var refuse: Set<AgentCLIFamily> = []
         var claudeChannel = "native"
+        /// A reconnect advances the epoch; routes captured before it retire.
+        var epoch = 0
+        /// The owner answers with a receipt for another machine.
+        var mismatch = false
         let machine: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        let session: ResourceID = "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        var session: ResourceID = "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
         func route() -> AgentCLIUpdateActions.Route {
             captures += 1
-            return .init(machine: machine, session: session, isCurrent: { self.current }, inventory: {
+            let epoch = self.epoch
+            return .init(machine: machine, session: session, isCurrent: { self.current && self.epoch == epoch }, inventory: {
                 self.reads += 1
                 return try JSONDecoder().decode(AcpmuxHarnessInventory.self, from: Data(#"{"view":"inventory","cached":true,"harnesses":[{"id":"work-profile","family":"codex","channel":"npm","version":"1","latest":"2","outdated":true,"auth":"unknown","checkedAt":1},{"id":"another-profile","family":"codex","channel":"npm","version":"1","latest":"2","outdated":true,"auth":"unknown","checkedAt":1},{"id":"claude","family":"claude","channel":"\#(self.claudeChannel)","version":"1","latest":"2","outdated":true,"auth":"unknown","checkedAt":1},{"id":"codex","channel":"npm","version":"1","latest":"2","outdated":true,"auth":"unknown","checkedAt":1}]}"#.utf8))
             }, start: { cli, key in
@@ -40,9 +45,11 @@ import Testing
                 return try self.receipt(cli)
             }, observe: { receipt in
                 self.observations += 1
-                let result = self.outcome == "pending"
-                    ? #"{"state":"pending","lifecycle":"running","revision":"7"}"#
-                    : #"{"state":"exited","lifecycle":"exited","revision":"8","exited_at":"1","outcome":{"kind":"exit","code":23}}"#
+                let result = switch self.outcome {
+                case "pending": #"{"state":"pending","lifecycle":"running","revision":"7"}"#
+                case "unknown": #"{"state":"exited","lifecycle":"exited","revision":"8","exited_at":"1","outcome":{"kind":"unknown"}}"#
+                default: #"{"state":"exited","lifecycle":"exited","revision":"8","exited_at":"1","outcome":{"kind":"exit","code":23}}"#
+                }
                 var value = try JSONValue.parse(Data(result.utf8)).objectValue ?? [:]
                 value["terminal_id"] = .string(receipt.path.terminalID.rawValue)
                 return try JSONDecoder().decode(AgentCLIJobStatus.self, from: Data(JSONValue.object(value).compactText.utf8))
@@ -51,12 +58,17 @@ import Testing
 
         func receipt(_ cli: AgentCLIFamily) throws -> AgentCLIJobReceipt {
             let suffix = String(repeating: cli == .codex ? "a" : "b", count: 32)
-            let value: JSONValue = ["machine": .string(machine.rawValue), "session": .string(session.rawValue),
+            let owner = mismatch ? "machine_cccccccccccccccccccccccccccccccc" : machine.rawValue
+            let value: JSONValue = ["machine": .string(owner), "session": .string(session.rawValue),
                 "cli": .string(cli.rawValue), "revision": "1", "replayed": false,
                 "path": ["kind": "terminal", "workspace_id": .string("ws_" + suffix), "screen_id": .string("screen_" + suffix),
                     "pane_id": .string("pane_" + suffix), "tab_id": .string("tab_" + suffix), "terminal_id": .string("term_" + suffix)]]
             return try JSONDecoder().decode(AgentCLIJobReceipt.self, from: Data(value.compactText.utf8))
         }
+    }
+
+    @MainActor final class Notices {
+        var shown: [(String, Bool)] = []
     }
 
     private func make() -> (Owner, AgentCLIUpdateActions, ActionRegistry) {
@@ -185,5 +197,70 @@ import Testing
         _ = try await updates.runSettings(id: "claude", context: page("after-refusal"), registry: registry)
         #expect(owner.starts.last?.0 == .claude && owner.starts.last?.1 == "after-refusal")
         #expect(updates.state.arrayValue?.contains { $0["cli"] == "claude" && $0["state"] == "created" } == true)
+    }
+
+    @Test func aReconnectToTheSameOwnerKeepsTheJobVisibleAndObservedUntilItEnds() async throws {
+        let (owner, updates, registry) = make()
+        _ = try await updates.runSettings(id: "work-profile", context: page("before-reconnect"), registry: registry)
+        owner.epoch += 1
+        #expect(updates.state.arrayValue?.first?["state"] == "created")
+        await updates.refresh()
+        #expect(owner.observations == 1)
+        #expect(updates.state.arrayValue?.first?["state"] == "pending")
+        do {
+            _ = try await updates.runSettings(id: "work-profile", context: page("while-pending"), registry: registry)
+            Issue.record("a second update started while the first still runs")
+        } catch {}
+        #expect(owner.starts.count == 1)
+        owner.outcome = "exited"
+        await updates.refresh()
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-reconnect"), registry: registry)
+        #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-reconnect")
+    }
+
+    @Test func aNewDaemonSessionRetiresTheOldJobInsteadOfBlockingTheCLI() async throws {
+        let (owner, updates, registry) = make()
+        _ = try await updates.runSettings(id: "work-profile", context: page("first-session"), registry: registry)
+        owner.session = "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        owner.epoch += 1
+        _ = try await updates.runSettings(id: "work-profile", context: page("second-session"), registry: registry)
+        #expect(owner.starts.count == 2 && owner.starts.last?.1 == "second-session")
+        #expect(updates.state.arrayValue?.map { $0["session"] } == [.string(owner.session.rawValue)])
+    }
+
+    @Test func anExitWithAnUnknownOutcomeSettlesTheJobWithoutBlockingTheCLI() async throws {
+        let (owner, updates, registry) = make()
+        owner.outcome = "unknown"
+        _ = try await updates.runSettings(id: "work-profile", context: page("unknown-outcome"), registry: registry)
+        await updates.refresh()
+        let job = try #require(updates.state.arrayValue?.first)
+        #expect(job["state"] == "exited" && job["outcome"] == "unknown")
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-unknown"), registry: registry)
+        #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-unknown")
+    }
+
+    @Test func aReceiptForAnotherOwnerLeavesNoBlockingJob() async throws {
+        let (owner, updates, registry) = make()
+        owner.mismatch = true
+        do {
+            _ = try await updates.runSettings(id: "work-profile", context: page("mismatched"), registry: registry)
+            Issue.record("a receipt for another machine was accepted")
+        } catch {}
+        #expect(updates.state.arrayValue?.isEmpty == true)
+        owner.mismatch = false
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-mismatch"), registry: registry)
+        #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-mismatch")
+    }
+
+    @Test func thePaletteShowsAFailureNoCallerWaitsFor() async throws {
+        let (owner, _, registry) = make()
+        owner.refuse = [.claude, .codex]
+        let notices = Notices()
+        registry.refusalObserver = { notices.shown.append(($0, $1)) }
+        _ = registry.perform("agent.harness.updateAll")
+        for _ in 0..<200 where notices.shown.isEmpty { await Task.yield() }
+        #expect(owner.starts.count == 2)
+        let refusal = try #require(notices.shown.first)
+        #expect(refusal.0.contains("claude") && refusal.0.contains("codex") && !refusal.1)
     }
 }
