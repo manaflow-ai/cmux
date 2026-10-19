@@ -35,4 +35,27 @@ nonisolated extension DeepLink {
             candidate.session == session && (candidate.harness.map { $0.lowercased() == harness } ?? true)
         }?.tab
     }
+
+    /// Where the keyboard goes after an agent link revealed its tab.
+    public nonisolated enum AgentFocus: Sendable, Hashable {
+        /// Focus stays where it was (a background open).
+        case none
+        /// The agent chat tab's composer takes the keyboard.
+        case focusComposer
+        /// The terminal running the agent takes the keyboard.
+        case focusTerminal
+    }
+
+    /// The focus an agent link's open asks for: the revealed session's input,
+    /// so talking to the agent takes one keystroke, only when the user opened
+    /// the link; a background open (Cmd held, or a run the user did not
+    /// start) never moves focus. The link itself never types or sends.
+    ///
+    /// - Parameters:
+    ///   - chatTab: The revealed tab is an agent chat tab (else a terminal).
+    ///   - background: The open must not take focus.
+    public static func agentFocus(chatTab: Bool, background: Bool) -> AgentFocus {
+        guard !background else { return .none }
+        return chatTab ? .focusComposer : .focusTerminal
+    }
 }

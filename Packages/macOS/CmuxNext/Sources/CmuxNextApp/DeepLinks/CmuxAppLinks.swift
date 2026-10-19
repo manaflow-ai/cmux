@@ -62,13 +62,13 @@ enum CmuxAppLinks {
     }
 
     /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a
-    /// workspace, pane, tab or chat session; a Chief subagent's chat only for this app's own
+    /// workspace, pane, tab, chat session or outside agent session; a Chief subagent's chat only for this app's own
     /// Chief home (`chiefHost`, `chief:<home id>`) and on this machine. Nil for anything else (an
     /// unknown scheme or host, a malformed id, a legacy UUID link, another Chief's subagent).
     static func link(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {
         guard let link = DeepLink.parse(url, scheme: chiefScheme) ?? DeepLink.parse(url, scheme: linkScheme) else { return nil }
         switch link.target {
-        case .workspace, .pane, .tab, .session:
+        case .workspace, .pane, .tab, .session, .agent:
             return link
         case .chiefSession(let home, _):
             return link.machine == nil && chiefHost == "chief:" + home ? link : nil

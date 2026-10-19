@@ -11,7 +11,10 @@ import Foundation
 /// a workspace through `windows.reveal(workspaceID:)` and
 /// `WindowActivation`. It never runs a command, sends text or changes
 /// state; the only thing it creates is the agent tab for a session no tab
-/// shows, as opening that session from history does.
+/// shows, as opening that session from history does. An agent link
+/// (`agent/<harness>/<session>`) only reveals a tab this app already shows
+/// that session in, then, when the user opened it, gives that tab's input
+/// the keyboard.
 @MainActor
 struct DeepLinkNavigator {
     let services: AppServices
@@ -45,6 +48,8 @@ struct DeepLinkNavigator {
             let host = "chief:" + home
             guard services.agentTabs.chiefHost == host, let shown = services.agentTabs.tab(showing: session, host: host),
                   services.revealTab(shown, intent: intent) else { throw Self.gone }
+        case .agent(let harness, let session):
+            try openAgent(harness: harness, session: session, background: background, intent)
         case .legacyWorkspace(let key, let fallback):
             guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)
@@ -93,6 +98,21 @@ struct DeepLinkNavigator {
         guard let pane = services.windows.active?.focusedPane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
         // The store commits the tab first; the turn waits for its page.
         pane.openAgentSession(id) { key in if let turn { tabs.revealTurn(turn, in: key) } }
+    }
+
+    /// An outside agent's session (hq#2555): the agent chat tab that adopted it, else the
+    /// terminal running it, on a machine this app is connected to. Never a new tab, a resume or
+    /// a connection; `host`/`name` hints play no part. A user's open focuses the tab's input.
+    private func openAgent(harness: String, session: String, background: Bool, _ intent: WindowActivation.Intent) throws {
+        guard LinkTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
+        let adopted = services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session))
+        guard let tab = DeepLink.agentTab(harness: harness, session: session, adopted: adopted,
+                                          terminals: services.agentLinkCandidates()),
+              services.revealTab(tab, intent: intent) else { throw Self.gone }
+        switch DeepLink.agentFocus(chatTab: tab == adopted, background: background) {
+        case .none: break
+        case .focusComposer, .focusTerminal: services.focusContent(ofTab: tab)
+        }
     }
 
     /// Nightly's durable workspace UUID is `WorkspaceModel.id` (the
