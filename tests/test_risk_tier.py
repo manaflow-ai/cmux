@@ -71,6 +71,7 @@ class ClassifyTests(unittest.TestCase):
             "web/services/relay/forward.ts",
             "web/db/migrations/20260707032007_same_quicksilver/migration.sql",
             "backend/db/drizzle/0042_add.sql",
+            "migrations/0001_init.sql",
             NEXT + "CmuxNextSettings/SettingsMigration.swift",
             "web/convex/schema.ts",
             ".github/workflows/release.yml",
@@ -112,6 +113,12 @@ class ClassifyTests(unittest.TestCase):
         # Editing a workflow that already has one, or mentioning it, is normal.
         self.assertEqual(self.tier(wf, patches={wf: "+      run: echo pull_request_target is not used"}), "normal")
         self.assertEqual(self.tier(wf, patches={wf: "-  pull_request_target:"}), "normal")
+        for inline in ("+on: pull_request_target", "+on: [push, pull_request_target]",
+                       "+on: { workflow_run: { workflows: [ci] } }", '+  "pull_request_target":'):
+            with self.subTest(line=inline):
+                self.assertEqual(self.tier(wf, patches={wf: inline}), "high")
+        self.assertEqual(self.tier(wf, patches={wf: "+    if: github.event_name == 'pull_request_target'"}), "normal")
+        self.assertEqual(self.tier(wf, patches={wf: "+  push:  # not pull_request_target"}), "normal")
 
     def test_audit_sample_of_real_pull_requests(self):
         # Each case is a merged pull request from the audit (docs/ci/risk-tiers.md), with its files.

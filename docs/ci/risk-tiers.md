@@ -17,7 +17,7 @@ A pull request takes the highest tier of any file it changes. A file no rule nam
 | --- | --- | --- |
 | low | docs, plans, skills, copy (`*.xcstrings`, `*.strings`), generated output, tests and fixtures, agent and tooling config (`.claude/`, `tools/`, prototypes) | green relevant checks. Post-merge checks catch the rest. |
 | normal | everything else: cmux NEXT UI and logic, webviews, the daemon and cmux-tui, web routes, CI workflows and scripts, `gh-merge-green`, pins, defaults behind a setting | agent review and the relevant checks, then auto-merge or the batch queue. No person. |
-| high | the six kinds below | a person looks first: an approving review on the head commit by someone other than the author, or `risk:human-ok` added by a maintainer |
+| high | the six kinds below | a person looks first: an approving review on the head commit by a collaborator other than the author, or `risk:human-ok` added by a maintainer |
 
 High is kept small on purpose. Each kind is here because a regression in it can't be undone by
 reverting the commit, or because it takes out the safety net every other tier relies on:

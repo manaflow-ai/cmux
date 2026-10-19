@@ -88,7 +88,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # Stored data other builds read back: a bad migration loses user data on every machine that
     # runs it, and a revert doesn't bring the data back.
     ("high", "stored-data migration", (
-        "*/migrations/*", "*/drizzle/*", "*/migrate/*", "*[Mm]igrat*.swift", "*[Mm]igrat*.rs",
+        "migrations/*", "*/migrations/*", "*/drizzle/*", "*/migrate/*", "*[Mm]igrat*.swift", "*[Mm]igrat*.rs",
         "*[Mm]igrat*.ts", "web/convex/schema*", "backend/db/schema*",
     )),
     # Shipping. A broken updater also breaks the safety net every other tier relies on: nightly
@@ -126,14 +126,14 @@ GENERATED = (
 DELETES = re.compile(
     r"(\bremoveItem\s*\(\s*at|\bremove_dir_all\s*\(|\bshutil\.rmtree\b|\brmSync\s*\(|\bfs\.(promises\.)?rm\s*\("
     r"|\brimraf\b|\bDROP\s+(TABLE|COLUMN)\b|\bTRUNCATE\s+TABLE\b|\bDELETE\s+FROM\b|\.trashItem\s*\("
-    r"|\bdeleteAll\w*\s*\(|\bpurge\w*\s*\()")
+    r"|\bdeleteAll\w*\s*\(|\bpurge\w*\s*\(|\bdb\.delete\s*\()")
 DELETE_SCOPE_EXCLUDED = ("scripts/*", ".github/*", "tools/*", "dogfood/*", "Prototypes/*", "samples/*",
                          "examples/*", ".claude/*", ".codex/*", ".agents/*")
 
 # A change kind, read from the lines a workflow adds: a trigger that runs with the base's secrets
 # and a write token on a fork's pull request. A cache or checkout of the fork's code under one is
 # how 16c570b576 opened a cache-poisoning path.
-PRIVILEGED_TRIGGER = re.compile(r"^\s*-?\s*(pull_request_target|workflow_run)\s*:?\s*(#.*)?$")
+PRIVILEGED_TRIGGER = re.compile(r"\b(pull_request_target|workflow_run)\b")
 WORKFLOW_FILES = (".github/workflows/*.yml", ".github/workflows/*.yaml", ".github/actions/*")
 
 TAKES_BACK = re.compile(r"^[ \t]*[-*]?[ \t]*\**takes back\**[ \t]+#(\d+)\**[ \t]*:[ \t]*\S", re.I | re.M)
@@ -179,8 +179,14 @@ def added_privileged_trigger(path: str, patch: str) -> bool:
     """Whether the patch adds a pull_request_target or workflow_run trigger to a workflow."""
     if not any(matches(path, p) for p in WORKFLOW_FILES):
         return False
-    return any(line.startswith("+") and not line.startswith("+++") and PRIVILEGED_TRIGGER.match(line[1:])
-               for line in patch.splitlines())
+    for line in patch.splitlines():
+        if line.startswith("+") and not line.startswith("+++"):
+            # The YAML before any comment: `on: [push, pull_request_target]` counts, `# ...` does not.
+            code = line[1:].split("#", 1)[0]
+            # A mention inside a shell step or an expression is not a trigger.
+            if PRIVILEGED_TRIGGER.search(code) and not re.search(r"(\$\{\{|\b(run|echo|if)\b|github\.event_name)", code):
+                return True
+    return False
 
 
 def classify(files: list[str], patches: dict[str, str] | None = None) -> Grade:
@@ -223,14 +229,25 @@ def strip_comments(body: str) -> str:
 
 
 def gh_json(*args: str):
-    out = subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+    out = gh_run(["gh", *args])
     return json.loads(out) if out.strip() else None
+
+
+def gh_run(args: list[str], attempts: int = 3) -> str:
+    """stdout of a gh call, retried so one transient API error doesn't turn the check red."""
+    for attempt in range(attempts):
+        try:
+            return subprocess.run(args, check=True, capture_output=True, text=True).stdout
+        except subprocess.CalledProcessError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(2 * (attempt + 1))
+    return ""
 
 
 def gh_items(endpoint: str) -> list[dict]:
     """Every item of a paginated list endpoint, one JSON object per line (no --slurp on older gh)."""
-    out = subprocess.run(["gh", "api", "--paginate", endpoint, "--jq", ".[] | @json"],
-                         check=True, capture_output=True, text=True).stdout
+    out = gh_run(["gh", "api", "--paginate", endpoint, "--jq", ".[] | @json"])
     return [json.loads(line) for line in out.splitlines() if line.strip()]
 
 
@@ -241,7 +258,7 @@ RECENT_DAYS = 7
 MAX_BLAME_FILES = 60
 # The whole revert check stops after this many seconds and lists what it didn't get to, so the
 # job always finishes inside its own timeout (a timed-out check is red and can't be waived).
-REVERT_BUDGET_SECONDS = 120
+REVERT_BUDGET_SECONDS = 90
 PR_SUFFIX = re.compile(r"\(#(\d+)\)\s*$")
 
 
@@ -318,7 +335,7 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
         for start, end in ranges[:50]:
             args += ["-L", f"{start},{end}"]
         try:
-            out = subprocess.run([*args, base_sha, "--", path], capture_output=True, text=True,
+            out = subprocess.run([*args, base_sha, "--", path], capture_output=True, text=True, errors="replace",
                                  timeout=min(30, max(1, remaining)))
         except subprocess.TimeoutExpired:
             out = None
@@ -338,6 +355,10 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                 key, value = line.split(" ", 1)
                 current.setdefault(key, value)
         for sha, info in commits.items():
+            if time.monotonic() > deadline:
+                if unread is not None:
+                    unread.append(path)
+                break
             if "boundary" in info or int(info.get("committer-time", "0")) < cutoff:
                 continue
             number = PR_SUFFIX.search(info.get("summary", ""))
@@ -345,7 +366,7 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                 continue
             try:
                 shown = subprocess.run(["git", "-C", repo_dir, "show", "--format=", sha, "--", path],
-                                       capture_output=True, text=True,
+                                       capture_output=True, text=True, errors="replace",
                                        timeout=max(1, deadline - time.monotonic())).stdout
             except subprocess.TimeoutExpired:
                 if unread is not None:
@@ -371,10 +392,14 @@ def pr_mode(args: argparse.Namespace) -> int:
         # The patches' line numbers are relative to the merge base, not the base branch's tip.
         try:
             merge_base = gh_json("api", f"repos/{args.repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
-                                 "--jq", "{sha: .merge_base_commit.sha}")["sha"]
+                                 "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
         except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
             merge_base = pr["base"]["sha"]
-        undone = recent_reverts(entries, args.repo_dir, merge_base, int(args.number), unread=unread)
+        try:
+            undone = recent_reverts(entries, args.repo_dir, merge_base, int(args.number), unread=unread)
+        except Exception as error:  # The takeback check informs the grade; it never crashes it.
+            print(f"::warning::takeback check failed: {type(error).__name__}")
+            unread.extend(e["filename"] for e in entries if deleted_ranges(e.get("patch") or ""))
         for number, paths in sorted(undone.items()):
             grade.reasons.setdefault(f"held: takes back #{number}'s change from the last {RECENT_DAYS} days",
                                      []).extend(paths)

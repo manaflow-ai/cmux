@@ -98,7 +98,7 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   Low (docs, copy, generated, tests) and normal (most UI and logic) never wait for a person:
   agent review and the relevant checks, then merge. High (auth, socket and relay policy,
   migrations, release/signing/updater, the risk gate, a new delete of user data, a new
-  `pull_request_target` trigger) holds the `risk evidence` check until a person approves the
+  `pull_request_target` or `workflow_run` trigger) holds `risk evidence` until a collaborator approves the
   head or a maintainer adds `risk:human-ok`. Any tier is held while it takes back a change
   merged in the last week, until the description has `Takes back #N: <why>`. Ship
   user-visible high-tier behavior behind a default-off setting; revert with
