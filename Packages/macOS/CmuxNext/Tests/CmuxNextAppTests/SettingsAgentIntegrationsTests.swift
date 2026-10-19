@@ -8,9 +8,9 @@ import Testing
 /// gesture runs `agent hook install|uninstall <id>` and reads status again, and nothing runs
 /// before the person clicks. A conflict (a file cmux did not create in the way) offers no Install.
 @MainActor struct SettingsAgentIntegrationsTests {
-    static let cli = URL(fileURLWithPath: "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux")
+    nonisolated static let cli = URL(fileURLWithPath: "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux")
 
-    static let status = #"""
+    nonisolated static let status = #"""
     {"action":"status","helper":"/h/.local/share/cmux-tui/bin/cmux-tui-hook","providers":[
       {"provider":"claude","path":"/h/.claude/settings.json","state":"installed","changed":false},
       {"provider":"codex","path":"/h/.codex/hooks.json","state":"partial","changed":false},
@@ -21,7 +21,7 @@ import Testing
     """#
 
     /// A fake CLI: answers `status` with `status`, records every argv.
-    final class Recorder: @unchecked Sendable {
+    nonisolated final class Recorder: @unchecked Sendable {
         var calls: [[String]] = []
         var reply: (Int32, Data, Data) = (0, Data(SettingsAgentIntegrationsTests.status.utf8), Data())
     }
