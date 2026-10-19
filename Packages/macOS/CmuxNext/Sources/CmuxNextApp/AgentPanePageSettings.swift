@@ -6,7 +6,7 @@ import Observation
 
 /// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`,
 /// `agentPane.editedFiles.*`, `agentPane.showContextUsage`, `diff.colors` and the Debug Settings
-/// toggles `agent.reasoningSlider`/`agent.reasoningSliderStyle`/`agentPane.debug.sidebarPreviewVariant`. Each change reaches every open view; a new view gets the current
+/// toggles `agent.reasoningSlider`/`agent.reasoningSliderStyle`/`agent.modelMenu`/`agentPane.debug.sidebarPreviewVariant`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {
     private(set) var previewFeatures = false
@@ -60,18 +60,21 @@ final class AgentPanePageSettings {
                 // The reasoning slider is the Debug Settings toggle's, not cmux.json's.
                 let reasoningSlider = composer.reasoningSlider
                 let reasoningSliderStyle = composer.reasoningSliderStyle
+                let modelMenu = composer.modelMenu
                 composer = value
                 composer.reasoningSlider = reasoningSlider
                 composer.reasoningSliderStyle = reasoningSliderStyle
+                composer.modelMenu = modelMenu
                 push()
             }
         }
         // task-owner: lives as long as the tabs; event-driven (Observation)
         reasoningSliderObservation = Task { [weak self] in
-            for await on in ObservationStream({ (AgentPaneTunables.reasoningSlider.value, AgentPaneTunables.reasoningSliderStyle.value) }) {
+            for await on in ObservationStream({ (AgentPaneTunables.reasoningSlider.value, AgentPaneTunables.reasoningSliderStyle.value, AgentPaneTunables.modelMenu.value) }) {
                 guard let self else { return }
                 composer.reasoningSlider = on.0
                 composer.reasoningSliderStyle = on.1.rawValue
+                composer.modelMenu = on.2.rawValue
                 push()
             }
         }

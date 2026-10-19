@@ -37,3 +37,12 @@ struct AgentPaneReasoningSliderStyleTests {
         #expect(AgentPaneTunables.all.contains { $0.key == "agent.reasoningSliderStyle" })
     }
 }
+
+struct AgentPaneModelMenuStyleTests {
+    @Test func offersCompactAndFullWithCompactAsTheDefault() {
+        #expect(AgentPaneModelMenuStyle.allCases.map(\.rawValue) == ["compact", "full"])
+        #expect(AgentPaneTunables.modelMenu.descriptor.key == "agent.modelMenu")
+        #expect(AgentPaneTunables.modelMenu.value == .compact)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.modelMenu" })
+    }
+}

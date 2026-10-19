@@ -29,4 +29,12 @@ struct AgentPaneReasoningSliderSettingTests {
         #expect(setting.pageValue.value(at: ["showDictation"])?.boolValue == true)
     }
 
+    /// `agent.modelMenu` rides the same event; the page opens the compact menu unless it says `full`.
+    @Test func theModelMenuChoiceReachesThePage() {
+        var setting = AgentPaneComposerSetting.fallback
+        #expect(setting.pageValue.value(at: ["modelMenu"])?.stringValue == "compact")
+        setting.modelMenu = "full"
+        #expect(setting.pageValue.value(at: ["modelMenu"])?.stringValue == "full")
+    }
+
 }

@@ -18,6 +18,7 @@ import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } fr
 import { modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
+import { QuickModelMenu } from "./QuickModelMenu";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -249,6 +250,8 @@ export function ModelPicker(props: ModelPickerProps) {
     signedOut,
     onLogIn,
     usage,
+    quick,
+    detail,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
@@ -263,6 +266,8 @@ export function ModelPicker(props: ModelPickerProps) {
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
+  // The compact menu (QuickModelMenu) a click opens when `quick` is set; More models opens the full one.
+  const [quickOpen, setQuickOpen] = useState(false);
   const [openHeight, setOpenHeight] = useState<number>();
   const [selectedHarness, setSelectedHarness] = useState(harness);
   const [activeHarness, setActiveHarness] = useState(0);
@@ -427,6 +432,15 @@ export function ModelPicker(props: ModelPickerProps) {
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
   const press = usePopoverTrigger(open, toggle, show);
+  const more = (typed?: string) => {
+    setQuickOpen(false);
+    show();
+    if (typed) {
+      setQuery(typed);
+      setActive(0);
+      setAddChosen(false);
+    }
+  };
   useEscapeCloses(open, close);
 
   useLayoutEffect(() => {
@@ -667,6 +681,36 @@ export function ModelPicker(props: ModelPickerProps) {
     const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
+  const chipFace = (
+    <>
+      <AgentMark agent={chipHarness} size={15} />
+      <span
+        className="acpmux-model-name"
+        {...(chipShort
+          ? { "data-short": "" }
+          : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : "full family" })}
+      >
+        {chipName}
+      </span>
+      {/* The row's forms are drawn, not written: the chip's text stays the model's name. */}
+      {chipShort && (
+        <span
+          className="acpmux-model-short acpmux-fit-label"
+          data-fit-part="model"
+          data-fit-forms={chipFamily ? "full" : "full family"}
+          data-label={chipShort}
+        />
+      )}
+      {chipFamily && (
+        <span
+          className="acpmux-model-short acpmux-fit-label"
+          data-fit-part="model"
+          data-fit-forms="family"
+          data-label={chipFamily}
+        />
+      )}
+    </>
+  );
   return (
     <span
       ref={root}
@@ -675,59 +719,74 @@ export function ModelPicker(props: ModelPickerProps) {
       // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
       {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
     >
-      <PickerButton
-        ref={trigger}
-        type="button"
-        className="acpmux-picker-button"
-        data-menu={modelText}
-        aria-label={modelText}
-        /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-        title={usage ? `${chipLabel} · ${usage}` : chipLabel}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        keyboard={(event) => {
-          if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
-            event.preventDefault();
-            setQuery(event.key);
-            setActive(0);
-            setAddChosen(false);
-            search.current?.focus();
-          } else if (!open && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-            event.preventDefault();
-            show();
-          }
-        }}
-        {...press}
-      >
-        <AgentMark agent={chipHarness} size={15} />
-        <span
-          className="acpmux-model-name"
-          {...(chipShort
-            ? { "data-short": "" }
-            : { "data-fit-part": "model", "data-fit-forms": chipFamily ? "full" : "full family" })}
+      {quick ? (
+        // The compact menu's chip is its Base UI menu button (submenus need one); a press while
+        // the full picker is open only closes it.
+        <QuickModelMenu
+          open={quickOpen}
+          onOpenChange={(next) => {
+            if (open) close();
+            else setQuickOpen(next);
+          }}
+          trigger={trigger}
+          chip={{
+            "data-menu": modelText,
+            label: modelText,
+            /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
+            title: usage ? `${chipLabel} · ${usage}` : chipLabel,
+          }}
+          menu={{
+            ...quick,
+            // This harness's top models, the running one among them; a signed-out harness lists none.
+            models:
+              current && loginFor(current) === undefined
+                ? shownSections(current, props.model)
+                    .latest.filter((model) => !model.unavailable)
+                    .slice(0, 9)
+                : [],
+            current: props.model,
+            onModel: (id) => onLand(id),
+          }}
+          onMore={more}
         >
-          {chipName}
-        </span>
-        {/* The row's forms are drawn, not written: the chip's text stays the model's name. */}
-        {chipShort && (
-          <span
-            className="acpmux-model-short acpmux-fit-label"
-            data-fit-part="model"
-            data-fit-forms={chipFamily ? "full" : "full family"}
-            data-label={chipShort}
-          />
-        )}
-        {chipFamily && (
-          <span
-            className="acpmux-model-short acpmux-fit-label"
-            data-fit-part="model"
-            data-fit-forms="family"
-            data-label={chipFamily}
-          />
-        )}
-        <ChevronIcon />
-      </PickerButton>
+          {chipFace}
+          {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
+          {detail && (
+            <span className="acpmux-model-detail" data-fit-part="effort" data-fit-forms="full">
+              {detail}
+            </span>
+          )}
+        </QuickModelMenu>
+      ) : (
+        <PickerButton
+          ref={trigger}
+          type="button"
+          className="acpmux-picker-button"
+          data-menu={modelText}
+          aria-label={modelText}
+          /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
+          title={usage ? `${chipLabel} · ${usage}` : chipLabel}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          keyboard={(event) => {
+            if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+              event.preventDefault();
+              setQuery(event.key);
+              setActive(0);
+              setAddChosen(false);
+              search.current?.focus();
+            } else if (!open && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+              event.preventDefault();
+              show();
+            }
+          }}
+          {...press}
+        >
+          {chipFace}
+          <ChevronIcon />
+        </PickerButton>
+      )}
       {open && (
         <PickerDialog
           ref={menu}

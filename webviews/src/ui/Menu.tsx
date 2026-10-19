@@ -125,6 +125,8 @@ export interface MenuButtonProps {
   "aria-labelledby"?: string;
   /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
   "data-menu"?: string;
+  /** Also holds the button, for a caller that anchors other UI to it. */
+  buttonRef?: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 }
 
@@ -136,12 +138,16 @@ export function MenuButton({
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
+  buttonRef,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
   return (
     <BaseMenu.Trigger
-      ref={context?.trigger}
+      ref={(node: HTMLButtonElement | null) => {
+        if (context) context.trigger.current = node;
+        if (buttonRef) buttonRef.current = node;
+      }}
       className={cx("ui-button", className)}
       aria-label={label}
       title={title}

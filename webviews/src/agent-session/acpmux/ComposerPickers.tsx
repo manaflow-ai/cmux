@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
+import { useChatAccounts } from "./chatAccounts";
+import type { QuickMenuExtras } from "./QuickModelMenu";
 import { sessionModels } from "./modelCatalog";
 import {
   isDefaultChoice,
@@ -182,7 +184,10 @@ export function ComposerPickers({
   const t = useT();
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts);
   // the reasoning menu draws a slider when the person opted in (the Debug Settings toggle agent.reasoningSlider).
-  const { showContextUsage, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
+  const { showContextUsage, reasoningSlider, reasoningSliderStyle, modelMenu } = useComposerSettings();
+  // The compact model menu carries Effort and Account, so the row has no effort chip of its own.
+  const compact = modelMenu === "compact";
+  const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
@@ -571,6 +576,39 @@ export function ComposerPickers({
       }
     : undefined;
   const effortShort = !ultracodeOn && effortChoice ? shortLevel(effortChoice, t) : undefined;
+  // The compact menu's Effort rows: the reported levels (Ultracode last, where the model offers it),
+  // else the held ones before the session reports, picked the same way as their chips pick them.
+  const quickEffort: QuickMenuExtras["effort"] =
+    effort && efforts.length > 1
+      ? {
+          levels: ultracode ? [...efforts, { id: "ultracode", name: ultracode.title }] : efforts,
+          current: ultracodeOn ? "ultracode" : effortValue,
+          onPick: (value) => {
+            pending.current = undefined;
+            onEffort(effort.id, value);
+          },
+        }
+      : heldLevels.length > 1 && chipHarness
+        ? {
+            levels: heldLevels,
+            current: heldValue,
+            onPick: (value) => {
+              pending.current = undefined;
+              setHeldPick({ harness: chipHarness, value });
+              onEffort(heldOption?.id ?? "effort", value);
+            },
+          }
+        : undefined;
+  // Accounts are this Mac's acpmux routes: a chat on another machine has none here.
+  const quickAccount: QuickMenuExtras["account"] =
+    chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
+      ? { sessionId: summary.sessionId, accounts: chatAccounts }
+      : undefined;
+  const quick: QuickMenuExtras | undefined = compact
+    ? { ...(quickEffort ? { effort: quickEffort } : {}), ...(quickAccount ? { account: quickAccount } : {}) }
+    : undefined;
+  // The compact chip names the effort after the model ("Opus 5.5 Medium").
+  const quickDetail = compact ? (effortLabel ?? (awaiting ? pendingEffort : undefined)) : undefined;
   const usage = summary?.usage;
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -610,6 +648,8 @@ export function ComposerPickers({
           }
           measureRoom={measurePickerRoom}
           usage={usageNote}
+          {...(quick ? { quick } : {})}
+          {...(quickDetail ? { detail: quickDetail } : {})}
         />
       ) : (
         // No harness installed (Leo 2026-10-14): the chip itself adds one, a plain button styled as
@@ -625,7 +665,7 @@ export function ComposerPickers({
       )}
       {/* Reasoning is its own stable control, separate from the model and harness picker. A model
           whose only level is the agent's default has nothing to pick, so it shows no control. */}
-      {effort && efforts.length > 1 && (
+      {!compact && effort && efforts.length > 1 && (
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
@@ -651,7 +691,7 @@ export function ComposerPickers({
           }}
         />
       )}
-      {heldLevels.length > 1 && chipHarness && pendingEffort ? (
+      {compact ? null : heldLevels.length > 1 && chipHarness && pendingEffort ? (
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={heldLevels}

@@ -6,15 +6,21 @@
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
 // The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
 // (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
-// slider instead of its list of levels. Only Debug Settings changes it.
+// slider instead of its list of levels. Only Debug Settings changes it. `modelMenu` is the Debug
+// Settings choice `agent.modelMenu` (compact by default in the app): what the model chip opens.
 import { useSyncExternalStore } from "react";
 
 export type ReasoningSliderStyle = "accent" | "minimal";
+/// What the model chip opens (the Debug Settings choice `agent.modelMenu`): the compact Claude Code
+/// style menu (the app's default) or the full picker. A page with no host (a gallery, a test) opens
+/// the full picker, as before the choice existed.
+export type ModelMenuStyle = "compact" | "full";
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
   reasoningSlider: boolean;
   reasoningSliderStyle: ReasoningSliderStyle;
+  modelMenu: ModelMenuStyle;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -22,6 +28,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   showDictation: true,
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
+  modelMenu: "full",
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider";
@@ -36,6 +43,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     showDictation: flag("showDictation"),
     reasoningSlider: flag("reasoningSlider"),
     reasoningSliderStyle,
+    modelMenu: raw.modelMenu === "compact" ? "compact" : "full",
   };
 }
 
