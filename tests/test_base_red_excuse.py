@@ -255,6 +255,65 @@ def crashed(job, signal, unfinished, frames, *extra):
                f"##[error]the test helper died on signal {signal}; crashed thread: {frames}")
 
 
+class PullRequestReport(unittest.TestCase):
+    """`--pr N` answers "is this PR's red the base's?" for every red check in one command."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs[3] = failed_job(3, 10, HEAD, name=SCHEME, step="Compile")
+        self.gh.logs[3] = log(SCHEME, "Compile", "##[error]Foo.swift:3:1: error: cannot find 'bar' in scope")
+        checks = [
+            {"id": 1, "name": SWIFT, "status": "completed", "conclusion": "failure", "app": {"slug": "github-actions"},
+             "details_url": f"https://github.com/{REPO}/actions/runs/10/job/1"},
+            {"id": 3, "name": SCHEME, "status": "completed", "conclusion": "failure", "app": {"slug": "github-actions"},
+             "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"},
+            {"id": 4, "name": "green", "status": "completed", "conclusion": "success", "app": {"slug": "github-actions"},
+             "details_url": f"https://github.com/{REPO}/actions/runs/10/job/4"},
+            {"id": 5, "name": "Vercel", "status": "completed", "conclusion": "failure", "app": {"slug": "vercel"},
+             "details_url": "https://vercel.com/x"},
+        ]
+        original = self.gh.json
+
+        def json_with_pr(route, *, paginate=False):
+            if route.endswith("/pulls/42"):
+                return {"number": 42, "head": {"sha": HEAD}, "base": {"ref": "feat-cmux-next"}}
+            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+                return [{"check_runs": copy.deepcopy(checks)}]
+            if "/actions/jobs/" in route:
+                return copy.deepcopy(self.gh.jobs[int(route.rsplit("/", 1)[1])])
+            return original(route, paginate=paginate)
+
+        self.gh.json = json_with_pr
+
+    def test_each_red_check_gets_its_own_verdict(self):
+        ok, lines = excuse.report_pr(REPO, 42, self.gh)
+        text = "\n".join(lines)
+        self.assertFalse(ok)
+        self.assertIn(f"base red: '{SWIFT}'", text)
+        self.assertIn(f"NOT base red: '{SCHEME}'", text)
+        self.assertNotIn("'green'", text)
+        # Only GitHub Actions checks carry evidence; a third-party red is listed but never excused.
+        self.assertIn("NOT base red: 'Vercel'", text)
+
+    def test_all_red_checks_on_the_base_exit_zero(self):
+        self.gh.logs[2] += "\n" + log(SCHEME, "Compile", "##[error]Foo.swift:9:1: error: cannot find 'bar' in scope")
+        self.gh.jobs[6] = failed_job(6, 20, BASE_SHA, name=SCHEME, step="Compile")
+        self.gh.logs[6] = log(SCHEME, "Compile", "##[error]Foo.swift:9:1: error: cannot find 'bar' in scope")
+        ok, lines = excuse.report_pr(REPO, 42, self.gh)
+        self.assertEqual(sum(line.startswith("base red:") for line in lines), 2, lines)
+        ok_vercel = [line for line in lines if "Vercel" in line]
+        self.assertEqual(len(ok_vercel), 1)
+        self.assertFalse(ok)
+
+    def test_a_pr_with_no_red_check_says_so(self):
+        self.gh.json = lambda route, *, paginate=False: (
+            {"number": 42, "head": {"sha": HEAD}, "base": {"ref": "feat-cmux-next"}} if route.endswith("/pulls/42")
+            else [{"check_runs": []}])
+        ok, lines = excuse.report_pr(REPO, 42, self.gh)
+        self.assertTrue(ok)
+        self.assertIn("no red check", "\n".join(lines))
+
+
 class BaseOwnedCrash(unittest.TestCase):
     """A test helper crash on the base is the base's: the head's crash with the same signal is excused,
     though the tests in flight and the crashed thread differ run to run."""
