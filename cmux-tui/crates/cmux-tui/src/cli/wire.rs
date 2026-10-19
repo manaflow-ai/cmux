@@ -141,6 +141,11 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         if plan.stream && crate::shutdown_requested() {
             return 0;
         }
+        if refused_at_connect(&mut reader, &error) {
+            // A refused connection carried no request: nothing applied.
+            eprintln!("{}", hints::session_busy());
+            return 3;
+        }
         eprintln!("transport error: {error}");
         // Part of the request may have reached the daemon.
         key_report.finish(global.output);
@@ -281,7 +286,11 @@ fn require_server_capability(
         .and_then(|_| reader.get_mut().write_all(b"\n"))
         .and_then(|_| reader.get_mut().flush())
         .map_err(|error| {
-            eprintln!("transport error while checking session capabilities: {error}");
+            if refused_at_connect(reader, &error) {
+                eprintln!("{}", hints::session_busy());
+            } else {
+                eprintln!("transport error while checking session capabilities: {error}");
+            }
             3
         })?;
     let response = read_envelope(reader, false)
@@ -555,12 +564,45 @@ fn run_response(
                 eprintln!("{}", sanitize_human_block(&message));
                 return 1;
             }
+            Some("refused") => {
+                eprintln!("{}", hints::session_busy());
+                return 3;
+            }
+            // A cmux.protocol/2 envelope of a type this command does not
+            // expect is not an older cmux: name the type.
+            Some(other) if value.get("protocol").and_then(Value::as_str) == Some(PROTOCOL) => {
+                eprintln!(
+                    "protocol error: {}",
+                    hints::unexpected_envelope(&sanitize_human_block(other))
+                );
+                return 3;
+            }
             _ => {
                 eprintln!("protocol error: {}", hints::wrong_protocol());
                 return 3;
             }
         }
     }
+}
+
+/// Whether a write that failed because the session closed the socket met
+/// the refusal line a session at its connection limit sends before closing
+/// (`type: "refused"`), so the error says "busy", not "broken pipe".
+fn refused_at_connect(reader: &mut BufReader<Box<dyn transport::Stream>>, error: &io::Error) -> bool {
+    if !matches!(
+        error.kind(),
+        io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted
+    ) {
+        return false;
+    }
+    let _ = reader.get_mut().set_read_timeout(Some(std::time::Duration::from_millis(200)));
+    let mut line = Vec::new();
+    if reader.by_ref().take(4096).read_until(b'\n', &mut line).is_err() {
+        return false;
+    }
+    serde_json::from_slice::<Value>(&line)
+        .ok()
+        .is_some_and(|value| value.get("type").and_then(Value::as_str) == Some("refused"))
 }
 
 pub(super) fn read_envelope(
