@@ -48,9 +48,31 @@ class FakeGitHub:
                           {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
                            "conclusion": "failure", "head_sha": BASE_SHA}]
         self.routes: list[str] = []
+        # Base commits, newest first, by ref; check runs per commit; sibling pull request runs.
+        self.history: dict[str, list[str]] = {}
+        self.merge_base: str | None = None
+        self.commit_checks: dict[str, list[dict]] = {}
+        self.pr_runs: list[dict] = []
+        self.pr_commits: dict[int, list[str]] = {}
 
     def json(self, route, *, paginate=False):
         self.routes.append(route)
+        if "/commits?sha=" in route:
+            ref = route.split("?sha=", 1)[1].split("&", 1)[0]
+            limit = int(route.rsplit("per_page=", 1)[1])
+            return [{"sha": sha} for sha in self.history.get(ref, [])[:limit]]
+        if "/compare/" in route:
+            return {"merge_base_commit": {"sha": self.merge_base}} if self.merge_base else {}
+        if "/commits/" in route and "/check-runs" in route:
+            sha = route.split("/commits/", 1)[1].split("/", 1)[0]
+            return [{"check_runs": copy.deepcopy(self.commit_checks.get(sha, []))}]
+        if "/actions/jobs/" in route:
+            return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+        if "/pulls/" in route and "/commits" in route:
+            number = int(route.split("/pulls/", 1)[1].split("/", 1)[0])
+            return [[{"sha": sha} for sha in self.pr_commits.get(number, [])]]
+        if "/actions/workflows/7/runs?" in route and "event=pull_request" in route:
+            return {"workflow_runs": copy.deepcopy(self.pr_runs)}
         if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
@@ -377,6 +399,134 @@ class LintFindings(unittest.TestCase):
         self.gh.jobs[2]["conclusion"] = "success"
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next"):
             self.judge()
+
+
+LINTS = ("God files and types (Swift)", "Main-thread concurrency", "Type scale", "Web bundle key inputs")
+AGGREGATE_STEP = "Fail on any red check"
+TIP, TIP_1, TIP_2 = "1" * 40, "2" * 40, "3" * 40
+MERGE_BASE = "4" * 40
+
+
+def lint_job(job_id, run_id, sha, red=("Main-thread concurrency", "Type scale"), name=CHECKS):
+    """The cmux-next checks job: each lint is a continue-on-error step; only the last step fails."""
+    steps = [{"name": "Set up runner", "status": "completed", "conclusion": "success"}]
+    steps += [{"name": lint, "status": "completed", "conclusion": "success"} for lint in LINTS]
+    steps.append({"name": AGGREGATE_STEP, "status": "completed", "conclusion": "failure"})
+    return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": name, "status": "completed",
+            "conclusion": "failure", "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}/job/{job_id}",
+            "steps": steps}
+
+
+def lint_log(red=("Main-thread concurrency", "Type scale"), extra=()):
+    lines = [f"{CHECKS}\t{lint}\t2026-10-19T19:31:23.4759936Z ##[error]Process completed with exit code 1."
+             for lint in red]
+    lines += [f"{CHECKS}\t{lint}\t2026-10-19T19:31:23.4759936Z {line}" for lint, line in extra]
+    lines += [f"{CHECKS}\t{AGGREGATE_STEP}\t2026-10-19T19:35:08.4265507Z - {lint} (failure)" for lint in red]
+    lines.append(f"{CHECKS}\t{AGGREGATE_STEP}\t2026-10-19T19:35:08.4268790Z ##[error]Process completed with exit code 1.")
+    return "\n".join(lines)
+
+
+def check_run(job, name=None):
+    return {"id": job["id"], "name": name or job["name"], "status": "completed", "conclusion": job["conclusion"],
+            "app": {"slug": "github-actions"},
+            "details_url": f"https://github.com/{REPO}/actions/runs/{job['run_id']}/job/{job['id']}"}
+
+
+class BaseCommitEvidence(unittest.TestCase):
+    """2026-10-19: #21729 and #21807 were refused over "no base verdict" for reds feat-cmux-next had too.
+    The base tip, the merge-base and a few commits before each are read before giving up, and a
+    missing verdict names everything that was compared."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: lint_job(1, 10, HEAD)}
+        self.gh.logs = {1: lint_log()}
+        self.gh.base_runs = []
+        self.gh.history = {"feat-cmux-next": [TIP, TIP_1, TIP_2], MERGE_BASE: [MERGE_BASE]}
+
+    def judge(self, **kwargs):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh, **kwargs)
+
+    def base_lint(self, job_id, commit, run_id=40, **kwargs):
+        job = lint_job(job_id, run_id, commit, **kwargs)
+        self.gh.jobs[job_id] = job
+        self.gh.logs[job_id] = lint_log(**{k: v for k, v in kwargs.items() if k == "red"})
+        self.gh.commit_checks.setdefault(commit, []).append(check_run(job))
+        return job
+
+    def test_a_lint_red_on_the_base_tip_is_excused_naming_the_tip(self):
+        self.base_lint(2, TIP, red=("Main-thread concurrency", "Type scale", "Web bundle key inputs"))
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{CHECKS}'", text)
+        self.assertIn(f"base tip {TIP[:10]}", text)
+        self.assertIn("/job/2", text)
+
+    def test_a_new_red_lint_step_the_base_does_not_have_is_refused(self):
+        self.gh.logs[1] = lint_log(red=("Main-thread concurrency", "God files and types (Swift)"))
+        self.base_lint(2, TIP)
+        with self.assertRaisesRegex(excuse.Refused, r"God files and types \(Swift\)") as caught:
+            self.judge()
+        self.assertIn(HEAD[:10], str(caught.exception))
+        self.assertIn(TIP[:10], str(caught.exception))
+
+    def test_a_missing_tip_verdict_looks_back_a_few_base_commits(self):
+        self.base_lint(2, TIP_2)
+        text = "\n".join(self.judge())
+        self.assertIn(f"base tip~2 {TIP_2[:10]}", text)
+
+    def test_the_lookback_is_bounded(self):
+        self.gh.history["feat-cmux-next"] = [TIP] + [f"{i:040d}" for i in range(1, 9)]
+        self.base_lint(2, f"{7:040d}")
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict"):
+            self.judge(lookback=3)
+
+    def test_a_red_at_the_merge_base_is_excused_when_the_tip_has_no_verdict(self):
+        self.gh.merge_base = MERGE_BASE
+        self.base_lint(2, MERGE_BASE)
+        text = "\n".join(self.judge())
+        self.assertIn(f"merge-base {MERGE_BASE[:10]}", text)
+
+    def test_a_green_tip_and_no_red_elsewhere_refuses_naming_the_green_job(self):
+        job = lint_job(2, 40, TIP)
+        job["conclusion"] = "success"
+        job["steps"][-1]["conclusion"] = "success"
+        self.gh.jobs[2] = job
+        self.gh.logs[2] = ""
+        self.gh.commit_checks[TIP] = [check_run(job)]
+        with self.assertRaisesRegex(excuse.Refused, f"green on base tip {TIP[:10]}"):
+            self.judge()
+
+    def test_a_matrix_suffix_difference_still_matches(self):
+        # #21807: `web / react-apps-check (1)` on the pull request; the base push runs one leg unsuffixed.
+        self.gh.jobs[1] = dict(failed_job(1, 10, HEAD), name="web / react-apps-check (1)")
+        base = dict(failed_job(2, 40, TIP), name="web / react-apps-check")
+        self.gh.jobs[2] = base
+        self.gh.commit_checks[TIP] = [check_run(base)]
+        self.gh.logs[1] = log("web / react-apps-check (1)", TEST_STEP, ISSUE)
+        self.gh.logs[2] = log("web / react-apps-check", TEST_STEP, ISSUE)
+        text = "\n".join(self.judge())
+        self.assertIn("matched without its matrix suffix", text)
+
+    def test_a_caller_prefix_difference_still_matches(self):
+        self.gh.jobs[1] = dict(failed_job(1, 10, HEAD), name="web / react-apps-check")
+        base = dict(failed_job(2, 40, TIP), name="react-apps-check")
+        self.gh.jobs[2] = base
+        self.gh.commit_checks[TIP] = [check_run(base)]
+        self.gh.logs[1] = log("web / react-apps-check", TEST_STEP, ISSUE)
+        self.gh.logs[2] = log("react-apps-check", TEST_STEP, ISSUE)
+        text = "\n".join(self.judge())
+        self.assertIn("matched without its caller prefix", text)
+
+    def test_no_base_verdict_names_the_job_the_sha_and_everything_compared(self):
+        # #21729: the checks job never runs on feat-cmux-next pushes, so no base run has it.
+        self.gh.merge_base = MERGE_BASE
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge()
+        message = str(caught.exception)
+        for expected in (CHECKS, HEAD[:10], "no feat-cmux-next verdict", f"base tip ({TIP[:10]}",
+                         f"merge-base ({MERGE_BASE[:10]}", "no completed feat-cmux-next run of its workflow",
+                         "gh workflow run"):
+            self.assertIn(expected, message)
 
 
 class Script(unittest.TestCase):
