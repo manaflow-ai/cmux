@@ -2,16 +2,21 @@
 -- runs DDL. Identity rows use the same tenant ownership table as VMs.
 ALTER TABLE cmux_vm.resources DROP CONSTRAINT IF EXISTS resources_cmux_id_check;
 ALTER TABLE cmux_vm.resources ADD CONSTRAINT resources_cmux_id_check
-  CHECK (cmux_id ~ '^(vm|snap|idn)_[0-9a-hjkmnp-tv-z]{26}$');
+  CHECK (cmux_id ~ '^(vm|snap|idn|mesh|dev|tun)_[0-9a-hjkmnp-tv-z]{26}$');
 ALTER TABLE cmux_vm.resources DROP CONSTRAINT IF EXISTS resources_kind_check;
 ALTER TABLE cmux_vm.resources ADD CONSTRAINT resources_kind_check
   CHECK (kind IN ('vm', 'snapshot', 'mesh', 'device', 'tunnel', 'identity'));
 ALTER TABLE cmux_vm.resources DROP CONSTRAINT IF EXISTS resources_kind_cmux_id_check;
-ALTER TABLE cmux_vm.resources ADD CONSTRAINT resources_kind_cmux_id_check
+ALTER TABLE cmux_vm.resources DROP CONSTRAINT IF EXISTS resources_kind_prefix_check;
+ALTER TABLE cmux_vm.resources ADD CONSTRAINT resources_kind_prefix_check
   CHECK ((kind = 'vm' AND cmux_id LIKE 'vm\_%')
       OR (kind = 'snapshot' AND cmux_id LIKE 'snap\_%')
       OR (kind = 'identity' AND cmux_id LIKE 'idn\_%')
       OR (kind IN ('mesh', 'device', 'tunnel')));
+
+ALTER TABLE cmux_vm.audit_log DROP CONSTRAINT IF EXISTS audit_log_cmux_id_check;
+ALTER TABLE cmux_vm.audit_log ADD CONSTRAINT audit_log_cmux_id_check
+  CHECK (cmux_id IS NULL OR cmux_id ~ '^(vm|snap|vmk|mesh|dev|tun|idn)_[0-9a-hjkmnp-tv-z]{26}$');
 
 CREATE TABLE IF NOT EXISTS cmux_vm.identity_vm_grants (
   id                 text PRIMARY KEY CHECK (id ~ '^vmp-[A-Za-z0-9-]+$'),
