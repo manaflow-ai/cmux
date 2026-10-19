@@ -91,12 +91,14 @@ const requiredDate = (value: string | undefined): string => (value === undefined
 
 const vmFromSandbox = (sandbox: DaytonaSandbox): UpstreamVm => {
   if (sandbox.cpu === undefined || sandbox.memory === undefined || sandbox.disk === undefined) throw new Error("sandbox resources are missing");
+  const autoStopInterval = sandbox.autoStopInterval ?? 0;
+  const autoDeleteInterval = sandbox.autoDeleteInterval ?? -1;
   return {
     state: stateOf(sandbox.state),
     resources: { cpu: sandbox.cpu, memory: sandbox.memory * 1024, storage: sandbox.disk * 1024 },
-    idleTimeoutSeconds: sandbox.autoStopInterval === 0 ? -1 : sandbox.autoStopInterval * 60,
+    idleTimeoutSeconds: autoStopInterval === 0 ? -1 : autoStopInterval * 60,
     maxRunSeconds: null,
-    autoDeleteSeconds: sandbox.autoDeleteInterval < 0 ? -1 : sandbox.autoDeleteInterval * 60,
+    autoDeleteSeconds: autoDeleteInterval < 0 ? -1 : autoDeleteInterval * 60,
     createdAt: requiredDate(sandbox.createdAt),
     updatedAt: requiredDate(sandbox.updatedAt),
   };

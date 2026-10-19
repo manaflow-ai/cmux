@@ -16,7 +16,7 @@ export interface DaytonaWebhookConfig {
   readonly secret: Redacted.Redacted<string>;
   /** Resolves the ownership row and current resources without trusting webhook tenant fields. */
   readonly resolveSandbox: (upstreamVmId: string) => Promise<DaytonaUsageResource | null>;
-  readonly recorder?: { readonly record: (event: UsageEvent) => Effect.Effect<void> };
+  readonly recorder?: { readonly record: (event: UsageEvent) => Effect.Effect<void, unknown> };
   readonly deliveries: DaytonaWebhookDeliveryStoreService;
   readonly nowMs?: () => number;
 }
