@@ -3,7 +3,9 @@
 -- on the new table through the existing operator role workflow. Old readers and
 -- writers keep using mesh_devices, which is unchanged. Roll back code first;
 -- retain these additive rows and the wider replay check during rollback.
-CREATE TABLE IF NOT EXISTS cmux_vm.mesh_overlay_servers (
+-- The migration runner commits this file and its version once, atomically.
+-- A new table is explicit so its indexes cannot silently lock an existing table.
+CREATE TABLE cmux_vm.mesh_overlay_servers (
   device_cmux_id text PRIMARY KEY,
   tenant_id text NOT NULL,
   mesh_cmux_id text NOT NULL,
@@ -14,9 +16,9 @@ CREATE TABLE IF NOT EXISTS cmux_vm.mesh_overlay_servers (
   created_at timestamptz NOT NULL,
   revoked_at timestamptz NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS mesh_overlay_servers_wg_live_idx
+CREATE UNIQUE INDEX mesh_overlay_servers_wg_live_idx
   ON cmux_vm.mesh_overlay_servers (tenant_id, mesh_cmux_id, wg_public_key) WHERE revoked_at IS NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS mesh_overlay_servers_install_live_idx
+CREATE UNIQUE INDEX mesh_overlay_servers_install_live_idx
   ON cmux_vm.mesh_overlay_servers (tenant_id, mesh_cmux_id, install_public_key) WHERE revoked_at IS NULL;
 ALTER TABLE cmux_vm.mesh_signed_requests
   DROP CONSTRAINT IF EXISTS mesh_signed_requests_purpose_v2_check,

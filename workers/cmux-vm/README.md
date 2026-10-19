@@ -69,8 +69,9 @@ same eight-line message with purpose `enroll-overlay-server`, the mesh id,
 the server's public keys and name. A fresh signed retry returns the existing
 identity when its owner, name and keys match. Records are separate from
 gateway devices, have no tunnel id and do not authorize provider operations.
-They are destinations only: `device:*` in a source selector includes gateway
-devices, while destination selectors include both inventories. Enrollment
+Source wildcards include gateway clients; server initiation needs an explicit
+source-id grant to another device. Provider VM firewall paths cannot originate
+from an overlay server. Destination selectors include both inventories. Enrollment
 checks existing wildcard expansion before recording the new identity.
 
 Operators can read/list/revoke these identities and read their policy under

@@ -116,8 +116,7 @@ describe("provider-free server storage", () => {
     expect(await run(Effect.flatMap(MeshStore, (store) => store.listOverlayServers(T, server.meshId)))).toEqual([replacement]);
   });
 
-  it("claims each new signature domain once after an idempotent migration, with old purposes intact", async () => {
-    await pg.exec(overlayServers);
+  it("claims each new signature domain once with old purposes intact", async () => {
     for (const [index, purpose] of ["enroll-overlay-server", "overlay-server-policy", "revoke-overlay-server", "enroll", "overlay-policy"].entries()) {
       const claim = () => run(Effect.flatMap(MeshStore, (store) => store.claimSignedRequest(T, (index + 1).toString(16).repeat(64), purpose, at(120_000), at(0))));
       expect(await claim()).toBe(true); expect(await claim()).toBe(false);

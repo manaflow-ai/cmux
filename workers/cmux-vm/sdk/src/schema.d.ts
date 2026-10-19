@@ -1145,8 +1145,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read a server's current inbound overlay policy
-         * @description Read a server's current inbound overlay policy. Requires the mesh:join scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. The server is excluded from source selectors. Answers 404 unless the mesh experiment is enabled for this tenant.
+         * Read a server's directed overlay policy
+         * @description Read a server's directed overlay policy. Requires the mesh:join scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. The server is excluded from source wildcards; an explicit source-id grant permits device-to-device initiation. Answers 404 unless the mesh experiment is enabled for this tenant.
          */
         get: operations["overlayServers.getOverlayServerPolicy"];
         put?: never;
@@ -2008,7 +2008,7 @@ export interface components {
         AclRule: {
             /**
              * maxItems(64)
-             * @description Devices: dev_ ids or device:* (every device of the mesh).
+             * @description dev_ ids, or device:* for gateway clients. Provider-free servers require an explicit source id for device-to-device initiation and cannot source provider VM firewall rules.
              */
             src: string[];
             /**
@@ -2099,7 +2099,7 @@ export interface components {
             /** @description The stored address in canonical form (RFC 5952), or null. */
             publicIpv6: string | null;
         };
-        /** @description A destination-only mesh server. It owns no provider tunnel. Enrollment does not enable a role, relay admission or execution. */
+        /** @description A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution. */
         OverlayServer: {
             /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
@@ -7673,7 +7673,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description A destination-only mesh server. It owns no provider tunnel. Enrollment does not enable a role, relay admission or execution. */
+            /** @description A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -7761,7 +7761,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description A destination-only mesh server. It owns no provider tunnel. Enrollment does not enable a role, relay admission or execution. */
+            /** @description A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution. */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -10,7 +10,7 @@ export class OverlayServer extends Schema.Class<OverlayServer>("OverlayServer")(
   id: DeviceId, meshId: MeshId, name: Schema.String, wgPublicKey: WgPublicKey,
   installPublicKey: InstallPublicKey, createdAt: Schema.String,
   kind: Schema.Literal("server"), transport: Schema.Literal("overlay"),
-}, { description: "A destination-only mesh server. It owns no provider tunnel. Enrollment does not enable a role, relay admission or execution." }) {}
+}, { description: "A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution." }) {}
 
 export class OverlayServerList extends Schema.Class<OverlayServerList>("OverlayServerList")({ items: Schema.Array(OverlayServer) }) {}
 export class OverlayServerPolicy extends OverlayPolicy.extend<OverlayServerPolicy>("OverlayServerPolicy")({
@@ -37,7 +37,7 @@ export const getOverlayServerEndpoint = HttpApiEndpoint.get("getOverlayServer", 
 
 export const getOverlayServerPolicyEndpoint = HttpApiEndpoint.get("getOverlayServerPolicy", "/v1/overlay-servers/:deviceId/policy")
   .setPath(PATH).setHeaders(GroupTeamHeaders).addSuccess(OverlayServerPolicy).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
-  .annotateContext(describe("Read a server's current inbound overlay policy", "mesh:join", `${OWN} The server is excluded from source selectors. ${EXPERIMENT}`));
+  .annotateContext(describe("Read a server's directed overlay policy", "mesh:join", `${OWN} The server is excluded from source wildcards; an explicit source-id grant permits device-to-device initiation. ${EXPERIMENT}`));
 
 export const revokeOverlayServerEndpoint = HttpApiEndpoint.del("revokeOverlayServer", "/v1/overlay-servers/:deviceId")
   .setPath(PATH).setHeaders(GroupTeamHeaders).addSuccess(HttpApiSchema.NoContent).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)

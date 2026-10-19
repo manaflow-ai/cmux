@@ -104,8 +104,8 @@ export const overlayServerHandlers = HttpApiBuilder.group(CmuxVmApi, "overlaySer
     const visible = [];
     for (const row of rows) {
       const id = parseDeviceId(row.deviceId); if (Option.isNone(id)) continue;
-      const allowed = yield* name(id.value, (device) => callerActsOnOverlayServer(caller, device)).pipe(Effect.mapError(() => unavailable()));
-      if (allowed !== null) visible.push(toServer(row));
+      const allowed = yield* name(id.value, (device) => callerActsOnOverlayServer(caller, device).pipe(Effect.map((proof) => proof !== null))).pipe(Effect.mapError(() => unavailable()));
+      if (allowed) visible.push(toServer(row));
     }
     return new OverlayServerList({ items: visible });
   })))

@@ -7974,7 +7974,7 @@
         ],
         "responses": {
           "201": {
-            "description": "A destination-only mesh server. It owns no provider tunnel. Enrollment does not enable a role, relay admission or execution.",
+            "description": "A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8219,7 +8219,7 @@
         ],
         "responses": {
           "200": {
-            "description": "A destination-only mesh server. It owns no provider tunnel. Enrollment does not enable a role, relay admission or execution.",
+            "description": "A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8520,8 +8520,8 @@
             }
           }
         },
-        "description": "Read a server's current inbound overlay policy. Requires the mesh:join scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. The server is excluded from source selectors. Answers 404 unless the mesh experiment is enabled for this tenant.",
-        "summary": "Read a server's current inbound overlay policy"
+        "description": "Read a server's directed overlay policy. Requires the mesh:join scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. The server is excluded from source wildcards; an explicit source-id grant permits device-to-device initiation. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "Read a server's directed overlay policy"
       }
     },
     "/v1/overlay-servers/{deviceId}/signed/policy": {
@@ -11560,7 +11560,7 @@
               "title": "maxLength(64)",
               "maxLength": 64
             },
-            "description": "Devices: dev_ ids or device:* (every device of the mesh).",
+            "description": "dev_ ids, or device:* for gateway clients. Provider-free servers require an explicit source id for device-to-device initiation and cannot source provider VM firewall rules.",
             "title": "maxItems(64)",
             "minItems": 1,
             "maxItems": 64
@@ -11865,7 +11865,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "A destination-only mesh server. It owns no provider tunnel. Enrollment does not enable a role, relay admission or execution."
+        "description": "A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution."
       },
       "OverlayServerList": {
         "type": "object",

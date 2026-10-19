@@ -171,7 +171,7 @@ const AllowEntry = Schema.String.pipe(Schema.maxLength(16));
 
 export const AclRule = Schema.Struct({
   src: Schema.Array(Selector).pipe(Schema.minItems(1), Schema.maxItems(64)).annotations({
-    description: "Devices: dev_ ids or device:* (every device of the mesh).",
+    description: "dev_ ids, or device:* for gateway clients. Provider-free servers require an explicit source id for device-to-device initiation and cannot source provider VM firewall rules.",
   }),
   dst: Schema.Array(Selector).pipe(Schema.minItems(1), Schema.maxItems(64)).annotations({
     description: "VMs: vm_ ids or vm:*. Devices: dev_ ids or device:*. Device destinations use directed overlay permissions, never provider firewall rules. Self edges are omitted.",

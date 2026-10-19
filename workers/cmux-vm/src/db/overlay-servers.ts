@@ -2,7 +2,7 @@ import { Effect, Option, Schema } from "effect";
 import { TenantId, type TenantId as Tenant } from "../lib/ids.ts";
 import { StoreError, type SqlClientService } from "./sql.ts";
 
-/** A destination in a mesh. It owns no provider resource and has no tunnel id. */
+/** A provider-free mesh participant. It has no tunnel id and is absent from source wildcards. */
 export interface OverlayServerRow {
   readonly deviceId: string;
   readonly meshId: string;

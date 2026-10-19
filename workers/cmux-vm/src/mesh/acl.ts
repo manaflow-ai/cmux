@@ -62,7 +62,7 @@ export interface CompileInput {
   readonly document: AclDocument;
   /** Live devices of this mesh. */
   readonly deviceIds: ReadonlyArray<string>;
-  /** Devices allowed to be sources. Destination-only servers are absent. */
+  /** Gateway devices: source wildcard members and the only sources of provider VM rules. */
   readonly sourceDeviceIds?: ReadonlyArray<string>;
   /** VMs that are members of this mesh. */
   readonly vmIds: ReadonlyArray<string>;
@@ -209,8 +209,10 @@ export const compileAcl = (input: CompileInput): CompileResult => {
   const overlayCounts = new Map<string, number>();
   const overlayPerMesh = input.overlayRulesPerMesh ?? DEFAULT_OVERLAY_RULES_PER_MESH;
   const overlayPerDevice = input.overlayRulesPerDevice ?? DEFAULT_OVERLAY_RULES_PER_DEVICE;
+  const gatewayIds = new Set(input.sourceDeviceIds ?? input.deviceIds);
   for (const [index, rule] of input.document.rules.entries()) {
-    const sources = expand(rule.src, "device:*", "dev_", input.sourceDeviceIds ?? input.deviceIds, `rules[${index}].src`);
+    const selectors = rule.src.flatMap((entry) => entry === "device:*" ? [...gatewayIds] : [entry]);
+    const sources = expand(selectors, "device:*", "dev_", input.deviceIds, `rules[${index}].src`);
     if (!sources.ok) return { ok: false, reason: "invalid", message: sources.message };
     // Validate both families even when a wildcard currently expands to nothing.
     const vmSelectors = rule.dst.filter((selector) => selector === "vm:*" || selector.startsWith("vm_"));
@@ -226,6 +228,7 @@ export const compileAcl = (input: CompileInput): CompileResult => {
       specs.push(spec);
     }
     for (const deviceId of sources.ids) {
+      if (!gatewayIds.has(deviceId) && vmSelectors.length > 0) return { ok: false, reason: "invalid", message: `rules[${index}]: an overlay server cannot source provider VM firewall rules; use an explicit device-to-device overlay grant` };
       for (const destinationDeviceId of deviceDestinations.ids) {
         if (deviceId === destinationDeviceId) continue;
         for (const spec of specs) {
