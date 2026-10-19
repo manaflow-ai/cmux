@@ -181,10 +181,14 @@ final class HoverCardPanel: NSPanel {
     }
 
     /// The card's next content fades over its last frame (the body is reused, so its text,
-    /// thumbnail and size change in place this turn). Off at speed off; short under Reduce Motion.
+    /// thumbnail and size change in place this turn). Only the content crossfades: the glass,
+    /// its edge and its shadow stay one card that slides. Off at speed off; short under Reduce
+    /// Motion.
     private func crossfadeContent() {
         let duration = Motion.duration(.crossfade)
-        guard duration > 0, Motion.canAnimate(in: glass), let layer = glass.layer else { return }
+        let content = glass.contentView
+        content.wantsLayer = true
+        guard duration > 0, Motion.canAnimate(in: glass), let layer = content.layer else { return }
         let fade = CATransition()
         fade.type = .fade
         fade.duration = duration
