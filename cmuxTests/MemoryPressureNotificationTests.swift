@@ -9,6 +9,110 @@ import CmuxMemoryPressure
 @testable import cmux
 #endif
 
+@MainActor
+@Suite("Workspace notification previews", .serialized, .exclusiveAppContext)
+struct WorkspaceNotificationPreviewTests {
+    @Test("Restored read workspace notices keep history without a card subtitle")
+    func restoredReadWorkspaceNoticeHasNoSidebarPreview() throws {
+        let fixture = try AgentNotificationRegressionTests().makeFixture()
+        defer { fixture.restore() }
+        let store = fixture.store
+        // An older version persisted the localized notice without a surface.
+        let legacy = SessionNotificationSnapshot(
+            id: UUID(),
+            title: "cmux 正处于严重内存压力下",
+            subtitle: "已释放隐藏的渲染器和浏览器",
+            body: "macOS 报告持续严重的内存压力。",
+            createdAt: 1_789_138_582,
+            isRead: true
+        )
+        let decoded = try JSONDecoder().decode(
+            SessionNotificationSnapshot.self,
+            from: JSONEncoder().encode(legacy)
+        )
+        let notification = decoded.terminalNotification(
+            tabId: fixture.source.id, surfaceId: nil, panelId: nil
+        )
+        store.restoreSessionNotifications([notification], forTabId: fixture.source.id)
+
+        let summary = store.sidebarUnread.snapshot.summary(forWorkspaceId: fixture.source.id)
+        #expect(summary.unreadCount == 0)
+        #expect(summary.latestNotificationText == nil)
+        // Read history stays available to the notifications UI and its clear action.
+        #expect(summary.hasLatestNotification)
+        #expect(store.notifications(forTabIds: [fixture.source.id]).map(\.id) == [legacy.id])
+        store.clearLatestNotification(forTabId: fixture.source.id)
+        #expect(store.notification(id: legacy.id) == nil)
+    }
+
+    @Test("Reading a workspace notice clears its card subtitle", arguments: ["visit", "workspace", "notification"])
+    func readingWorkspaceNoticeClearsSidebarPreview(path: String) throws {
+        let fixture = try AgentNotificationRegressionTests().makeFixture()
+        defer { fixture.restore() }
+        let store = fixture.store
+        let notification = TerminalNotification(
+            id: UUID(), tabId: fixture.source.id, surfaceId: nil,
+            title: "Workspace notice", subtitle: "", body: "Notice details",
+            createdAt: Date(), isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+        #expect(store.sidebarUnread.snapshot.latestNotificationText(forWorkspaceId: fixture.source.id) == notification.body)
+
+        switch path {
+        case "visit": store.markWorkspaceLevelNotificationsRead(forTabId: fixture.source.id)
+        case "workspace": store.markRead(forTabId: fixture.source.id)
+        default: store.markRead(id: notification.id)
+        }
+
+        #expect(store.sidebarUnread.snapshot.latestNotificationText(forWorkspaceId: fixture.source.id) == nil)
+        #expect(store.notification(id: notification.id)?.isRead == true)
+        #expect(store.notifications(forTabIds: [fixture.source.id]).map(\.id) == [notification.id])
+    }
+
+    @Test("Read pane previews remain visible and clearable", arguments: ["surface", "panel", "both"])
+    func readPanePreviewRemainsClearable(scope: String) throws {
+        let fixture = try AgentNotificationRegressionTests().makeFixture()
+        defer { fixture.restore() }
+        let store = fixture.store
+        let notification = TerminalNotification(
+            id: UUID(), tabId: fixture.source.id,
+            surfaceId: scope == "panel" ? nil : fixture.panelId,
+            panelId: scope == "surface" ? nil : fixture.panelId,
+            title: "Pane notice", subtitle: "", body: "Pane details",
+            createdAt: Date(), isRead: true
+        )
+        store.replaceNotificationsForTesting([notification])
+
+        let summary = store.sidebarUnread.snapshot.summary(forWorkspaceId: fixture.source.id)
+        #expect(summary.latestNotificationText == notification.body)
+        #expect(summary.hasLatestNotification)
+        store.clearLatestNotification(forTabId: fixture.source.id)
+        #expect(store.sidebarUnread.snapshot.latestNotificationText(forWorkspaceId: fixture.source.id) == nil)
+        #expect(store.notification(id: notification.id) == nil)
+    }
+
+    @Test("The card clear action dismisses an unread notice without a surface")
+    func unreadWorkspacePreviewIsClearable() throws {
+        let fixture = try AgentNotificationRegressionTests().makeFixture()
+        defer { fixture.restore() }
+        let store = fixture.store
+        let notification = TerminalNotification(
+            id: UUID(), tabId: fixture.source.id, surfaceId: nil,
+            title: "Workspace notice", subtitle: "", body: "Notice details",
+            createdAt: Date(), isRead: false
+        )
+        store.replaceNotificationsForTesting([notification])
+        let summary = store.sidebarUnread.snapshot.summary(forWorkspaceId: fixture.source.id)
+        #expect(summary.latestNotificationText == notification.body)
+        #expect(summary.hasLatestNotification)
+
+        store.clearLatestNotification(forTabId: fixture.source.id)
+
+        #expect(store.sidebarUnread.snapshot.latestNotificationText(forWorkspaceId: fixture.source.id) == nil)
+        #expect(store.notification(id: notification.id) == nil)
+    }
+}
+
 extension AgentNotificationRegressionTests {
     @Test("Internal memory pressure never enters the user notification pipeline")
     func memoryPressureDoesNotDeliverNotifications() throws {
