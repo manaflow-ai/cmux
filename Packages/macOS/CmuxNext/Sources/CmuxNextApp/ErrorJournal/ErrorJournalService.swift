@@ -18,6 +18,8 @@ final class ErrorJournalService {
     /// The next harvest, ``harvestInterval`` after the last one ended.
     private let nextHarvest = DemandTimer(owner: "error-journal.harvest")
     private var running = false
+    /// Bumped by start() and stop(): a harvest or deadline of an earlier run does nothing.
+    private var generation: UInt64 = 0
 
     /// How often the journal reads its sources while the app runs.
     static let harvestInterval: Duration = .seconds(300)
@@ -58,12 +60,14 @@ final class ErrorJournalService {
     func start() {
         guard !running else { return }
         running = true
-        harvest()
+        generation &+= 1
+        harvest(generation)
     }
 
     /// Stops harvesting and writes what is pending.
     func stop() async {
         running = false
+        generation &+= 1
         nextHarvest.cancel()
         harvesting?.cancel()
         harvesting = nil
@@ -71,21 +75,22 @@ final class ErrorJournalService {
     }
 
     /// Runs one harvest off the main actor; when it ends, the next one is due after ``harvestInterval``.
-    private func harvest() {
+    private func harvest(_ run: UInt64) {
+        guard running, run == generation else { return }
         let journal = journal
         let sources = sources
         harvesting = Task.detached(priority: .utility) { [weak self] in
             await journal.harvest(sources)
             guard !Task.isCancelled else { return }
-            await self?.harvestEnded()
+            await self?.harvestEnded(run)
         }
     }
 
-    private func harvestEnded() {
+    private func harvestEnded(_ run: UInt64) {
+        guard running, run == generation else { return }
         harvesting = nil
-        guard running else { return }
         nextHarvest.schedule(after: Self.harvestInterval) { [weak self] in
-            await self?.harvest()
+            await self?.harvest(run)
         }
     }
 }
