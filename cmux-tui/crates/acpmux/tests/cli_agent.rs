@@ -62,7 +62,8 @@ impl Drop for Agent {
 }
 
 fn session(agent: &mut Agent) -> String {
-    agent.send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}));
+    agent
+        .send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}));
     let (init, _) = agent.until(1);
     assert_eq!(init.pointer("/result/protocolVersion"), Some(&json!(1)));
     let cwd = std::env::temp_dir();

@@ -197,7 +197,10 @@ struct State {
 
 /// Serves ACP on stdin and stdout until stdin closes.
 pub async fn run(options: Options) -> Result<()> {
-    anyhow::ensure!(!options.command.is_empty(), "cli-agent needs a program: cli-agent -- PROGRAM [ARGS]");
+    anyhow::ensure!(
+        !options.command.is_empty(),
+        "cli-agent needs a program: cli-agent -- PROGRAM [ARGS]"
+    );
     let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
     let writer = tokio::spawn(async move {
         let mut stdout = tokio::io::stdout();
@@ -226,14 +229,16 @@ fn reply(tx: &Out, id: &Value, result: Value) {
 }
 
 fn error(tx: &Out, id: &Value, code: i64, message: String) {
-    let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}));
+    let _ =
+        tx.send(json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}));
 }
 
 async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, tx: &Out) {
     let method = msg.get("method").and_then(Value::as_str).unwrap_or("").to_owned();
     let params = msg.get("params").cloned().unwrap_or(Value::Null);
     let id = msg.get("id").cloned();
-    let session_of = |p: &Value| p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+    let session_of =
+        |p: &Value| p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
     match (method.as_str(), id) {
         ("initialize", Some(id)) => reply(
             tx,
@@ -265,7 +270,8 @@ async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, t
         }
         ("session/prompt", Some(id)) => {
             let sid = session_of(&params);
-            let blocks = params.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
+            let blocks =
+                params.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default();
             let (cancel_tx, cancel_rx) = oneshot::channel();
             let cwd = {
                 let mut s = state.lock().await;
@@ -328,9 +334,7 @@ async fn run_prompt(
     } else {
         cmd.stdin(Stdio::piped());
     }
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("starting {}: {e}", options.command[0]))?;
+    let mut child = cmd.spawn().map_err(|e| format!("starting {}: {e}", options.command[0]))?;
     if let Some(mut stdin) = child.stdin.take() {
         let text = prompt.clone();
         tokio::spawn(async move {
@@ -345,7 +349,8 @@ async fn run_prompt(
             let _ = e.read_to_end(&mut buf).await;
         }
         let text = strip_ansi(&String::from_utf8_lossy(&buf));
-        let tail: String = text.chars().rev().take(600).collect::<Vec<_>>().into_iter().rev().collect();
+        let tail: String =
+            text.chars().rev().take(600).collect::<Vec<_>>().into_iter().rev().collect();
         tail.trim().to_owned()
     });
     let chunk = |text: String| {
