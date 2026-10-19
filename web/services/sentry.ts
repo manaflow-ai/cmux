@@ -1,12 +1,11 @@
 import type { Event } from "@sentry/nextjs";
 
 const SECRET_KEY_MARKER =
-  /(?:^|_)(?:cookie|credentials?|email|password|passwd|pwd|secret|session|token)(?:_|$)/;
-const SECRET_KEY_EXACT =
-  /^(?:auth|authorization|body|completion|content|handoff|lease|output|prompt|provider_account|response)$/;
+  /(?:^|_)(?:auth|authorization|body|completion|content|cookie|credentials?|email|handoff|lease|output|password|passwd|prompt|provider_account|pwd|response|secret|session|token)(?:_|$)/;
 const SECRET_KEY_SHAPE =
   /(?:^|_)(?:(?:api|access|private|client)_?key|ciphertext|encrypted_data_key)(?:_|$)/;
-const SAFE_METRIC_KEY = /^(?:completion|prompt)_tokens$/;
+const SAFE_TELEMETRY_KEY =
+  /^(?:(?:completion|output|prompt)_tokens|(?:http_)?response_status(?:_code)?|content_type|auth_method)$/;
 const SECRET_QUERY_KEY =
   /^(?:access_token|refresh_token|token|key|api_key|apikey|sig|signature|code|auth|authorization|password|passwd|pwd|secret)$/i;
 const SECRET_QUERY_COMPONENT =
@@ -97,12 +96,8 @@ function scrubValue(value: unknown): void {
 
 function isSensitiveKey(key: string): boolean {
   const normalized = normalizedKey(key);
-  if (SAFE_METRIC_KEY.test(normalized)) return false;
-  return (
-    SECRET_KEY_EXACT.test(normalized) ||
-    SECRET_KEY_MARKER.test(normalized) ||
-    SECRET_KEY_SHAPE.test(normalized)
-  );
+  if (SAFE_TELEMETRY_KEY.test(normalized)) return false;
+  return SECRET_KEY_MARKER.test(normalized) || SECRET_KEY_SHAPE.test(normalized);
 }
 
 function normalizedKey(key: string): string {
