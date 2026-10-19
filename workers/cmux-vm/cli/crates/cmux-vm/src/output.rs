@@ -23,7 +23,7 @@ impl<'a> Printer<'a> {
     }
 
     pub fn overlay_policy(&mut self, body: &[u8]) -> Result<(), CliError> {
-        let policy: cmux_vm_client::types::OverlayPolicy = decode(body)?;
+        let policy: cmux_vm_client::types::DeviceOverlayPolicy = decode(body)?;
         if self.json {
             return self.raw_json(body);
         }
