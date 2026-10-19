@@ -7,7 +7,7 @@
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
-import { safeHref } from "../model";
+import { appHref, safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
@@ -431,7 +431,15 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
       const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false };
+      const app = href ? undefined : appHref(lm[2]);
       if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
+      else if (app)
+        // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
+        out.push(
+          <a key={k++} className="cv-link is-app" href={app}>
+            {renderInline(lm[1], labelOpts)}
+          </a>,
+        );
       else if (linkKind(lm[2]) === "file")
         out.push(
           <span key={k++} className="cv-link is-file">
