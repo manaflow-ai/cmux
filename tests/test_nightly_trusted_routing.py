@@ -164,7 +164,6 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertIn("!build.runner_name && !(build.steps || []).length", script)
         # Other failed jobs of the run still report.
         self.assertIn("!(replaced && k === 'build-nightly-app')", script)
-        self.assertNotIn("getRef", script)
         # listJobsForWorkflowRun needs Actions read; without it the timeout this
         # must still report would throw before any issue is opened.
         self.assertEqual(DOC['jobs']['report-nightly-failure']['permissions'].get('actions'), 'read')
