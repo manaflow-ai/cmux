@@ -395,6 +395,11 @@ public struct DaemonCapabilities: Sendable {
     public let terminalResources = "terminal-resources-v1"
     /// `identify` carries the daemon's machine identity (HandshakeLines' machine check).
     public let machineIdentity = "machine-identity-v1"
+    /// The agent CLI app provider (AppProviderSession) and its invalidation carrier.
+    public let agentCLIAppProvider = "agent-cli-app-provider-v1"
+    public let agentCLIAppInvalidation = "agent-cli-app-invalidation-v1"
+    /// Receipts on the agent inventory watch (DaemonReadyConnection).
+    public let agentInventoryWatchAdmission = "agent-inventory-watch-admission-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -414,7 +419,8 @@ public struct DaemonCapabilities: Sendable {
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing, machineIdentity] }
+                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing, machineIdentity,
+                                            agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
