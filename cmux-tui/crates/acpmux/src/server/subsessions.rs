@@ -88,6 +88,7 @@ async fn handle(
                 harness: text("harness"),
                 model: text("model"),
                 cwd: text("cwd").map(PathBuf::from),
+                worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
             };
             hub.start_subsession(&caller, req).await
         }

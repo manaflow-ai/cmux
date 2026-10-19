@@ -33,6 +33,12 @@
 //! person's default start mode only when the parent runs with full access,
 //! else in that harness's own (asking) mode.
 //!
+//! With `worktree: true` a child works in a new git worktree of its folder's
+//! repository (`subsession_worktree.rs`, laid out as the app's
+//! `git.worktree.create`), made in the daemon without running anything from
+//! that repository; a repository whose own config sets a checkout filter is
+//! refused (`subsessions.worktree_refused`).
+//!
 //! The index of open children per parent is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
 
@@ -279,6 +285,9 @@ pub struct StartRequest {
     pub harness: Option<String>,
     pub model: Option<String>,
     pub cwd: Option<PathBuf>,
+    /// Work in a new git worktree of the folder's repository
+    /// (`subsession_worktree.rs`) instead of the folder itself.
+    pub worktree: bool,
 }
 
 fn refused(reason: &str, message: String, data: Value) -> RpcError {
@@ -517,6 +526,14 @@ impl Hub {
                 cwd.display()
             )));
         }
+        let mut cwd = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
+        let worktree = if req.worktree {
+            let made = self.subsession_worktree(pm, &cwd, &short).await?;
+            cwd = made.root.clone();
+            Some(made)
+        } else {
+            None
+        };
         let parent_mode = crate::web_modes::mode_of(pm);
         let parent_full = parent_mode
             .as_deref()
@@ -525,7 +542,7 @@ impl Hub {
         let request = NewRequest {
             harness: Some(harness),
             name: Some(name),
-            cwd: Some(req.cwd.clone().unwrap_or_else(|| pm.cwd.clone())),
+            cwd: Some(cwd),
             policy,
             model: req.model.clone(),
             remote: pm.remote_origin,
@@ -581,7 +598,7 @@ impl Hub {
             }
         };
         let summary = self.session_summary(&probe);
-        let reply = json!({
+        let mut reply = json!({
             "sessionId": probe.id,
             "name": cm.name,
             "shortName": short,
@@ -591,7 +608,38 @@ impl Hub {
             "turnId": accepted.get("turnId"),
             "session": summary,
         });
+        if let Some(w) = worktree {
+            reply["worktree"] = json!({"root": w.root, "branch": w.branch, "base": w.base});
+        }
         Ok((probe, reply))
+    }
+
+    /// A new worktree of `folder`'s repository for a sub-session named
+    /// `name` (`subsession_worktree.rs`), made off the async runtime. Only
+    /// on this machine: a remote parent's folder is not here.
+    async fn subsession_worktree(
+        &self,
+        pm: &SessionMeta,
+        folder: &Path,
+        name: &str,
+    ) -> Result<crate::subsession_worktree::Worktree, RpcError> {
+        let refuse = |why: String| {
+            refused(
+                "subsessions.worktree_refused",
+                format!("start_session refused: no worktree: {why}"),
+                json!({"cwd": folder}),
+            )
+        };
+        if pm.remote_origin {
+            return Err(refuse("this session runs on another machine".into()));
+        }
+        let (folder2, name2) = (folder.to_path_buf(), name.to_owned());
+        tokio::task::spawn_blocking(move || {
+            crate::subsession_worktree::make_worktree(&folder2, &name2)
+        })
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(refuse)
     }
 
     /// Sends `text` from `from` to `to` as a prompt with the family
