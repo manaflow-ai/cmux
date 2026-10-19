@@ -37,6 +37,7 @@ enum AgentChatStrings {
     static let deleteSession = String(localized: "agent.chat.delete_session", defaultValue: "Delete session", bundle: .module)
     static let agentModeOptions = String(localized: "agent.chat.agent_mode_options", defaultValue: "Agent mode options", bundle: .module)
     static let sessionName = String(localized: "agent.chat.session_name", defaultValue: "Session name", bundle: .module)
+    static let untitledSession = String(localized: "agent.chat.untitled_session", defaultValue: "Untitled session", bundle: .module)
     static let cancel = String(localized: "agent.chat.cancel", defaultValue: "Cancel", bundle: .module)
     static let rename = String(localized: "agent.chat.rename", defaultValue: "Rename", bundle: .module)
     static let renameGuidance = String(localized: "agent.chat.rename_guidance", defaultValue: "Choose a name you will recognize in Agent history.", bundle: .module)

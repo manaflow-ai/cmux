@@ -736,13 +736,20 @@ private struct AgentChatSessionRow: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(action: toggleArchived) {
-                Label(isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
+                Label(
+                    isArchived ? AgentChatStrings.unarchiveSession : AgentChatStrings.archiveSession,
+                    systemImage: "archivebox"
+                )
             }
             .tint(.secondary)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "\(session.agentKind.displayName), \(session.title ?? "Untitled session"), \(accessibilityStateLabel)"
+            AgentChatStrings.sessionAccessibility(
+                agent: session.agentKind.displayName,
+                title: session.title ?? AgentChatStrings.untitledSession,
+                state: accessibilityStateLabel
+            )
         )
     }
 
@@ -1024,7 +1031,7 @@ private struct AgentNeedsInputNotice: View {
         switch actionableCount {
         case 0: return AgentChatStrings.answerOrApproveGuidance
         case 1: return AgentChatStrings.reviewPendingRequestGuidance
-        default: return "Review the \(actionableCount) pending requests below to keep the task moving."
+        default: return AgentChatStrings.pendingRequests(actionableCount)
         }
     }
 }
@@ -1293,9 +1300,13 @@ private struct AgentChatMessageView: View {
             return thought.text
         case .toolUse(let tool):
             var lines = [tool.summary]
-            if let input = tool.inputDetail, !input.isEmpty { lines.append("Input:\n\(input)") }
+            if let input = tool.inputDetail, !input.isEmpty {
+                lines.append("\(AgentChatStrings.input):\n\(input)")
+            }
             if let paths = tool.referencedPaths, !paths.isEmpty { lines.append(paths.joined(separator: "\n")) }
-            if let output = tool.output, !output.isEmpty { lines.append("Output:\n\(output)") }
+            if let output = tool.output, !output.isEmpty {
+                lines.append("\(AgentChatStrings.output):\n\(output)")
+            }
             return lines.joined(separator: "\n")
         case .webSearch(let search):
             var lines = [search.query.map { AgentChatStrings.searchQuery($0) } ?? AgentChatStrings.sources]
