@@ -502,6 +502,7 @@ fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
             control: None,
             inspector: Some(insp.clone()),
             chief: None,
+            turn: None,
         },
     )
     .unwrap();

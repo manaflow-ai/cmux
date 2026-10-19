@@ -6,6 +6,7 @@ import type {
   AcpmuxSessionOffer,
   AcpmuxOfferResult,
   AcpmuxBackgroundTask,
+  AcpmuxCompaction,
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
@@ -1751,6 +1752,20 @@ export class AcpmuxDirectClient {
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
+      } else if (event.kind === "failover") {
+        // acpmux moved the chat to its fallback harness (`hub/turns.rs`); the turn goes on there.
+        if (typeof msg.from === "string" && typeof msg.to === "string") {
+          this.endAssistantSegment();
+          this.streamingActivity = undefined;
+          const id = `failover-${event.seq}`;
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "failover",
+            failover: { from: msg.from, to: msg.to },
+          });
+        }
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
@@ -1821,6 +1836,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.settleCompactions(event.seq);
         // A Stop before this turn never judges it.
         this.stopAnswered(event);
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
@@ -1835,6 +1851,7 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.settleCompactions(event.seq);
         this.landSteer();
         // Stop was answered: its grace must not judge the next turn.
         this.stopAnswered(event);
@@ -1975,6 +1992,35 @@ export class AcpmuxDirectClient {
       this.streamingActivity = undefined;
       const id = `bgtask-${event.seq}`;
       this.rows.set(id, { id, version: 1, at: event.at, kind: "backgroundTask", backgroundTask: task });
+    } else if (event.kind === "compaction") {
+      const compaction = compactionOf(update);
+      if (!compaction) return;
+      // A note between messages: the text and tool fold before it close.
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
+      // One row per compaction: its end replaces the latest running note before it, or the
+      // latest one its turn's end noted as failed (a Stop acpmux forced while the compaction
+      // went on: its end comes after the turn's). A running note always starts its own row, and
+      // an older history page binds to its own rows, never to a live one.
+      let running: AcpmuxRow | undefined;
+      if (compaction.state !== "running")
+        for (const row of this.rows.values())
+          if (
+            row.kind === "compaction" &&
+            (row.compaction?.state === "running" || row.compaction?.inferred === true) &&
+            (row.seq ?? 0) < event.seq &&
+            (row.seq ?? 0) > (running?.seq ?? -1)
+          )
+            running = row;
+      const id = running?.id ?? `compaction-${event.seq}`;
+      this.rows.set(id, {
+        id,
+        version: (running?.version ?? 0) + 1,
+        at: running?.at ?? event.at,
+        seq: running?.seq ?? event.seq,
+        kind: "compaction",
+        compaction,
+      });
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
@@ -2059,6 +2105,20 @@ export class AcpmuxDirectClient {
       const row = this.rows.get(waiting.rowId);
       if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
     }
+  }
+
+  /// A compaction still running when its turn ends (a Stop, the agent process exiting, a
+  /// relaunch) or the next turn starts may never send how it ended: it is noted as failed, so
+  /// the row stops spinning, live and when the history is read again. `inferred` lets an end
+  /// that does come later (a forced Stop the compaction outlived) take the row back.
+  private settleCompactions(seq: number) {
+    for (const row of this.rows.values())
+      if (row.kind === "compaction" && row.compaction?.state === "running" && (row.seq ?? 0) < seq)
+        this.rows.set(row.id, {
+          ...row,
+          version: row.version + 1,
+          compaction: { ...row.compaction, state: "failed", inferred: true },
+        });
   }
 
   private endAssistantSegment(): void {
@@ -3226,6 +3286,19 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
         : undefined;
   if (!reason || typeof data?.harness !== "string" || typeof data.folder !== "string") return undefined;
   return { reason, harness: data.harness, folder: data.folder };
+}
+
+/// A `compaction` update's state and sizes; undefined for a state acpmux does not send.
+function compactionOf(update: any): AcpmuxCompaction | undefined {
+  const state = update?.state;
+  if (state !== "running" && state !== "completed" && state !== "failed") return undefined;
+  const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+  return {
+    state,
+    ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
+    ...(count(update.preTokens) !== undefined ? { preTokens: count(update.preTokens) } : {}),
+    ...(count(update.postTokens) !== undefined ? { postTokens: count(update.postTokens) } : {}),
+  };
 }
 
 /// A `background_task_update`'s shell and how it ended; undefined when it names neither.

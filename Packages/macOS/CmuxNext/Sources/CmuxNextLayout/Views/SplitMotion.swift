@@ -10,43 +10,11 @@ import CoreGraphics
 /// through each pane's start and end. The new pane grows from the split edge
 /// while the other shrinks, and the divider moves once.
 ///
-/// Content never animates: a pane whose size changes takes its final host
-/// frame at the first frame (`heldFrame`) and is shown inside the presented
-/// rect, so its terminal reflows (or its page and tab strip lay out) once, in
-/// the frame that answers the key, and nothing jumps when the spring ends.
+/// Content moves with it (Lawrence 2026-10-18: "content must move while it animates"): every
+/// pane is laid out live at the rect its spring presents on every display frame, its tab strip,
+/// terminal and page included, as a macOS live window resize is. Nothing holds a final-size
+/// layout under a clip, so nothing jumps when the spring ends.
 struct SplitMotion {
-    /// The host frame a pane keeps while its frame springs from `shown` to
-    /// `target`: the target, whether the pane grows (revealed from the split
-    /// edge) or shrinks (the pane beside it slides over the space it left).
-    /// Keeping a shrinking pane's old layout clipped and laying it out at rest
-    /// made its tab strip and page jump when the spring ended (Lawrence
-    /// 2026-10-16, Cmd-D frames 14-15). Nil for a pure move or a resize that
-    /// neither contains the other: those keep following the spring.
-    static func heldFrame(shown: CGRect, target: CGRect) -> CGRect? {
-        guard shown.size != target.size else { return nil }
-        let slack: CGFloat = 0.5
-        if target.insetBy(dx: -slack, dy: -slack).contains(shown) { return target }
-        if shown.insetBy(dx: -slack, dy: -slack).contains(target) { return target }
-        return nil
-    }
-
-    /// Where a held pane's host sits this frame: a pane that grows (a close's neighbour taking the
-    /// space) keeps its final size and moves with its spring rect's leading edges, so its content,
-    /// laid out once, slides with the edge that moves and is uncovered where it grows; it never
-    /// jumps to its final place under a reveal, nor reflows when the spring ends. A shrinking pane
-    /// keeps its final frame (Cmd-D, above).
-    static func placed(held: CGRect, shown: CGRect) -> CGRect {
-        guard held.width >= shown.width - 0.5, held.height >= shown.height - 0.5 else { return held }
-        return CGRect(origin: shown.origin, size: held.size)
-    }
-
-    /// The part of a pane cell the person sees: inside the pane padding, as
-    /// the content at rest.
-    static func visible(_ cell: CGRect, padding: CGFloat) -> CGRect {
-        let inset = min(padding, cell.width / 2, cell.height / 2)
-        return cell.insetBy(dx: max(0, inset), dy: max(0, inset))
-    }
-
     /// A divider released while moving at `velocity` (pt/s along `axis`):
     /// the spring toward the snapped layout starts with that velocity. In
     /// the spring's own unit (the fraction of the travel left) the divider's
@@ -64,6 +32,28 @@ struct SplitMotion {
         let rate = min(fraction, 10)
         for key in Array(panes.keys) { panes[key]?.seed(fractionVelocity: rate) }
         for key in Array(dividers.keys) { dividers[key]?.seed(fractionVelocity: rate) }
+    }
+}
+
+extension SplitMotion {
+    /// Where a new divider at `divider` (its target) starts, as a shift from there: by as much as
+    /// the edge of an existing pane beside it (not one in `skipping`, the panes the change adds)
+    /// still has to travel, so the divider rides that edge from its first frame. Nil without one.
+    static func startShift(of divider: CGRect, axis: SplitAxis, panes: [PaneID: AnimatedFrame], skipping: Set<PaneID>) -> CGVector? {
+        let reach: CGFloat = 16
+        for (pane, frame) in panes where !skipping.contains(pane) {
+            let target = frame.targetRect, shown = frame.rect
+            if axis == .horizontal {
+                guard min(target.maxY, divider.maxY) - max(target.minY, divider.minY) > 1 else { continue }
+                if abs(target.maxX - divider.midX) <= reach { return CGVector(dx: shown.maxX - target.maxX, dy: 0) }
+                if abs(target.minX - divider.midX) <= reach { return CGVector(dx: shown.minX - target.minX, dy: 0) }
+            } else {
+                guard min(target.maxX, divider.maxX) - max(target.minX, divider.minX) > 1 else { continue }
+                if abs(target.maxY - divider.midY) <= reach { return CGVector(dx: 0, dy: shown.maxY - target.maxY) }
+                if abs(target.minY - divider.midY) <= reach { return CGVector(dx: 0, dy: shown.minY - target.minY) }
+            }
+        }
+        return nil
     }
 }
 
