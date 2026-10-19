@@ -64,7 +64,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         }
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     /// Show `state`, drawn in `style` (nil: the configured style).
     public func configure(_ state: StatusIndicatorState, style: StatusIndicatorStyle? = nil) {

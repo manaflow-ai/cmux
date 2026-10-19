@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextPopups
 
 /// Opens each sign-in in its own panel with a Chromium page, the same
 /// panel a page's sign-in popup uses (title and origin, close button,
