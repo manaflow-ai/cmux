@@ -891,7 +891,9 @@ jobs:
             const writer = getOctokit(process.env.APP_TOKEN);
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
-  # A release surface change waits here for one approval in the
+  # Legacy approval waiter retained for contract compatibility; validated moves
+  # now happen in promote-nightly-next without an environment approval.
+  # A release surface change previously waited here for one approval in the
   # release-surface-ack environment (required reviewers: release-approvers,
   # prevent self-review). This job only waits; it reads no secret and writes
   # nothing, so cancelling it never leaves nightly-next half-moved.
@@ -5998,8 +6000,10 @@ jobs:
             live_feed="$(mktemp)"
             curl -fsSL --retry 3 -A "cmux-delta-publisher/1" -o "$live_feed" "$CHANNEL_FEED_BASE/appcast-arm64.xml"
             live_build="$(python3 -c 'import sys,xml.etree.ElementTree as E; r=E.parse(sys.argv[1]).getroot(); print(next(c.text or "" for i in r.iter() if i.tag.rsplit("}", 1)[-1] == "item" for c in i if c.tag.rsplit("}", 1)[-1] == "version"))' "$live_feed")"
-            if [[ "$live_build" =~ ^[0-9]+$ && "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] && (( live_build > NIGHTLY_BUILD )); then
-              echo "Skipping stale delta result: NEXT feed already serves build $live_build"
+            # Above: a newer build published. Below: nightly-next-rollback.yml
+            # pulled this one, and the revised appcast would put it back.
+            if [[ "$live_build" =~ ^[0-9]+$ && "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] && (( live_build != NIGHTLY_BUILD )); then
+              echo "Skipping stale delta result: NEXT feed serves build $live_build, not $NIGHTLY_BUILD"
               echo "publish=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi

@@ -14,12 +14,23 @@ public nonisolated struct RoutedAppCall: Sendable, Equatable {
     public var params: AppJSON
     /// `user` inside a gesture, else `script` (the supervisor's stamp; any other value counts as `script`).
     public var origin: String
+    private let idempotencyKey: String?
+    private let actor: AppJSON?
 
-    /// Reads the event; nil when a field is missing.
+    /// Reads the event; nil for missing required fields or malformed context.
+    /// Absent/null mutation context remains compatible with legacy reads.
     /// - Parameter payload: The routed native request payload.
     public init?(_ payload: AppJSON) {
         guard let id = payload["request_id"]?.numberValue.flatMap({ UInt64(exactly: $0) }), let app = payload["app"]?.stringValue,
               let op = payload["op"]?.stringValue else { return nil }
+        if let field = payload["idempotency_key"], field != .null {
+            guard let key = field.stringValue, !key.isEmpty else { return nil }
+            idempotencyKey = key
+        } else { idempotencyKey = nil }
+        if let field = payload["actor"], field != .null {
+            guard case .object = field else { return nil }
+            actor = field
+        } else { actor = nil }
         requestID = id
         self.app = app
         self.op = op
@@ -39,7 +50,8 @@ public nonisolated struct RoutedAppCall: Sendable, Equatable {
     public func answer(with capabilities: AppHostCapabilities) async -> (ok: Bool, body: AppJSON) {
         let ok: Bool, body: AppJSON // one return: swiftlang/swift#92698 drops `ok` at -O (cx-21wc5)
         do throws(AppHostCapabilityError) {
-            let value = try await capabilities.handle(AppHostCapabilityRequest(app: app, op: op, params: params, origin: origin))
+            let value = try await capabilities.handle(AppHostCapabilityRequest(app: app, op: op, params: params, origin: origin,
+                                                                               idempotencyKey: idempotencyKey, actor: actor))
             (ok, body) = (true, .object(["value": value]))
         } catch {
             (ok, body) = (false, Self.errorBody(code: error.code, message: error.message, retryable: error.retryable, details: error.details))

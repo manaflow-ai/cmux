@@ -1345,6 +1345,10 @@ path = "tests/test_ci_prune_media_derived_data.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_media_module_cache_stamp.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_feat_publish_order.py"
 lane = "linux-guard"
 
@@ -1390,4 +1394,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_sign_shadow_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_freeze.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_changelog_lines.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_idea_ledger.py"
 lane = "linux-guard"

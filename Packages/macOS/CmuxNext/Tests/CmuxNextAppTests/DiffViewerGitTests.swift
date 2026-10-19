@@ -4,6 +4,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextApp
+@testable import CmuxNextDiff
 
 /// The diff viewer stages, commits and pushes (cx-ueuc8, dogfood run hq #1893): the chat header's
 /// ± opens it, and it had no Stage, Commit or Push, so the chat's changes workflow was out of reach
