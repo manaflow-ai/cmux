@@ -323,6 +323,9 @@ report.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
+- The user's sign-ins from another browser: `cmux browser import-cookies
+  --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
+  reason and the fewest sites; the user must Allow it in cmux first.
 - Where to show things: the user keeps two columns, your chat on the left
   and one column on its right for what you show. `cmux --json identify`
   names that column (`beside.pane`), or `new_column` when there is none.

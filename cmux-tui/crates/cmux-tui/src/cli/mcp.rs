@@ -652,7 +652,7 @@ impl<B: Backend> Server<B> {
             Ok(run) => run,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
         };
-        let timeout = super::app::WAITING_RUN_TIMEOUT;
+        let timeout = super::app::waiting_run_timeout(&tool.cli_name);
         match self.backend.app("action.run", params, timeout, key.as_deref(), true) {
             Ok(value) => success(value, true),
             Err(failure) => failure_result(failure),
