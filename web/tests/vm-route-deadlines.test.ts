@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
-import * as Option from "effect/Option";
 import * as TestClock from "effect/TestClock";
 import * as TestContext from "effect/TestContext";
 import { FreestyleApiError, type Freestyle } from "freestyle";
@@ -9,6 +9,7 @@ import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { ProviderError, ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { VmOperationDeadlineError, VmProviderOperationError, type VmWorkflowError } from "../services/vms/errors";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
+import { settleOnTestClock } from "./helpers/test-clock";
 import { VM_CREATE_RESERVE_AFTER_ANSWER_MS, VM_ROUTE_DEADLINES, createBackgroundContinuations, createRouteAnswerDeadline, type BackgroundContinuations, vmClientTimeoutMsFromRequest, vmRouteDeadlinePlan, withVmAnswerDeadline, withVmRouteDeadline, type VmRouteDeadlineOperation } from "../services/vms/routeDeadline";
 
 // Production 2026-10-11: pause, exec and scp-endpoint each waited 2-4 minutes
@@ -16,27 +17,13 @@ import { VM_CREATE_RESERVE_AFTER_ANSWER_MS, VM_ROUTE_DEADLINES, createBackground
 // client gave up. Every provider-bound VM route now answers inside its
 // client's budget, and a mutation that may still finish says so.
 
-/** Runs `program` under the route deadline on the test clock; returns the failure and the virtual time. */
-async function underDeadline(operation: VmRouteDeadlineOperation, program: Effect.Effect<string, VmWorkflowError>, elapsedMs = 0, clientTimeoutMs?: number, stepMs = 250) {
+/** Runs `program` under the route deadline on the test clock; returns the answer and the virtual time it came at. */
+async function underDeadline(operation: VmRouteDeadlineOperation, program: Effect.Effect<string, VmWorkflowError>, elapsedMs = 0, clientTimeoutMs?: number) {
   const background: Promise<unknown>[] = [];
-  const result = await Effect.runPromise(Effect.gen(function* () {
-    const fiber = yield* Effect.fork(withVmRouteDeadline(program, {
-      operation, elapsedMs, ...(clientTimeoutMs === undefined ? {} : { clientTimeoutMs }), continueInBackground: (work) => { background.push(work); },
-    }).pipe(Effect.either));
-    let virtualMs = 0;
-    while (Option.isNone(yield* Fiber.poll(fiber)) && virtualMs < 1_200_000) {
-      yield* TestClock.adjust(stepMs);
-      virtualMs += stepMs;
-      yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
-    }
-    const answer = yield* Fiber.poll(fiber);
-    if (Option.isNone(answer)) {
-      yield* Fiber.interrupt(fiber);
-      return { answer: null, virtualMs };
-    }
-    return { answer: yield* Fiber.join(fiber), virtualMs };
-  }).pipe(Effect.provide(TestContext.TestContext)));
-  return { ...result, background };
+  const { exit, elapsedMs: virtualMs } = await settleOnTestClock(withVmRouteDeadline(program, {
+    operation, elapsedMs, ...(clientTimeoutMs === undefined ? {} : { clientTimeoutMs }), continueInBackground: (work) => { background.push(work); },
+  }).pipe(Effect.either), { giveUpAtMs: 1_200_000 });
+  return { answer: exit && Exit.isSuccess(exit) ? exit.value : null, virtualMs, background };
 }
 
 const providerFailure = (operation: string, cause: unknown) =>
@@ -48,9 +35,7 @@ const early401 = () => Object.assign(new Error("invalid api key"), { name: "Free
 describe("VM route answer deadlines", () => {
   test("a mutation that never answers is in progress at its client's budget, and keeps running", async () => {
     const { answer, virtualMs, background } = await underDeadline("pause", Effect.never);
-    const budgetMs = VM_ROUTE_DEADLINES.pause.clientTimeoutMs - 5_000;
-    expect(virtualMs).toBeGreaterThanOrEqual(budgetMs);
-    expect(virtualMs).toBeLessThanOrEqual(budgetMs + 250);
+    expect(virtualMs).toBe(VM_ROUTE_DEADLINES.pause.clientTimeoutMs - 5_000);
     expect(answer?._tag).toBe("Left");
     const error = answer?._tag === "Left" ? answer.left : null;
     expect(error).toBeInstanceOf(VmOperationDeadlineError);
@@ -81,10 +66,10 @@ describe("VM route answer deadlines", () => {
   });
 
   test("the window is measured from the request's start, with a floor", async () => {
-    const late = await underDeadline("resize", Effect.never, 200_000, undefined, 1_000);
-    expect(late.virtualMs).toBeLessThanOrEqual(11_000);
-    const early = await underDeadline("resize", Effect.never, 30_000, undefined, 1_000);
-    expect(early.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.resize.clientTimeoutMs - 5_000 - 30_000 + 1_000);
+    const late = await underDeadline("resize", Effect.never, 200_000);
+    expect(late.virtualMs).toBe(10_000);
+    const early = await underDeadline("resize", Effect.never, 30_000);
+    expect(early.virtualMs).toBe(VM_ROUTE_DEADLINES.resize.clientTimeoutMs - 5_000 - 30_000);
     expect(early.virtualMs).toBeGreaterThan(70_000);
   });
 });
@@ -96,6 +81,7 @@ describe("VM route answer deadlines", () => {
 describe("remaining VM routes", () => {
   const expected: Array<[VmRouteDeadlineOperation, number, boolean]> = [
     ["rename", 55_000, true],
+    ["restart", 55_000, true],
     ["tunnelEnroll", 55_000, true],
     ["tunnelRevoke", 15_000, true],
     ["attach", 955_000, true],
@@ -105,12 +91,8 @@ describe("remaining VM routes", () => {
     ["create", 25_000, true],
   ];
   test.each(expected)("%s answers at %i ms (mutating %p) when the provider never answers", async (operation, budgetMs, mutating) => {
-    // Virtual-time steps scale with the budget so a 955 s budget stays a
-    // hundred steps (CI runs these under a 5 s per-test limit).
-    const stepMs = Math.max(1_000, Math.ceil(budgetMs / 100 / 1_000) * 1_000);
-    const { answer, virtualMs, background } = await underDeadline(operation, Effect.never, 0, undefined, stepMs);
-    expect(virtualMs).toBeGreaterThanOrEqual(budgetMs);
-    expect(virtualMs).toBeLessThanOrEqual(budgetMs + stepMs);
+    const { answer, virtualMs, background } = await underDeadline(operation, Effect.never);
+    expect(virtualMs).toBe(budgetMs);
     const error = answer?._tag === "Left" ? answer.left as VmOperationDeadlineError : null;
     expect(error?._tag).toBe("VmOperationDeadlineError");
     expect(error?.mutating).toBe(mutating);
@@ -152,8 +134,7 @@ describe("remaining VM routes", () => {
 describe("client-stated budgets", () => {
   test("a stated budget replaces the legacy caller's, less the margin", async () => {
     const { virtualMs } = await underDeadline("pause", Effect.never, 0, 120_000);
-    expect(virtualMs).toBeGreaterThanOrEqual(115_000);
-    expect(virtualMs).toBeLessThanOrEqual(115_250);
+    expect(virtualMs).toBe(115_000);
   });
 
   test("the stated budget is read from the client timeout header", () => {
@@ -166,10 +147,9 @@ describe("client-stated budgets", () => {
   });
 
   test("a stated budget is clamped to the 10 s floor and below the route's maxDuration", async () => {
-    expect((await underDeadline("pause", Effect.never, 0, 1_000)).virtualMs).toBeLessThanOrEqual(10_250);
-    const capped = await underDeadline("pause", Effect.never, 0, 3_600_000, 1_000);
-    expect(capped.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.pause.maxDurationMs - 5_000 + 1_000);
-    expect(capped.virtualMs).toBeGreaterThanOrEqual(VM_ROUTE_DEADLINES.pause.maxDurationMs - 5_000);
+    expect((await underDeadline("pause", Effect.never, 0, 1_000)).virtualMs).toBe(10_000);
+    const capped = await underDeadline("pause", Effect.never, 0, 3_600_000);
+    expect(capped.virtualMs).toBe(VM_ROUTE_DEADLINES.pause.maxDurationMs - 5_000);
   });
 });
 

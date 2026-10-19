@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "الجهاز لا يستجيب",
       "message": "لم يستجب هذا الجهاز في الوقت المحدد، لذا تعذّر إكمال الطلب.",
-      "action": "أوقف الجهاز مؤقتًا، ثم استأنفه، وحاول مرة أخرى. في تطبيق Mac، اختر «إيقاف الجهاز مؤقتًا» ثم «استئناف الجهاز». في الطرفية، شغّل cmux vm pause '<machine>' ثم cmux vm resume '<machine>'."
+      "action": "اتصل بالدعم مع معرّف التتبّع قبل إنشاء جهاز آخر."
     },
     "inProgress": {
       "title": "لا يزال قيد التنفيذ",
@@ -44,6 +44,16 @@
       "title": "مزوّد السحابة بطيء",
       "message": "لم يستجب مزوّد السحابة في الوقت المحدد.",
       "action": "حاول مرة أخرى بعد قليل."
+    },
+    "providerCapacity": {
+      "title": "لا توجد سعة سحابية حاليًا",
+      "message": "لا تتوفر لدى خدمة Cloud مساحة لهذا الجهاز في الوقت الحالي. لم يتم تغيير أي شيء.",
+      "action": "حاول مرة أخرى بعد دقيقة."
+    },
+    "stateConflict": {
+      "title": "الجهاز مشغول",
+      "message": "هذا الجهاز قيد بدء التشغيل أو الإيقاف المؤقت أو لا يعمل، لذا لا يمكنه تنفيذ ذلك الآن.",
+      "action": "انتظر لحظة ثم حاول مرة أخرى. تحقّق من حالة الجهاز باستخدام cmux vm ls، واستأنفه أولًا إذا كان متوقفًا مؤقتًا."
     },
     "networkRuleCapacity": {
       "title": "بلغت قواعد الشبكة الحد الأقصى",
@@ -103,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "تدعم Go معالجين افتراضيين وذاكرة 4 GiB وقرصاً بسعة 16 GiB.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "تم استهلاك حصة الحوسبة في {plan}",
+      "computeMessage": "استهلكت خطة {plan} ساعات الحوسبة البالغة {included} لفترة الفوترة هذه. ساعة الحوسبة هي 1 vCPU مع 2 GB من الذاكرة لمدة ساعة واحدة. يمكن تشغيل أجهزتك مرة أخرى في {resetDate}.",
+      "computeAction": "تحتفظ الأجهزة المتوقفة مؤقتًا بملفاتها. تواصل مع الدعم إذا احتجت إلى حوسبة إضافية قبل {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "تم استهلاك حصة القرص في {plan}",
+      "storageMessage": "تتضمن خطة {plan} مساحة قرص إجمالية قدرها {included} GB لكل الأجهزة المحفوظة. تستخدم الأجهزة المحفوظة {used} GB، ويحتاج هذا الطلب إلى {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "لا تكفي موارد Cloud VM",
@@ -504,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "استأنف خطتك لتتمكن من تغييرها.",
           "granted": "منحتها cmux. لا يوجد ما يمكن تغييره.",
+          "grantedNoCancel": "منحتها cmux، لذا لا يوجد ما يمكن إلغاؤه.",
+          "paymentFailed": "حدّث طريقة الدفع قبل تغيير الخطة.",
+          "foundersLifetime": "يتضمن Founder's Edition خطة Pro مدى الحياة.",
           "adminOnly": "يمكن لمسؤولي الفريق فقط تغيير الخطة."
         },
         "names": {
@@ -546,6 +569,7 @@
       "change": {
         "title": "التبديل إلى {plan}؟",
         "upgradeBody": "تبدأ {plan} الآن. تدفع اليوم {amount} مقابل ما تبقى من فترة الفوترة هذه. ومن {date} تدفع {price} شهريًا.",
+        "upgradeBodyYearly": "تبدأ {plan} الآن. تدفع اليوم {amount} مقابل ما تبقى من فترة الفوترة هذه. ومن {date} تدفع {price} سنويًا.",
         "downgradeBody": "تبدأ {plan} الآن. يُضاف الجزء غير المستخدم من خطتك الحالية، {credit}، رصيدًا إلى فواتيرك القادمة. فاتورتك القادمة في {date} قيمتها {amount}.",
         "confirm": "التبديل إلى {plan}",
         "keep": "الإبقاء على الخطة الحالية",
@@ -558,6 +582,8 @@
         "title": "إلغاء {plan}؟",
         "body": "تبقى لديك {plan} حتى {date}. بعد ذلك ستفقد:",
         "bodyNoDate": "تبقى لديك {plan} حتى نهاية فترة الفوترة هذه. بعد ذلك ستفقد:",
+        "foundersBody": "ينتهي اشتراك {plan} في {date}. بعد ذلك ستحصل على Pro، المضمّنة مدى الحياة في Founder's Edition.",
+        "foundersBodyNoDate": "ينتهي اشتراك {plan} في نهاية فترة الفوترة هذه. بعد ذلك ستحصل على Pro، المضمّنة مدى الحياة في Founder's Edition.",
         "reasonLabel": "لماذا تلغي؟ (اختياري)",
         "otherPlaceholder": "أخبرنا بالمزيد (اختياري)",
         "confirm": "إلغاء الخطة",
@@ -2232,6 +2258,7 @@
           "currentLineHighlight": "تلوين السطر الذي يوجد فيه المؤشر عندما لا يكون هناك أي تحديد.",
           "tabWidth": "عدد الأعمدة التي يمتد عليها موضع جدولة واحد. تستخدم أدلة الإزاحة التباعد نفسه."
         },
+        "actions": "إجراءات قابلة لإعادة الاستخدام للوحة الأوامر والاختصارات وأزرار شريط علامات التبويب وقائمة زر الإضافة. تدعم builtin وcommand وagent وworkspaceCommand وworkspace وsetting وsettingPreset وtext. تلصق الإجراءات النصية في الطرفية التي عليها التركيز مع الحفاظ على فواصل الأسطر؛ يضغط submit: true على Enter. تتطلب إجراءات الإعدادات تهيئة عامة.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3261,12 +3288,13 @@
       "apiKeyScope": "يستخدم مفتاح API الخاص بالمؤسسة حسابات الفريق المشتركة فقط. يمكن للمفتاح في فريقك الشخصي أن يستخدم حساباتك الخاصة أيضاً. يخدم CodeRouter واجهة OpenAI Responses API، لا Chat Completions.",
       "apiKeyLogin": "على جهاز لا يستطيع فتح متصفح، يسجّل cr login --api-key دخول cr بمفتاح، ويوفّر CODEROUTER_API_KEY مفتاحاً لأمر واحد. ألغِ المفتاح من لوحة التحكم، أو شغّل cr logout على الجهاز الذي يستخدمه.",
       "cloudTitle": "على أجهزة cmux Cloud",
-      "cloudDesc": "لا تحتاج أجهزة Cloud إلى إعداد. توجّه بيئة الجهاز OPENAI_BASE_URL وANTHROPIC_BASE_URL إلى عنوان CodeRouter خاص، ويكتب cmux إعدادات كل وكيل في أول مرة تبدأ فيها صدفة أو يبدأ الوكيل:",
-      "cloudClaude": "يقرأ Claude Code المتغير ANTHROPIC_BASE_URL وقيمة بديلة لـ ANTHROPIC_API_KEY من البيئة. مطالبات التشغيل الأول مُجاب عنها مسبقاً.",
+      "cloudDesc": "لا تحتاج أجهزة Cloud إلى إعداد. يستخدم كل وكيل حسابات CodeRouter الخاصة بفريقك عبر عنوان CodeRouter خاص، ويكتب cmux إعداداته في أول مرة تبدأ فيها صدفة أو يبدأ الوكيل:",
+      "cloudClaude": "يحصل Claude Code على ANTHROPIC_BASE_URL وقيمة بديلة لـ ANTHROPIC_API_KEY في كل مرة يبدأ فيها، وليس من كل صدفة، لذا لا تتقدّم أبداً على تسجيل دخولك الخاص. مطالبات التشغيل الأول مُجاب عنها مسبقاً.",
       "cloudCodex": "يحصل Codex على مزوّد نماذج cmux في ~/.codex/config.toml.",
       "cloudPi": "يحصل Pi على تجاوز للمزوّد في ~/.pi/agent/models.json.",
-      "cloudOpencode": "ينزّل OpenCode قائمة مزوّديه من CodeRouter في أول تشغيل ويحفظها في ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "ينزّل OpenCode قائمة مزوّديه من CodeRouter في أول تشغيل، ويحفظها في ~/.config/cmux/opencode-team.json، ويضيفها إلى إعداداتك الخاصة في كل تشغيل.",
       "cloudYours": "يكتب cmux كل ملف فقط عندما يكون مفقوداً، لذا تُحفظ تعديلاتك. لا يُغيَّر إعداد Codex الذي يحدد مزوّد نماذج آخر.",
+      "cloudOwnLogin": "لاستخدام حسابك الخاص بدلاً من ذلك، شغّل cr use own على الجهاز، ثم سجّل الدخول بالطريقة المعتادة للوكيل: /login في Claude Code، أو codex login، أو opencode auth login. يعيدك cr use team إلى حسابات الفريق، ويغيّر cr use own codex وكيلاً واحداً، ويعرض cr use طريقة تسجيل دخول كل وكيل. إن لم تختر، يستخدم الوكيل الذي سجّلت الدخول إليه على الجهاز حسابك الخاص، ويعرض الوكيل الذي لا يملك فريقك حساباً له تسجيل الدخول المعتاد. يُطبَّق التغيير في المرة التالية التي يبدأ فيها الوكيل.",
       "cloudRun": "شغّل الوكلاء كالمعتاد. يحوّل cmux coderouter agent الموجّه المجرد إلى صيغة التشغيل لمرة واحدة الخاصة بالوكيل؛ داخل الجهاز يعمل في الطرفية الحالية، وعلى جهاز Mac يبدأ الوكيل على الجهاز الذي تسمّيه، مثل cmux vm agent.",
       "cloudAccounts": "تستخدم أجهزة Cloud حسابات الفريق الذي يملكها. إذا أبلغ وكيل بعدم توفر أي حساب، فأضف حساباً أو شارك حساباً موجوداً مع ذلك الفريق.",
       "modelsTitle": "النماذج",

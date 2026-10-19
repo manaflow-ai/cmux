@@ -200,28 +200,28 @@ actor APIClient {
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         
         // Required headers
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
-        request.setValue("swift@\(Self.sdkVersion)", forHTTPHeaderField: "x-stack-client-version")
-        request.setValue(serverOnly ? "server" : "client", forHTTPHeaderField: "x-stack-access-type")
-        request.setValue("true", forHTTPHeaderField: "x-stack-override-error-status")
-        request.setValue(UUID().uuidString, forHTTPHeaderField: "x-stack-random-nonce")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
+        request.setValue(publishableClientKey, forHTTPHeaderField: "x-hexclave-publishable-client-key")
+        request.setValue("swift@\(Self.sdkVersion)", forHTTPHeaderField: "x-hexclave-client-version")
+        request.setValue(serverOnly ? "server" : "client", forHTTPHeaderField: "x-hexclave-access-type")
+        request.setValue("true", forHTTPHeaderField: "x-hexclave-override-error-status")
+        request.setValue(UUID().uuidString, forHTTPHeaderField: "x-hexclave-random-nonce")
         
         // Server key if required
         if serverOnly {
             guard let serverKey = secretServerKey else {
                 throw StackAuthError(code: "missing_server_key", message: "Server key required for this operation")
             }
-            request.setValue(serverKey, forHTTPHeaderField: "x-stack-secret-server-key")
+            request.setValue(serverKey, forHTTPHeaderField: "x-hexclave-secret-server-key")
         }
         
         // Auth headers
         if authenticated {
             if let accessToken = await effectiveTokenStore.getStoredAccessToken() {
-                request.setValue(accessToken, forHTTPHeaderField: "x-stack-access-token")
+                request.setValue(accessToken, forHTTPHeaderField: "x-hexclave-access-token")
             }
             if let refreshToken = await effectiveTokenStore.getStoredRefreshToken() {
-                request.setValue(refreshToken, forHTTPHeaderField: "x-stack-refresh-token")
+                request.setValue(refreshToken, forHTTPHeaderField: "x-hexclave-refresh-token")
             }
         }
         
@@ -255,7 +255,7 @@ actor APIClient {
             
             // Check for actual status code in header
             let actualStatus: Int
-            if let statusHeader = httpResponse.value(forHTTPHeaderField: "x-stack-actual-status"),
+            if let statusHeader = httpResponse.hexclaveHeader("actual-status"),
                let status = Int(statusHeader) {
                 actualStatus = status
             } else {
@@ -265,12 +265,12 @@ actor APIClient {
             // Handle 401 with token refresh
             if actualStatus == 401 && authenticated && !didRefreshAccessToken {
                 // Check if it's an invalid access token error
-                if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error"),
+                if let errorCode = httpResponse.hexclaveHeader("known-error"),
                    errorCode == "invalid_access_token" {
                     // Try to refresh the token once. The failed token is used
                     // by the refresh lock to let concurrent 401s reuse the
                     // token that the first waiter already installed.
-                    let failedAccessToken = request.value(forHTTPHeaderField: "x-stack-access-token")
+                    let failedAccessToken = request.value(forHTTPHeaderField: "x-hexclave-access-token")
                     let tokens = await fetchNewAccessToken(
                         tokenStore: tokenStore,
                         ifAccessTokenUnchangedFrom: failedAccessToken
@@ -278,7 +278,7 @@ actor APIClient {
                     if tokens.accessToken != nil {
                         // Retry with new token
                         var newRequest = request
-                        newRequest.setValue(tokens.accessToken, forHTTPHeaderField: "x-stack-access-token")
+                        newRequest.setValue(tokens.accessToken, forHTTPHeaderField: "x-hexclave-access-token")
                         return try await sendWithRetry(
                             request: newRequest,
                             authenticated: authenticated,
@@ -298,9 +298,22 @@ actor APIClient {
             if actualStatus == 429 {
                 // The edge may answer with an HTML page instead of a Stack
                 // JSON error, so classify by status, never by body.
-                var details: [String: Any]? = nil
-                if let seconds = retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After")) {
-                    details = [StackAuthError.retryAfterSecondsKey: seconds]
+                let observation = StackAuthRateLimitObservation(
+                    endpoint: StackAuthRateLimitReporting.endpoint(of: request.url),
+                    bodyKind: StackAuthRateLimitReporting.bodyKind(
+                        contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
+                        data: data
+                    ),
+                    retryAfterSeconds: retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After"))
+                )
+                var details = httpResponse.stackDiagnostics(status: actualStatus)
+                details[StackAuthError.endpointKey] = observation.endpoint
+                details[StackAuthError.bodyKindKey] = observation.bodyKind.rawValue
+                if let seconds = observation.retryAfterSeconds {
+                    details[StackAuthError.retryAfterSecondsKey] = seconds
+                }
+                if !StackAuthRateLimitReporting.callerReports {
+                    StackAuthRateLimitReporting.observer?.stackAuthDidRateLimit(observation)
                 }
                 throw StackAuthError(
                     code: "RATE_LIMITED",
@@ -310,22 +323,32 @@ actor APIClient {
             }
             
             // Check for known error
-            if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error") {
+            if let errorCode = httpResponse.hexclaveHeader("known-error") {
                 let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 let message = errorData?["message"] as? String
                     ?? errorData?["error"] as? String
                     ?? "Unknown error"
-                let details = errorData?["details"] as? [String: Any]
+                // Response diagnostics (HTTP status, request ID) ride along so
+                // the sign-in failure line can name them; body details win.
+                let details = httpResponse.stackDiagnostics(status: actualStatus)
+                    .merging(errorData?["details"] as? [String: Any] ?? [:]) { _, body in body }
                 throw StackAuthError.from(code: errorCode, message: message, details: details)
             }
             
             // Success
             if actualStatus >= 200 && actualStatus < 300 {
+                if !StackAuthRateLimitReporting.callerReports {
+                    StackAuthRateLimitReporting.observer?.stackAuthRequestDidSucceed()
+                }
                 return (data, httpResponse)
             }
             
             // Other error
-            throw StackAuthError(code: "http_error", message: "HTTP \(actualStatus)")
+            throw StackAuthError(
+                code: "http_error",
+                message: "HTTP \(actualStatus)",
+                details: httpResponse.stackDiagnostics(status: actualStatus)
+            )
             
         } catch let error as URLError {
             // Network error - retry for idempotent requests
@@ -366,7 +389,7 @@ actor APIClient {
         case transientFailure
         /// The server answered 429. Tokens are preserved like a transient
         /// failure, and no new exchange starts until the backoff passes.
-        case rateLimited(retryAfterSeconds: TimeInterval?)
+        case rateLimited(retryAfterSeconds: TimeInterval?, bodyKind: StackAuthRateLimitObservation.BodyKind)
     }
 
     /// Performs the actual token refresh request, classifying the result so the
@@ -378,9 +401,9 @@ actor APIClient {
         request.httpMethod = "POST"
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
-        request.setValue("client", forHTTPHeaderField: "x-stack-access-type")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
+        request.setValue(publishableClientKey, forHTTPHeaderField: "x-hexclave-publishable-client-key")
+        request.setValue("client", forHTTPHeaderField: "x-hexclave-access-type")
 
         let body = [
             "grant_type=refresh_token",
@@ -418,7 +441,11 @@ actor APIClient {
             }
             if httpResponse.statusCode == 429 {
                 return .rateLimited(
-                    retryAfterSeconds: retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After"))
+                    retryAfterSeconds: retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After")),
+                    bodyKind: StackAuthRateLimitReporting.bodyKind(
+                        contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
+                        data: data
+                    )
                 )
             }
             return .transientFailure
@@ -441,15 +468,25 @@ actor APIClient {
         }
         let outcome = await refresh(refreshToken: refreshToken)
         switch outcome {
-        case .rateLimited(let retryAfter):
+        case .rateLimited(let retryAfter, let bodyKind):
             refreshRateLimitStreak += 1
             let delaySeconds = Self.rateLimitDelaySeconds(
                 retryAfterSeconds: retryAfter,
                 streak: refreshRateLimitStreak
             )
             refreshRateLimitedUntil = refreshClock.now() &+ UInt64(delaySeconds * 1_000_000_000)
+            StackAuthRateLimitReporting.observer?.stackAuthDidRateLimit(StackAuthRateLimitObservation(
+                endpoint: StackAuthRateLimitReporting.endpoint(of: URL(string: "\(baseUrl)/api/v1/auth/oauth/token")),
+                bodyKind: bodyKind,
+                retryAfterSeconds: retryAfter,
+                refreshBackoffSeconds: delaySeconds,
+                refreshAttempt: refreshRateLimitStreak
+            ))
             return .transientFailure
         case .success, .definitivelyRejected:
+            if case .success = outcome, refreshRateLimitStreak > 0 {
+                StackAuthRateLimitReporting.observer?.stackAuthTokenRefreshDidRecover()
+            }
             refreshRateLimitStreak = 0
             refreshRateLimitedUntil = nil
             return outcome
@@ -626,5 +663,25 @@ extension APIClient {
             throw StackAuthError(code: "parse_error", message: "Failed to parse response")
         }
         return json
+    }
+}
+
+extension HTTPURLResponse {
+    /// Reads a Stack response header by its Hexclave name, falling back to the
+    /// legacy `x-stack-*` name. Stack sends both on every response; requests must
+    /// carry only the Hexclave names, because since 2026-10-13 Stack answers 429
+    /// to requests that carry the `x-stack-*` aliases.
+    func hexclaveHeader(_ suffix: String) -> String? {
+        value(forHTTPHeaderField: "x-hexclave-\(suffix)") ?? value(forHTTPHeaderField: "x-stack-\(suffix)")
+    }
+
+    /// Status and request ID of a failed response, so the app can show the user
+    /// something they can report.
+    func stackDiagnostics(status: Int) -> [String: Any] {
+        var details: [String: Any] = ["httpStatus": status]
+        if let requestID = hexclaveHeader("request-id") {
+            details["requestId"] = requestID
+        }
+        return details
     }
 }

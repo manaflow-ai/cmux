@@ -93,6 +93,9 @@ else is image-only: design it so old machines keep working without it.
 
 The target is the cmux-tui build the default image bakes (the manifest's
 `cmuxTuiCommit`), so an upgraded machine runs what a new machine runs.
+Machines created by fork, restore or a template boot the source's snapshot,
+not the default image, so they keep its older cmux-tui and belong in the
+inventory like any other running machine.
 
 1. **Inventory.** List running machines and their owners (read-only):
    `select provider_vm_id, provider_metadata->>'cmuxTuiContract', image_version from cloud_vms where destroyed_at is null and provider = 'freestyle' and status = 'running'`.

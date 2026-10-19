@@ -9,6 +9,9 @@ protocol AccountSignInFlow: AnyObject {
     var isCompletingSignIn: Bool { get }
     var signInIsSlow: Bool { get }
     var lastSignInFailure: AccountSignInModel.Failure? { get }
+    /// Token-free detail line for ``lastSignInFailure`` (error code, HTTP
+    /// status, request ID) that a user can copy into a report.
+    var lastSignInFailureDetail: String? { get }
     /// True while sign-in waits to retry after the sign-in service said
     /// too many requests came from this network.
     var isRetryingAfterRateLimit: Bool { get }
@@ -26,6 +29,9 @@ protocol AccountSignInFlow: AnyObject {
 
     /// Copies a previously issued sign-in URL to the pasteboard.
     func copySignInURL(_ url: URL) -> Bool
+
+    /// Copies a failure detail line to the pasteboard.
+    func copyFailureDetail(_ detail: String) -> Bool
 }
 
 extension AccountSignInFlow {
