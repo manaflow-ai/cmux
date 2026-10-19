@@ -27,6 +27,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
 
   const BUSY = "0190a000-0000-7000-8000-0000000000a1";
   const QUIET = "0190a000-0000-7000-8000-0000000000a2";
+  const STUCK = "0190a000-0000-7000-8000-0000000000a3";
   const START = Date.now() - 90_000;
   const update = (update: Record<string, unknown>, meta?: Record<string, unknown>) => ({
     method: "session/update",
@@ -88,6 +89,8 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     finished("a2", "Tester"),
     reading,
   ];
+  // The turn ended (cancelled, or the daemon reconnected) with an agent never reported done.
+  const stuck: Step[] = [...start, spawned("a1", "Reviewer"), reading, ["mux", "turn_result", { status: "cancelled" }]];
   const record = (session: string, step: Step, seq: number) => {
     const [dir, kind, msg] = step;
     return { sessionId: session, seq, at: START + seq * 1000, dir, kind, msg };
@@ -95,6 +98,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   const chats: Record<string, ReturnType<typeof record>[]> = {
     [BUSY]: busy.map((step, index) => record(BUSY, step, index + 1)),
     [QUIET]: quiet.map((step, index) => record(QUIET, step, index + 1)),
+    [STUCK]: stuck.map((step, index) => record(STUCK, step, index + 1)),
   };
   const session = (sessionId: string) => ({
     sessionId,
@@ -112,7 +116,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session(BUSY), session(QUIET)] };
+        return { sessions: [session(BUSY), session(QUIET), { ...session(STUCK), status: "idle" }] };
       case "_acpmux/attach": {
         const id = typeof params.sessionId === "string" && chats[params.sessionId] ? params.sessionId : BUSY;
         return { session: session(id), lastSeq: chats[id]!.length, events: chats[id] };
@@ -230,6 +234,10 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     const done = await open(QUIET);
     expect(await pill(done).count()).toBe(0);
     await done.close();
+    // The turn is over: an agent left "running" by a cancel or a reconnect pins no pill.
+    const stale = await open(STUCK);
+    expect(await pill(stale).count()).toBe(0);
+    await stale.close();
   });
 
   test("the list splits active from completed, with a colored dot per agent", async () => {
@@ -253,7 +261,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     await page.close();
   });
 
-  test("an agent's color marks its name in the transcript, and holds as others start", async () => {
+  test("an agent's color marks its name in the transcript, and holds as others start and on reload", async () => {
     const page = await open(BUSY);
     await pill(page).click();
     await list(page).waitFor({ timeout: 5_000 });
@@ -267,15 +275,20 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
         Object.fromEntries(nodes.map((node) => [node.firstChild!.textContent, getComputedStyle(node).color])),
       );
     expect(names).toEqual(before);
-    // A fourth agent starts: the others keep their colors, and it takes one none of them has.
+    // A fourth agent starts: the others keep their colors.
     push(spawned("a4", "Formatter"));
     await pill(page).filter({ hasText: "3 agents" }).waitFor({ timeout: 5_000 });
     await pill(page).click();
     await list(page).waitFor({ timeout: 5_000 });
     const after = await dots(page);
     expect(Object.fromEntries(Object.keys(before).map((name) => [name, after[name]]))).toEqual(before);
-    expect(Object.values(before)).not.toContain(after.Formatter!);
     await page.close();
+    // A reload colors each agent as before: the color comes from the agent's id alone.
+    const again = await open(BUSY);
+    await pill(again).click();
+    await list(again).waitFor({ timeout: 5_000 });
+    expect(await dots(again)).toEqual(before);
+    await again.close();
   });
 
   test("a click on an agent opens it, and the pill goes once none runs", async () => {

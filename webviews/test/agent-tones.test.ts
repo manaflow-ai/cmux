@@ -1,29 +1,21 @@
-// Each subagent keeps one color for the life of the chat (agentTones.ts). A new agent takes a
-// color no running agent has while one is free, so two agents running at once never share one,
-// and an agent's color never changes as others start and end.
+// Each subagent's color comes from its id alone (agentTones.ts): the same agent reads the same in
+// the agents list, the transcript, a reload, older history loaded later and a pane of its own.
 import { describe, expect, test } from "bun:test";
-import { AGENT_TONES, agentTones } from "../src/agent-session/acpmux/subagents/agentTones";
+import { AGENT_TONES, agentTone, agentTones } from "../src/agent-session/acpmux/subagents/agentTones";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 
-const agent = (id: string, startedAt: number, state = "running") => ({ id, name: id, startedAt, state }) as Subagent;
+const agent = (id: string, startedAt: number) => ({ id, name: id, startedAt, state: "running" }) as Subagent;
 
 describe("agent tones", () => {
-  test("agents running at once get distinct colors while one is free", () => {
-    const first = Array.from({ length: AGENT_TONES }, (_, index) => agent(`a${index}`, index));
-    const before = agentTones("reuse", first);
-    expect(new Set(before.values()).size).toBe(AGENT_TONES);
-    // All but the first end; a new agent starts while the first still runs.
-    const later = [first[0]!, ...first.slice(1).map((done) => ({ ...done, state: "completed" })), agent("late", 99)];
-    const after = agentTones("reuse", later);
-    for (const done of first) expect(after.get(done.id)).toBe(before.get(done.id)!);
-    expect(after.get("late")).not.toBe(after.get("a0")!);
+  test("an agent's tone depends on its id only, not on the other agents or their order", () => {
+    const alone = agentTones([agent("x", 1)]);
+    const crowd = agentTones([agent("z", 0), agent("y", 2), agent("x", 1)]);
+    expect(crowd.get("x")).toBe(alone.get("x")!);
+    expect(crowd.get("x")).toBe(agentTone("x"));
   });
 
-  test("a chat's colors hold as agents start", () => {
-    const one = agentTones("hold", [agent("x", 1), agent("y", 2)]);
-    const two = agentTones("hold", [agent("x", 1), agent("y", 2), agent("z", 3)]);
-    expect([two.get("x"), two.get("y")]).toEqual([one.get("x"), one.get("y")]);
-    expect(two.get("z")).not.toBe(two.get("x")!);
-    expect(two.get("z")).not.toBe(two.get("y")!);
+  test("ids spread over every tone", () => {
+    const tones = new Set(Array.from({ length: 200 }, (_, index) => agentTone(`toolu_${index}`)));
+    expect([...tones].sort()).toEqual(Array.from({ length: AGENT_TONES }, (_, tone) => tone));
   });
 });
