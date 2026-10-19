@@ -204,7 +204,8 @@ export function useFolderTrustAsk(
         await source.set(asked.cwd, level);
         answers.current.set(asked.cwd, (answers.current.get(asked.cwd) ?? 0) + 1);
         // Undo leaves each agent's own level to answer: the next read says which.
-        const answer: FolderTrust | undefined = level === "unknown" ? undefined : { cwd: asked.cwd, level, decided: true };
+        const answer: FolderTrust | undefined =
+          level === "unknown" ? undefined : { cwd: asked.cwd, level, decided: true };
         if (remembers) rememberTrust(asked.cwd, answer);
         lastRead.current = answer && { cwd: asked.cwd, trust: answer };
         if (!stillHere()) return;
