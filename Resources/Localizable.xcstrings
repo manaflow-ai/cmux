@@ -516485,121 +516485,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paste this image directly into the Cloud terminal. Image attachments in the command buffer are not supported yet."
+            "value": "This attachment can’t be added to the command buffer. Paste the image directly into the Cloud terminal."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge dieses Bild direkt in das Cloud-Terminal ein. Bildanhänge im Befehlspuffer werden noch nicht unterstützt."
+            "value": "Dieser Anhang kann nicht zum Befehlspuffer hinzugefügt werden. Füge das Bild direkt in das Cloud-Terminal ein."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collez cette image directement dans le terminal Cloud. Les images jointes dans le tampon de commandes ne sont pas encore prises en charge."
+            "value": "Cette pièce jointe ne peut pas être ajoutée au tampon de commandes. Collez l’image directement dans le terminal Cloud."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الصق هذه الصورة مباشرة في طرفية Cloud. مرفقات الصور في مخزن الأوامر غير مدعومة بعد."
+            "value": "لا يمكن إضافة هذا المرفق إلى مخزن الأوامر. الصق الصورة مباشرة في طرفية Cloud."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pega esta imagen directamente en la terminal Cloud. Aún no se admiten imágenes adjuntas en el búfer de comandos."
+            "value": "Este adjunto no se puede añadir al búfer de comandos. Pega la imagen directamente en la terminal Cloud."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請將此圖片直接貼到 Cloud 終端機。指令緩衝區目前尚不支援圖片附件。"
+            "value": "無法將此附件加入指令緩衝區。請將圖片直接貼到 Cloud 終端機。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请将此图片直接粘贴到 Cloud 终端。命令缓冲区目前尚不支持图片附件。"
+            "value": "无法将此附件添加到命令缓冲区。请将图片直接粘贴到 Cloud 终端。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 이미지를 Cloud 터미널에 직접 붙여넣으세요. 명령 버퍼의 이미지 첨부는 아직 지원되지 않습니다."
+            "value": "이 첨부 파일은 명령 버퍼에 추가할 수 없습니다. 이미지를 Cloud 터미널에 직접 붙여넣으세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この画像を Cloud ターミナルに直接貼り付けてください。コマンドバッファでの画像添付にはまだ対応していません。"
+            "value": "この添付ファイルはコマンドバッファに追加できません。画像を Cloud ターミナルに直接貼り付けてください。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zalijepite ovu sliku direktno u Cloud terminal. Prilozi slika u komandnom polju još nisu podržani."
+            "value": "Ovaj prilog se ne može dodati u komandno polje. Zalijepite sliku direktno u Cloud terminal."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indsæt dette billede direkte i Cloud-terminalen. Billedvedhæftninger i kommandofeltet understøttes ikke endnu."
+            "value": "Denne vedhæftning kan ikke føjes til kommandofeltet. Indsæt billedet direkte i Cloud-terminalen."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Incolla questa immagine direttamente nel terminale Cloud. Gli allegati immagine nel campo dei comandi non sono ancora supportati."
+            "value": "Questo allegato non può essere aggiunto al campo dei comandi. Incolla l’immagine direttamente nel terminale Cloud."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សូមបិទភ្ជាប់រូបភាពនេះដោយផ្ទាល់ទៅក្នុងស្ថានីយ Cloud។ ការភ្ជាប់រូបភាពក្នុងប្រអប់ពាក្យបញ្ជាមិនទាន់គាំទ្រទេ។"
+            "value": "មិនអាចបន្ថែមឯកសារភ្ជាប់នេះទៅក្នុងប្រអប់ពាក្យបញ្ជាបានទេ។ សូមបិទភ្ជាប់រូបភាពដោយផ្ទាល់ទៅក្នុងស្ថានីយ Cloud។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lim inn bildet direkte i Cloud-terminalen. Bildevedlegg i kommandofeltet støttes ikke ennå."
+            "value": "Dette vedlegget kan ikke legges til i kommandofeltet. Lim inn bildet direkte i Cloud-terminalen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wklej ten obraz bezpośrednio do terminala Cloud. Załączniki obrazów w polu poleceń nie są jeszcze obsługiwane."
+            "value": "Tego załącznika nie można dodać do pola poleceń. Wklej obraz bezpośrednio do terminala Cloud."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cole esta imagem diretamente no terminal Cloud. Anexos de imagem no campo de comando ainda não são compatíveis."
+            "value": "Este anexo não pode ser adicionado ao campo de comando. Cole a imagem diretamente no terminal Cloud."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вставьте это изображение непосредственно в Cloud-терминал. Вложения изображений в поле команды пока не поддерживаются."
+            "value": "Это вложение нельзя добавить в поле команды. Вставьте изображение непосредственно в Cloud-терминал."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "วางรูปภาพนี้โดยตรงในเทอร์มินัล Cloud ขณะนี้ยังไม่รองรับไฟล์แนบรูปภาพในช่องคำสั่ง"
+            "value": "ไม่สามารถเพิ่มไฟล์แนบนี้ในช่องคำสั่งได้ วางรูปภาพโดยตรงในเทอร์มินัล Cloud"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu görüntüyü doğrudan Cloud terminaline yapıştırın. Komut alanındaki görüntü ekleri henüz desteklenmiyor."
+            "value": "Bu ek komut alanına eklenemez. Görüntüyü doğrudan Cloud terminaline yapıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вставте це зображення безпосередньо в Cloud-термінал. Вкладення зображень у полі команди ще не підтримуються."
+            "value": "Це вкладення не можна додати в поле команди. Вставте зображення безпосередньо в Cloud-термінал."
           }
         }
       }
