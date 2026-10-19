@@ -55,6 +55,8 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
+  /** Public provider snapshot ids/slugs allowed for v5 creates, comma or space separated. */
+  readonly CMUX_VM_PUBLIC_SNAPSHOT_IDS?: string;
 }
 
 const liveServices = (env: Env) => {
@@ -131,6 +133,7 @@ const makeHandler = (env: Env): ((request: Request) => Promise<Response>) => {
       perRequest: withRequestConnection,
       perWebhook: withRequestConnection,
       ...(secret === undefined || secret.length === 0 ? {} : { stackWebhookSecret: Redacted.make(secret) }),
+      freestylePublicSnapshotIds: (env.CMUX_VM_PUBLIC_SNAPSHOT_IDS ?? "").split(/[\s,]+/u).map((value) => value.trim()).filter((value) => value.length > 0),
     });
     // A deploy must never run ahead of its migration: 503 "schema not applied" until the tables this build needs exist.
     const check = () => Effect.runPromise(Effect.provide(checkSchema, hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)));

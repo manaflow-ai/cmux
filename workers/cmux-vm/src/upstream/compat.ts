@@ -38,10 +38,12 @@ const pathFor = (template: string, upstreamId: string): string => {
 
 const copyHeaders = (request: Request, authorization: string): Headers => {
   const headers = new Headers();
-  for (const [key, value] of request.headers) {
-    if (key === "authorization" || key === "host" || key === "content-length" || key === "x-freestyle-background-after-secs") continue;
-    headers.set(key, value);
+  for (const key of ["content-type", "accept", "range", "content-range"]) {
+    const value = request.headers.get(key);
+    if (value !== null) headers.set(key, value);
   }
+  const identity = request.headers.get("x-freestyle-identity-access-token");
+  if (identity !== null) headers.set("x-freestyle-identity-access-token", identity);
   headers.set("authorization", authorization);
   headers.set("accept", request.headers.get("accept") ?? "application/json");
   return headers;

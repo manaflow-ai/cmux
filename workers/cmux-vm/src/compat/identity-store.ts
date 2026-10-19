@@ -37,6 +37,7 @@ export interface IdentityStoreService {
   readonly listGrants: (tenantId: TenantId, identityId: IdentityId) => Effect.Effect<ReadonlyArray<IdentityGrant>, StoreError>;
   readonly findGrant: (tenantId: TenantId, identityId: IdentityId, vmId: VmId) => Effect.Effect<Option.Option<IdentityGrant>, StoreError>;
   readonly revokeGrant: (tenantId: TenantId, identityId: IdentityId, vmId: VmId, at: Date) => Effect.Effect<void, StoreError>;
+  readonly revokeGrantsForVm: (tenantId: TenantId, vmId: VmId, at: Date) => Effect.Effect<void, StoreError>;
   readonly recordToken: (token: IdentityToken) => Effect.Effect<void, StoreError>;
   readonly listTokens: (tenantId: TenantId, identityId: IdentityId) => Effect.Effect<ReadonlyArray<IdentityToken>, StoreError>;
   readonly revokeToken: (tenantId: TenantId, identityId: IdentityId, tokenId: string, at: Date) => Effect.Effect<void, StoreError>;
@@ -80,8 +81,7 @@ export const sqlIdentityStoreLayer: Layer.Layer<IdentityStore, never, SqlClient>
   Effect.gen(function* () {
     const sql = yield* SqlClient;
     return {
-      recordIdentity: (identity) =>
-        sql.query("identities.record", `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by, created_at, labels) VALUES ($1, $2, 'identity', $3, 'system:freestyle', $4::timestamptz, '{}'::jsonb)`, [identity.cmuxId, identity.tenantId, identity.upstreamId, identity.createdAt.toISOString()]).pipe(Effect.asVoid),
+      recordIdentity: (_identity) => Effect.void,
       listIdentities: (tenantId) =>
         sql.query("identities.list", `SELECT tenant_id, cmux_id, upstream_id, true AS managed, created_at FROM cmux_vm.resources WHERE tenant_id = $1 AND kind = 'identity' AND deleted_at IS NULL ORDER BY created_at DESC`, [tenantId]).pipe(Effect.flatMap(decode(IdentityRow, "identities.list")), Effect.map((rows) => rows.map(identityOf))),
       markIdentityDeleted: (tenantId, id, at) => sql.query("identities.delete", `UPDATE cmux_vm.resources SET deleted_at = $3::timestamptz WHERE tenant_id = $1 AND cmux_id = $2 AND kind = 'identity' AND deleted_at IS NULL`, [tenantId, id, at.toISOString()]).pipe(Effect.asVoid),
@@ -89,6 +89,7 @@ export const sqlIdentityStoreLayer: Layer.Layer<IdentityStore, never, SqlClient>
       listGrants: (tenantId, identityId) => sql.query("identity_grants.list", `SELECT id, tenant_id, identity_cmux_id, vm_cmux_id, upstream_id, allowed_linux_users, granted_at, granted_by FROM cmux_vm.identity_vm_grants WHERE tenant_id = $1 AND identity_cmux_id = $2 AND revoked_at IS NULL ORDER BY granted_at`, [tenantId, identityId]).pipe(Effect.flatMap(decode(GrantRow, "identity_grants.list")), Effect.map((rows) => rows.map(grantOf))),
       findGrant: (tenantId, identityId, vmId) => sql.query("identity_grants.find", `SELECT id, tenant_id, identity_cmux_id, vm_cmux_id, upstream_id, allowed_linux_users, granted_at, granted_by FROM cmux_vm.identity_vm_grants WHERE tenant_id = $1 AND identity_cmux_id = $2 AND vm_cmux_id = $3 AND revoked_at IS NULL LIMIT 1`, [tenantId, identityId, vmId]).pipe(Effect.flatMap(decode(GrantRow, "identity_grants.find")), Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), grantOf))),
       revokeGrant: (tenantId, identityId, vmId, at) => sql.query("identity_grants.revoke", `UPDATE cmux_vm.identity_vm_grants SET revoked_at = $4::timestamptz WHERE tenant_id = $1 AND identity_cmux_id = $2 AND vm_cmux_id = $3 AND revoked_at IS NULL`, [tenantId, identityId, vmId, at.toISOString()]).pipe(Effect.asVoid),
+      revokeGrantsForVm: (tenantId, vmId, at) => sql.query("identity_grants.revokeVm", `UPDATE cmux_vm.identity_vm_grants SET revoked_at = $3::timestamptz WHERE tenant_id = $1 AND vm_cmux_id = $2 AND revoked_at IS NULL`, [tenantId, vmId, at.toISOString()]).pipe(Effect.asVoid),
       recordToken: (token) => sql.query("identity_tokens.record", `INSERT INTO cmux_vm.identity_tokens (id, tenant_id, identity_cmux_id, token_hash, created_at) VALUES ($1,$2,$3,$4,$5::timestamptz)`, [token.id, token.tenantId, token.identityCmuxId, token.tokenHash, token.createdAt.toISOString()]).pipe(Effect.asVoid),
       listTokens: (tenantId, identityId) => sql.query("identity_tokens.list", `SELECT id, tenant_id, identity_cmux_id, token_hash, created_at FROM cmux_vm.identity_tokens WHERE tenant_id = $1 AND identity_cmux_id = $2 AND revoked_at IS NULL ORDER BY created_at`, [tenantId, identityId]).pipe(Effect.flatMap(decode(TokenRow, "identity_tokens.list")), Effect.map((rows) => rows.map(tokenOf))),
       revokeToken: (tenantId, identityId, tokenId, at) => sql.query("identity_tokens.revoke", `UPDATE cmux_vm.identity_tokens SET revoked_at = $4::timestamptz WHERE tenant_id = $1 AND identity_cmux_id = $2 AND id = $3 AND revoked_at IS NULL`, [tenantId, identityId, tokenId, at.toISOString()]).pipe(Effect.asVoid),

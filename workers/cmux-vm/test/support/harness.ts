@@ -228,6 +228,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
       listGrants: (tenantId, identityId) => Effect.sync(() => identityGrants.filter((grant) => grant.tenantId === tenantId && grant.identityCmuxId === identityId)),
       findGrant: (tenantId, identityId, vmId) => Effect.sync(() => Option.fromNullable(identityGrants.find((grant) => grant.tenantId === tenantId && grant.identityCmuxId === identityId && grant.vmCmuxId === vmId))),
       revokeGrant: (tenantId, identityId, vmId) => Effect.sync(() => { const index = identityGrants.findIndex((grant) => grant.tenantId === tenantId && grant.identityCmuxId === identityId && grant.vmCmuxId === vmId); if (index >= 0) identityGrants.splice(index, 1); }),
+      revokeGrantsForVm: (tenantId, vmId) => Effect.sync(() => { for (let index = identityGrants.length - 1; index >= 0; index -= 1) if (identityGrants[index]?.tenantId === tenantId && identityGrants[index]?.vmCmuxId === vmId) identityGrants.splice(index, 1); }),
       recordToken: (token) => Effect.sync(() => void identityTokens.push(token)),
       listTokens: (tenantId, identityId) => Effect.sync(() => identityTokens.filter((token) => token.tenantId === tenantId && token.identityCmuxId === identityId)),
       revokeToken: (tenantId, identityId, tokenId) => Effect.sync(() => { const index = identityTokens.findIndex((token) => token.tenantId === tenantId && token.identityCmuxId === identityId && token.id === tokenId); if (index >= 0) identityTokens.splice(index, 1); }),

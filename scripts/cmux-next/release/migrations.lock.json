@@ -45,6 +45,7 @@
         "0007_cmux_vm_mesh_m4.sql": "a3525bda461b9c19f2cdf74ff3a457e90ace177b7b517e187ea5b1173b734fe7",
         "0008_cmux_vm_mesh_m4_retries.sql": "023cbec42e3137e7c506021abfcd97d6480e30c35a994a4d044c1e4fbacf90c8",
         "0009_cmux_vm_mesh_device_address.sql": "dcd032132b00d3592058415a530b40cef240a7e22b655f7a13ccb7a81ad23d48"
+        ,"0010_cmux_vm_identities.sql": "75c6a1fab76c0011f62a093e8399454bbaa3a1d9cb95f5065d306b95d42cc3d7"
       }
     },
     "backend": {

@@ -94,6 +94,8 @@ export interface WebHandlerOptions {
   readonly perWebhook?: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
   /** The Stack webhook signing secret (Worker secret STACK_WEBHOOK_SECRET); absent: the webhook answers 503. */
   readonly stackWebhookSecret?: Redacted.Redacted<string>;
+  /** Public Freestyle snapshot ids/slugs permitted for v5 VM creates. */
+  readonly freestylePublicSnapshotIds?: ReadonlyArray<string>;
 }
 
 export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHandlerOptions = {}) => {
@@ -119,7 +121,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
     perRequest === undefined ? {} : { middleware: (app) => perRequest(app) },
   );
   const runtime = ManagedRuntime.make(services);
-  const freestyle = makeFreestyleCompatHandler(services as unknown as Layer.Layer<CompatUpstream | OwnershipStore | AuditStore | IdentityStore | TenantLimits | Entitlements | TenantPolicy | ApiKeyStore | ServiceKeys | SessionVerifier | TeamMembership | UsageRecorder>);
+  const freestyle = makeFreestyleCompatHandler(services as unknown as Layer.Layer<CompatUpstream | OwnershipStore | AuditStore | IdentityStore | TenantLimits | Entitlements | TenantPolicy | ApiKeyStore | ServiceKeys | SessionVerifier | TeamMembership | UsageRecorder>, { publicSnapshotIds: options.freestylePublicSnapshotIds ?? [] });
   const perWebhook = options.perWebhook ?? (<A, E, R>(effect: Effect.Effect<A, E, R>) => effect);
   const webhook = (request: Request): Promise<Response> =>
     runtime.runPromise(perWebhook(handleStackWebhook(request, options.stackWebhookSecret))).catch(() =>
