@@ -104,7 +104,7 @@ function reported(sessionId: string, currentModeId: string): Summary {
 }
 
 /// Renders the composer's chips for `summary` (undefined: a new chat whose session has not reported).
-async function render(summary: Summary, cwd?: string) {
+async function render(summary: Summary, cwd?: string, holdsModePick = true) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -140,6 +140,7 @@ async function render(summary: Summary, cwd?: string) {
         onEffort={() => undefined}
         onHarness={() => undefined}
         showPlan={false}
+        holdsModePick={holdsModePick}
       />
     );
   }
@@ -190,11 +191,11 @@ async function kept(answer: Answer) {
   rememberStartMode("claude", undefined, answer);
 }
 
-async function fresh(cwd?: string) {
+async function fresh(cwd?: string, holdsModePick = true) {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
-  await render(undefined, cwd);
+  await render(undefined, cwd, holdsModePick);
 }
 
 test("a new chat acpmux starts in full access draws its warning chip on the first frame", async () => {
@@ -289,6 +290,26 @@ test("a harness switch never draws another folder's start mode as the chat's cur
   // acpmux's answer for this very folder is drawn.
   rememberStartMode("claude", "/unanswered", { modeId: "bypassPermissions", name: "Bypass permissions" });
   expect(applySwitch(raw, view, [], profiles).summary?.modes?.currentModeId).toBe("bypassPermissions");
+});
+
+test("a pending chat whose pane cannot hold a mode pick keeps the inert chip", async () => {
+  // No New Tab start and no harness switch running: a pick would reach no session, so the chip
+  // names the start mode without offering a menu.
+  await kept({ modeId: "bypassPermissions", name: "Bypass permissions" });
+  const answer = await acpmux({ modeId: "bypassPermissions", name: "Bypass permissions" });
+  await fresh(undefined, false);
+  await answer();
+  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
+  expect(host.querySelector(".acpmux-access-trigger:not([disabled])")).toBeNull();
+  expect(access()).toEqual({ label: "Bypass permissions", warning: true });
+});
+
+test("a pending chat that starts in Plan keeps the inert chip: Plan is never an access row", async () => {
+  await kept({ modeId: "plan", name: "Plan" });
+  const answer = await acpmux({ modeId: "plan", name: "Plan" });
+  await fresh();
+  await answer();
+  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
 });
 
 // Last: it fills the shared profile store (`harnessProfiles` keeps no reset), which every
