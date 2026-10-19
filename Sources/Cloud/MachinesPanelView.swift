@@ -65,6 +65,7 @@ struct MachinesPanelView: View {
         )
         _viewModel = StateObject(wrappedValue: viewModel ?? MachinesPanelViewModel(
             machinePinStore: machinePinStore,
+            vmSync: AppDelegate.shared?.auth.map { CloudVMSyncSubscriber(auth: $0.coordinator) },
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
                 return tabManager.tabs.map {
@@ -741,6 +742,7 @@ struct MachinesPanelView: View {
                             .underline()
                     }
                     .buttonStyle(.plain)
+                    .upgradePromptImpression(.machinesPanelUpgradeNudge)
                 } else if let plan = viewModel.plan {
                     Text(planIncludesLabel(plan))
                         .cmuxFont(size: 11)

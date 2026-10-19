@@ -7,6 +7,8 @@ public struct BillingOffer: Sendable, Equatable, Hashable, Identifiable {
     public let planID: BillingPlanID
     /// The StoreKit product.
     public let product: StoreProduct
+    /// How often the product renews.
+    public let billingPeriod: BillingPeriod
 
     /// The App Store product id.
     public var id: String { product.id }
@@ -15,8 +17,10 @@ public struct BillingOffer: Sendable, Equatable, Hashable, Identifiable {
     /// - Parameters:
     ///   - planID: The plan the product grants.
     ///   - product: The StoreKit product.
-    public init(planID: BillingPlanID, product: StoreProduct) {
+    ///   - billingPeriod: How often it renews.
+    public init(planID: BillingPlanID, product: StoreProduct, billingPeriod: BillingPeriod = .monthly) {
         self.planID = planID
         self.product = product
+        self.billingPeriod = billingPeriod
     }
 }

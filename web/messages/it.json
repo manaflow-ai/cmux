@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "La macchina non risponde",
       "message": "Questa macchina non ha risposto in tempo, quindi la richiesta non è stata completata.",
-      "action": "Metti in pausa la macchina, poi riprendila e riprova. Nell'app per Mac, scegli Metti in pausa la macchina, poi Riprendi la macchina. In un terminale, esegui cmux vm pause '<machine>', poi cmux vm resume '<machine>'."
+      "action": "Contatta l'assistenza con l'ID di traccia prima di creare un'altra macchina."
     },
     "inProgress": {
       "title": "Ancora in corso",
@@ -44,6 +44,16 @@
       "title": "Il provider cloud è lento",
       "message": "Il provider cloud non ha risposto in tempo.",
       "action": "Riprova tra un momento."
+    },
+    "providerCapacity": {
+      "title": "Nessuna capacità Cloud al momento",
+      "message": "Il servizio Cloud non ha spazio per questa macchina in questo momento. Non è stato modificato nulla.",
+      "action": "Riprova tra un minuto."
+    },
+    "stateConflict": {
+      "title": "La macchina è occupata",
+      "message": "Questa macchina si sta avviando, mettendo in pausa o non è in esecuzione, quindi ora non può farlo.",
+      "action": "Attendi un momento e riprova. Controlla lo stato della macchina con cmux vm ls e riprendila prima se è in pausa."
     },
     "networkRuleCapacity": {
       "title": "Regole di rete al limite",
@@ -103,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go supporta 2 vCPU, 4 GiB di RAM e 16 GiB di disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "Quota di calcolo {plan} esaurita",
+      "computeMessage": "Il tuo piano {plan} ha usato le sue {included} ore di calcolo per questo periodo di fatturazione. Un'ora di calcolo corrisponde a 1 vCPU con 2 GB di memoria per un'ora. Le tue macchine potranno ripartire il {resetDate}.",
+      "computeAction": "Le macchine in pausa conservano i loro file. Contatta il supporto se ti serve più calcolo prima del {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Quota disco {plan} esaurita",
+      "storageMessage": "Il tuo piano {plan} include {included} GB di disco per tutte le macchine salvate. Le macchine salvate usano {used} GB e questa richiesta ne richiede {requested}.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Risorse Cloud VM insufficienti",
@@ -504,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Riprendi il piano per modificarlo.",
           "granted": "Concesso da cmux. Non c'è nulla da modificare.",
+          "grantedNoCancel": "Concesso da cmux, quindi non c'è nulla da annullare.",
+          "paymentFailed": "Aggiorna il metodo di pagamento prima di cambiare piano.",
+          "foundersLifetime": "Founder's Edition include Pro a vita.",
           "adminOnly": "Solo gli amministratori del team possono modificare il piano."
         },
         "names": {
@@ -546,6 +569,7 @@
       "change": {
         "title": "Passare a {plan}?",
         "upgradeBody": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} al mese.",
+        "upgradeBodyYearly": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} all'anno.",
         "downgradeBody": "{plan} inizia ora. La parte non utilizzata del piano attuale, {credit}, viene accreditata sulle prossime fatture. La prossima fattura, il {date}, è di {amount}.",
         "confirm": "Passa a {plan}",
         "keep": "Mantieni il piano attuale",
@@ -558,6 +582,8 @@
         "title": "Annullare {plan}?",
         "body": "Mantieni {plan} fino al {date}. Dopo perderai:",
         "bodyNoDate": "Mantieni {plan} fino alla fine di questo periodo di fatturazione. Dopo perderai:",
+        "foundersBody": "Il tuo abbonamento {plan} termina il {date}. Dopo avrai Pro, che Founder's Edition include a vita.",
+        "foundersBodyNoDate": "Il tuo abbonamento {plan} termina alla fine di questo periodo di fatturazione. Dopo avrai Pro, che Founder's Edition include a vita.",
         "reasonLabel": "Perché annulli? (facoltativo)",
         "otherPlaceholder": "Raccontaci di più (facoltativo)",
         "confirm": "Annulla piano",
@@ -2232,6 +2258,7 @@
           "currentLineHighlight": "Colora la riga che contiene il cursore di testo quando non è selezionato nulla.",
           "tabWidth": "Quante colonne occupa una tabulazione. Le guide di rientro usano la stessa spaziatura."
         },
+        "actions": "Azioni riutilizzabili per la tavolozza dei comandi, le scorciatoie, i pulsanti della barra delle schede e il menu del pulsante più. Supporta builtin, command, agent, workspaceCommand, workspace, setting, settingPreset e text. Le azioni di testo incollano nel terminale attivo mantenendo le interruzioni di riga; submit: true preme Enter. Le azioni delle impostazioni richiedono una configurazione globale.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3264,12 +3291,13 @@
       "apiKeyScope": "La chiave API di un'organizzazione usa solo gli account condivisi del team. Una chiave nel tuo team personale può usare anche i tuoi account privati. CodeRouter serve la OpenAI Responses API, non Chat Completions.",
       "apiKeyLogin": "Su una macchina che non può aprire un browser, cr login --api-key fa accedere cr con una chiave, e CODEROUTER_API_KEY ne fornisce una per un singolo comando. Revoca una chiave nella dashboard, o esegui cr logout sulla macchina che la usa.",
       "cloudTitle": "Sulle macchine cmux Cloud",
-      "cloudDesc": "Le macchine Cloud non richiedono configurazione. L'ambiente della macchina indirizza OPENAI_BASE_URL e ANTHROPIC_BASE_URL a un indirizzo privato di CodeRouter, e cmux scrive la configurazione di ogni agente la prima volta che si avvia una shell o l'agente:",
-      "cloudClaude": "Claude Code legge ANTHROPIC_BASE_URL e un ANTHROPIC_API_KEY segnaposto dall'ambiente. Le domande del primo avvio hanno già una risposta.",
+      "cloudDesc": "Le macchine Cloud non richiedono configurazione. Ogni agente usa gli account CodeRouter del tuo team tramite un indirizzo privato di CodeRouter, e cmux scrive la sua configurazione la prima volta che si avvia una shell o l'agente:",
+      "cloudClaude": "Claude Code riceve ANTHROPIC_BASE_URL e un ANTHROPIC_API_KEY segnaposto a ogni avvio, non da ogni shell, così non hanno mai la precedenza sul tuo accesso personale. Le domande del primo avvio hanno già una risposta.",
       "cloudCodex": "Codex riceve un provider di modelli cmux in ~/.codex/config.toml.",
       "cloudPi": "Pi riceve una sostituzione del provider in ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode scarica il suo elenco di provider da CodeRouter al primo avvio e lo salva in ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode scarica il suo elenco di provider da CodeRouter al primo avvio, lo salva in ~/.config/cmux/opencode-team.json e lo aggiunge alla tua configurazione a ogni esecuzione.",
       "cloudYours": "cmux scrive ogni file solo se manca, quindi le tue modifiche vengono mantenute. Una configurazione di Codex che indica già un altro provider di modelli non viene toccata.",
+      "cloudOwnLogin": "Per usare invece il tuo account, esegui cr use own sulla macchina, poi accedi come fa normalmente l'agente: /login in Claude Code, codex login o opencode auth login. cr use team torna agli account del team, cr use own codex cambia un solo agente e cr use mostra come accede ciascun agente. Senza una scelta, un agente a cui hai effettuato l'accesso sulla macchina usa il tuo account, e un agente per cui il tuo team non ha un account mostra il suo accesso normale. Una modifica si applica al successivo avvio dell'agente.",
       "cloudRun": "Esegui gli agenti come al solito. cmux coderouter agent trasforma un semplice prompt nella forma a esecuzione singola dell'agente; all'interno di una macchina viene eseguito nel terminale corrente, e sul tuo Mac avvia l'agente sulla macchina indicata, come cmux vm agent.",
       "cloudAccounts": "Le macchine Cloud usano gli account del team a cui appartengono. Se un agente segnala che nessun account è disponibile, aggiungine uno o condividi un account esistente con quel team.",
       "modelsTitle": "Modelli",

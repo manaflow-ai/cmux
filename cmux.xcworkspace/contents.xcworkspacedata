@@ -229,6 +229,9 @@
          location = "group:CmuxGit">
       </FileRef>
       <FileRef
+         location = "group:CmuxHerdrResume">
+      </FileRef>
+      <FileRef
          location = "group:CmuxHive">
       </FileRef>
       <FileRef
@@ -248,6 +251,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxPhonePush">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxProductAnalytics">
       </FileRef>
       <FileRef
          location = "group:CMUXProjectModel">
@@ -283,6 +289,9 @@
          location = "group:CmuxSimulator">
       </FileRef>
       <FileRef
+         location = "group:CmuxSSHClipboardTrust">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSudoBroker">
       </FileRef>
       <FileRef
@@ -311,6 +320,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTestSupport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTextActions">
       </FileRef>
       <FileRef
          location = "group:CmuxUpdater">
