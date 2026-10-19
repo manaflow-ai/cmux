@@ -267,18 +267,16 @@ button.cv-subagent > :last-child {
 [data-agent-tone="4"] {
   --agent-tone: var(--agent-ansi-13, #db61a2);
 }
+/* As text, a tone mixes toward the text color: a terminal yellow or cyan alone is too faint on a
+   light page. The list's dot uses the same mix, so the two read as one color. */
+[data-agent-tone] {
+  --agent-tone-ink: color-mix(in srgb, var(--agent-tone) 72%, var(--agent-text));
+}
 .cv-subagent[data-agent-tone] .cv-subagent__name {
-  color: var(--agent-tone);
+  color: var(--agent-tone-ink);
 }
-/* The agents pill (AgentsPill.tsx): a part of the bottom stack (bottomStack.css), right above the
-   composer at the column's leading edge, so it never lies over the latest row. Its list opens
-   upward over the transcript, as a popover does. */
-.acpmux-main > .acpmux-agents-pill-anchor {
-  position: relative;
-  flex: none;
-  display: flex;
-  padding: 0 var(--cv-inset) 8px;
-}
+/* The agents pill (AgentsPill.tsx): a part of the bottom stack (bottomStack.css places it), at
+   the column's leading edge. Its list opens upward over the transcript, as a popover does. */
 .acpmux-agents-pill {
   all: unset;
   box-sizing: border-box;
@@ -313,9 +311,9 @@ button.cv-subagent > :last-child {
   position: absolute;
   left: var(--cv-inset);
   bottom: 100%;
-  z-index: var(--layer-sticky);
+  z-index: var(--layer-dropdown);
   box-sizing: border-box;
-  width: min(320px, calc(100vw - 2 * var(--cv-edge)));
+  width: min(320px, calc(100% - 2 * var(--cv-inset)));
   max-height: min(360px, 60vh);
   margin: 0 0 8px;
   padding: 6px;
@@ -369,7 +367,7 @@ button.cv-subagent > :last-child {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--agent-tone, var(--agent-muted));
+  background: var(--agent-tone-ink, var(--agent-muted));
 }
 .acpmux-agents-list__text {
   flex: 1;

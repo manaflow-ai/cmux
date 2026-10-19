@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts and subagent names, not shipped UI.
-// While a chat's subagents run, a pill floats above the composer, after Codex's phone app ("3
+// While a chat's subagents run, a pill sits right above the composer, after Codex's phone app ("3
 // agents"): it counts the agents still running and opens a list split into Active and Completed,
 // a colored dot per agent. The same color marks the agent's name in the transcript, and an agent
 // keeps it for the life of the chat as others start and end. A click on an agent opens it. The
@@ -214,9 +214,17 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
       page.locator(".acpmux-composer").first().boundingBox(),
     ]);
     expect(pillBox!.y + pillBox!.height).toBeLessThanOrEqual(composerBox!.y);
-    // At the chat's end the latest row stays clear of the pill.
-    const latest = await page.getByText("Read src/app.ts").boundingBox();
-    expect(latest!.y + latest!.height).toBeLessThanOrEqual(pillBox!.y);
+    // At the chat's end the latest row stays clear of the pill, once following the bottom has
+    // taken in the height the pill took.
+    const clearance = async () => {
+      const [latest, box] = await Promise.all([
+        page.getByText("Read src/app.ts").boundingBox(),
+        pill(page).boundingBox(),
+      ]);
+      return box!.y - (latest!.y + latest!.height);
+    };
+    for (let tries = 0; tries < 20 && (await clearance()) < 0; tries++) await page.waitForTimeout(50);
+    expect(await clearance()).toBeGreaterThanOrEqual(0);
     await page.close();
     // No agent running: no pill.
     const done = await open(QUIET);

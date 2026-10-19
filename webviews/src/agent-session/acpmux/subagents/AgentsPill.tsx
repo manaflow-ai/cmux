@@ -4,6 +4,7 @@
 // its color (agentTones.ts), which its name in the transcript shares. A click on an agent opens
 // it: its pane, or its view in this pane (App.tsx `showSubagent`). The pill is a part of the
 // bottom stack (bottomStack.css), not laid over the transcript, so it never hides the latest row.
+import { useId } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -27,6 +28,7 @@ export function AgentsPill({
 }) {
   const t = useT();
   const { open, setOpen, button, popover, toggle } = usePopover();
+  const listId = useId();
   const live = agents.filter(running);
   const now = useNow(open && live.length > 0);
   if (live.length === 0) return null;
@@ -45,8 +47,20 @@ export function AgentsPill({
   const title = t("subagents.pill.list");
   return (
     <div className="acpmux-agents-pill-anchor">
+      <button
+        ref={button}
+        type="button"
+        className="acpmux-agents-pill"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={open ? listId : undefined}
+        onClick={toggle}
+      >
+        <Icon name="agent.session" size={14} />
+        <span>{t("subagents.pill", { n: live.length })}</span>
+      </button>
       {open && (
-        <dialog ref={popover} open className="acpmux-agents-list" aria-label={title}>
+        <dialog ref={popover} id={listId} open className="acpmux-agents-list" aria-label={title}>
           {sections.map((section) => (
             <section key={section.key} className="acpmux-agents-list__section">
               <h3 className="acpmux-agents-list__heading">{section.title}</h3>
@@ -62,7 +76,9 @@ export function AgentsPill({
                         data-agent-tone={tones.get(agent.id)}
                         data-status={status}
                         onClick={() => {
+                          // Focus goes back to the pill, not to the page, as the row goes.
                           setOpen(false);
+                          button.current?.focus();
                           onOpen(agent.id);
                         }}
                       >
@@ -82,17 +98,6 @@ export function AgentsPill({
           ))}
         </dialog>
       )}
-      <button
-        ref={button}
-        type="button"
-        className="acpmux-agents-pill"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        onClick={toggle}
-      >
-        <Icon name="agent.session" size={14} />
-        <span>{t("subagents.pill", { n: live.length })}</span>
-      </button>
     </div>
   );
 }

@@ -5119,8 +5119,14 @@ function AcpmuxPane() {
         />
       )}
       {/* The agents pill (subagents/AgentsPill.tsx): in the bottom stack, right above the composer. */}
-      {!quick && !freshView && chatTones && (
-        <AgentsPill agents={chatAgents} waiting={waitingAgents} tones={chatTones} onOpen={showSubagent} />
+      {!quick && !freshView && chatTones && chatAgents.some(running) && (
+        <AgentsPill
+          key={shownSessionId}
+          agents={chatAgents}
+          waiting={waitingAgents}
+          tones={chatTones}
+          onOpen={showSubagent}
+        />
       )}
       {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
       <ImageViewerContext.Provider value={openImage}>
