@@ -12,6 +12,11 @@ impl Mux {
     }
 
     pub(crate) fn publish_journal_event(&self) {
+        // A creation wakes journal readers once, after its commits are
+        // durable (create_txn).
+        if self.hold_journal_wake_in_create_txn() {
+            return;
+        }
         self.journal_kernel.notify_commit();
         let mut epoch = self.journal_event_epoch.lock().unwrap();
         *epoch = epoch.wrapping_add(1);
