@@ -155,6 +155,7 @@ final class SidebarBridge {
         PendingWorkspaceRows.shared.redraws.add(self) { [weak self] in
             guard let self, let id = self.state?.id else { return }
             rows.show(creating: (PendingWorkspaceRows.shared.rows(in: id), NewWorkspacePlacements.home(services.machines)))
+            self.selectionHold.flush() // a selection waiting on the new row takes it in this turn, as `show` does
             container.sidebarView.renderNow() // in this turn, so its frame draws the row
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.

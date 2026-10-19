@@ -33,7 +33,8 @@ warnings only.
                  cx-8w027.20: each restored page re-ran its pane on every split or close anywhere).
   new_workspaces 50 new workspaces, one newTab (Cmd-N's create path) at a time: each one's sidebar row is
                  drawn from the press, before the daemon creates it, with no rows pass walking every
-                 workspace in between (debug.new_workspace walks 0; host-independent, blocks), and commits
+                 workspace between its create and that draw (debug.new_workspace walks 0;
+                 host-independent, blocks; the window's own later rows pass is not timed), and commits
                  in the first frame after it is drawn (late_vsyncs 0; a frame check). Press to drawn over
                  one frame is a warning; the reply (the daemon's confirm) is reported.
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
@@ -730,6 +731,7 @@ class Gate:
 
     def new_workspaces(self, scenario="new_workspaces"):
         app, creates = self.app, 50
+        before = set(app.workspace_ids())
         app.rpc("debug.frames", {"action": "start"})
         app.rpc("debug.new_workspace", {"action": "start"})
         counts, replies = [], []
@@ -741,6 +743,10 @@ class Gate:
         app.settle()
         own = app.rpc("debug.new_workspace", {"action": "stop"}) or {}
         app.rpc("debug.frames", {"action": "stop"})
+        # The later scenarios run with the workspaces they had before this one.
+        for workspace in [w for w in app.workspace_ids() if w not in before]:
+            app.action("closeWorkspace", {"workspace": workspace})
+        wait(lambda: len(app.workspace_ids()) <= len(before), 60)
         rows = [{k: round(v, 2) for k, v in row.items()} for row in own.get("creates") or []]
         report["phases"][scenario] = {"workspaces_before": counts, "reply_ms": replies, "creates": rows}
         if not check(len(rows) == creates, f"debug.new_workspace timed {len(rows)} of {creates} new workspace rows", scenario):

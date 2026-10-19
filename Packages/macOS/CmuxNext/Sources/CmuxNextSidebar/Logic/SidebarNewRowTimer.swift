@@ -4,7 +4,7 @@ import QuartzCore
 
 /// `debug.new_workspace`: per new workspace, the press (`pressed`) to the frame its sidebar row is
 /// first drawn (`drew`), as `SwitchFrameTimer` times a tab switch (`apply_ms`, `commit_ms`,
-/// `late_vsyncs`), and `walks`: the rows passes that walked every workspace (`SidebarSameTurn`)
+/// `late_vsyncs`), and `walks`: the rows passes that walked every workspace (`SidebarRowFeed.fill`)
 /// between the two. A new workspace's row is drawn from the press, before the daemon creates it
 /// (the App's PendingWorkspaceRows), so it needs no walk: perf-gate.py's new_workspaces scenario gates
 /// `walks` 0 for every create.
