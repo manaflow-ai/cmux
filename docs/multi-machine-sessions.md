@@ -55,21 +55,16 @@ Most of the pieces exist; they aren't joined up.
   `SystemTailscaleStatusProvider` (`tailscale status --json`).
 - **Presence.** [Presence service](presence-service.md): live online/offline
   per `(deviceId, tag)`, team scoped and owner bound. A hint, not authority.
-- **Mac ↔ Mac pairing.** `CmuxHive` (Settings › Devices, the Devices
-  sidebar): exact endpoint grants after an authenticated host-status
-  exchange. Registry and presence never create grants.
-- **Iroh transport and grants.** [Iroh app transport](iroh-app-transport-architecture.md):
-  EndpointID is identity, IPs and Tailscale addresses are only hints,
-  backend-signed pair grants bound to both endpoints, managed relays so
-  neither side opens a port.
 - **cmux-tui remote runtime.** `cmux-tui/crates/cmux-remote`: a daemon with
   its own identity, five-minute enrollment invitations, approval, revocation,
   `known-daemons`, and iroh / relay / WebSocket / SSH / Unix providers
   ([remote.md](../cmux-tui/docs/remote.md)). `machine-agent` already shares a
   machine through Cloud with an outbound-only connection
   ([machines.md](../cmux-tui/docs/machines.md#share-a-local-machine-through-cloud)).
-  One gap: "every enrolled device has full daemon authority, including all
-  workspaces".
+  The native relay (`cmux-relay`, slot tickets for register and connect) and
+  the Cloudflare Durable Object relay carry a session between two machines
+  that both dial out. One gap: "every enrolled device has full daemon
+  authority, including all workspaces".
 - **`cmux ssh` and the CLI relay.** [Remote SSH spec](remote-daemon-spec.md):
   `cmuxd-remote`, a reverse-forwarded, HMAC-authenticated relay so `cmux` on
   the remote can call the Mac app, and a default-deny method allowlist in
@@ -90,11 +85,12 @@ what one machine may do on another.
 
 **One list: "My machines".** It comes from the device registry, scoped to the
 signed-in user's personal account, not the selected team. A machine's
-identity is its cmux endpoint key (the Iroh EndpointID on the Mac, the
-`cmux-remote` daemon key on Linux). The display name ("cosmic-gray", "Huge
-Blue") is a label on that record. Hostnames, Tailscale names, 100.x
-addresses and `~/.ssh/config` aliases are reachability hints attached to it,
-in the same way the Iroh design treats them.
+identity is its `cmux-remote` daemon key, the key `remote enroll` already
+binds and `known-daemons` already pins, on the Mac and on Linux alike. The
+display name ("cosmic-gray", "Huge Blue") is a label on that record.
+Hostnames, Tailscale names, 100.x addresses, relay slots and
+`~/.ssh/config` aliases are reachability hints attached to it; none of them
+authorizes anything.
 
 **Discovery sources only suggest; enrollment adds.** During setup cmux reads
 three sources and offers what it finds:
@@ -106,10 +102,9 @@ three sources and offers what it finds:
 3. Concrete `Host` entries from `~/.ssh/config` (the cmux-tui picker already
    parses these, including `Include`).
 
-A suggestion becomes a machine only after enrollment (pairing on the Mac,
-`remote enroll` on Linux) binds its key. A matching Tailscale name or a
-registry row never grants access by itself. That's the rule `CmuxHive`
-already follows.
+A suggestion becomes a machine only after enrollment (`remote enroll` and
+approval on the other machine) binds its key. A matching Tailscale name or a
+registry row never grants access by itself.
 
 **Linux joins the same list.** The cmux-tui daemon registers a device row with
 its daemon key and `tag` = session name, and heartbeats presence. Huge Blue
@@ -139,7 +134,7 @@ shown before it runs.
 | 6. Set trust | Choose what each machine may do on the other ([trust tiers](#per-host-trust)). Default: nothing back toward the user's personal machine. | Chooses. |
 | 7. Register | Write the registry row; optionally export a `Host` alias to a cmux-owned `~/.ssh/config.d/cmux` include that the user wires up once. | Confirms the include. |
 
-A paired Iroh or relay connection works without SSH, Remote Login or a
+A paired connection through the cmux relay works without SSH, Remote Login or a
 tailnet policy change. SSH setup (keys, Remote Login) is offered only when the
 user wants a plain SSH login as well, for example for tools outside cmux.
 
@@ -204,8 +199,8 @@ agent's own `cmux` call.
 1. **Resolve** the name to a registry record and endpoint key. Ambiguous
    names fail; nothing falls back to DNS.
 2. **Pick a route** in order: an already-open cmux connection to that machine
-   (including the reverse channel below), a paired Iroh connection (direct or
-   relayed), then SSH if the record says it works. Presence is only used to
+   (including the reverse channel below), SSH if the record says it works,
+   then the cmux relay. Presence is only used to
    say "offline" early.
 3. **Send a typed request**, never a command string:
 
@@ -257,10 +252,13 @@ Mac. The **back channel** is a new, narrow method family on that relay.
   allows them. Everything else stays denied.
 
 **When no connection is open** (Huge Blue wants to start work on the Mac
-while the user is away from it), the host dials the Mac's EndpointID through
-the managed Iroh relay. The Mac keeps the outbound relay registration it
-already has for iOS, so no port opens and no tailnet change is needed. The
-same pair grant and trust tier apply. If the Mac is asleep or offline, the
+while the user is away from it), the host connects through the cmux relay.
+The Mac keeps an outbound registration there, the same outbound-only shape as
+`cmux machine-agent`, so no port opens and no tailnet change is needed. The
+relay only forwards bytes: the host still authenticates to the Mac's pinned
+daemon key, and the same enrollment and trust tier apply. Iroh could later
+add a direct path for latency (`cmux-remote` already has an Iroh provider),
+but nothing here depends on it. If the Mac is asleep or offline, the
 request fails with "cosmic-gray is offline". Waking it is out of scope.
 
 **Plain SSH back to the Mac** (the 2026-10-18 workaround) stays a
@@ -298,10 +296,10 @@ its tier, closes its live back-channel slots right away.
 **Identity.** Machines are endpoint keys bound in the device registry to the
 user's personal account. Names, IPs, Tailscale identities, presence rows and
 SSH aliases are hints and never authorize. A peer is admitted only by key
-possession (Iroh TLS or Noise) plus a signed pair grant, as the Iroh design
-already requires.
+possession (the `cmux-remote` Noise handshake against a pinned daemon key)
+plus an enrollment the target approved.
 
-**Authority is local and narrow.** A pair grant says two machines belong to
+**Authority is local and narrow.** An enrollment says two machines belong to
 the same user. It doesn't say what they may do. The target's local trust
 record decides that, and a peer can't change it. The cmux-tui daemon's
 current "every enrolled device has full authority" becomes the Shell tier,
@@ -341,23 +339,22 @@ admitted requests are idempotent by `request_id`.
 
 **Residual risks.** A compromised host at the Folders tier can start agents in
 the allowed folders with prompts it writes. That's the reason for the tier,
-the folder scope, the audit trail and the default of None. An admitted Iroh
-peer can learn the Mac's LAN and VPN addresses
-([documented](iroh-app-transport-architecture.md#connection-plan)).
+the folder scope, the audit trail and the default of None. The relay
+operator sees connection metadata (which machines talk, when, how much) but
+not content.
 
 ## Next PRs
 
 Each is independently reviewable. Relay-touching PRs carry the full
 authorization analysis and policy tests.
 
-1. **Reachability doctor** (portable, small). `cmux machine doctor <host>`:
-   runs the TSMP, TCP:22 and `BatchMode` SSH probes and prints the diagnosis
-   table above, including the tailnet-policy case and the rule to ask for.
-   No state changes. Useful on its own the next time this happens.
+1. **Reachability doctor.** `cmux remote doctor HOST` runs the TSMP, TCP and
+   `BatchMode` SSH probes and prints the diagnosis table above. No state
+   changes. In review as manaflow-ai/cmux#21831.
 2. **Linux in the device registry.** The cmux-tui daemon registers a device
    row keyed by its daemon key and heartbeats presence; `RemotesClient`
    lists Linux rows. Touches `web/` (BSL, CLA rules apply).
-3. **Trust records and audit log** (Mac `CmuxHive` plus `cmux-remote`).
+3. **Trust records and audit log** (`cmux-remote`, surfaced in the Mac app).
    Local-only per-peer tier, folder and agent allowlist, expiry, and an
    append-only audit log with a Settings › Devices view. Paired peers
    default to None. No new remote method yet.
@@ -374,10 +371,11 @@ authorization analysis and policy tests.
    suggestions from registry, Tailscale and ssh_config; pairing; probe;
    identity mapping; trust; optional `~/.ssh/config.d/cmux` export and
    restricted `authorized_keys` line.
-7. **Offline-of-connection route.** Host → Mac over the managed Iroh relay
-   using the pair grant when no cmux connection is open.
+7. **Offline-of-connection route.** Host → Mac through the cmux relay, with
+   the Mac registered outbound, when no cmux connection is open.
 8. **`cmux machine run` and "New session on…"** in the sidebar and TUI rail,
    picking the route automatically, plus `session move --to <machine name>`.
 
-Out of scope here: waking a sleeping Mac, the Shell tier, and team-shared
+Out of scope here: an Iroh direct path (an optional latency improvement
+later), waking a sleeping Mac, the Shell tier, and team-shared
 machines (this doc covers one user's own machines).
