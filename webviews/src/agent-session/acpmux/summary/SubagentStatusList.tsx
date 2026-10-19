@@ -16,7 +16,7 @@ const ROW_ICON = rowIconSize(12);
 /// is waiting on them, not running; a cancelled or lost one ended without its result.
 export type SubagentStatus = "running" | "waiting" | "done" | "failed";
 
-const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
+export const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
   running: "subagents.state.running",
   waiting: "subagents.state.waiting",
   done: "subagents.state.completed",
