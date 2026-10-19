@@ -34,6 +34,13 @@ extension PaneContentView {
     /// parked here, else adds it (also from another pane, a moved tab).
     /// `leaving`, retired right after, does not count as content above it.
     func install(_ view: NSView, replacing leaving: NSView? = nil) {
+        if probeWings, let wings = probeWingsView, view.superview === wings {
+            parked.removeAll { $0.view == nil || $0.view === view }
+            view.frame = contentHost.bounds
+            view.autoresizingMask = [.width, .height]
+            contentHost.addSubview(view, positioned: .below, relativeTo: wings)
+            return
+        }
         guard view.superview === contentHost else {
             view.frame = contentHost.bounds
             view.autoresizingMask = [.width, .height]
@@ -70,6 +77,14 @@ extension PaneContentView {
             window.makeFirstResponder(nil)
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+        if probeWings {
+            if !(view is AgentPaneView) { view.autoresizingMask = [] }
+            wingsView().addSubview(view)
+            parked.removeAll { $0.view == nil || $0.view === view }
+            parked.append(ParkedContent(view: view))
+            prunePark()
+            return
+        }
         probeSetHidden(view, true)
         // A hidden agent page stays sized with the pane, so showing it again needs no redraw at a new
         // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
@@ -84,7 +99,7 @@ extension PaneContentView {
     /// ``parkLimit``, or not `live` (a closed tab, a replaced view).
     func prunePark(live: ((NSView) -> Bool)? = nil) {
         parked.removeAll { entry in
-            guard let view = entry.view, view.superview === contentHost, view !== content else { return true }
+            guard let view = entry.view, view.superview === contentHost || (probeWingsView != nil && view.superview === probeWingsView), view !== content else { return true }
             guard live?(view) ?? true else {
                 view.removeFromSuperview()
                 return true
@@ -93,7 +108,7 @@ extension PaneContentView {
         }
         while parked.count > Self.parkLimit {
             let oldest = parked.removeFirst()
-            if let view = oldest.view, view.superview === contentHost, view !== content { view.removeFromSuperview() }
+            if let view = oldest.view, view.superview === contentHost || (probeWingsView != nil && view.superview === probeWingsView), view !== content { view.removeFromSuperview() }
         }
     }
 
@@ -112,5 +127,22 @@ extension PaneContentView {
         layer.isHidden = hidden
     } else {
         view.isHidden = hidden
+    }
+}
+
+
+/// PROBE ONLY (variant f): parked views live in one hidden container ("wings") that is never shown,
+/// so a switch changes no view's own hidden state: it moves the view between two superviews.
+extension PaneContentView {
+    var probeWings: Bool { ProcessInfo.processInfo.environment["CMUX_NEXT_PROBE_VARIANT"] == "f" }
+    var probeWingsView: NSView? { contentHost.subviews.first { $0.identifier?.rawValue == "probe.wings" } }
+    func wingsView() -> NSView {
+        if let wings = probeWingsView { return wings }
+        let wings = NSView(frame: contentHost.bounds)
+        wings.identifier = NSUserInterfaceItemIdentifier("probe.wings")
+        wings.autoresizingMask = [.width, .height]
+        wings.isHidden = true
+        contentHost.addSubview(wings)
+        return wings
     }
 }
