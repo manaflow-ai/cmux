@@ -94,7 +94,7 @@ import Testing
         let lane = try #require(AgentActivityLane.of(summary: [
             "sessionId": "op", "lane": ["state": "idle"],
             "pullRequests": ["https://github.com/o/r/pull/1", "", 3, "https://github.com/o/s/pull/2"],
-        ], title: nil))
+        ]))
         #expect(lane.pullRequests == ["https://github.com/o/r/pull/1", "https://github.com/o/s/pull/2"])
     }
 
