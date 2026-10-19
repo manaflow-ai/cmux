@@ -1,8 +1,8 @@
 name: PR red checks comment
 
-# One comment on a pull request into feat-cmux-next that lists its red web and size checks
-# (scripts/ci/pr_red_checks_comment.py). The checks stay advisory (chief 2026-10-12); this makes a
-# red one impossible to miss. Each workflow that runs tracked checks calls this after them; every
+# The `checks` line of the status comment on a pull request into feat-cmux-next lists its red
+# web and size checks (scripts/ci/pr_red_checks_comment.py, scripts/ci/pr_status.py). The checks
+# stay advisory (chief 2026-10-12); this makes a red one impossible to miss. Each workflow that runs tracked checks calls this after them; every
 # call recomputes from all check runs of the head commit, and the per-PR group orders the calls.
 # The script comes from the base commit, never the pull request's code.
 on:
@@ -13,7 +13,7 @@ permissions: {}
 jobs:
   comment:
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     continue-on-error: true
     concurrency:
@@ -29,10 +29,12 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/pr_red_checks_comment.py
+          sparse-checkout: |
+            scripts/ci/pr_red_checks_comment.py
+            scripts/ci/pr_status.py
           sparse-checkout-cone-mode: false
 
-      - name: Update the red checks comment
+      - name: Update the red checks line
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

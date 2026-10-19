@@ -6,14 +6,15 @@ red one does not stop a merge; this comment makes it impossible to miss (chief 2
 #20117 merged with red web checks and left 168 settings strings stale on the base).
 
 Reads every check run of the pull request's head commit, keeps the newest run per name among the
-TRACKED names, and keeps exactly one comment (found by MARKER):
+TRACKED names, and writes the `checks` line of the pull request's status comment
+(scripts/ci/pr_status.py):
   - some tracked check red -> "red: <check>; do not merge until green; see lane-rules", one line
-    per red check (created, or edited when the list changed);
-  - none red, and the comment says red -> edited to "all web/size checks green";
-  - none red and no comment -> nothing (no comment on a clean PR).
+    per red check;
+  - none red, and the line says red -> "web and size checks: green";
+  - none red and no red line -> nothing (no comment on a clean PR).
 Pending checks do not count. Several workflows call it (each after its own checks); every call
-recomputes from all check runs, so the comment converges. A new advisory check is one more entry
-in TRACKED.
+recomputes from all check runs, so the line converges. A new advisory check is one more entry
+in TRACKED. The comment this used to keep on its own (LEGACY_MARKER) is deleted on the first write.
 
 Env: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, HEAD_SHA, GITHUB_API_URL (default api.github.com).
 """
@@ -22,8 +23,12 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
-MARKER = "<!-- cmux-red-checks -->"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pr_status  # noqa: E402
+
+LEGACY_MARKER = "<!-- cmux-red-checks -->"
 # (kind, value): "prefix" matches the start of a check name, "name" the whole name.
 TRACKED = (
     ("prefix", "web / "),                            # ci-web.yml jobs (ci.yml `web` caller)
@@ -31,7 +36,7 @@ TRACKED = (
     ("name", "cmux-next crash ratchet"),              # cmux-next-guards.yml crash-ratchet job
 )
 RED = {"failure", "timed_out", "action_required", "startup_failure"}
-GREEN_BODY = MARKER + "\nall web/size checks green"
+GREEN_LINE = "web and size checks: green"
 
 
 def tracked(name):
@@ -51,18 +56,16 @@ def red_checks(check_runs):
     return sorted(n for n, (_, r) in newest.items() if r.get("status") == "completed" and r.get("conclusion") in RED)
 
 
-def decide(check_runs, existing_body):
-    """(action, body): action is "create", "update" or None."""
+def decide(check_runs, existing_line):
+    """The checks line to write, or None to leave it as it is."""
     red = red_checks(check_runs)
     if red:
-        body = MARKER + "\n" + "\n".join(f"red: {n}; do not merge until green; see lane-rules" for n in red)
-    elif existing_body is not None and "red: " in existing_body:
-        body = GREEN_BODY
+        line = "\n".join(f"red: {n}; do not merge until green; see lane-rules" for n in red)
+    elif existing_line is not None and "red: " in existing_line:
+        line = GREEN_LINE
     else:
-        return None, None
-    if existing_body is None:
-        return "create", body
-    return ("update", body) if existing_body.strip() != body.strip() else (None, None)
+        return None
+    return None if existing_line is not None and existing_line.strip() == line else line
 
 
 class GitHub:
@@ -96,13 +99,11 @@ def main():
                 os.environ["GITHUB_TOKEN"])
     pr, sha = os.environ["PR_NUMBER"], os.environ["HEAD_SHA"]
     runs = gh.pages(f"/repos/{gh.repo}/commits/{sha}/check-runs?filter=latest", key="check_runs")
-    comments = gh.pages(f"/repos/{gh.repo}/issues/{pr}/comments")
-    mine = next((c for c in comments if MARKER in (c.get("body") or "")), None)
-    action, body = decide(runs, mine["body"] if mine else None)
-    if action == "create":
-        gh.call("POST", f"/repos/{gh.repo}/issues/{pr}/comments", {"body": body})
-    elif action == "update":
-        gh.call("PATCH", f"/repos/{gh.repo}/issues/comments/{mine['id']}", {"body": body})
+    current = pr_status.section(gh.repo, int(pr), "checks", api=gh.call)
+    line = decide(runs, current)
+    action = None
+    if line is not None:
+        action = pr_status.upsert(gh.repo, int(pr), "checks", line, legacy=LEGACY_MARKER, api=gh.call)
     print(f"pr-red-checks: #{pr} {sha[:12]}: red={red_checks(runs)} action={action or 'none'}")
     return 0
 
