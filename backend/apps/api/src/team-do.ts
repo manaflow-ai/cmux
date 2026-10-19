@@ -29,6 +29,7 @@ import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
 import { listMembers } from "./domains/team-members.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { serverNetworkExternal } from "./server-network-confirm.ts"
+import { hostNetworkExternal } from "./host-network-bind.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
@@ -375,6 +376,17 @@ export class TeamDO extends OwnerDO<TeamState> {
       state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
       key: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).serverKey(user, install, grant, entity),
       submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+    }, principal, frame)
+  }
+
+  /** A client can bind only its own device host; daemon approval stays separate. */
+  async hostNetworkBind(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; expected_revision?: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return hostNetworkExternal({
+      team: entity, project: this.env.STACK_PROJECT_ID, origin: this.env.CLOUD_VM_API_ORIGIN, stream: engine.stream,
+      state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), http: this.http, now: Date.now,
+      key: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).deviceKey(user, install, grant),
+      submitSystem: (op, params, key, revision) => this.submitSystem(op, params, key, undefined, revision)
     }, principal, frame)
   }
 

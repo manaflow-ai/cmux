@@ -241,6 +241,10 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).serverNetworkConfirm(p.team!, p, frame)), catch: unreachable })
         }
+        if (payload.op === "host.network.bind") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).hostNetworkBind(p.team!, p, frame)), catch: unreachable })
+        }
         if (payload.op === "domain.verify" || payload.op === "domain.release") {
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).domainOp(p.team!, p, frame)), catch: unreachable })

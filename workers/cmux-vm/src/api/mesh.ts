@@ -8,7 +8,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "@effect/p
 import { Schema } from "effect";
 import { BadRequest, Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded, ServiceUnavailable } from "../errors.ts";
 import { InstallPublicKey, Nonce, Signature, SignedAt } from "../mesh/signed-request.ts";
-import { DeviceId, MeshId, TunnelId, VmId } from "../lib/ids.ts";
+import { DeviceId, MeshId, TenantId, TunnelId, VmId } from "../lib/ids.ts";
 import { describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders } from "./common.ts";
 
 const EXPERIMENT = "Experiment: answers 404 unless the mesh experiment is enabled for the team.";
@@ -245,6 +245,12 @@ export class OverlayPolicy extends Schema.Class<OverlayPolicy>("OverlayPolicy")(
   peers: Schema.Array(OverlayPeer),
 }, { description: "Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane." }) {}
 
+export class DeviceOverlayPolicy extends OverlayPolicy.extend<DeviceOverlayPolicy>("DeviceOverlayPolicy")({
+  // Optional on the wire so clients can read an older service's policy.
+  // Identity binding requires it; both current device routes always supply it.
+  tenantId: Schema.optional(TenantId).annotations({ description: "The tenant that owns this device. Account identity binding must require it and match its authoritative team-to-tenant mapping and both public keys." }),
+}) {}
+
 const OWN =
   "Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404.";
 
@@ -286,7 +292,7 @@ export class MeshDeviceGroupDefinition extends HttpApiGroup.make("meshDevice")
     HttpApiEndpoint.post("signedDeviceOverlayPolicy", "/v1/devices/:deviceId/signed/overlay-policy")
       .setPath(DevicePath)
       .setPayload(SignedDeviceRequest)
-      .addSuccess(OverlayPolicy)
+      .addSuccess(DeviceOverlayPolicy)
       .addError(BadRequest)
       .addError(Forbidden)
       .addError(NotFound)
@@ -471,7 +477,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
     HttpApiEndpoint.get("getDeviceOverlayPolicy", "/v1/devices/:deviceId/overlay-policy")
       .setPath(DevicePath)
       .setHeaders(GroupTeamHeaders)
-      .addSuccess(OverlayPolicy)
+      .addSuccess(DeviceOverlayPolicy)
       .addError(NotFound)
       .addError(Conflict)
       .addError(QuotaExceeded)

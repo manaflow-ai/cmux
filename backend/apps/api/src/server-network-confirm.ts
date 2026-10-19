@@ -1,32 +1,16 @@
-import type { OwnerFrame, Principal, RejectFrame, ResultFrame, RowReader } from "@cmux/ownership"
+import type { Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import { ServerNetworkConfirm, type Host } from "@cmux/protocol"
 import { admit, decodeParams } from "./domains/common.ts"
 import { can, hostOf } from "./domains/team-members.ts"
 import { sameServerNetwork, serverPlacementActive } from "./domains/team-servers.ts"
-import type { TeamState } from "./domains/team.ts"
 import { sha256Hex } from "./domains/pairing.ts"
 import { installPublicPoint } from "./install-public-point.ts"
-import type { DomainReply, Http } from "./team-domain-external.ts"
+import type { DomainReply } from "./team-domain-external.ts"
+import { networkOrigin, verifyNetworkIdentity, type NetworkIdentityDeps } from "./network-policy-read.ts"
 import type { VmApiTenant } from "./team-vm-api-tenant.ts"
 
-export interface ServerNetworkDeps {
-  readonly team: string
-  readonly project: string
-  readonly origin: string | undefined
-  readonly stream: string
-  readonly state: () => TeamState
-  readonly rows: RowReader | undefined
-  readonly tenant: () => Promise<VmApiTenant | null>
-  readonly key: (user: string, install: string, grant: string) => Promise<JsonWebKey | null>
-  readonly http: Http
-  readonly now: () => number
-  readonly submitSystem: (op: string, params: unknown, key: string) => { frames: ReadonlyArray<OwnerFrame> }
-}
+export type ServerNetworkDeps = NetworkIdentityDeps
 
-const originOf = (value: string | undefined): string | null => {
-  if (!value) return null
-  try { const u = new URL(value); return u.protocol === "https:" && u.origin === value && !u.username && !u.password ? value : null } catch { return null }
-}
 const targetMatches = (d: ServerNetworkDeps, target: VmApiTenant | null, tenant: string): boolean =>
   target?.team === d.team && target.project === d.project && target.tenant === tenant
 const pointOf = (key: JsonWebKey | null): string | null => { try { return key ? installPublicPoint(key) : null } catch { return null } }
@@ -39,28 +23,6 @@ const ownServer = (d: ServerNetworkDeps, p: Principal, id: string): typeof Host.
     && serverPlacementActive(state, d.rows, id, p.install) ? host : undefined
 }
 
-/** Bounded even when a trusted endpoint returns an unexpected full policy or error body. */
-const policyBody = async (response: Response): Promise<Record<string, unknown> | null> => {
-  const reader = response.body?.getReader()
-  if (!reader) return null
-  const chunks: Uint8Array[] = []
-  let size = 0
-  try {
-    for (;;) {
-      const next = await reader.read()
-      if (next.done) break
-      size += next.value.byteLength
-      if (size > 1_048_576) { await reader.cancel(); return null }
-      chunks.push(next.value)
-    }
-  } finally { reader.releaseLock() }
-  const bytes = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
-  const value: unknown = JSON.parse(new TextDecoder().decode(bytes))
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null
-}
-
 /** No account credential is used. Only business identity reaches the owner ledger. */
 export const serverNetworkExternal = async (d: ServerNetworkDeps, p: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> => {
   const base = { op: frame.op, transaction: "", idempotency_key: frame.idempotency_key, stream: d.stream, sequence: 0, replayed: false }
@@ -70,7 +32,7 @@ export const serverNetworkExternal = async (d: ServerNetworkDeps, p: Principal, 
   if (admission) return fail(admission.code, admission.message)
   const decoded = decodeParams<typeof ServerNetworkConfirm.params.Type>(ServerNetworkConfirm, frame.params)
   if (!decoded.ok) return fail("validation.invalid", "invalid server network confirmation")
-  const v = decoded.value, host = ownServer(d, p, v.host), origin = originOf(d.origin)
+  const v = decoded.value, host = ownServer(d, p, v.host), origin = networkOrigin(d.origin)
   if (!host?.network || !host.wg_public_key || host.network.mesh !== v.mesh || host.network.device !== v.device) return fail("auth.forbidden", "no matching approved server network reservation")
   if (!origin) return fail("owner.unreachable", "server network confirmation is unavailable")
   if (!Number.isSafeInteger(v.proof.signedAt) || Math.abs(d.now() - v.proof.signedAt) > 120_000) return fail("validation.invalid", "the network proof must be freshly signed", true)
@@ -80,19 +42,8 @@ export const serverNetworkExternal = async (d: ServerNetworkDeps, p: Principal, 
     const [target, key] = await Promise.all([d.tenant(), d.key(p.user!, p.install!, p.grant!)])
     const point = pointOf(key)
     if (!targetMatches(d, target, network.tenant) || !point) return fail("auth.forbidden", "the server's owner identity could not be verified")
-    const response = await d.http(new Request(`${origin}/v1/overlay-servers/${network.device}/signed/policy`, {
-      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ signedAt: v.proof.signedAt, nonce: v.proof.nonce, signature: v.proof.signature }),
-      redirect: "manual", signal: AbortSignal.timeout(15_000)
-    }))
-    if (response.status === 404) return fail("selector.not_found", "the reserved network identity is unavailable")
-    if (response.status === 401 || response.status === 403) return fail("auth.forbidden", "the network proof was refused")
-    if (response.status === 409) return fail("validation.invalid", "sign a fresh network proof", true)
-    if (!response.ok) return fail("owner.unreachable", "server network confirmation is unavailable", true)
-    const policy = await policyBody(response)
-    if (!policy) return fail("owner.unreachable", "server network confirmation is unavailable", true)
-    if (policy.tenantId !== network.tenant || policy.meshId !== network.mesh || policy.deviceId !== network.device
-      || policy.wgPublicKey !== host.wg_public_key || policy.installPublicKey !== point) return fail("auth.forbidden", "the network identity does not match the approved server")
+    const read = await verifyNetworkIdentity(d.http, origin, "server", { ...network, wg: host.wg_public_key, point }, v.proof, d.now())
+    if (!read.ok) return fail(read.code, read.message, read.retryable)
     const [currentTarget, currentKey] = await Promise.all([d.tenant(), d.key(p.user!, p.install!, p.grant!)])
     const current = ownServer(d, p, v.host)
     if (!targetMatches(d, currentTarget, network.tenant) || pointOf(currentKey) !== point || !current?.network

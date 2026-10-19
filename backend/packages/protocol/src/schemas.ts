@@ -114,7 +114,7 @@ export const Host = Schema.Struct({
   enrolled_at: Schema.Int,
   /** `server` when the owner turned on the server role set (plans/cmux-next/server.md 6); absent means a device. */
   kind: Schema.optionalKey(HostKind),
-  /** The host's WireGuard public key (base64, 32 bytes), made on the host and never leaving it. */
+  /** The host's WireGuard public key (base64, 32 bytes); its private key stays on the host. */
   wg_public_key: Schema.optionalKey(WgPublicKey),
   /** Network policy tags, for example `tag:server`. */
   tags: Schema.optionalKey(Schema.Array(Schema.String)),

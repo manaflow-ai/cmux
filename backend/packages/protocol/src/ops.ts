@@ -28,6 +28,7 @@ import { policyOps } from "./policy-ops.ts"
 import { homeOps } from "./ops-home.ts"
 import { networkOps } from "./network-ops.ts"
 import { serverOps } from "./server-ops.ts"
+import { hostNetworkOps } from "./host-network-ops.ts"
 import { usageOps } from "./usage.ts"
 import { teamAiLimitOps } from "./team-ai-limit-ops.ts"
 import { UserTeamsList } from "./team-member-ops.ts"
@@ -248,6 +249,7 @@ export const cloudOps = [
   ...enrollmentOps,
   ...ssoOps,
   ...serverOps,
+  ...hostNetworkOps,
   ...teamVmOps,
   ...teamMemberOps,
   ...teamAiLimitOps,

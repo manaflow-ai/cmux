@@ -451,6 +451,15 @@ export class UserDO extends OwnerDO<UserState> {
       || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("mutate-own")) return null
     return inst.public_jwk as JsonWebKey
   }
+  /** Public identity only, pinned to the calling client's exact current grant. */
+  async deviceKey(entity: string, install: string, grant: string): Promise<JsonWebKey | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install], held = state.grants[grant]
+    if (!state.user || !inst || !["mac", "ios", "cli"].includes(inst.kind) || inst.revoked_at !== null || inst.grant !== grant
+      || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("mutate-own")) return null
+    return inst.public_jwk as JsonWebKey
+  }
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()

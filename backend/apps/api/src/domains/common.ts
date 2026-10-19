@@ -1,6 +1,7 @@
 import type { Principal, Reject } from "@cmux/ownership"
 import { cloudInternalOps, cloudOpByName, InstallRegister, MachineId, ServerCapabilities, ServerNetworkReservation, HostId, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamMemberInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
+import { HostNetworkBoundParams } from "./host-network-params.ts"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
   ok: false,
@@ -468,6 +469,12 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     name: "server.network.confirmed", owner: "cloud:TeamDO", class: "mutation", risk: "mutate-own", target: "host", principals: ["system"],
     params: ServerNetworkConfirmedParams,
     result: Schema.Unknown, errors: [], docs: "Internal: verified registration of an already approved server network identity.",
+    cli: { path: "", visible: false }, mcp: { expose: "never", group: "internal" }
+  } as CloudOpDef],
+  ["host.network.bound", {
+    name: "host.network.bound", owner: "cloud:TeamDO", class: "mutation", risk: "mutate-own", target: "host", principals: ["system"],
+    params: HostNetworkBoundParams,
+    result: Schema.Unknown, errors: [], docs: "Internal: verified registration of this client install's own network identity.",
     cli: { path: "", visible: false }, mcp: { expose: "never", group: "internal" }
   } as CloudOpDef],
   ...schedulerInternalOps.map((d) => [d.name, d] as const),

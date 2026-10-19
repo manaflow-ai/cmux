@@ -12,7 +12,7 @@ import { HttpApiBuilder, HttpServerRequest } from "@effect/platform";
 import { name, type Named } from "@gdp-ts/core";
 import { Clock, Duration, Effect, Option } from "effect";
 import { CmuxVmApi } from "../api.ts";
-import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceList, EnrollmentCode, Mesh, MeshList, MeshMember, OverlayPolicy, PeerMap, TunnelConfig } from "../api/mesh.ts";
+import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceList, DeviceOverlayPolicy, EnrollmentCode, Mesh, MeshList, MeshMember, OverlayPolicy, PeerMap, TunnelConfig } from "../api/mesh.ts";
 import { MembershipCache } from "../auth/membership-cache.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
@@ -551,6 +551,9 @@ export const overlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: strin
     return new OverlayPolicy({ ...projection, policyDigest });
   }));
 
+const deviceOverlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: string, row: { readonly meshId: string }) =>
+  overlayPolicyOf(tenantId, deviceId, row).pipe(Effect.map((policy) => new DeviceOverlayPolicy({ ...policy, tenantId })));
+
 /** The config of the tunnel `row` (the tunnel's device) owns, read from the provider; `notFound` is the route's 404. */
 const tunnelConfigOf = <C, T>(
   caller: Named<C, Principal>,
@@ -1007,7 +1010,7 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
       withOwnedDevice(path.deviceId, "mesh:join", "read", (caller, device, _proofs, row) => peerMapOf(caller.value.tenantId, device.value, row)),
     )
     .handle("getDeviceOverlayPolicy", ({ path }) =>
-      withOwnedDevice(path.deviceId, "mesh:join", "read", (caller, device, _proofs, row) => overlayPolicyOf(caller.value.tenantId, device.value, row)),
+      withOwnedDevice(path.deviceId, "mesh:join", "read", (caller, device, _proofs, row) => deviceOverlayPolicyOf(caller.value.tenantId, device.value, row)),
     )
     .handle("getTunnel", ({ path }) =>
       withMeshCaller("mesh:read", "read", (caller, scope) =>
@@ -1293,7 +1296,7 @@ export const meshDeviceHandlers = HttpApiBuilder.group(CmuxVmApi, "meshDevice", 
   handlers
     .handle("signedDeviceOverlayPolicy", ({ path, payload }) =>
       withSignedDevice(path.deviceId, { purpose: "overlay-policy", wgPublicKey: "", name: "", ...payload }, "read", (caller, device, _proofs, row) =>
-        overlayPolicyOf(caller.value.tenantId, device.value, row),
+        deviceOverlayPolicyOf(caller.value.tenantId, device.value, row),
       ),
     )
     .handle("signedDevicePeers", ({ path, payload }) =>
