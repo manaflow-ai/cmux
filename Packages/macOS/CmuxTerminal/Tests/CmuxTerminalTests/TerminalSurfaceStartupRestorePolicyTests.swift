@@ -46,7 +46,9 @@ struct TerminalSurfaceStartupRestorePolicyTests {
         #expect(scheduler.scheduledSurfaceIds == [surface.id])
 
         scheduler.runScheduledOperation()
-        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+        // The scheduler callback must remain harmless while this host is the
+        // hidden bootstrap window. A real portal reveal retries native start.
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
     }
 
     @Test("Explicit input cancels a deferred agent resume before admission")

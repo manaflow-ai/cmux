@@ -43,10 +43,8 @@ extension TerminalSurface {
             // turn a hidden restore admission into a native Ghostty surface;
             // the next portal/window reveal retries through the visibility
             // hook in TerminalSurface+Renderer.
-            // A pane may hide during the inter-spawn cooldown. Do not turn
-            // that admission into a hidden native surface; the visibility
-            // transition retries through TerminalSurface+Renderer.
-            guard self.rendererPortalVisible || view.window == nil,
+            guard (self.rendererPortalVisible || view.window == nil) &&
+                  !self.isHeadlessStartupWindow(view.window),
                   self.rendererWindowVisible else { return }
             self.createSurface(for: view, source: .scheduledRestore)
         }
