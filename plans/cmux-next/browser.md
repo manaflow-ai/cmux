@@ -648,7 +648,7 @@ from a menu row.
 
 ## Browser import: cookies and security (2026-09-30)
 
-Owners: `CmuxNextBrowserImport/Cookies/` (read and decrypt), `CmuxNextBrowser/CEF/CEFRuntime+CookieImport.swift` and shim `shim_cookie_import.mm` (write), `CmuxNextApp/Onboarding/AppCookieDestination.swift` (glue).
+Owners: `CmuxNextBrowserImport/Cookies/` (read and decrypt), `CmuxNextBrowser/CEF/CEFRuntime+CookieImport.swift` and shim `shim_cookie_import.mm` (write), `CmuxNextCookieImport/ChromiumCookieDestination.swift` (glue; the same target owns `cmux browser import-cookies` and its agent consent panel).
 
 Path: the user picks "Cookies" for a source profile in onboarding or Settings > Browser > Import from Browser. Chromium sources: copy `Network/Cookies` (or `Cookies`) to a private temp folder (the source may be running), read the "<Name> Safe Storage" Keychain item, derive the key (PBKDF2-HMAC-SHA1, salt `saltysalt`, 1003 rounds, 16 bytes), decrypt each `v10` value (AES-128-CBC, IV of 16 spaces) and check and strip the SHA-256(host) prefix of database version 24+. Firefox family: `cookies.sqlite` in plain text. Safari: `Cookies.binarycookies` in its container, readable only with Full Disk Access. Then `cmux_shim_import_cookies` writes batches of 500 into the target profile's request context with `CefCookieManager::SetCookie` (after `GetCookieManager`'s storage-ready callback, so a profile with no open tab works too). The reply is counts only.
 

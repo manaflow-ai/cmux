@@ -1179,6 +1179,268 @@
           }
         }
       }
+    },
+    "filePages.editorSettings.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No VS Code, Cursor, Windsurf, VSCodium or Zed settings were found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code、Cursor、Windsurf、VSCodium、Zed の設定が見つかりませんでした。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُعثر على إعدادات VS Code أو Cursor أو Windsurf أو VSCodium أو Zed."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nisu pronađene postavke za VS Code, Cursor, Windsurf, VSCodium ni Zed."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der blev ikke fundet indstillinger fra VS Code, Cursor, Windsurf, VSCodium eller Zed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es wurden keine Einstellungen von VS Code, Cursor, Windsurf, VSCodium oder Zed gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se encontraron ajustes de VS Code, Cursor, Windsurf, VSCodium ni Zed."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun réglage de VS Code, Cursor, Windsurf, VSCodium ou Zed n'a été trouvé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna impostazione di VS Code, Cursor, Windsurf, VSCodium o Zed trovata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រកមិនឃើញការកំណត់ VS Code, Cursor, Windsurf, VSCodium ឬ Zed ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VS Code, Cursor, Windsurf, VSCodium 또는 Zed 설정을 찾지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fant ingen innstillinger fra VS Code, Cursor, Windsurf, VSCodium eller Zed."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie znaleziono ustawień VS Code, Cursor, Windsurf, VSCodium ani Zed."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum ajuste do VS Code, Cursor, Windsurf, VSCodium ou Zed foi encontrado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройки VS Code, Cursor, Windsurf, VSCodium или Zed не найдены."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่พบการตั้งค่าของ VS Code, Cursor, Windsurf, VSCodium หรือ Zed"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "VS Code, Cursor, Windsurf, VSCodium veya Zed ayarı bulunamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштувань VS Code, Cursor, Windsurf, VSCodium чи Zed не знайдено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không tìm thấy cài đặt VS Code, Cursor, Windsurf, VSCodium hoặc Zed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未找到 VS Code、Cursor、Windsurf、VSCodium 或 Zed 的设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "找不到 VS Code、Cursor、Windsurf、VSCodium 或 Zed 的設定。"
+          }
+        }
+      }
+    },
+    "filePages.editorSettings.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code editor settings from %1$@ copied into cmux.json: %2$ld."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のコードエディタ設定を cmux.json にコピーしました: %2$ld。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نُسخت إعدادات محرر الشيفرة من %1$@ إلى cmux.json: ‏%2$ld."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavke uređivača koda iz %1$@ kopirane u cmux.json: %2$ld."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kodeeditorindstillinger fra %1$@ kopieret til cmux.json: %2$ld."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Code-Editor-Einstellungen aus %1$@ in cmux.json kopiert: %2$ld."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustes del editor de código de %1$@ copiados en cmux.json: %2$ld."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réglages de l'éditeur de code de %1$@ copiés dans cmux.json : %2$ld."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impostazioni dell'editor di codice da %1$@ copiate in cmux.json: %2$ld."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានចម្លងការកំណត់កម្មវិធីកែកូដពី %1$@ ទៅ cmux.json៖ %2$ld។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@의 코드 편집기 설정을 cmux.json에 복사했습니다: %2$ld."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koderedigeringsinnstillinger fra %1$@ kopiert til cmux.json: %2$ld."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawienia edytora kodu z %1$@ skopiowane do cmux.json: %2$ld."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustes do editor de código de %1$@ copiados para cmux.json: %2$ld."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройки редактора кода из %1$@ скопированы в cmux.json: %2$ld."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกการตั้งค่าตัวแก้ไขโค้ดจาก %1$@ ไปยัง cmux.json แล้ว: %2$ld"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ kod düzenleyici ayarları cmux.json dosyasına kopyalandı: %2$ld."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування редактора коду з %1$@ скопійовано до cmux.json: %2$ld."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã sao chép cài đặt trình soạn thảo mã từ %1$@ vào cmux.json: %2$ld."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已将 %1$@ 的代码编辑器设置复制到 cmux.json：%2$ld。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已將 %1$@ 的程式碼編輯器設定拷貝到 cmux.json：%2$ld。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
