@@ -23,7 +23,10 @@ export function safeHref(href: string): string | undefined {
 /// (`javascript:`, `file:`, `data:`, `ssh:`...) as text.
 export function appHref(href: string): string | undefined {
   const text = href.trim();
-  if (!/^cmux(-[a-z0-9-]+)?:\/\/(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~\-/]+(#[A-Za-z0-9._~\-]+)?$/.test(text)) return undefined;
+  if (
+    !/^cmux(-[a-z0-9-]+)?:\/\/(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~\-/]+(#[A-Za-z0-9._~\-]+)?$/.test(text)
+  )
+    return undefined;
   let url: URL;
   try {
     url = new URL(text);
