@@ -233,6 +233,15 @@ test("New environment's rows open the SSH and cmux Cloud connect flows", async (
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
 });
 
+test("choosing the environment already chosen hands focus back to the prompt", async () => {
+  const calls = await mount(true);
+  await openPicker();
+  await act(async () => machineRows()[0]!.click());
+  expect(calls).toEqual([]);
+  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  expect(doc().activeElement).toBe(host.querySelector("textarea"));
+});
+
 test("⌥⌘1 on the environment already chosen stays the app's", async () => {
   const calls = await mount(true);
   const prompt = host.querySelector("textarea")!;
@@ -333,4 +342,14 @@ test("New Tab, previews on: the host's refusal shows above the card, and the fol
   await act(async () => worktreeButton()!.click());
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
   expect(folderName()).toBe("app");
+});
+
+test("New Tab, previews on: a slower worktree reply doesn't replace a newer choice", async () => {
+  const replies: ((folder: string) => void)[] = [];
+  await mountNewTab(() => new Promise<string | undefined>((resolve) => replies.push(resolve)));
+  await act(async () => worktreeButton()!.click());
+  await act(async () => worktreeButton()!.click());
+  await act(async () => replies[1]!("/Users/you/wt/app-blue-fox"));
+  await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
+  expect(folderName()).toContain("fox");
 });
