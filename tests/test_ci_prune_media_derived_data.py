@@ -274,11 +274,71 @@ def scenario_workflow_step():
         expect_kept_everywhere(root, outside, names)
 
 
+def scenario_old_head_prunes_with_the_lock():
+    """A pull request branched before the tag lock checks out a head whose prune ignores held tags. The hold
+    step takes both scripts from the run's commit then, so the prune step keeps a tag another tour holds."""
+    import shutil
+
+    lock = os.path.join(ROOT, "scripts", "ci", "media_tag_lock.py")
+    steps = workflow["jobs"]["tour"]["steps"] if (workflow := yaml.safe_load(open(WORKFLOW))) else []
+    by_name = {step.get("name"): step for step in steps}
+    hold_step, prune_step = by_name.get("Hold this tour's tag"), by_name.get(STEP_NAME)
+    _check(hold_step is not None and prune_step is not None, "the tour holds its tag, then prunes")
+    if hold_step is None or prune_step is None:
+        return
+    with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as outside, \
+            tempfile.TemporaryDirectory() as head, tempfile.TemporaryDirectory() as temp:
+        root = os.path.join(home, "Library", "Developer", "Xcode", "DerivedData")
+        locks = os.path.join(home, "Library", "Caches", "cmux-ci-media", "locks")
+        os.makedirs(root)
+        build_tree(root, outside)
+        # The old head: no lock script, and a prune that removes every other media dir.
+        os.makedirs(os.path.join(head, "scripts", "ci"))
+        with open(os.path.join(head, "scripts", "ci", "prune_media_derived_data.py"), "w") as handle:
+            handle.write("import glob, os, shutil, sys\n"
+                         "for path in glob.glob(os.path.expanduser('~/Library/Developer/Xcode/DerivedData/cmux-ci-media-*')):\n"
+                         "    if os.path.isdir(path) and not os.path.islink(path) and not os.path.basename(path).startswith('cmux-ci-media-pr-9'):\n"
+                         "        shutil.rmtree(path)\n")
+        # git fetch is a no-op and git show reads this checkout: the run's commit is the one under test.
+        bin_dir = os.path.join(temp, "bin")
+        os.makedirs(bin_dir)
+        with open(os.path.join(bin_dir, "git"), "w") as handle:
+            handle.write(f"#!/bin/sh\n[ \"$1\" = show ] || exit 0\nexec cat \"{ROOT}/${{2#*:}}\"\n")
+        os.chmod(os.path.join(bin_dir, "git"), 0o755)
+        github_env = os.path.join(temp, "github_env")
+        open(github_env, "w").close()
+        env = dict(os.environ, HOME=home, TOUR_TAG="ci-media-pr-9", GITHUB_SHA="0" * 40, RUNNER_TEMP=temp,
+                   GITHUB_ENV=github_env, PATH=bin_dir + os.pathsep + os.environ["PATH"])
+        other = subprocess.run([sys.executable, lock, "hold", "--tag", "ci-media-pr-1", "--lock-dir", locks,
+                                "--wait", "0", "--max-hold", "60"], capture_output=True, text=True)
+        _check(other.returncode == 0, "another tour holds ci-media-pr-1")
+        try:
+            held = subprocess.run(["bash", "-c", hold_step["run"]], cwd=head, env=env, capture_output=True,
+                                  text=True, timeout=120)
+            print(held.stdout + held.stderr)
+            _check(held.returncode == 0, "the hold step holds this tour's tag")
+            for line in open(github_env).read().splitlines():
+                key, _, value = line.partition("=")
+                env[key] = value
+            pruned = subprocess.run(["bash", "-c", prune_step["run"]], cwd=head, env=env, capture_output=True,
+                                    text=True, timeout=120)
+            print(pruned.stdout + pruned.stderr)
+        finally:
+            # This tour's holder has no Runner.Worker to outlive, so it would hold for hours.
+            subprocess.run(["pkill", "-f", temp], check=False)
+        names = remaining(root)
+        _check("cmux-ci-media-pr-1-base" in names and "cmux-ci-media-pr-1-head" in names,
+               "an old head's tour keeps the tag another tour holds")
+        _check("cmux-ci-media-pr-2-base" not in names, "an old head's tour still prunes an idle unheld tag")
+        shutil.rmtree(locks, ignore_errors=True)
+
+
 def main():
     scenario_keep_four()
     scenario_keep_zero()
     scenario_held_tag()
     scenario_tag_held_while_removing()
+    scenario_old_head_prunes_with_the_lock()
     scenario_workflow_step()
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
