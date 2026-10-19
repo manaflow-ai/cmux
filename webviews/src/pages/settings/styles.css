@@ -976,6 +976,95 @@ mark {
   border-style: dashed;
 }
 
+/* Your images (backgrounds plan phase 3): what they take, Show in Finder, and a remove
+   button in each tile's corner, shown on hover or focus. */
+.backdrop-own-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.backdrop-own {
+  position: relative;
+  min-width: 0;
+}
+
+.backdrop-own > .backdrop-tile {
+  width: 100%;
+}
+
+.backdrop-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--text);
+  opacity: 0;
+}
+
+.backdrop-own:hover .backdrop-remove:not(:disabled),
+.backdrop-remove:focus-visible {
+  opacity: 1;
+}
+
+/* Collages (backgrounds plan phase 7): the canvas is the window's 16:10 shape; the chosen
+   picture shows a ring and a corner handle. */
+.collage-canvas {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  margin: 8px 0;
+  overflow: hidden;
+  border-radius: 6px;
+  touch-action: none;
+}
+
+.collage-layer {
+  position: absolute;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+}
+
+.collage-layer img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+
+.collage-layer.chosen {
+  outline: 2px solid var(--text);
+}
+
+.collage-handle {
+  position: absolute;
+  padding: 0;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--text);
+  background: var(--input-bg);
+  cursor: nwse-resize;
+}
+
+.collage-fill {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* Edit sits left of remove on a collage tile. */
+.backdrop-edit {
+  right: 28px;
+}
+
 /* Browse More Art (cx-t2x.8). */
 .art-browser {
   margin: 12px 0;

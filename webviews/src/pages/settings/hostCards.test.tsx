@@ -294,3 +294,144 @@ test("Advanced names the loaded settings file and shows one Reload Configuration
   expect(text).not.toContain("cmux-next.json");
   page.unmount();
 });
+
+test("Add from a Link downloads an image and sets it; a refused link says why; your images can be removed", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const linkTile = [...picker().querySelectorAll<HTMLButtonElement>("button.backdrop-tile")].find((button) =>
+    button.textContent?.includes("Add from a Link"),
+  )!;
+  await act(async () => linkTile.click());
+  await settle();
+  const form = () => page.container.querySelector<HTMLElement>('[data-card="backdrop-link"]');
+  const field = form()!.querySelector<HTMLInputElement>('input[type="url"]')!;
+  const type = async (text: string) => {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(field, text);
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+  };
+  const submit = async () => {
+    await act(async () => form()!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+    await settle();
+  };
+
+  await type("http://example.com/sea.jpg");
+  await submit();
+  expect(form()!.querySelector("output")!.textContent).toBe("Use a link that starts with https://.");
+  await type("https://example.com/notes.txt");
+  await submit();
+  expect(form()!.querySelector("output")!.textContent).toBe("That is not an image or a video this Mac can play.");
+
+  await type("https://example.com/sea.jpg");
+  await submit();
+  expect(runs(page, "cmux.settings.backdrop.image.link").at(-1)).toMatchObject({ url: "https://example.com/sea.jpg" });
+  // Used, the form closes and the image is listed under Your images, chosen.
+  expect(form()).toBeNull();
+  const own = picker().querySelector<HTMLElement>('[data-collection="yours"]')!;
+  expect(own.querySelector('[aria-label="sea.jpg"]')!.getAttribute("aria-pressed")).toBe("true");
+  expect(own.querySelector(".backdrop-own-bar")!.textContent).toContain("Your images use");
+  // The background in use cannot be removed; another of your images can.
+  const remove = own.querySelector<HTMLButtonElement>('[aria-label="Remove sea.jpg"]')!;
+  expect(remove.disabled).toBe(true);
+  await act(async () => linkTile.click());
+  await settle();
+  const again = form()!.querySelector<HTMLInputElement>('input[type="url"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(
+      again,
+      "https://example.com/hill.png",
+    );
+    again.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await submit();
+  const sea = picker().querySelector<HTMLButtonElement>('[aria-label="Remove sea.jpg"]')!;
+  expect(sea.disabled).toBe(false);
+  await act(async () => sea.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.image.remove").at(-1)).toMatchObject({ id: "file:/backgrounds/sea.jpg" });
+  expect(picker().querySelector('[aria-label="sea.jpg"]')).toBeNull();
+  // Show in Finder reveals the folder.
+  await act(async () =>
+    picker().querySelector<HTMLElement>(".backdrop-own-bar:not(.backdrop-adjust-bar) button")!.click(),
+  );
+  expect(runs(page, "cmux.settings.backdrop.image.reveal").length).toBe(1);
+  page.unmount();
+});
+
+test("Adjust Placement… places a still picture by hand, and says so when no window shows one", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance",
+    mock: { values: { "appearance.background": "starryNight" } },
+  });
+  const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const adjust = () =>
+    [...picker().querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Adjust Placement…");
+  expect(adjust()).toBeDefined();
+  await act(async () => adjust()!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.image.adjust").length).toBe(1);
+  expect(picker().textContent).not.toContain("No window shows a still picture");
+  page.unmount();
+
+  // Plain glass has no picture: the button is not offered.
+  const none = await renderPage({
+    path: "/settings/appearance",
+    mock: { values: { "appearance.background": "none" } },
+  });
+  const card = none.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  expect([...card.querySelectorAll("button")].some((b) => b.textContent === "Adjust Placement…")).toBe(false);
+  none.unmount();
+});
+
+test("New Collage… arranges pictures, saves them as one background, and can edit and remove it", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const button = (text: string, root: ParentNode = picker()) =>
+    [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text);
+  const newTile = [...picker().querySelectorAll<HTMLButtonElement>("button.backdrop-tile")].find((b) =>
+    b.textContent?.includes("New Collage…"),
+  )!;
+  await act(async () => newTile.click());
+  await settle();
+  const editor = () => page.container.querySelector<HTMLElement>('[data-card="collage-editor"]')!;
+  expect(button("Save Collage", editor())!.disabled).toBe(true);
+  // Two pictures from the grid, then the side-by-side layout.
+  for (let added = 0; added < 2; added++) {
+    await act(async () => button("Add Picture", editor())!.click());
+    await settle();
+    const choices = editor().querySelectorAll<HTMLButtonElement>('[data-card="collage-pictures"] button');
+    expect(choices.length).toBeGreaterThan(0);
+    await act(async () => choices[0]!.click());
+    await settle();
+  }
+  expect(editor().querySelectorAll(".collage-layer").length).toBe(2);
+  await act(async () => button("Side by Side", editor())!.click());
+  await settle();
+  const left = editor().querySelectorAll<HTMLElement>(".collage-layer")[1]!;
+  expect(parseFloat(left.style.left)).toBeGreaterThan(50);
+  await act(async () => button("Save Collage", editor())!.click());
+  await settle();
+  const saved = runs(page, "cmux.settings.backdrop.image.collage.save").at(-1) as { collage: { layers: unknown[] } };
+  expect(saved.collage.layers.length).toBe(2);
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "collage:c-1" });
+  expect(page.container.querySelector('[data-card="collage-editor"]')).toBeNull();
+  // Listed under Your collages; the one in use cannot be removed, but can be edited.
+  const group = picker().querySelector<HTMLElement>('[data-collection="collages"]')!;
+  expect(group.querySelector<HTMLButtonElement>('[aria-label="Remove Collage"]')!.disabled).toBe(true);
+  await act(async () => group.querySelector<HTMLButtonElement>('[aria-label="Edit Collage"]')!.click());
+  await settle();
+  expect(editor().querySelectorAll(".collage-layer").length).toBe(2);
+  await act(async () => button("Save Collage", editor())!.click());
+  await settle();
+  // The edit is saved under a new id, the background switches to it, and only then does the old
+  // collage go.
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "collage:c-2" });
+  expect(runs(page, "cmux.settings.backdrop.image.collage.delete").at(-1)).toMatchObject({ id: "c-1" });
+  const log = page.provider.log.map((entry) => entry.op);
+  expect(log.lastIndexOf("cmux.settings.set")).toBeLessThan(
+    log.lastIndexOf("cmux.settings.backdrop.image.collage.delete"),
+  );
+  page.unmount();
+});

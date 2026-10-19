@@ -6,6 +6,7 @@
 // fetches (start, change events, lazy parts) and owns only the page's UI state: the link to the
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
+import type { Collage } from "./components/collageLayout";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { PageCommand } from "./keyboard";
 import {
@@ -285,6 +286,65 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.backdrop.choose_image", {});
     if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
     else await Promise.all([this.refresh(), this.refreshHost()]);
+  }
+
+  /** Downloads the image or movie at `url` and sets it (backgrounds plan phase 3). Resolves to the
+   * refusal code the picker words, or null once it is the background. */
+  async addBackdropLink(url: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.link", { url });
+    if (!reply.ok) return reply.error.code || "cmux.settings.backdrop.download_failed";
+    await Promise.all([this.refresh(), this.refreshHost()]);
+    return null;
+  }
+
+  /** Deletes one of the person's own images; resolves to the bytes the rest take, or null. */
+  async removeBackdropImage(id: string): Promise<number | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.remove", { id });
+    if (!reply.ok) return null;
+    await this.refreshHost();
+    return reply.value.bytes;
+  }
+
+  /** Shows one of the person's images, or with no id the backgrounds folder, in Finder. */
+  revealBackdropImage(id?: string): void {
+    void this.request("cmux.settings.backdrop.image.reveal", id ? { id } : {});
+  }
+
+  /** Places the background picture by hand in its window; false when no window shows one. */
+  async adjustBackdrop(): Promise<boolean> {
+    const reply = await this.request("cmux.settings.backdrop.image.adjust", {});
+    return reply.ok;
+  }
+
+  /** Draws and saves `collage` and makes it the background. An edit is saved under a new id;
+   * the collage it replaces is removed only once the background has switched (the host still
+   * refuses it while a workspace shows it). Resolves the new id, or the refusal code. */
+  async saveCollage(collage: Collage, replacing?: string): Promise<{ id: string } | { error: string }> {
+    const reply = await this.request("cmux.settings.backdrop.image.collage.save", { collage });
+    if (!reply.ok) return { error: reply.error.code };
+    const switched = await this.set("appearance.background", `collage:${reply.value.id}`);
+    if (switched.ok && replacing) await this.request("cmux.settings.backdrop.image.collage.delete", { id: replacing });
+    await this.refreshHost();
+    return { id: reply.value.id };
+  }
+
+  /** A saved collage, to edit; null when it is gone. */
+  async collage(id: string): Promise<Collage | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.collage.get", { id });
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Deletes a collage (the host refuses the one in use). */
+  async deleteCollage(id: string): Promise<boolean> {
+    const reply = await this.request("cmux.settings.backdrop.image.collage.delete", { id });
+    if (reply.ok) await this.refreshHost();
+    return reply.ok;
+  }
+
+  /** The bytes the person's own images take; null when the host cannot say. */
+  async backdropUsage(): Promise<number | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.usage", {});
+    return reply.ok ? reply.value.bytes : null;
   }
 
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
