@@ -8,15 +8,21 @@ import Foundation
 /// ```
 public struct ErrorRedactor {
     private let rules: [(NSRegularExpression, String)]
+    private let queryAssignments: NSRegularExpression
+    private static let exactQueryKeys: Set<String> = [
+        "access_token", "refresh_token", "token", "key", "api_key", "apikey", "sig", "signature",
+        "code", "auth", "authorization", "password", "passwd", "pwd", "secret",
+    ]
+    private static let sensitiveQueryComponents: Set<String> = [
+        "auth", "authorization", "code", "credential", "credentials", "key", "password", "passwd", "pwd",
+        "secret", "sig", "signature", "token",
+    ]
 
     /// Makes a redactor with the built-in rules.
     public init() {
         let patterns: [(String, String)] = [
             // URL credentials: scheme://user:password@host
             (#"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@"#, "$1<redacted>@"),
-            // Secret query values, including bracketed namespaces and
-            // provider prefixes such as `auth[token]` and `X-Amz-Signature`.
-            (#"(?i)([?#&](?:[A-Za-z0-9]+[-_.\[\]]+)*(?:auth|authorization|code|credentials?|key|password|passwd|pwd|secret|sig|signature|token|apikey)(?:[-_.\[\]]+[A-Za-z0-9]*)*=)[^&\s"']+"#, "$1<redacted>"),
             // Cookie and authorization headers contain structured lists whose
             // later fields are just as sensitive as the first one.
             (#"(?i)\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+"#, "$1$2<redacted>"),
@@ -34,6 +40,9 @@ public struct ErrorRedactor {
             (#"[A-Za-z0-9+/_=-]{48,}"#, "<blob>"),
         ]
         rules = patterns.map { (try! NSRegularExpression(pattern: $0.0), $0.1) } // swiftlint:disable:this force_try
+        queryAssignments = try! NSRegularExpression( // swiftlint:disable:this force_try
+            pattern: #"(^|[?#&;])([^=?&#;\s]+)=([^&#;\s"']*)"#
+        )
     }
 
     /// Returns `text` with every secret replaced by a placeholder.
@@ -43,6 +52,29 @@ public struct ErrorRedactor {
             text = rule.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text),
                                                  withTemplate: replacement)
         }
-        return text
+        return redactQueryAssignments(in: text)
+    }
+
+    private func redactQueryAssignments(in text: String) -> String {
+        let source = text as NSString
+        let result = NSMutableString(string: text)
+        let matches = queryAssignments.matches(in: text, range: NSRange(location: 0, length: source.length))
+        for match in matches.reversed() {
+            let key = source.substring(with: match.range(at: 2))
+            guard Self.isSensitiveQueryKey(key) else { continue }
+            result.replaceCharacters(in: match.range(at: 3), with: "<redacted>")
+        }
+        return result as String
+    }
+
+    private static func isSensitiveQueryKey(_ key: String) -> Bool {
+        let encoded = key.replacingOccurrences(of: "+", with: " ")
+        let decoded = encoded.removingPercentEncoding ?? encoded
+        let components = decoded.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        let normalized = components.joined(separator: "_")
+        return exactQueryKeys.contains(normalized)
+            || components.contains(where: sensitiveQueryComponents.contains)
     }
 }
