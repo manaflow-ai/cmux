@@ -247,6 +247,14 @@ pub struct SubRecord {
     /// A queued subagent's launch, saved so a restarted host still starts it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_launch: Option<QueuedLaunch>,
+    /// Automatic continues in a row after error stops (auto_resume.rs);
+    /// 0 again after a run that ends with a real report.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub resume_attempts: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// What a queued subagent starts with: its task, directory, effort and
