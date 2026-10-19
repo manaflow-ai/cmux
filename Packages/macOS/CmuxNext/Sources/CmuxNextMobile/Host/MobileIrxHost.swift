@@ -32,6 +32,8 @@ public actor MobileIrxHost {
     let journal: IrxJournal
     /// Called once per phone connection that becomes usable (`mobile.rpc.ready`).
     let onUsable: (@Sendable (MobileUsableSession) -> Void)?
+    /// What phones may do here (Settings > Accounts > Phone Access), read per request.
+    let access: PhoneAccessGate
 
     var backend: (any MobileCompatBackend)?
     var identity: IrxIdentity?
@@ -63,9 +65,10 @@ public actor MobileIrxHost {
 
     public init(configuration: MobileHostConfiguration, auth: any MobileHostAuth,
                 makeBackend: @escaping @Sendable () async throws -> any MobileCompatBackend,
-                clock: any Clock<Duration> = ContinuousClock(),
+                clock: any Clock<Duration> = ContinuousClock(), access: PhoneAccessGate = PhoneAccessGate(),
                 onUsable: (@Sendable (MobileUsableSession) -> Void)? = nil) {
         self.onUsable = onUsable
+        self.access = access
         self.configuration = configuration
         self.auth = auth
         self.makeBackend = makeBackend

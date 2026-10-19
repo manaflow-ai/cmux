@@ -10,3 +10,13 @@ public nonisolated enum SessionKeepAwakeSetting: String, Sendable, Hashable, Cas
     /// Also on battery.
     case always
 }
+
+/// Idle system sleep stays off while phone access is on and the listener runs (KeepAwakeService). A sleeping Mac is unreachable until it wakes.
+public nonisolated enum PhoneKeepAwakeSetting: String, Sendable, Hashable, CaseIterable {
+    /// The Mac sleeps on its usual schedule.
+    case off
+    /// Only while the Mac runs on power from an adapter.
+    case pluggedIn
+    /// Also on battery.
+    case always
+}
