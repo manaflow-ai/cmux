@@ -132,4 +132,24 @@ describe("host read replica (object-sync phase 3)", () => {
     expect(back.frames[welcome].heads).toEqual({ [stream]: 4 })
     await late.until((f) => f.t === "owner.status" && f.status === "online")
   })
+
+  it("drops the replica when the host is removed: open sockets close and no new socket opens", async () => {
+    const owner = await signedInWithInstall("host-replica-removed")
+    const enrolled = await post("/v1/ops", owner.installToken, { op: "host.enroll", params: { name: "old", platform: "macos" }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    const host = enrolled.body.value.id as string
+    const stream = `host:${host}/session`
+    const pub = opened(await socket(host, owner.installToken))
+    await pub.until((f) => f.t === "welcome")
+    pub.send({ t: "publish", stream, snapshot: { t: "snapshot", stream, seq: 1, state: { title: "secret" }, decided: [] } })
+    const reader = opened(await socket(host, owner.session))
+    reader.send({ t: "subscribe", stream })
+    await reader.until((f) => f.t === "snapshot")
+
+    const removed = await post("/v1/ops", owner.session, { op: "host.remove", params: { host }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(removed.body.ok).toBe(true)
+    await expect(reader.until(() => false)).rejects.toThrow(/closed 4403/)
+    await expect(pub.until(() => false)).rejects.toThrow(/closed 4403/)
+    expect((await socket(host, owner.session)).status).toBe(403)
+    expect((await socket(host, owner.installToken)).status).toBe(403)
+  })
 })
