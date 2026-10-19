@@ -107,7 +107,7 @@ pub fn lane(summary: &Value) -> Value {
         "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
-    let error = error.as_str().map_or(Value::Null, |e| Value::String(crate::secret_scan::mask(e)));
+    let error = error.as_str().map_or(Value::Null, |e| Value::String(masked_error(e)));
     json!({"state": state, "since": since, "error": error, "step": lane_step(summary), "title": lane_title(summary)})
 }
 
@@ -155,6 +155,22 @@ fn masked_line(text: &str) -> String {
     super::session::short_text(&crate::secret_scan::mask(&head), LANE_STEP_CHARS)
 }
 
+/// A turn's error masked, lines kept. An error can be a whole pasted log, so
+/// only its head is scanned, and it is cut well inside that head after
+/// masking, so a secret that straddles the cut is still masked whole.
+fn masked_error(text: &str) -> String {
+    if text.chars().nth(LANE_ERROR_CHARS).is_none() {
+        return crate::secret_scan::mask(text);
+    }
+    let head: String = text.chars().take(LANE_SCAN_CHARS).collect();
+    let mut error: String =
+        crate::secret_scan::mask(&head).chars().take(LANE_ERROR_CHARS).collect();
+    error.push('…');
+    error
+}
+
+/// How long a lane's error may be.
+const LANE_ERROR_CHARS: usize = 3072;
 /// How long a lane's step may be; the row clips it to its width anyway.
 const LANE_STEP_CHARS: usize = 240;
 /// How much of a step or title is scanned: far past the cut, so a secret
