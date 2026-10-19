@@ -154,7 +154,9 @@ test("lab off keeps dev fences as source, lab on embeds an opaque frame without 
   expect(frame!.getAttribute("src")).toBeNull();
   const doc = new JSDOM(frame!.srcdoc).window.document;
   expect(doc.head.firstElementChild?.getAttribute("http-equiv")).toBe("Content-Security-Policy");
-  expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Show visualization")).toBe(false);
+  expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Show visualization")).toBe(
+    false,
+  );
   expect(host.querySelector(".acpmux-render-card-head")).toBeNull();
   expect(
     [...host.querySelectorAll("button")].some((button) =>
