@@ -2,7 +2,7 @@
 // (Schema/SettingsSchema+HoverCards.generated.swift); this file only parses.
 
 /// `sidebar.hoverCards.*` in cmux.json (cx-23e1f): the hover cards of sidebar
-/// workspace rows and tabs are on, and wait Chrome's delay, unless the user
+/// workspace rows and tabs are on, and wait `HoverCardTiming.showDelay`, unless the user
 /// turns them off or sets another delay.
 public nonisolated struct HoverCardSettings: Sendable, Equatable {
     public var enabled = HoverCardSettings.enabledDefault

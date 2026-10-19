@@ -139,6 +139,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-phone-lane-fields.py
+      - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -325,6 +327,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-phone-lane-fields.py
+      - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -1095,6 +1099,13 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/gen-settings-sources.py --check
 
+      # The phone daemon lane's per-command field allowlist, generated from the daemon's request
+      # schema and the lane's command allowlist (DaemonLanePolicy+Fields.generated.swift).
+      - name: Phone lane field allowlist
+        id: phone-lane-fields
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+
       # The backdrop art list (ids, titles, image and thumbnail URLs, Shuffle Daily) exported
       # from the CmuxNextDesign Swift to plans/cmux-next/backdrop-art.json for the GPUI app.
       - name: Backdrop art export
@@ -1348,6 +1359,7 @@ jobs:
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
+            ${{ steps.phone-lane-fields.outcome }}|Phone lane field allowlist
             ${{ steps.backdrop-art.outcome }}|Backdrop art export
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
@@ -1588,6 +1600,10 @@ jobs:
     needs: [macos-placement, push-head-preflight]
     if: ${{ !cancelled() && inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) }}
     name: cmux-next fast tier
+    # The cache saves name the R2 write credentials, which live in the ci-cache-writer
+    # environment (main only; tests/test_ci_pull_request_caches_are_read_only.py). This job
+    # never runs on main, so it still enters no environment: the line changes nothing at run time.
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier', github.ref) || format('cmux-next-run-{0}-fast-tier', github.run_id) }}
       cancel-in-progress: false
@@ -1662,6 +1678,10 @@ jobs:
           prefix="cmux-next-fast-swift-v1-${RUNNER_OS}-${RUNNER_ARCH}-${toolchain}-${inputs}-"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
           echo "key=${prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          # r2-cache.sh archives one directory per key, so CmuxHomeRender gets its own.
+          home_prefix="cmux-next-fast-swift-home-v1-${RUNNER_OS}-${RUNNER_ARCH}-${toolchain}-${inputs}-"
+          echo "home-prefix=$home_prefix" >> "$GITHUB_OUTPUT"
+          echo "home-key=${home_prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Restore Swift fast-tier cache
         id: swift-fast-cache-restore
@@ -1670,11 +1690,19 @@ jobs:
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: |
-            Packages/Shared/CmuxHomeRender/.build
-            Packages/macOS/CmuxNext/.build
+          path: Packages/macOS/CmuxNext/.build
           key: ${{ steps.swift-fast-cache-key.outputs.key }}
           restore-keys: ${{ steps.swift-fast-cache-key.outputs.prefix }}
+
+      - name: Restore CmuxHomeRender fast-tier cache
+        if: ${{ !contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: Packages/Shared/CmuxHomeRender/.build
+          key: ${{ steps.swift-fast-cache-key.outputs.home-key }}
+          restore-keys: ${{ steps.swift-fast-cache-key.outputs.home-prefix }}
 
       # Checkout removes .build. Link the owned Mac's kept build after Xcode
       # selection so its fingerprint uses the compiler that runs this job.
@@ -1735,10 +1763,22 @@ jobs:
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: |
-            Packages/Shared/CmuxHomeRender/.build
-            Packages/macOS/CmuxNext/.build
+          path: Packages/macOS/CmuxNext/.build
           key: ${{ steps.swift-fast-cache-key.outputs.key }}
+
+      - name: Save CmuxHomeRender fast-tier cache
+        if: ${{ success() && !contains(runner.name, '-glaeda') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: Packages/Shared/CmuxHomeRender/.build
+          key: ${{ steps.swift-fast-cache-key.outputs.home-key }}
 
       - name: Save Cargo fast-tier cache
         if: ${{ success() && !contains(runner.name, '-glaeda') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
