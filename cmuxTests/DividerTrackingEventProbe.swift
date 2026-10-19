@@ -2,7 +2,7 @@ import AppKit
 import ObjectiveC.runtime
 import Testing
 
-/// Observes native tracking without replacing it, and bounds its event fetches.
+/// Supplies synthetic pointer context, observes native tracking, and bounds its event fetches.
 /// Install only around synchronous dispatch under AppContextSerialGate.
 @MainActor
 final class DividerTrackingEventProbe {
@@ -14,12 +14,53 @@ final class DividerTrackingEventProbe {
     private(set) var nativeTrackingCount = 0
     private(set) var firstNativeQueuedEvent: NSEvent?
     private(set) var timedOut = false
+    private var currentPointerEvent: NSEvent?
+
+    private func noteDequeuedPointerEvent(_ event: NSEvent) {
+        if event.windowNumber == currentPointerEvent?.windowNumber,
+           [.leftMouseDown, .leftMouseDragged, .leftMouseUp].contains(event.type) {
+            currentPointerEvent = event
+        }
+    }
 
     func dispatch(_ down: NSEvent, release: NSEvent, splitView: NSSplitView, window: NSWindow) throws {
         let deadline = Date(timeIntervalSinceNow: 1)
         let nextSelector = #selector(NSWindow.nextEvent(matching:until:inMode:dequeue:))
         var restorations: [() -> Void] = []
         defer { for restore in restorations.reversed() { restore() } }
+
+        // window.sendEvent does not establish NSApplication's current event,
+        // and NSEvent.mouseEvent does not press a physical mouse button. Supply
+        // the context that the real event loop and device provide, without
+        // changing hit testing, mouseDown, or NSSplitView's native tracking.
+        currentPointerEvent = down
+        let currentEventMethod = try #require(class_getInstanceMethod(
+            NSApplication.self, #selector(getter: NSApplication.currentEvent)
+        ))
+        let currentEventIMP = method_getImplementation(currentEventMethod)
+        let currentEventBlock: @convention(block) (AnyObject) -> NSEvent? = { _ in
+            MainActor.assumeIsolated { self.currentPointerEvent }
+        }
+        let currentEventReplacement = imp_implementationWithBlock(currentEventBlock)
+        method_setImplementation(currentEventMethod, currentEventReplacement)
+        restorations.append {
+            method_setImplementation(currentEventMethod, currentEventIMP)
+            imp_removeBlock(currentEventReplacement)
+        }
+
+        let buttonsMethod = try #require(class_getClassMethod(
+            NSEvent.self, #selector(getter: NSEvent.pressedMouseButtons)
+        ))
+        let buttonsIMP = method_getImplementation(buttonsMethod)
+        let buttonsBlock: @convention(block) (AnyObject) -> UInt = { _ in
+            MainActor.assumeIsolated { self.currentPointerEvent?.type == .leftMouseUp ? 0 : 1 }
+        }
+        let buttonsReplacement = imp_implementationWithBlock(buttonsBlock)
+        method_setImplementation(buttonsMethod, buttonsReplacement)
+        restorations.append {
+            method_setImplementation(buttonsMethod, buttonsIMP)
+            imp_removeBlock(buttonsReplacement)
+        }
 
         // Both entrypoints are bounded: Bonsplit asks the window, while AppKit
         // may ask NSApplication directly inside native divider tracking.
@@ -41,6 +82,7 @@ final class DividerTrackingEventProbe {
                         // leaving a blocked main thread. This always fails below.
                         result = release
                     }
+                    if dequeue, let result { self.noteDequeuedPointerEvent(result) }
                 }
                 return result
             }
@@ -75,6 +117,14 @@ final class DividerTrackingEventProbe {
             imp_removeBlock(mouseReplacement)
         }
 
+        // Include the terminal/browser portal siblings above the content view.
+        // NSView.hitTest takes SUPER view coordinates, even for a flipped
+        // NSHostingView. A content-local point mirrors Y and hits a pane.
+        let content = try #require(window.contentView)
+        let root = try #require(content.superview)
+        let reference = root.superview ?? root
+        let hit = root.hitTest(reference.convert(down.locationInWindow, from: nil))
+        try #require(hit === splitView, "The divider center must route through the window tree to the managed split")
         window.sendEvent(down)
         #expect(!timedOut, "Divider tracking exceeded its one-second deadline")
     }

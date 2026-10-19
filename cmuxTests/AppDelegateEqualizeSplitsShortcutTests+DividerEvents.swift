@@ -76,13 +76,14 @@ extension AppDelegateEqualizeSplitsShortcutTests {
                 let focusedPane = controller.focusedPaneId
                 let responder = window.firstResponder
 
-                let rect = try self.dividerRect(in: splitView)
+                let rect = try #require(PortalSplitDividerRegion.dividerRect(in: splitView, dividerIndex: 0))
+                try #require(rect.width > 0 && rect.height > 0)
                 let point = NSPoint(x: rect.midX, y: rect.midY)
                 let location = splitView.convert(point, to: nil)
-                // Prove that window.sendEvent will reach this exact split,
-                // rather than a pane overlay or a neighboring divider.
-                let contentPoint = content.convert(location, from: nil)
-                try #require(content.hitTest(contentPoint) === splitView)
+                let grabRegion = try #require(PortalSplitDividerRegion.dividerHitRectInWindow(
+                    in: splitView, dividerIndex: 0
+                ))
+                try #require(grabRegion.contains(location), "The divider center must be in the app's grab region")
                 let timestamp = ProcessInfo.processInfo.systemUptime
                 let down = try self.dividerMouseEvent(.leftMouseDown, at: location, window: window, timestamp: timestamp)
                 let destination = NSPoint(
@@ -191,15 +192,6 @@ extension AppDelegateEqualizeSplitsShortcutTests {
             return stableTurns >= 2
         }
         try #require(settled, "Divider frames did not settle")
-    }
-
-    private func dividerRect(in split: NSSplitView) throws -> NSRect {
-        let first = try #require(split.arrangedSubviews.first)
-        let rect = split.isVertical
-            ? NSRect(x: first.frame.maxX, y: split.bounds.minY, width: split.dividerThickness, height: split.bounds.height)
-            : NSRect(x: split.bounds.minX, y: first.frame.maxY, width: split.bounds.width, height: split.dividerThickness)
-        try #require(rect.width > 0 && rect.height > 0)
-        return rect
     }
 
     private func dividerMouseEvent(
