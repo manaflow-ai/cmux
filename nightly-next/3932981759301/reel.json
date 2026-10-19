@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "build": "3932981759301",
+  "notes": "notes/3932981759301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21203,
+      "title": "fix(cmux-next): encode WebKit screenshots off main actor",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20633,
+      "title": "agent pane: older turns fade in as they load above the reader (cx-2lv1k)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/20633/older-rows-fade-scroll-up.mp4",
+      "source": "manual",
+      "note": "3 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 22054,
+      "title": "agent pane: permission UI keeps its last state across a chat switch (no blink)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21718,
+      "title": "ci(cmux-next): path-based risk tiers, a recent-revert check, and a risk evidence check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21597,
+      "title": "Add resumable server pairing to the Rust CLI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22127,
+      "title": "Keep shiki and the empty state off the markdown page's first load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22093,
+      "title": "perf-gate: new-row late frames are a known breach (cx-zf6um); the debug popup snapshot is a debug tool",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21158,
+      "title": "Fix composer keyboard activation after canceled outside presses",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21090,
+      "title": "docs(cmux-next): define replayable UI workflow corpus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21007,
+      "title": "Diff Colors: make Muted clearly quieter than Theme",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21808,
+      "title": "cmux-tui: rank agent list by who needs you",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
