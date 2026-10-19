@@ -47,7 +47,7 @@ jobs:
         if: ${{ inputs.push_base != '' }}
         env:
           PUSH_BASE: ${{ inputs.push_base }}
-        run: git fetch --no-tags --depth=1 origin "$PUSH_BASE" || echo "push base $PUSH_BASE not fetchable"
+        run: git fetch --no-tags --depth=1 origin "$PUSH_BASE" || echo "::warning title=web routing::push base $PUSH_BASE is not fetchable; every web subarea runs"
 
       - name: Classify web subareas
         id: scope

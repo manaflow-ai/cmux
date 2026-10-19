@@ -43,6 +43,12 @@ def test_ci_web_routes_from_the_push_base() -> None:
     assert scope["env"].get("WEB_SUBAREAS_BASE") == "${{ inputs.push_base }}"
 
 
+def test_feat_cmux_next_pushes_run_the_cmux_next_checks_job() -> None:
+    doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())
+    cond = doc["jobs"]["checks"]["if"]
+    assert "!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')" not in cond, cond
+
+
 def git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
