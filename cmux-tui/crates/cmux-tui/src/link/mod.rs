@@ -24,6 +24,7 @@ mod machine_gate;
 pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
+mod paired_streams;
 mod process_exit;
 mod state;
 

@@ -42,6 +42,10 @@ struct OpenDaemon {
 }
 
 async fn open_daemon() -> OpenDaemon {
+    open_daemon_with(None).await
+}
+
+async fn open_daemon_with(subscription: Option<Revocations>) -> OpenDaemon {
     let directory = cmux_unix_socket::short_test_dir("linkrev");
     let session = directory.path().join("s.sock");
     let entry_path = cmux_link::entry_path::remote_entry_socket_path(&session);
@@ -58,7 +62,7 @@ async fn open_daemon() -> OpenDaemon {
             &pairings(),
             &session,
             None,
-            Some(Revocations { view: receiver, open: Arc::default() }),
+            Some(subscription.unwrap_or(Revocations { view: receiver, open: Arc::default() })),
         )
         .await
     });
@@ -208,4 +212,261 @@ async fn a_stale_pairing_snapshot_cannot_reopen_a_revoked_daemon_or_owner() {
         entry.abort();
     }
     assert!(failures.is_empty(), "stale snapshots reached local endpoints: {failures:?}");
+}
+
+#[tokio::test]
+async fn losing_the_pairing_view_closes_an_existing_daemon_stream() {
+    let mut daemon = open_daemon().await;
+    drop(daemon.view);
+    let mut tail = String::new();
+    assert_eq!(within(daemon.peer.read_line(&mut tail)).await.unwrap(), 0);
+    drop(daemon.peer);
+    drop(daemon.entry);
+    assert_eq!(within(daemon.task).await.unwrap(), Err(InboundRefused::UnknownPeer));
+}
+
+#[tokio::test]
+async fn revocation_during_owner_identification_closes_the_probe_before_session_handoff() {
+    let directory = cmux_unix_socket::short_test_dir("revprobe");
+    let home = directory.path().join("brain");
+    std::fs::create_dir_all(home.join("daemon")).unwrap();
+    let socket = home.join("daemon/s.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let owner = OwnerSession {
+        owner_user: "42".into(),
+        owner_team: "team_a".into(),
+        socket,
+        brain_home: home,
+    };
+    let session = directory.path().join("s.sock");
+    let (sender, view) = tokio::sync::watch::channel(Arc::new(pairings()));
+    let (mut peer, stream) = tokio::io::duplex(1024);
+    peer.write_all(b"{\"service\":\"owner_session\"}\nprivate-request\n").await.unwrap();
+    let task = tokio::spawn(async move {
+        serve_inbound_watched(
+            stream,
+            [2; 32],
+            address(),
+            &pairings(),
+            &session,
+            Some(&owner),
+            Some(Revocations { view, open: Arc::default() }),
+        )
+        .await
+    });
+    let (probe, _) = within(listener.accept()).await.unwrap();
+    let mut probe = BufReader::new(probe);
+    let mut line = String::new();
+    within(probe.read_line(&mut line)).await.unwrap();
+    assert_eq!(line, cmux_link::owner_session::IDENTIFY_REQUEST);
+    sender.send_replace(Arc::new(Pairings::default()));
+    line.clear();
+    assert_eq!(
+        within(probe.read_line(&mut line)).await.unwrap(),
+        0,
+        "the pending identify probe must close"
+    );
+    drop(peer);
+    assert_eq!(
+        within(task).await.unwrap(),
+        Err(InboundRefused::Owner(cmux_link::owner_session::OwnerRefused::NotOwner))
+    );
+}
+
+struct StagedOverlay {
+    entered: tokio::sync::mpsc::UnboundedSender<Pairings>,
+    release: tokio::sync::Semaphore,
+    fail: bool,
+}
+
+impl super::dial::Overlay for StagedOverlay {
+    type Stream = DuplexStream;
+    async fn connect(&self, _remote: SocketAddr) -> std::io::Result<Self::Stream> {
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "fixture does not dial"))
+    }
+    async fn sync_peers(&self, pairings: &Pairings) -> std::io::Result<()> {
+        self.entered.send(pairings.clone()).unwrap();
+        self.release.acquire().await.unwrap().forget();
+        if self.fail {
+            return Err(std::io::Error::other("fixture sync failed"));
+        }
+        Ok(())
+    }
+    async fn set_cloud_peer(
+        &self,
+        _host: &str,
+        _key: [u8; 32],
+        _info: &cmux_link::connect_info::ConnectInfo,
+    ) -> std::io::Result<()> {
+        Ok(())
+    }
+    async fn forget_cloud_peer(&self, _host: &str) -> std::io::Result<()> {
+        Ok(())
+    }
+    async fn path_state(&self, _key: &[u8; 32]) -> cmux_link::dial::PathState {
+        cmux_link::dial::PathState::Direct
+    }
+}
+
+#[tokio::test]
+async fn failed_overlay_sync_never_restores_the_revoked_admission_view() {
+    let directory = cmux_unix_socket::short_test_dir("revsync");
+    let path = directory.path().join("peers.json");
+    pairings().save(&path).unwrap();
+    let peers = Arc::new(super::control::Peers::load(path.clone()).unwrap());
+    let stale = peers.snapshot();
+    Pairings::default().save(&path).unwrap();
+    let (entered, mut updates) = tokio::sync::mpsc::unbounded_channel();
+    let overlay =
+        Arc::new(StagedOverlay { entered, release: tokio::sync::Semaphore::new(0), fail: true });
+    let task = {
+        let (peers, overlay) = (peers.clone(), overlay.clone());
+        tokio::spawn(async move { peers.reload(&*overlay).await })
+    };
+    assert!(within(updates.recv()).await.unwrap().peers.is_empty());
+    assert!(peers.snapshot().peers.is_empty(), "admission must change before overlay I/O finishes");
+    overlay.release.add_permits(1);
+    assert!(within(task).await.unwrap().is_err());
+    assert!(peers.snapshot().peers.is_empty());
+    let (mut peer, stream) = tokio::io::duplex(1024);
+    peer.write_all(b"{\"service\":\"daemon\"}\n").await.unwrap();
+    peer.shutdown().await.unwrap();
+    let result = within(serve_inbound_watched(
+        stream,
+        [2; 32],
+        address(),
+        &stale,
+        &directory.path().join("s.sock"),
+        None,
+        Some(peers.revocations()),
+    ))
+    .await;
+    assert_eq!(result, Err(InboundRefused::UnknownPeer));
+}
+
+#[tokio::test]
+async fn concurrent_reloads_apply_in_order_and_read_the_file_after_admission() {
+    let directory = cmux_unix_socket::short_test_dir("revorder");
+    let path = directory.path().join("peers.json");
+    pairings().save(&path).unwrap();
+    let peers = Arc::new(super::control::Peers::load(path.clone()).unwrap());
+    Pairings::default().save(&path).unwrap();
+    let (entered, mut updates) = tokio::sync::mpsc::unbounded_channel();
+    let overlay =
+        Arc::new(StagedOverlay { entered, release: tokio::sync::Semaphore::new(0), fail: false });
+    let first = {
+        let (peers, overlay) = (peers.clone(), overlay.clone());
+        tokio::spawn(async move { peers.reload(&*overlay).await })
+    };
+    assert!(within(updates.recv()).await.unwrap().peers.is_empty());
+    let mut fresh = pairings();
+    fresh.peers[0].user = "new-owner".into();
+    fresh.save(&path).unwrap();
+    let second = peers.reload(&*overlay);
+    tokio::pin!(second);
+    std::future::poll_fn(|cx| {
+        assert!(second.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert!(
+        updates.try_recv().is_err(),
+        "a second reload reached overlay I/O before the first ended"
+    );
+    overlay.release.add_permits(1);
+    within(first).await.unwrap().unwrap();
+    std::future::poll_fn(|cx| {
+        assert!(second.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert_eq!(within(updates.recv()).await.unwrap(), fresh);
+    overlay.release.add_permits(1);
+    within(second).await.unwrap();
+    assert_eq!(*peers.snapshot(), fresh);
+}
+
+#[tokio::test]
+async fn a_same_key_reassignment_closes_the_old_stream_before_overlay_sync() {
+    let directory = cmux_unix_socket::short_test_dir("revpin");
+    let path = directory.path().join("peers.json");
+    pairings().save(&path).unwrap();
+    let peers = Arc::new(super::control::Peers::load(path.clone()).unwrap());
+    let mut daemon = open_daemon_with(Some(peers.revocations())).await;
+    let mut fresh = pairings();
+    fresh.peers[0].user = "new-owner".into();
+    fresh.save(&path).unwrap();
+    let (entered, mut updates) = tokio::sync::mpsc::unbounded_channel();
+    let overlay =
+        Arc::new(StagedOverlay { entered, release: tokio::sync::Semaphore::new(0), fail: false });
+    let task = {
+        let (peers, overlay) = (peers.clone(), overlay.clone());
+        tokio::spawn(async move { peers.reload(&*overlay).await })
+    };
+    let mut tail = String::new();
+    assert_eq!(within(daemon.peer.read_line(&mut tail)).await.unwrap(), 0);
+    assert!(
+        updates.try_recv().is_err(),
+        "the old carrier must close before the peer is synchronized"
+    );
+    drop(daemon.peer);
+    drop(daemon.entry);
+    within(daemon.task).await.unwrap().unwrap_err();
+    assert_eq!(within(updates.recv()).await.unwrap(), fresh);
+    overlay.release.add_permits(1);
+    within(task).await.unwrap().unwrap();
+}
+
+struct OneStream(Option<DuplexStream>);
+
+impl super::control::OverlayListener for OneStream {
+    type Stream = DuplexStream;
+    async fn accept(&mut self) -> Option<(DuplexStream, [u8; 32], SocketAddr)> {
+        match self.0.take() {
+            Some(stream) => Some((stream, [2; 32], address())),
+            None => std::future::pending().await,
+        }
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn an_accepted_stream_is_registered_before_its_handler_first_polls() {
+    let directory = cmux_unix_socket::short_test_dir("revpoll");
+    let path = directory.path().join("peers.json");
+    pairings().save(&path).unwrap();
+    let peers = Arc::new(super::control::Peers::load(path.clone()).unwrap());
+    let (peer, stream) = tokio::io::duplex(1024);
+    let serving = super::control::serve_overlay(
+        OneStream(Some(stream)),
+        peers.clone(),
+        Some(directory.path().join("s.sock")),
+        None,
+    );
+    tokio::pin!(serving);
+    // Poll acceptance in this task; the spawned handler has not run yet.
+    std::future::poll_fn(|cx| {
+        assert!(serving.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    Pairings::default().save(&path).unwrap();
+    let (entered, mut updates) = tokio::sync::mpsc::unbounded_channel();
+    let overlay = StagedOverlay { entered, release: tokio::sync::Semaphore::new(0), fail: false };
+    let reload = peers.reload(&overlay);
+    tokio::pin!(reload);
+    std::future::poll_fn(|cx| {
+        assert!(reload.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert!(updates.try_recv().is_err(), "peer removal raced an accepted but unpolled stream");
+    drop(peer);
+    // The queued handler sees the revoked current view and ends; only then
+    // may the reload remove the WireGuard peer.
+    let pending_reload = async {
+        within(updates.recv()).await.unwrap();
+        overlay.release.add_permits(1);
+    };
+    let (result, ()) = tokio::join!(reload, pending_reload);
+    result.unwrap();
 }
