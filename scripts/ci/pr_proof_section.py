@@ -9,9 +9,10 @@ line when a bug-fix PR lacks that section and nothing otherwise. It never
 blocks a merge: it always exits 0, including on unreadable input.
 
 A PR is a bug fix when its title starts with a `fix` conventional-commit
-type (`fix:`, `fix(scope):`, `fix!:`), the word "Fix", or it carries the
-`bug` label. The section is any Markdown heading or bold line that starts
-with "Observed".
+type (`fix:`, `fix(scope):`, `fix!:`), "Fix"/"Fixes"/"Fixing", "Bug fix", or
+it carries the `bug` label; "fix-ups" is not. The section is a Markdown
+heading, bold line or bold bullet that starts with "Observed" (not "Observed
+behavior"), outside code fences and HTML comments.
 """
 from __future__ import annotations
 
@@ -19,9 +20,16 @@ import json
 import re
 import sys
 
-FIX_TITLE = re.compile(r"^\s*(?:(?:bug|hot)?fix(?:\([^)]*\))?!?:|fix(?:es|ed)?\b)", re.IGNORECASE)
-OBSERVED = re.compile(r"^\s{0,3}(?:#{1,6}\s*|\*\*\s*)Observed\b", re.IGNORECASE | re.MULTILINE)
+FIX_TITLE = re.compile(
+    r"^\s*(?:(?:bug|hot)?fix(?:\([^)]*\))?!?:|bug ?fix\b|fix(?:es|ed|ing)?\b(?!-?ups?\b))", re.IGNORECASE
+)
+# A heading, bold line or bold bullet that starts with "Observed", optionally
+# quoted. "Observed behavior" is a bug report's heading, not proof.
+OBSERVED = re.compile(
+    r"^\s{0,3}(?:>\s*)?(?:#{1,6}\s*|(?:[-*]\s+)?\*\*\s*)Observed\b(?!\s+behaviou?r)", re.IGNORECASE | re.MULTILINE
+)
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+FENCE = re.compile(r"^\s{0,3}(```|~~~).*?^\s{0,3}\1", re.DOTALL | re.MULTILINE)
 
 
 def is_bug_fix(pr: dict) -> bool:
@@ -31,7 +39,7 @@ def is_bug_fix(pr: dict) -> bool:
 
 
 def has_proof_section(body: str) -> bool:
-    return bool(OBSERVED.search(COMMENT.sub("", body or "")))
+    return bool(OBSERVED.search(FENCE.sub("", COMMENT.sub("", body or ""))))
 
 
 def warning(pr: dict) -> str | None:

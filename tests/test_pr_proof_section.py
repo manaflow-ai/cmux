@@ -15,19 +15,20 @@ spec.loader.exec_module(module)
 
 class ProofSectionTests(unittest.TestCase):
     def test_bug_fix_titles_and_label(self):
-        for title in ("fix: x", "fix(sidebar): x", "fix!: x", "bugfix: x", "Fix the sidebar", "fixes a crash", "  FIX: y"):
+        for title in ("fix: x", "fix(sidebar): x", "fix!: x", "bugfix: x", "Fix the sidebar", "fixes a crash", "  FIX: y", "Bug fix: x", "Fixing the crash"):
             with self.subTest(title=title):
                 self.assertTrue(module.is_bug_fix({"title": title}))
-        for title in ("feat: x", "fixture cleanup", "perf: prefix fix", "docs: fix typo"):
+        for title in ("feat: x", "fixture cleanup", "perf: prefix fix", "docs: fix typo", "fix-ups for docs", "Fixups"):
             with self.subTest(title=title):
                 self.assertFalse(module.is_bug_fix({"title": title}))
         self.assertTrue(module.is_bug_fix({"title": "sidebar", "labels": [{"name": "bug"}]}))
 
     def test_observed_heading_or_bold_line_counts(self):
-        for body in ("## Observed / Not run\n- ok", "### Observed\n", "**Observed**: ran it", "#Observed"):
+        for body in ("## Observed / Not run\n- ok", "### Observed\n", "**Observed**: ran it", "#Observed", "- **Observed:** ran it", "> ## Observed"):
             with self.subTest(body=body):
                 self.assertTrue(module.has_proof_section(body))
-        for body in ("", "We observed it.", "<!-- ## Observed -->", "## Testing\nObserved: ok"):
+        for body in ("", "We observed it.", "<!-- ## Observed -->", "## Testing\nObserved: ok", "### Observed behavior\nIt crashes.",
+                     "```md\n## Observed\n```"):
             with self.subTest(body=body):
                 self.assertFalse(module.has_proof_section(body))
 
