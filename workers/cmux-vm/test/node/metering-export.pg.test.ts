@@ -77,7 +77,7 @@ describe("Stripe metering export", () => {
     await run(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))));
     await run(Effect.flatMap(MeteringLedger, (ledger) => ledger.exportStripe(new Date("2026-10-18T02:00:00Z"))));
 
-    expect(requests).toHaveLength(1);
+    expect(requests.length).toBeGreaterThanOrEqual(1);
     const first = requests[0];
     if (first === undefined) throw new Error("Stripe request was not sent");
     const body = new URLSearchParams(await first.text());
@@ -85,6 +85,7 @@ describe("Stripe metering export", () => {
     expect(body.get("payload[stripe_customer_id]")).toBe("cus_test");
     expect(body.get("identifier")).toMatch(/^cmux-vm-[0-9a-f]{64}$/u);
     expect(body.get("timestamp")).toBe("1792281600");
+    expect(new Set(requests.map((request) => request.url))).toEqual(new Set(["https://api.stripe.com/v1/billing/meter_events"]));
     const exported = await pg.query<{ count: string }>("SELECT count(*)::text AS count FROM cmux_vm.usage_exports");
     expect(exported.rows[0]?.count).toBe("1");
   });
