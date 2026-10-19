@@ -6,7 +6,7 @@ import Foundation
 import Observation
 import os
 
-/// Pushes the config owner's effective privacy settings to the local daemon. Socket replacement
+/// Pushes the config owner's effective privacy settings and new-chat permission mode to the local daemon. Socket replacement
 /// and settings observation are the only wakeups; no retry timer or polling is used.
 @MainActor
 final class ChatSettingsPush {
@@ -23,13 +23,20 @@ final class ChatSettingsPush {
     /// App-lifetime observation, started at composition after the initial settings load.
     static func start(settings: SettingsController, environment: AcpmuxEnvironment?) {
         guard let environment else { return }
-        let push = ChatSettingsPush(socketPath: environment.socketPath)
+        start(settings: settings, socketPath: environment.socketPath)
+    }
+
+    /// Starts pushing `settings.chatSettings` (with the MDM-aware permission mode) to `socketPath`.
+    @discardableResult
+    static func start(settings: SettingsController, socketPath: String) -> ChatSettingsPush {
+        let push = ChatSettingsPush(socketPath: socketPath)
         push.watchSocket()
         Task { @MainActor in
             for await value in ObservationStream({ settings.chatSettings }) {
                 push.update(value)
             }
         }
+        return push
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
