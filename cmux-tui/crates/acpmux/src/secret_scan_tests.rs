@@ -201,6 +201,11 @@ fn ordinary_text_is_left_alone() {
         "merge 774a92d8f81238a678ce294dd3228fe55aa2b7b2 into feat-cmux-next",
         "sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "GIT_COMMIT=774a92d8f81238a678ce294dd3228fe55aa2b7b2",
+        // A SHA or hash behind a plain "key" is an id: a cache or idempotency key.
+        "key: 774a92d8f81238a678ce294dd3228fe55aa2b7b2",
+        "cache key: 774a92d8f81238a678ce294dd3228fe55aa2b7b2",
+        r#""key": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855""#,
+        "restore_key=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         // UUIDs, upper and lower.
         "session 550e8400-e29b-41d4-a716-446655440000 and 6F9619FF-8B86-D011-B42D-00C04FC964FF",
         r#""creating-a-strong-password":"/en/enterprise-server/authentication""#,

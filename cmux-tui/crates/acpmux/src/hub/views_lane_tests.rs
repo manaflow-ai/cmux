@@ -58,6 +58,21 @@ fn a_failed_turns_error_is_masked_too() {
     assert_eq!(lane["error"], "401 for token [GitHub Personal Access Token]");
 }
 
+/// A failed turn's error can be a whole pasted log: only its head is
+/// scanned, and the error is cut there, masked first.
+#[test]
+fn a_huge_error_is_cut_before_it_is_scanned_and_its_head_still_masked() {
+    let token = github_token();
+    let error = format!("401 for {token} {}", "x".repeat(4_000_000));
+    let failed = json!({"status": "idle", "turnCount": 1, "updatedAt": 9,
+                        "lastTurn": {"endedAt": 8, "status": "failed", "errorText": error}});
+    let lane = lane(&failed);
+    let error = lane["error"].as_str().unwrap();
+    assert!(error.starts_with("401 for [GitHub Personal Access Token] x"), "{}", &error[..60]);
+    assert!(error.ends_with('…'), "the error was not cut");
+    assert!(error.chars().count() <= 4_097, "{} chars", error.chars().count());
+}
+
 #[test]
 fn the_lanes_title_is_masked_and_falls_back_to_the_masked_latest_prompt() {
     let token = github_token();
