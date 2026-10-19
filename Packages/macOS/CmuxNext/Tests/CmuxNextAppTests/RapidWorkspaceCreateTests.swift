@@ -260,9 +260,11 @@ struct RapidWorkspaceCreateTests {
         await Self.wait(within: .seconds(10)) { state.workspaceID == grouped }
         // One document change, as a group made in the sidebar sends: the group, first in the list.
         let doc = try #require(SidebarDocStore.current)
-        await Self.wait(within: .seconds(30)) {
+        await Self.wait(within: .seconds(10)) {
             SidebarDocWiring.item(workspace: grouped, services.machines).map { doc.records.items[$0] != nil } ?? false
         }
+        let model = services.machines.workspace(id: grouped)?.0
+        print("cmdN-diag: resource=\(String(describing: model?.resourceID)) key=\(String(describing: model?.key)) registry=\(String(describing: services.daemon.store.registryID)) items=\(doc.records.items.count) shownItems=\(doc.shown?.items.count ?? -1) unplaced=\(doc.shown?.unplaced ?? []) active=\(doc.isActive) states=\(services.daemon.store.servesStateResources)")
         let item = try #require(SidebarDocWiring.item(workspace: grouped, services.machines))
         let section = try #require(doc.records.items[item]?.section)
         try doc.sendChecked(ops: [["op": "group.create", "id": GroupID.make().rawValue, "name": "Accounts", "color": "grey",
