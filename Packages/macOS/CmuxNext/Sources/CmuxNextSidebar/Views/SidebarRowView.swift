@@ -40,7 +40,7 @@ class SidebarRowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
