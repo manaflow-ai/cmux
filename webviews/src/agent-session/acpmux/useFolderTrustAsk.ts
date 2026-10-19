@@ -94,6 +94,8 @@ export function useFolderTrustAsk(
   source: TrustSource,
   chat: { sessionId?: string; cwd?: string; family?: string; prompts: number },
   canAnswer = true,
+  /// The chat's folder is on this computer: only then is its answer kept by path for the next chat.
+  local = true,
 ) {
   const [ask, setAsk] = useState<FolderTrustAsk>();
   const [trusted, setTrusted] = useState(false);
@@ -117,7 +119,8 @@ export function useFolderTrustAsk(
   /// answer and is dropped. An answer for another folder leaves the read standing.
   const answers = useRef(new Map<string, number>());
   // A chat that can't answer here (a peer's or remote one) is another machine's folder: no record.
-  const remembers = canAnswer;
+  // A remote or peer folder can share a local path: its answer is never kept by path.
+  const remembers = canAnswer && local;
 
   // Another chat, folder or agent: drawn in this render from the folder's known trust (reading
   // only when the pane never read the folder), so no frame shows it unread.

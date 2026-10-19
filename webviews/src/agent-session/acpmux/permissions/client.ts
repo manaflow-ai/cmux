@@ -243,13 +243,13 @@ export class PermissionGroupClient {
       if (generation !== this.generation || refreshSerial !== this.refreshSerial || this.sessionId !== sessionId)
         return;
       this.authoritative = true;
-      this.restored = false;
       if (result.groups.some((group) => group.sessionId !== sessionId))
         throw new PermissionRpcError({
           code: "operation.failed",
           message: translate("permission.error.wrongSession"),
           data: { reason: "invalid_scope" },
         });
+      this.restored = false;
       this.state = {
         ...this.state,
         ready: true,

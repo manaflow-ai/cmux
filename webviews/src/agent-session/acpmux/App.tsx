@@ -2744,6 +2744,7 @@ function AcpmuxPane() {
       prompts: promptCount,
     },
     snapshot.origin !== "remote" || snapshot.answersTrust === true,
+    snapshot.origin !== "remote" && snapshot.origin !== "peer",
   );
   trustRefused.current = trustAsk.refused;
   const individualPermission =
@@ -5038,13 +5039,16 @@ function AcpmuxPane() {
   // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
   // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
   const trustPending = trustAsk.holdsAsks;
+  // A secret is the one ask held while the trust read is in flight: a value typed into it must
+  // never go before the folder is known to need no trust answer first.
+  const secret = trustAsk.blocked ? undefined : snapshot.secret;
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
   );
   const hasBottomAsk = Boolean(
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
-    (!trustPending && (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
+    (!trustPending && (hasPermissionGroups || individualPermission || secret || toolCards.length > 0)),
   );
   const asks = hasBottomAsk ? (
     <div className="acpmux-permission acpmux-asks-stack">
@@ -5075,7 +5079,7 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {!trustPending && (individualPermission || snapshot.secret || toolCards.length > 0) && (
+      {!trustPending && (individualPermission || secret || toolCards.length > 0) && (
         <>
           <ToolCards
             cards={toolCards}
@@ -5093,12 +5097,12 @@ function AcpmuxPane() {
               focusComposer={() => composerHandle.current?.focus()}
             />
           )}
-          {snapshot.secret && (
+          {secret && (
             <SecretCard
-              key={snapshot.secret.secretId}
-              ask={snapshot.secret}
+              key={secret.secretId}
+              ask={secret}
               agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-              onAnswer={answerSecret(snapshot.secret)}
+              onAnswer={answerSecret(secret)}
             />
           )}
         </>
