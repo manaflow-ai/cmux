@@ -15,7 +15,7 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "glass", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "glass", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
@@ -24,6 +24,7 @@ UI_ROOTS = (
 )
 NEW_TAB = re.compile(r"(?:new.?tab|NewTab)", re.IGNORECASE)
 AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IGNORECASE)
+NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes)", re.IGNORECASE)
 
@@ -42,6 +43,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("new-tab")
     if AGENT_PANE.search(normalized):
         selected.append("agent-pane")
+    if NOW_PLAYING.search(normalized):
+        selected.append("now-playing")
     if GLASS.search(normalized):
         selected.append("glass")
     if not selected:
