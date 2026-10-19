@@ -2950,23 +2950,26 @@ export class AcpmuxDirectClient {
   /// Takes over the watched chat shown here (`_acpmux/watch_take_over`), so it runs the
   /// conversation itself. While the app that runs it still does, acpmux refuses (`adopt.live`) and
   /// the pane offers Open Anyway and, for Claude Code, Fork It, which call this with `ifLive`.
-  async takeOver(ifLive?: "fork" | "open"): Promise<void> {
+  /// Resolves true once the chat runs the conversation, false when it still only views it.
+  async takeOver(ifLive?: "fork" | "open"): Promise<boolean> {
     const sessionId = this.selectedSessionId;
-    if (!sessionId) return;
+    if (!sessionId) return false;
     const live = this.liveTakeOverFor === sessionId ? this.liveTakeOver : undefined;
-    if (ifLive && (!live || (ifLive === "fork" && !live.canFork))) return;
+    if (ifLive && (!live || (ifLive === "fork" && !live.canFork))) return false;
     this.liveTakeOver = undefined;
     this.emit();
     try {
       await this.request("_acpmux/watch_take_over", { sessionId, ...(ifLive ? { ifLive } : {}) });
+      return true;
     } catch (error) {
       if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !ifLive) {
         this.liveTakeOver = liveDetails((error as { details?: unknown }).details);
         this.liveTakeOverFor = sessionId;
         this.emit();
-        return;
+        return false;
       }
       this.notice(error instanceof Error && error.message ? error.message : String(error));
+      return false;
     }
   }
   /// Continue in New Chat, View Only's way on (Leo 2026-10-19: viewing never blocks starting a

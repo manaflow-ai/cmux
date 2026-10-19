@@ -5278,6 +5278,11 @@ function AcpmuxPane() {
             let accept: (taken: true) => void = () => undefined;
             const taken = new Promise<true>((resolve) => (accept = resolve));
             const send = async () => {
+              // Replying to a View Only chat takes it over first (`takeOver`); while the app that
+              // runs it still does, the pane asks how, and the composer keeps the message.
+              if (snapshot.summary?.watching && !(await directClient.current?.takeOver())) {
+                throw new Error("watch.notTakenOver");
+              }
               if (projectDraft && !snapshot.sessionId)
                 // The chat's start is part of this send: a trust refusal there asks the folder's
                 // question, keeps this prompt (with its send's gesture) and sends it after Trust
@@ -5379,7 +5384,7 @@ function AcpmuxPane() {
           handle={composerRef}
           // No prompt goes while a picked folder waits for the user's answer, or while the chat only
           // shows a session another app runs (WatchBanner).
-          blocked={pendingFolder ? {} : snapshot.summary?.watching ? { reason: "watch.composer" } : trustAsk.blocked}
+          blocked={pendingFolder ? {} : trustAsk.blocked}
           accessory={<DictationMic dictation={dictation} />}
           onImportFile={importFile}
           onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}

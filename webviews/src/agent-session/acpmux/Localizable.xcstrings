@@ -530,133 +530,133 @@
       }
     },
     "watch.composer": {
-      "comment": "Agent pane: why the composer cannot send in a chat that only views a session another app runs",
+      "comment": "Agent pane: the View Only banner hint that sending a message takes over the Claude Code or Codex session another app runs",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تولَّ هذه الجلسة لإرسال الرسائل"
+            "value": "ردّ لتتولّى هذه الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Preuzmite ovu sesiju da biste slali poruke"
+            "value": "Odgovorite da preuzmete ovu sesiju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Overtag denne session for at sende beskeder"
+            "value": "Svar for at overtage denne session"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Übernimm diese Sitzung, um Nachrichten zu senden"
+            "value": "Antworte, um diese Sitzung zu übernehmen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Take over this session to send messages"
+            "value": "Reply to take over this session"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Toma el control de esta sesión para enviar mensajes"
+            "value": "Responde para tomar el control de esta sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Reprenez cette session pour envoyer des messages"
+            "value": "Répondez pour reprendre cette session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prendi il controllo di questa sessione per inviare messaggi"
+            "value": "Rispondi per prendere il controllo di questa sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "メッセージを送るには、このセッションを引き継いでください"
+            "value": "返信するとこのセッションを引き継ぎます"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "យកវគ្គនេះមកគ្រប់គ្រង ដើម្បីផ្ញើសារ"
+            "value": "ឆ្លើយតប ដើម្បីយកវគ្គនេះមកគ្រប់គ្រង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "메시지를 보내려면 이 세션을 인계받으세요"
+            "value": "답장하면 이 세션을 인계받습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Overta denne økten for å sende meldinger"
+            "value": "Svar for å overta denne økten"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przejmij tę sesję, aby wysyłać wiadomości"
+            "value": "Odpowiedz, aby przejąć tę sesję"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Assuma esta sessão para enviar mensagens"
+            "value": "Responda para assumir esta sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Возьмите этот сеанс на себя, чтобы отправлять сообщения"
+            "value": "Ответьте, чтобы взять этот сеанс на себя"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รับช่วงเซสชันนี้เพื่อส่งข้อความ"
+            "value": "ตอบกลับเพื่อรับช่วงเซสชันนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mesaj göndermek için bu oturumu devralın"
+            "value": "Bu oturumu devralmak için yanıtlayın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перейміть цей сеанс, щоб надсилати повідомлення"
+            "value": "Відповідайте, щоб перейняти цей сеанс"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tiếp quản phiên này để gửi tin nhắn"
+            "value": "Trả lời để tiếp quản phiên này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "接管此会话以发送消息"
+            "value": "回复即可接管此会话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "接手此工作階段以傳送訊息"
+            "value": "回覆即可接手此工作階段"
           }
         }
       }

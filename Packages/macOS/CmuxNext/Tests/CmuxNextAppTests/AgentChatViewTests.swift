@@ -26,6 +26,31 @@ struct AgentChatViewTests {
         #expect(opened.last?.reply["watch"] == nil, "a chat the tab runs sends no watch flag")
     }
 
+    /// Open shows outside chats View Only by default (the Debug toggle), and only a Claude Code or
+    /// Codex chat is ever watched: another harness's chat opens as it always did.
+    @Test func openIsViewOnlyForClaudeCodeAndCodexOnly() throws {
+        #expect(AgentPaneTunables.openOutsideChatsViewOnly.descriptor.key == "agent.openOutsideChatsViewOnly")
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.openOutsideChatsViewOnly" })
+        let opencode = try #require(AcpmuxChatOpenPlan(result: [
+            "kind": "adopt", "cwd": "/tmp", "adopt": ["harness": "opencode", "agentSessionId": "x"], "sessionNew": ["cwd": "/tmp"],
+        ]))
+        var opened: [AgentPaneAdopt] = []
+        _ = ChatOpenRoute.route(opencode, chat: Self.subject, watch: true, openTab: { opened.append($0); return "tab" })
+        #expect(opened.map(\.watch) == [nil])
+    }
+
+    /// A profile is named freely (`claude-work`, a subrouter account): the plan's family, not the
+    /// profile's name, says it is a Claude Code chat, so it still opens View Only.
+    @Test func viewOnlyGoesByFamilyNotProfileName() throws {
+        let plan = try #require(AcpmuxChatOpenPlan(result: [
+            "kind": "adopt", "cwd": "/tmp", "family": "claude",
+            "adopt": ["harness": "claude-work", "agentSessionId": "x"], "sessionNew": ["cwd": "/tmp"],
+        ]))
+        var opened: [AgentPaneAdopt] = []
+        _ = ChatOpenRoute.route(plan, chat: Self.subject, watch: true, openTab: { opened.append($0); return "tab" })
+        #expect(opened.map(\.watch) == [true])
+    }
+
     @Test func theRowMenuAndTheActionTakeOnlyChatKeys() {
         let request = AgentPaneRequest(body: ["method": "chats.watch", "params": ["key": Self.key]])
         guard case .watchChat(let key) = request else { Issue.record("\(request)"); return }
