@@ -215,7 +215,7 @@ export const rollbackPlan = async (script: string, force = false): Promise<{ fro
   // The off switch redeploys the serving commit, so undoing it is the same code with the brain on. Anything
   // else (the walk crossed a rollback onto code that was rolled back) is refused.
   if (fromOff && (!fromSha || toSha !== fromSha))
-    return { refused: `${script}: the version before the off switch (${toVersion}, ${toSha?.slice(0, 12) ?? "untagged"}) is not the code the off switch serves (${fromSha?.slice(0, 12) ?? "untagged"}); turn the brain on with an exact-SHA promote (target=promote, candidate=<sha>)` }
+    return { refused: `${script}: the version before the off switch (${toVersion}, ${toSha?.slice(0, 12) ?? "untagged"}) is not the code the off switch serves (${fromSha?.slice(0, 12) ?? "untagged"}); do not roll back onto it. Turn the brain on with an exact-SHA promote of a newer staging-proven commit (target=promote, candidate=<sha>), or by hand: wrangler rollback <a version of ${fromSha?.slice(0, 12) ?? "the serving commit"} with the brain on> --name ${script}` }
   return { fromVersion, toVersion, ...(fromSha ? { fromSha } : {}), ...(toSha ? { toSha } : {}) }
 }
 
