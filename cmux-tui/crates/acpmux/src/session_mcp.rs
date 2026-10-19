@@ -267,7 +267,7 @@ async fn start(daemon: &Arc<Client>, session: &str, args: &Value) -> Result<Valu
         None => None,
     };
     if let (Some(folder), None) = (&cwd, host) {
-        refuse_untrusted(daemon, folder).await?;
+        check_folder(daemon, &me, folder).await?;
     }
     let made = match (&cwd, worktree) {
         (Some(folder), true) => {
@@ -508,17 +508,42 @@ async fn hold_to_caller(
     Ok(fresh)
 }
 
-/// Refuses a folder the person marked untrusted (`acp.trust.get`).
-async fn refuse_untrusted(daemon: &Client, folder: &Path) -> Result<(), String> {
-    let params = json!({"cwd": folder});
-    let Ok(trust) = daemon.request(method::ACP_TRUST_GET, params).await else { return Ok(()) };
-    if trust["level"].as_str() == Some("untrusted") {
-        return Err(format!(
-            "{} is a folder the user marked untrusted: no session starts there",
-            folder.display()
-        ));
+/// Whether a new session may run in `folder` on this machine: inside this
+/// chat's own folder (`me`'s cwd), or where the folder's own trust level or
+/// its nearest ancestor's with one is `trusted` (`acp.trust.get`, nearest
+/// first). A folder marked untrusted on the way is refused, and so is a trust
+/// level that cannot be read: no answer is not an answer.
+async fn check_folder(daemon: &Client, me: &Value, folder: &Path) -> Result<(), String> {
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let folder = canonical(folder);
+    let mine = me["cwd"].as_str().map(|c| canonical(Path::new(c)));
+    for dir in folder.ancestors() {
+        let trust =
+            daemon.request(method::ACP_TRUST_GET, json!({"cwd": dir})).await.map_err(|e| {
+                format!(
+                    "the trust of {} could not be read, so no session starts there: {e:#}. Ask the user.",
+                    dir.display()
+                )
+            })?;
+        match trust["level"].as_str() {
+            Some("untrusted") => {
+                return Err(format!(
+                    "{} is in a folder the user marked untrusted ({}): no session starts there",
+                    folder.display(),
+                    dir.display()
+                ));
+            }
+            Some("trusted") => return Ok(()),
+            _ => {}
+        }
+        if mine.as_deref() == Some(dir) {
+            return Ok(());
+        }
     }
-    Ok(())
+    Err(format!(
+        "{} is outside this chat's folder, and the user has not trusted it. Ask the user to trust it in cmux or to start the session there.",
+        folder.display()
+    ))
 }
 
 /// The session `info` started, by its `spawnedBy` tag.
