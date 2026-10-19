@@ -29,10 +29,12 @@ USAGE
   cmux workspace [<selector>] log clear
   cmux workspace placement list
   cmux workspace group list [--room <room>]
-  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+  cmux workspace group create --name <value> [--color <value>] [--room <room>]
+    [--parent <group>] [--index <n>] [--collapse]
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
     [--icon <icon>|--clear-icon] [--pinned true|false]
     [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
+    [--parent <group>|--clear-parent]
   cmux workspace group <group> delete
   cmux workspace group <group> move --index <n>
   cmux workspace group <group> add --workspace <selector> [--index <n>]
@@ -63,6 +65,11 @@ puts a group right before the workspace at that placement index;
 icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
 svg:sha256-<hex> asset); --clear-icon removes it. --pinned true
 saves a group so it stays when its workspaces close; false unpins it.
+--parent puts a group (with its own groups) inside another group of the same
+room; --clear-parent moves it back to the top level. Groups nest at most 3
+levels; a group never goes inside itself or one of its own groups. With a
+parent, --index and move --index count among that group's groups. delete
+moves the group's workspaces and groups up into its parent; nothing closes.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact

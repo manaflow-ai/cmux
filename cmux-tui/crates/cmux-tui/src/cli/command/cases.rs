@@ -761,6 +761,12 @@ fn state_resource_cases<'a>(
             "workspace_group.create",
         ),
         (
+            vec!["workspace", "group", "create", "--name", "n", "--parent", "g"],
+            "workspace_group.create",
+        ),
+        (vec!["workspace", "group", "g", "update", "--parent", "p"], "workspace_group.update"),
+        (vec!["workspace", "group", "g", "update", "--clear-parent"], "workspace_group.update"),
+        (
             vec![
                 "workspace",
                 "group",

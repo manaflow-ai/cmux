@@ -941,7 +941,13 @@ puts a group right before the personal workspace at placement index `<n>`;
 sets the group's icon (one emoji, an SF Symbol name, or a stored
 `image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
-or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
+or unpins it (`workspace-group-pin-v1`). `workspace group create --parent <group>`
+and `workspace group <group> update --parent <group>|--clear-parent` nest a
+group inside another group of the same room or move it back to the top level
+(`workspace-group-nest-v1`): at most 3 levels, never inside itself or one of
+its own groups. Inside a parent, its nested groups come first, then its
+workspaces; `move --index` orders a group among its sibling groups. `delete`
+moves a group's workspaces and groups up into its parent. `workspace list --order personal` lists the
 workspaces in the sidebar order. With the sidebar document (`sidebar-doc-v1`),
 `workspace list` without `--order` also lists the sidebar order (one order
 with the sidebar). `--order session` (and, without the

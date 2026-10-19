@@ -946,11 +946,21 @@ fn personal_change(
             collapsed: fields.get("collapsed").and_then(Value::as_bool).unwrap_or(false),
             room: string(fields, "room"),
             index: index(fields, "index"),
+            parent: string(fields, "parent_group"),
         },
         Op::WorkspaceGroupUpdate => {
             require_any(
                 fields,
-                &["name", "color", "collapsed", "room", "top_index", "icon", "pinned"],
+                &[
+                    "name",
+                    "color",
+                    "collapsed",
+                    "room",
+                    "top_index",
+                    "icon",
+                    "pinned",
+                    "parent_group",
+                ],
             )?;
             PersonalChange::GroupUpdate {
                 group: group(),
@@ -963,6 +973,7 @@ fn personal_change(
                     .map(|value| value.as_u64().and_then(|index| usize::try_from(index).ok())),
                 icon: nullable_string(fields, "icon"),
                 pinned: fields.get("pinned").and_then(Value::as_bool),
+                parent: nullable_string(fields, "parent_group"),
             }
         }
         Op::WorkspaceGroupDelete => PersonalChange::GroupDelete { group: group() },

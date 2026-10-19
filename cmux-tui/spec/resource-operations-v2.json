@@ -6916,6 +6916,17 @@
             "name": "boolean"
           },
           "description": "workspace-group-pin-v1: the group is pinned (saved): it stays when its workspaces close, and clients keep it as an empty saved group. Absent from daemons without the capability (not pinned)."
+        },
+        "parent_group": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "workspace-group-nest-v1: the group this group sits in, or null at the top level. Groups nest at most 3 levels (a top-level group and two nested levels). Absent from daemons without the capability (top level)."
         }
       },
       "extra": false
@@ -32371,7 +32382,15 @@
               "kind": "primitive",
               "name": "uint32"
             },
-            "description": "Position among all groups; defaults to the end."
+            "description": "Position among the groups with the same parent (all top-level groups without parent_group); defaults to the end."
+          },
+          "parent_group": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "workspace-group-nest-v1: create the group inside this group (same room; the room defaults to the parent's). Refused with validation.invalid past 3 levels (too_deep) or across rooms (cross_room)."
           },
           "expected_revision": {
             "required": false,
@@ -32529,7 +32548,7 @@
               "kind": "primitive",
               "name": "uint32"
             },
-            "description": "Insertion index before removal, like workspace.move."
+            "description": "Insertion index before removal, like workspace.move, among the groups with the same parent (workspace-group-nest-v1; without nested groups, among all groups)."
           },
           "expected_revision": {
             "required": false,
@@ -32616,7 +32635,7 @@
               "kind": "ref",
               "name": "StateId"
             },
-            "description": "Moves the group and pins its workspaces to this room."
+            "description": "Moves the group, its nested groups and their workspaces to this room. Refused for a nested group (cross_room): move its top-level group."
           },
           "top_index": {
             "required": false,
@@ -32648,6 +32667,17 @@
             },
             "description": "workspace-group-pin-v1: true pins (saves) the group, false unpins it."
           },
+          "parent_group": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "ref",
+                "name": "StateId"
+              }
+            },
+            "description": "workspace-group-nest-v1: nest the group (with its own groups) inside this group, at the end of its groups; null moves it to the top level. Refused with validation.invalid when the parent is the group or one of its own groups (nesting), past 3 levels (too_deep) or in another room (cross_room)."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -32659,7 +32689,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, collapsed, room, top_index, icon, or pinned is present.",
+          "At least one of name, color, collapsed, room, top_index, icon, pinned, or parent_group is present.",
           "A top_index at or before the home workspace's index is refused with home.pinned_first."
         ]
       },

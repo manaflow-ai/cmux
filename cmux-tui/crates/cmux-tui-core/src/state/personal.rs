@@ -24,6 +24,11 @@ pub(crate) const WORKSPACE_GROUP_ICON_CAPABILITY: &str = "workspace-group-icon-v
 /// and `list-personal` groups.
 pub(crate) const WORKSPACE_GROUP_PIN_CAPABILITY: &str = "workspace-group-pin-v1";
 
+/// Advertises `parent_group` on `workspace_group.create` and `.update`,
+/// `WorkspaceGroupSnapshot` and `list-personal` groups, sibling order on
+/// `workspace_group.move`, and Delete Group moving its items up a level.
+pub(crate) use crate::workspace_registry::personal_mutations::group_parent::WORKSPACE_GROUP_NEST_CAPABILITY;
+
 /// One personal state mutation.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "change", rename_all = "snake_case")]
@@ -34,6 +39,11 @@ pub(crate) enum PersonalChange {
         collapsed: bool,
         room: Option<String>,
         index: Option<usize>,
+        /// The group it is created in (`workspace-group-nest-v1`); `index`
+        /// then counts among that group's groups. Omitted when absent, so
+        /// older mutation fingerprints keep their shape.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
     },
     GroupUpdate {
         group: String,
@@ -54,6 +64,10 @@ pub(crate) enum PersonalChange {
         /// Omitted when absent, like `top_index`.
         #[serde(skip_serializing_if = "Option::is_none")]
         pinned: Option<bool>,
+        /// Nest the group in another group (`workspace-group-nest-v1`);
+        /// `Some(None)` moves it to the top level. Omitted when absent.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent: Option<Option<String>>,
     },
     GroupDelete {
         group: String,
@@ -260,16 +274,32 @@ fn apply_personal_change(
     change: PersonalChange,
 ) -> anyhow::Result<StateChanges> {
     match change {
-        PersonalChange::GroupCreate { name, color, collapsed, room, index } => {
+        PersonalChange::GroupCreate { name, color, collapsed, room, index, parent } => {
+            // A nested group is in its parent's room.
+            let room = match (&room, &parent) {
+                (None, Some(parent)) => Some(
+                    personal::read_group_row(tx, parent)?
+                        .ok_or_else(|| state_not_found("workspace_group", parent))?
+                        .profile,
+                ),
+                _ => room,
+            };
             let group = personal::create_group(
                 tx,
                 room.as_deref(),
                 &name,
                 color.as_deref(),
                 collapsed,
-                index,
+                if parent.is_some() { None } else { index },
             )
             .map_err(|error| typed(error, "room", room.as_deref().unwrap_or_default()))?;
+            if let Some(parent) = &parent {
+                personal::set_group_parent(tx, &group.id, Some(parent))
+                    .map_err(|error| typed(error, "workspace_group", parent))?;
+                if let Some(index) = index {
+                    personal::move_group(tx, &group.id, index)?;
+                }
+            }
             let value = personal::workspace_group_snapshot(tx, &group.id)?
                 .context("created group vanished")?;
             Ok(StateChanges::new(value, all_groups(tx)?))
@@ -283,6 +313,7 @@ fn apply_personal_change(
             top_index,
             icon,
             pinned,
+            parent,
         } => {
             personal::update_group(
                 tx,
@@ -304,6 +335,11 @@ fn apply_personal_change(
             if let Some(pinned) = pinned {
                 personal::set_group_pinned(tx, &group, pinned)
                     .map_err(|error| typed(error, "workspace_group", &group))?;
+            }
+            if let Some(parent) = &parent {
+                personal::set_group_parent(tx, &group, parent.as_deref()).map_err(|error| {
+                    typed(error, "workspace_group", parent.as_deref().unwrap_or(&group))
+                })?;
             }
             let value = personal::workspace_group_snapshot(tx, &group)?
                 .context("updated group vanished")?;

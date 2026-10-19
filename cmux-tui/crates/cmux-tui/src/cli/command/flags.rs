@@ -63,6 +63,7 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "clear-default-session",
     "clear-zoom",
     "clear-top-index",
+    "clear-parent",
     "include-untracked",
     "amend",
     "no-verify",
