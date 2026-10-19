@@ -81,8 +81,8 @@ final class HomeHostView: NSView {
         // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
         let registry = services.registry
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
-        // A Chief subagent's link: its workspace and chat tab, through link.open.
-        transcript.onAppLink = { [weak services] url in if let services { ChiefSubagentLinks.open(url, services: services) } }
+        // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
+        transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
         transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
@@ -315,6 +315,27 @@ final class HomeHostView: NSView {
     /// Home's primary input: the message box itself. Focusing the transcript
     /// view would leave it the responder after it forwards to the box.
     var focusTarget: NSView { transcript.primaryInput }
+
+    /// Whether the pane getting focus moves the keyboard to `focusTarget`
+    /// from `responder`: always when it is outside this view; inside, unless
+    /// a text view or field has it or the transcript holds a text selection
+    /// (the pane, a header button or the bare transcript gave the person a
+    /// Home with nowhere to type, Lawrence 2026-10-18).
+    func focusTargetShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        guard let view = responder as? NSView, view === self || view.isDescendant(of: self) else { return true }
+        return transcript.primaryInputShouldTakeKeyboard(from: responder)
+    }
+}
+
+extension HomeHostView: NSMenuItemValidation {
+    /// Cmd+V that no text view in Home took: the message box takes the
+    /// keyboard and the paste (the transcript's pane routes its own first).
+    @objc func paste(_ sender: Any?) { transcript.paste(sender) }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard item.action == #selector(paste(_:)) else { return true }
+        return transcript.canPasteIntoPrimaryInput
+    }
 }
 
 /// Home's primary input is its message box (R65, spec app-screens.md 3):
