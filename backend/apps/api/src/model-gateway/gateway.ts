@@ -142,7 +142,8 @@ export class ModelGatewayLive {
         if (priced) await this.gate.after(key, final).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", call: key, error: String(e).slice(0, 200) })))
         if (w.run) this.hooks.usage?.(w.run, usageOf(final))
         // The terminal event carries the repriced message: pi-ai resolves result() from it.
-        if (terminal) out.push(terminal.type === "done" ? { ...terminal, message: final } : { ...terminal, error: final })
+        if (terminal?.type === "done") out.push({ ...terminal, message: final })
+        else if (terminal?.type === "error") out.push({ ...terminal, error: final })
         out.end(final)
       } catch (e) {
         if (priced && !sent) await this.gate.release(key).catch(() => undefined)
