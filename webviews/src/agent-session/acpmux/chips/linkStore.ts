@@ -3,8 +3,8 @@
 // title cmux already has for each URL. Requests from one render are batched into one call; the
 // answers are kept for the page's life. The host never fetches anything for this; the one
 // exception is a Thread details source's site icon (`link.favicon`, labs `sourceIcons`), fetched
-// once per site by the host's favicon loader, without cookies.
-import { useSyncExternalStore } from "react";
+// through the host's guarded queue, without cookies.
+import { useEffect, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 
 export type PathPlace = "root" | "outside" | "denied" | "missing";
@@ -20,11 +20,16 @@ type Inspect = {
 
 const MAX_BATCH = 64;
 const MAX_KEPT = 2000;
+const MAX_FAVICONS = 128;
+const NEGATIVE_ICON_MS = 30_000;
 
 const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
-/// Fetched site icons by host: a data URL, null when the site had none or the fetch is off.
-const favicons = new Map<string, string | null>();
+/// Completed icons by origin, including short-lived misses, in least recently used order.
+const favicons = new Map<string, { icon?: string; expires: number }>();
+const fetchingIcons = new Map<string, { url: string; readers: number }>();
+const askingUrls = new Set<string>();
+let generation = 0;
 /// Paths sent to the host and not answered yet.
 const asking = new Set<string>();
 let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click" };
@@ -63,17 +68,23 @@ function flush() {
   const batchPaths = queuedPaths.splice(0, MAX_BATCH);
   const batchUrls = queuedUrls.splice(0, MAX_BATCH);
   inFlight = true;
+  const current = generation;
   void callChipHost("link.inspect", { paths: batchPaths, urls: batchUrls })
     .then((reply) => {
+      if (current !== generation) return;
       const value = (reply ?? {}) as Inspect;
       for (const path of batchPaths) {
         paths.set(path, value.paths?.[path] ?? null);
         asking.delete(path);
       }
-      for (const url of batchUrls) sites.set(url, value.sites?.[url] ?? null);
+      for (const url of batchUrls) {
+        sites.set(url, value.sites?.[url] ?? null);
+        askingUrls.delete(url);
+      }
       if (value.policy) policy = { ...policy, ...value.policy };
     })
     .finally(() => {
+      if (current !== generation) return;
       inFlight = false;
       changed();
       if (queuedPaths.length || queuedUrls.length) {
@@ -87,6 +98,7 @@ function ask(path?: string, url?: string) {
     paths.clear();
     asking.clear();
     sites.clear();
+    askingUrls.clear();
   }
   if (path !== undefined && !paths.has(path)) {
     paths.set(path, null);
@@ -95,6 +107,7 @@ function ask(path?: string, url?: string) {
   }
   if (url !== undefined && !sites.has(url)) {
     sites.set(url, null);
+    askingUrls.add(url);
     queuedUrls.push(url);
   }
   if (!scheduled && (!policyAsked || queuedPaths.length || queuedUrls.length)) {
@@ -124,32 +137,93 @@ export function useSiteInfo(url: string | undefined): SiteInfo | undefined {
   return url ? (sites.get(url) ?? undefined) : undefined;
 }
 
-/// A source's icon: the one cmux already holds (an open tab of the site), else, with `fetch`
-/// (labs `sourceIcons`), the site's own icon, asked once per site.
-export function useSourceIcon(url: string | undefined, fetch: boolean): string | undefined {
-  useSyncExternalStore(subscribe, snapshot, snapshot);
-  if (!url) return undefined;
-  ask(undefined, url);
-  const held = sites.get(url)?.icon;
-  if (held) return held;
-  let host: string;
+function sourceURL(text: string | undefined): URL | undefined {
+  if (!text || new TextEncoder().encode(text).length > 2048) return undefined;
+  for (const character of text) if (character.charCodeAt(0) <= 32) return undefined;
   try {
-    host = new URL(url).host.toLowerCase();
+    const authority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(text)?.[1];
+    const url = new URL(text);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      authority?.includes("@") ||
+      new TextEncoder().encode(url.href).length > 2048
+    )
+      return undefined;
+    return url;
   } catch {
     return undefined;
   }
-  if (!fetch || !host) return undefined;
-  if (!favicons.has(host)) {
-    favicons.set(host, null);
-    void callChipHost("link.favicon", { url }).then((reply) => {
-      const icon = (reply as { icon?: unknown } | undefined)?.icon;
-      if (typeof icon === "string" && icon.startsWith("data:image/")) {
-        favicons.set(host, icon);
-        changed();
-      }
-    });
+}
+
+function cachedIcon(origin: string) {
+  const entry = favicons.get(origin);
+  if (entry && entry.expires <= Date.now()) {
+    favicons.delete(origin);
+    return undefined;
   }
-  return favicons.get(host) ?? undefined;
+  return entry;
+}
+
+function fetchIcon(url: string, origin: string) {
+  const entry = cachedIcon(origin);
+  if (entry) {
+    favicons.delete(origin);
+    favicons.set(origin, entry);
+    return;
+  }
+  const existing = fetchingIcons.get(origin);
+  if (existing) {
+    existing.readers += 1;
+    return () => releaseIcon(origin, existing);
+  }
+  const pending = { url, readers: 1 };
+  fetchingIcons.set(origin, pending);
+  const current = generation;
+  void callChipHost("link.favicon", { url })
+    .then((reply) => {
+      if (current !== generation || fetchingIcons.get(origin) !== pending) return;
+      const value = reply as { icon?: unknown; disabled?: boolean } | undefined;
+      // A lab refusal is not evidence that the site has no icon. Try again on the next activation.
+      if (value?.disabled) return;
+      const icon = typeof value?.icon === "string" && value.icon.startsWith("data:image/") ? value.icon : undefined;
+      favicons.set(origin, { icon, expires: icon ? Infinity : Date.now() + NEGATIVE_ICON_MS });
+      while (favicons.size > MAX_FAVICONS) {
+        const oldest = favicons.keys().next().value;
+        if (oldest === undefined) break;
+        favicons.delete(oldest);
+      }
+      changed();
+    })
+    .finally(() => {
+      if (fetchingIcons.get(origin) === pending) fetchingIcons.delete(origin);
+    });
+  return () => releaseIcon(origin, pending);
+}
+
+function releaseIcon(origin: string, pending: { url: string; readers: number }) {
+  pending.readers -= 1;
+  if (pending.readers > 0 || fetchingIcons.get(origin) !== pending) return;
+  fetchingIcons.delete(origin);
+  void callChipHost("link.cancelFavicon", { url: pending.url });
+}
+
+/// A held icon wins before the site's own icon is fetched, with labs `sourceIcons` on.
+export function useSourceIcon(url: string | undefined, fetch: boolean): string | undefined {
+  useSyncExternalStore(subscribe, snapshot, snapshot);
+  const parsed = sourceURL(url);
+  const valid = parsed ? url : undefined;
+  if (valid) ask(undefined, valid);
+  const held = valid ? sites.get(valid)?.icon : undefined;
+  const answered = !!valid && !askingUrls.has(valid);
+  // Passive fetches use TLS only. An HTTP source can still use an icon held by an open tab.
+  const origin = parsed?.protocol === "https:" ? parsed.origin : undefined;
+  useEffect(() => {
+    if (valid && origin && fetch && answered && !held) return fetchIcon(valid, origin);
+  }, [valid, origin, fetch, answered, held]);
+  return held ?? (fetch && origin ? cachedIcon(origin)?.icon : undefined);
 }
 
 /// `agentPane.images.remote` and `agentPane.links.outsideRoots` as the host last said.
@@ -165,6 +239,10 @@ export function resetLinkStore(): void {
   asking.clear();
   sites.clear();
   favicons.clear();
+  fetchingIcons.clear();
+  askingUrls.clear();
+  generation += 1;
+  inFlight = false;
   queuedPaths = [];
   queuedUrls = [];
   scheduled = false;

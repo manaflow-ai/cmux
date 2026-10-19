@@ -114,6 +114,7 @@ public final class AgentPaneView: NSView {
                  pageHost: Bool = false) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
+        model.replyLinks.sourceIconsBaseline = AgentPaneTunables.sourceIcons.value
         self.source = source
         self.renderRate = renderRate
         let webView: WKWebView
@@ -321,6 +322,7 @@ public final class AgentPaneView: NSView {
         (reduceMotionObserver, reduceMotionOverrideObserver) = (nil, nil)
         dictation.close()
         model.shell.terminateAll()
+        model.replyLinks.cancelSourceIcons()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
         gestureMonitor = nil
         if let connection = model.transport.connection { model.transport.close(connection: connection) }

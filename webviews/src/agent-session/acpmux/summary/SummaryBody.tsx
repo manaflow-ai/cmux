@@ -15,8 +15,21 @@ const ROW_ICON = rowIconSize(12);
 
 /// The site a search was aimed at (`site:example.com …`), as a URL for its icon.
 export function searchSite(label: string): string | undefined {
-  const domain = /\bsite:([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i.exec(label)?.[1];
-  return domain ? `https://${domain.toLowerCase()}/` : undefined;
+  const token = /(?:^|\s)site:([^\s]+)/i.exec(label)?.[1];
+  if (!token || !/^[\p{L}\p{N}\p{M}.-]+$/u.test(token)) return undefined;
+  try {
+    const url = new URL(`https://${token}/`);
+    const labels = url.hostname.split(".");
+    if (
+      url.hostname.length > 253 ||
+      labels.length < 2 ||
+      labels.some((part) => part.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(part))
+    )
+      return undefined;
+    return url.href;
+  } catch {
+    return undefined;
+  }
 }
 
 /// A source's site icon (labs `sourceIcons`, Lucas 2026-10-19), else the generic one.
