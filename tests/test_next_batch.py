@@ -1310,7 +1310,14 @@ class Landing(unittest.TestCase):
         controller.args = Namespace(repo="o/r")
         controller.run_url = "u"
         controller.writer = mock.Mock()
-        controller.writer.api = api
+        controller.gh = mock.Mock(env={})
+
+        def routed(path, method="GET", **kw):
+            if "check-runs" in path and not getattr(api, "reads_checks", False):
+                return {"check_runs": []}
+            return api(path, method=method, **kw) if "method" in api.__code__.co_varnames else api(path, **{"method": method, **kw})
+        controller.writer.api = routed
+        controller.gh.api = routed
         return controller
 
     def validation(self):
@@ -1378,6 +1385,56 @@ class Landing(unittest.TestCase):
             outcome = self.controller(always_502).merge_one(pr(7), self.validation())
         self.assertTrue(outcome.startswith("not landed"))
         self.assertNotIn("GitHub refused to merge", outcome)
+
+    def test_a_5xx_after_github_merged_counts_as_landed(self):
+        def api(path, method="GET", **kw):
+            if method == "PUT":
+                raise RuntimeError("gh api -X PUT failed: gh: HTTP 504")
+            return {"merged": True, "head": {"sha": pr(7).sha}}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            self.assertEqual(self.controller(api).merge_one(pr(7), self.validation()), "landed")
+
+    def test_a_network_error_is_transient_not_a_refusal(self):
+        def api(path, method="GET", **kw):
+            if method == "PUT":
+                raise RuntimeError("gh api -X PUT failed: Post https://api.github.com: read: connection reset by peer")
+            return {"merged": False, "head": {"sha": pr(7).sha}}
+        with self.freeze(0), mock.patch.object(nb.time, "sleep"):
+            outcome = self.controller(api).merge_one(pr(7), self.validation())
+        self.assertNotIn("GitHub refused to merge", outcome)
+
+    def test_pending_risk_evidence_holds_the_merge(self):
+        calls = []
+
+        def api(path, method="GET", **kw):
+            calls.append((method, path))
+            if "check-runs" in path:
+                return {"check_runs": [{"name": "risk evidence", "status": "in_progress", "conclusion": None}]}
+            return {"merged": True}
+        api.reads_checks = True
+        with self.freeze(0):
+            outcome = self.controller(api).merge_one(pr(7), self.validation())
+        self.assertIn("risk evidence", outcome)
+        self.assertNotIn("GitHub refused to merge", outcome)
+        self.assertFalse(any(method == "PUT" for method, _ in calls))
+
+    def test_freeze_check_maps_the_checkers_exit_and_uses_the_given_token(self):
+        root = Path(tempfile.mkdtemp())
+        (root / "scripts/ci").mkdir(parents=True)
+        script = root / "scripts/ci/merge_freeze.py"
+        for code, expected in ((0, 0), (1, 1), (3, 2)):
+            script.write_text(f"import os, sys\nprint(os.environ.get('GH_TOKEN'))\nsys.exit({code})\n")
+            with mock.patch.object(nb, "TOOLS_ROOT", root):
+                got, detail = nb.freeze_check("o/r", 7, {**os.environ, "GH_TOKEN": "job-token"})
+            self.assertEqual(got, expected)
+            self.assertIn("job-token", detail)
+
+    def test_frozen_prs_never_enter_a_stack(self):
+        verdicts = {1: (0, ""), 2: (1, "frozen: x/"), 3: (2, "HTTP 502")}
+        kept, skipped = nb.drop_frozen([pr(1), pr(2), pr(3)], lambda number: verdicts[number])
+        self.assertEqual([item.number for item in kept], [1])
+        self.assertIn("frozen", skipped[2])
+        self.assertIn("unreadable", skipped[3])
 
     def test_gh_merge_green_is_gone_from_the_queue(self):
         source = (ROOT / "scripts/ci/next_batch.py").read_text()
