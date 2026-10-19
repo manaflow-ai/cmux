@@ -77,6 +77,8 @@ export type ChipHostFixture = {
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
   browsers?: { id: string; name: string; icon?: string }[];
+  /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
+  projectIcons?: Record<string, string>;
 };
 
 /** One step of an experiment's scripted interaction (the compare view replays them in sync). */
@@ -197,6 +199,8 @@ export type AppsPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
   action?: "install";
   error?: { code: string; message: string };
+  /** One transient detail failure after the catalog has loaded, for recovery-state coverage. */
+  detailError?: { code: string; message: string };
   data: {
     details: Record<string, AppDetail>;
     installed: Record<string, InstalledApp>;
