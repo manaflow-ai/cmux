@@ -127,6 +127,8 @@ pub(crate) fn serve(signal: TailnetSignal, incoming: mpsc::UnboundedSender<Incom
 async fn viewer(stream: UnixStream, id: u64, principal: String, incoming: mpsc::UnboundedSender<Incoming>) -> Result<()> {
     stream.set_nonblocking(true)?;
     let stream = tokio::net::UnixStream::from_std(stream)?;
+    // tungstenite's handshake callback must return its own (large) ErrorResponse.
+    #[allow(clippy::result_large_err)]
     let refuse_browsers = |request: &Request, response: Response| {
         if request.headers().contains_key("origin") {
             let mut refusal = ErrorResponse::new(Some("browser pages may not open screen signaling".into()));
