@@ -71,10 +71,13 @@ final class TerminalEntry {
     let session: TerminalSession
     let io: DaemonTerminalIO
     /// Set while the terminal is a provisional split's (S3): the view attaches once the
-    /// daemon's tab replaces the provisional one (``confirm(validity:target:store:)``).
+    /// daemon's tab replaces the provisional one (``confirm(validity:target:themeKey:store:)``).
     private(set) var gate: TerminalTargetGate?
-    /// The key of this terminal's own theme.
-    let themeKey: TerminalThemeKey
+    /// The key of this terminal's own theme; a provisional split's moves to its daemon terminal at the confirm.
+    private(set) var themeKey: TerminalThemeKey
+    /// A provisional view waits for its tab's daemon surface (``TabContentCache/awaitConfirm(_:of:daemon:)``).
+    var confirmation: Task<Void, Never>?
+    weak var confirming: TabModel? // the tab record that task watches
     /// This surface's theme scope, under its pane's workspace scope.
     let themeScope = ThemeScope(level: .terminal)
     let themeBinding: TerminalThemeBinding
@@ -99,9 +102,10 @@ final class TerminalEntry {
 
     /// The daemon's tab replaced the provisional one: the same view and session attach to it,
     /// and keys typed meanwhile reach it in order.
-    func confirm(validity: String, target: TerminalAttachment.Target, store: DaemonStore) {
+    func confirm(validity: String, target: TerminalAttachment.Target, themeKey: TerminalThemeKey, store: DaemonStore) {
         guard let gate else { return }
         self.validity = validity
+        self.themeKey = themeKey
         self.gate = nil
         watch.stop()
         watch = TerminalLinkWatch(store: store, surface: target.surface, io: io, session: session)
@@ -110,6 +114,7 @@ final class TerminalEntry {
 
     func close() {
         gate?.cancel()
+        confirmation?.cancel()
         watch.stop()
         session.close()
         io.close()

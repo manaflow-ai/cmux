@@ -493,13 +493,12 @@ pub struct Config {
     /// the cmux app, and for hermetic tests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
-    /// `lastPermissionMode`: the level of the person's latest mode pick in
-    /// any chat (`fullAccess`, `standard` or `ask`), the start mode of every
-    /// new chat on every harness (`hub/start_mode.rs`). Written only by a
-    /// pick from the app pane; wins over `defaultPermissionMode` and the
-    /// cmux setting.
+    /// `lastPermissionMode`, `lastPermissionModeSetting`: the level of the latest mode pick
+    /// from the app pane, and the cmux setting then (`hub/start_mode.rs` `start_level`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_permission_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -515,6 +514,16 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
+    /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
+    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
+    /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::hub::auto_resume::delays_from_config"
+    )]
+    pub auto_resume_delays_ms: Option<Vec<u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
@@ -905,85 +914,14 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Variables a Claude Code session plants for its own children: a
-/// per-session API proxy and auth, hooks, and wrapper shims. A daemon or
-/// agent launched from inside such a session must not inherit them, or its
-/// Claude processes dial a proxy that dies with that session ("API Error:
-/// Connection refused"). Applied only when `CLAUDECODE` is set, so a user's
-/// own `ANTHROPIC_*` settings in a plain shell still pass through. The
-/// person's own values for those keys, from the login shell (which runs
-/// without them, `login_env.rs`), are put back: the child signs in the way
-/// the person's terminal does.
-pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
-    scrub_nested_claude_env_for(cmd, None);
-}
-
-/// Same, for a harness of `family` (its allow-list's login values go back).
-pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Option<&str>) {
-    for k in nested_claude_keys() {
-        cmd.env_remove(k);
-    }
-    cmd.envs(crate::login_env::nested_overrides(family));
-    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
-    for key in CHIEF_CREDENTIAL_ENV {
-        cmd.env_remove(key);
-    }
-}
-
-/// The cmux terminal launch credential (plans/cmux-next/identity.md
-/// section 2). It names the one terminal that started a process; acpmux, its
-/// daemon, agents and hooks serve many terminals, so none of them carries it.
-/// Both scrubs remove it from every child they prepare; an agent gets one
-/// minted for its own session instead (`launch_credential.rs`).
-pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
-
-/// A Chief host's credential and participant (optchat-chief: the token file
-/// that binds as that Chief, `agent_mux` for the default Chief). The host
-/// that starts a Chief home's acpmux is one Chief of many; the daemon serves
-/// every Chief of the home and the person, so no child it starts carries
-/// the starter's credential, not even through a preset (hq-6d 2026-10-14).
-/// Both scrubs remove them from every child they prepare.
-pub const CHIEF_CREDENTIAL_ENV: [&str; 2] = ["MUX_AGENT_TOKEN_FILE", "OPTCHAT_CHIEF_PARTICIPANT"];
-
-/// Whether `key` is one a Claude Code session plants for its children.
-pub(crate) fn is_nested_claude_key(key: &str) -> bool {
-    key.starts_with("CLAUDE")
-        || key.starts_with("ANTHROPIC_")
-        || key.starts_with("CMUX_CLAUDE_")
-        || key.starts_with("SUBROUTER_CLAUDE_")
-        || key == "NODE_OPTIONS"
-}
-
-/// The keys `scrub_nested_claude_env` removes from the daemon's own
-/// environment (none outside a Claude Code session).
-pub(crate) fn nested_claude_keys() -> Vec<std::ffi::OsString> {
-    if std::env::var_os("CLAUDECODE").is_none() {
-        return Vec::new();
-    }
-    std::env::vars_os()
-        .map(|(k, _)| k)
-        .filter(|k| is_nested_claude_key(&k.to_string_lossy()))
-        .collect()
-}
-
-/// Same, for tokio's process builder.
-pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
-    scrub_nested_claude_env_tokio_for(cmd, None);
-}
-
-/// Same, for a harness of `family`: the login values put back are those of
-/// that family's allow-list (`login_env::allowed`).
-pub fn scrub_nested_claude_env_tokio_for(cmd: &mut tokio::process::Command, family: Option<&str>) {
-    for k in nested_claude_keys() {
-        cmd.env_remove(k);
-    }
-    cmd.envs(crate::login_env::nested_overrides(family));
-    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
-    for key in CHIEF_CREDENTIAL_ENV {
-        cmd.env_remove(key);
-    }
-}
-
+mod nested_env;
+pub(crate) use nested_env::is_nested_claude_key;
+#[cfg(windows)]
+pub(crate) use nested_env::nested_claude_keys;
+pub use nested_env::{
+    CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
+    scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
+};
 mod launchers;
 pub(crate) use launchers::which;
 pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};

@@ -1053,7 +1053,8 @@ function restingAnchor(
 }
 
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
-/// from the latest message (ChatGPT and Codex style). Its dots say a reply is streaming below. It stays
+/// from the latest message (ChatGPT and Codex style). While the agent works its arrow morphs into
+/// three accent dots that pulse (Claude desktop's Code tab), saying a reply is streaming below. It stays
 /// mounted while hidden (inert) so it fades out as it fades in (conversation.css).
 function JumpToLatest({
   shown,
@@ -1080,15 +1081,15 @@ function JumpToLatest({
       // A click does not focus a button in WebKit, so focus on it means Return or Space.
       onClick={(event) => onJump(event.currentTarget === document.activeElement)}
     >
-      {working ? (
-        <span className="acpmux-jump-latest__dots" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
-      ) : (
+      {/* Both stay mounted so the arrow morphs into the dots and back (conversation.css). */}
+      <span className="acpmux-jump-latest__arrow" aria-hidden="true">
         <ArrowDown size={14} />
-      )}
+      </span>
+      <span className="acpmux-jump-latest__dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
     </button>
   );
 }
