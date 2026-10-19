@@ -579,19 +579,32 @@ final class NativeConversationUITests: XCTestCase {
 
     @MainActor
     private func accessibilityFrames(for app: XCUIApplication) -> Data {
-        var entries: [[String: Any]] = []
-        for element in app.descendants(matching: .any).allElementsBoundByIndex.prefix(220) {
-            guard !element.identifier.isEmpty, element.exists else { continue }
-            entries.append([
-                "identifier": element.identifier,
-                "label": element.label,
-                "type": element.elementType.rawValue,
-                "x": Double(element.frame.origin.x),
-                "y": Double(element.frame.origin.y),
-                "width": Double(element.frame.width),
-                "height": Double(element.frame.height),
-            ])
+        do {
+            // One immutable accessibility snapshot keeps the capture coherent
+            // and avoids separate simulator round trips for every attribute.
+            let snapshot = try app.snapshot()
+            var pending = Array(snapshot.children.reversed())
+            var entries: [[String: Any]] = []
+            var visited = 0
+            while let element = pending.popLast(), visited < 220 {
+                visited += 1
+                pending.append(contentsOf: element.children.reversed())
+                guard !element.identifier.isEmpty else { continue }
+                let frame = element.frame
+                entries.append([
+                    "identifier": element.identifier,
+                    "label": element.label,
+                    "type": element.elementType.rawValue,
+                    "x": Double(frame.origin.x),
+                    "y": Double(frame.origin.y),
+                    "width": Double(frame.width),
+                    "height": Double(frame.height),
+                ])
+            }
+            return try JSONSerialization.data(withJSONObject: entries, options: [.prettyPrinted, .sortedKeys])
+        } catch {
+            XCTFail("Could not capture accessibility frames: \(error)")
+            return Data("[]".utf8)
         }
-        return (try? JSONSerialization.data(withJSONObject: entries, options: [.prettyPrinted, .sortedKeys])) ?? Data("[]".utf8)
     }
 }

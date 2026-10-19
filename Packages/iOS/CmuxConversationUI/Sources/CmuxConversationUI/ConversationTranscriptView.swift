@@ -52,7 +52,7 @@ private struct ConversationWelcomeView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 32, weight: .medium))
                 .foregroundStyle(.blue)
-            Text(ConversationL10n.value("conversation.welcome.title", "Work with") + " " + provider.displayName)
+            Text("conversation.welcome.title \(provider.displayName)", bundle: .module)
                 .font(.title3.weight(.semibold))
             Text(ConversationL10n.value("conversation.welcome.body", "Send an instruction to start a task. You can queue follow-ups, review tool work, and answer requests here."))
                 .font(.subheadline)

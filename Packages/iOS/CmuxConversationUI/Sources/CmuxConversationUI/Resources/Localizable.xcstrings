@@ -5802,63 +5802,64 @@
         }
       }
     },
-    "conversation.welcome.title": {
+    "conversation.welcome.title %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work with \\(provider.displayName)"
+            "value": "Work with %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work with \\(provider.displayName)"
+            "value": "Mit %@ arbeiten"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work with \\(provider.displayName)"
+            "value": "Travailler avec %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work with \\(provider.displayName)"
+            "value": "العمل مع %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work with \\(provider.displayName)"
+            "value": "Trabajar con %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work with \\(provider.displayName)"
+            "value": "與 %@ 合作"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work with \\(provider.displayName)"
+            "value": "与 %@ 合作"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work with \\(provider.displayName)"
+            "value": "%@와 함께 작업"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Work with \\(provider.displayName)"
+            "value": "%@ と作業"
           }
         }
-      }
+      },
+      "comment": "Empty conversation heading. The placeholder is the coding agent name, such as Codex or Claude Code."
     },
     "conversation.worked": {
       "localizations": {
