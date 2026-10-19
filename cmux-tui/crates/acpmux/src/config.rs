@@ -89,8 +89,6 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 /// directory an older build made with inherited wider permissions.
 #[cfg(windows)]
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
-    crate::owner_only::create_dir_all(dir)?;
-    crate::owner_only::restrict(dir)?;
     crate::owner_only::private_dir(dir)?;
     Ok(())
 }

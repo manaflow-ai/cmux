@@ -32,9 +32,9 @@ use windows_sys::Win32::Security::{
     PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
-    FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    OPEN_ALWAYS, OPEN_EXISTING,
+    CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_ALWAYS, OPEN_EXISTING,
 };
 
 /// SIDs whose rights do not make a file shared: SYSTEM, Administrators and
@@ -193,6 +193,29 @@ fn open_owner_only(path: &Path, disposition: u32, access: u32, share: u32) -> io
     Ok(unsafe { File::from_raw_handle(handle) })
 }
 
+/// Open a directory itself, never the target of a junction or other reparse point.
+fn open_directory(path: &Path) -> io::Result<File> {
+    let name = wide(path);
+    // SAFETY: a NUL-terminated name; no security attributes are needed for an
+    // existing directory, and the returned handle is owned below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a handle CreateFileW returned; `File` owns it.
+    Ok(unsafe { File::from_raw_handle(handle) })
+}
+
 /// Makes `dir` and missing parents; `dir` itself, when made here, is
 /// owner-only (mode 0700 on create on Unix). An existing folder is left as
 /// it is.
@@ -220,11 +243,21 @@ pub(crate) fn create_dir_all(dir: &Path) -> io::Result<()> {
 /// refused (mode 0700 and the uid check on Unix).
 pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
     create_dir_all(dir)?;
-    if !only_owner_reads(dir)? {
+    use std::os::windows::fs::MetadataExt;
+    let opened = open_directory(dir)?;
+    let attributes = opened.metadata()?.file_attributes();
+    if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 || attributes & FILE_ATTRIBUTE_DIRECTORY == 0
+    {
         return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::InvalidInput,
             format!("{} is not a private directory", dir.display()),
         ));
+    }
+    if !only_owner_reads(dir)? {
+        restrict(dir)?;
+    }
+    if !only_owner_reads(dir)? {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "directory is not owner-only"));
     }
     Ok(())
 }
