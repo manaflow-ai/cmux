@@ -70,11 +70,11 @@ public nonisolated enum MetricTunables {
     public static let tabMinActiveWidth = MetricTunable.make(
         "tabMinActiveWidth", .tabs, "Tab min width (active)", help: "Narrowest the selected tab gets when the strip is crowded.",
         compact: MotionTabStrip(comfortable: false).minActiveWidth, comfortable: MotionTabStrip(comfortable: true).minActiveWidth,
-        key: .tabMinActiveWidth, range: 32...200)
+        key: .tabMinActiveWidth, range: 32...320)
     public static let tabMinInactiveWidth = MetricTunable.make(
         "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls.",
         compact: MotionTabStrip(comfortable: false).minInactiveWidth, comfortable: MotionTabStrip(comfortable: true).minInactiveWidth,
-        key: .tabMinInactiveWidth, range: 16...120)
+        key: .tabMinInactiveWidth, range: 16...320)
     public static let tabPinnedWidth = MetricTunable.make(
         "tabPinnedWidth", .tabs, "Pinned tab width", help: "Width of a pinned tab.",
         compact: MotionTabStrip(comfortable: false).pinnedWidth, comfortable: MotionTabStrip(comfortable: true).pinnedWidth,

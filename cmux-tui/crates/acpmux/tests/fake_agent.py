@@ -44,6 +44,8 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+# Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
+net_down = set()
 next_id = 100
 pending = {}
 # Sessions this process created or finished loading.
@@ -250,6 +252,31 @@ def handle_prompt(rid, params):
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
         return run_gh_pr_create(rid, sid)
+    # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
+    # with a transport error once per session; "net-down" fails it and every later prompt of
+    # the session the same way. Any other prompt after a net-fail-once is answered as usual.
+    # "net-refused-later" waits a moment, then fails with a refused connection.
+    if text == "net-refused-later":
+        time.sleep(0.5)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # "net-fail-on-cancel" runs until session/cancel, then fails with that transport error, as
+    # an agent stopped mid-stream may.
+    if text == "net-fail-on-cancel":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    if text.startswith("net-down"):
+        net_down.add(sid)
+    if sid in net_down or (text.startswith("net-fail-once:") and sid not in failed_once):
+        failed_once.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
     links = [b for b in blocks if isinstance(b, dict) and b.get("type") == "resource_link"]
     if links:
         text += " " + " ".join(

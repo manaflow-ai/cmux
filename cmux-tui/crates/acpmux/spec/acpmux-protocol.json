@@ -1101,7 +1101,7 @@
       "description": "The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).",
       "properties": {
         "error": {
-          "description": "The failed or lost turn's error text.",
+          "description": "The failed or lost turn's error text, secrets masked (`secret_scan`).",
           "type": [
             "string",
             "null"
@@ -1118,12 +1118,28 @@
         },
         "state": {
           "$ref": "#/types/LaneState"
+        },
+        "step": {
+          "description": "What the session is doing now, one line: the running turn's prompt,\nelse the agent's last reply line, secrets masked (`secret_scan`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The session's title, else its latest prompt, one line, secrets masked\n(`secret_scan`).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "error",
         "since",
-        "state"
+        "state",
+        "step",
+        "title"
       ],
       "type": "object"
     },
