@@ -33,6 +33,8 @@ export type QuickMenu = {
   /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
   /// `models` alone and More models opens the full picker.
   families?: QuickFamilies;
+  /// The chat's agent CLI has an update (hq#2569 #12): the last row starts it.
+  update?: { text: string; run(): void };
 };
 
 /// A model row of any harness: `family` is the rail tab (harness) it belongs to.
@@ -344,6 +346,17 @@ export function QuickModelMenu({
             }}
           />
         </Submenu>
+      )}
+      {!query && menu.update && (
+        <>
+          <MenuSeparator />
+          <MenuItem className="acpmux-quick-item acpmux-quick-update" onSelect={() => menu.update?.run()}>
+            <span className="acpmux-menu-label min-w-0 flex-1 truncate" title={menu.update.text}>
+              {menu.update.text}
+            </span>
+            <span className="acpmux-quick-value">{t("harness.update")}</span>
+          </MenuItem>
+        </>
       )}
     </>
   );

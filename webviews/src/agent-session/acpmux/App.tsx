@@ -214,7 +214,8 @@ import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
-import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
@@ -2762,6 +2763,8 @@ function AcpmuxPane() {
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
   const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
+  /// An agent CLI update on offer (hq#2569 #12): the model chip's dot and picker row, not a banner.
+  const [updateOffer, setUpdateOffer] = useState<UpdateOffer>();
   const healthHarness = snapshot.summary?.harness;
   const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
   /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
@@ -5478,21 +5481,35 @@ function AcpmuxPane() {
           failed={recapCard.failed}
         />
       )}
-      <DictationNotice dictation={dictation} />
-      {importError && (
+      <Notice id="dictation" tier="error" when={dictation.notice?.message}>
+        <DictationNotice dictation={dictation} />
+      </Notice>
+      <Notice id="import-error" tier="error" when={importError}>
         <p className="acpmux-composer-remote-note" role="alert">
           {importError}
         </p>
-      )}
-      <InstructionsNotice
-        failure={instructionsFailure?.failure}
-        onRetry={() =>
-          instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
-        }
-        onDismiss={() => setInstructionsFailure(undefined)}
-      />
-      {harnessCard ?? (
-        <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      </Notice>
+      <Notice id="instructions" tier="error" when={instructionsFailure}>
+        <InstructionsNotice
+          failure={instructionsFailure?.failure}
+          onRetry={() =>
+            instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
+          }
+          onDismiss={() => setInstructionsFailure(undefined)}
+        />
+      </Notice>
+      {harnessCard ? (
+        <Notice id="harness-block" tier="error" when>
+          {harnessCard}
+        </Notice>
+      ) : (
+        <Notice
+          id="switch"
+          tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
+          when={snapshot.switching && snapshot.switching.phase !== "starting"}
+        >
+          <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+        </Notice>
       )}
       {!harnessCard && (
         <HarnessHealthNotice
@@ -5507,12 +5524,13 @@ function AcpmuxPane() {
           native={callNative}
           turnRunning={snapshot.isWorking}
           onUpdated={recheckHealth}
+          onOffer={setUpdateOffer}
         />
       )}
-      {folderNeeded && !snapshot.sessionId && (
+      <Notice id="missing-folder" tier="error" when={folderNeeded && !snapshot.sessionId}>
         <MissingFolder
-          reason={folderNeeded.reason}
-          error={folderNeeded.error}
+          reason={folderNeeded?.reason ?? ""}
+          error={folderNeeded?.error}
           onChoose={() => {
             void chooseChatFolder(
               () => callNative("chat.folder.choose"),
@@ -5532,7 +5550,7 @@ function AcpmuxPane() {
             );
           }}
         />
-      )}
+      </Notice>
       {pendingFolder ? (
         <StartFolderAsk
           ask={pendingFolder.ask}
@@ -5552,14 +5570,18 @@ function AcpmuxPane() {
           }}
         />
       ) : (
-        showsFolderChoice({
-          offered: chooseFolder,
-          freshChat,
-          quick,
-          projectDraft,
-          sessionId: snapshot.sessionId,
-          missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
-        }) && (
+        <Notice
+          id="folder-choice"
+          tier="hint"
+          when={showsFolderChoice({
+            offered: chooseFolder,
+            freshChat,
+            quick,
+            projectDraft,
+            sessionId: snapshot.sessionId,
+            missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+          })}
+        >
           <FolderChoice
             error={folderError}
             onChoose={() => {
@@ -5573,14 +5595,14 @@ function AcpmuxPane() {
                 .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
             }}
           />
-        )
+        </Notice>
       )}
-      {worktreeCreating && freshChat && !snapshot.sessionId && (
+      <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>
         <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
-      )}
-      {worktreeError && freshChat && !snapshot.sessionId && (
-        <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />
-      )}
+      </Notice>
+      <Notice id="worktree-error" tier="error" when={worktreeError && freshChat && !snapshot.sessionId}>
+        <WorktreeFailure error={worktreeError ?? ""} onDismiss={() => setWorktreeError(undefined)} />
+      </Notice>
       {aside && (
         <SideQuestion
           state={aside}
@@ -5761,8 +5783,10 @@ function AcpmuxPane() {
       </ImageViewerContext.Provider>
     </>
   );
-  const hostErrorCard = hostError && (
-    <HostError message={hostError} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+  const hostErrorCard = (
+    <Notice id="host-error" tier="error" when={hostError}>
+      <HostError message={hostError ?? ""} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+    </Notice>
   );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and
   // the reply's last line.
@@ -6214,7 +6238,11 @@ function AcpmuxPane() {
   );
   return (
     <SignInContext.Provider value={signIn}>
-      <ChatAccountsContext.Provider value={chatAccounts}>{pane}</ChatAccountsContext.Provider>
+      <ChatAccountsContext.Provider value={chatAccounts}>
+        <UpdateOfferContext.Provider value={updateOffer}>
+          <NoticeSlot>{pane}</NoticeSlot>
+        </UpdateOfferContext.Provider>
+      </ChatAccountsContext.Provider>
     </SignInContext.Provider>
   );
 }
