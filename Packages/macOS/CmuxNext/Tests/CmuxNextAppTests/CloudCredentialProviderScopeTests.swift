@@ -97,5 +97,23 @@ struct CloudCredentialProviderScopeTests {
         world.releaseInvalidation()
         await ending.value
         #expect(await register(provider, world) == false, "registration stays closed until a new sign-in")
+        provider.beginSession()
+        #expect(await register(provider, world))
+        try call(provider, id: 3, sink: sink)
+        let current = try #require(await iterator.next())
+        #expect(current.ok && current.requestID == 3)
+        #expect(world.postCount == 2)
+    }
+
+    @Test func aFailedDaemonInvalidationStillKeepsTheEndedSessionClosed() async throws {
+        let world = CloudCredentialProviderWorld(), provider = world.provider()
+        #expect(await register(provider, world))
+        world.refuseInvalidation = true
+        await provider.endSession { try await world.invalidate($0) }
+        world.refuseInvalidation = false
+        #expect(await register(provider, world) == false)
+        #expect(world.postCount == 0)
+        provider.beginSession()
+        #expect(await register(provider, world))
     }
 }

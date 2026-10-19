@@ -38,6 +38,7 @@ final class CloudService {
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored let credentialProvider: CloudCredentialProvider?
+    @ObservationIgnored private(set) var isSigningOut = false
     @ObservationIgnored private var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
     /// The last list or connection failure, for diagnostics and refusals.
@@ -153,6 +154,8 @@ final class CloudService {
             await auth.awaitRestored()
             for await signedIn in ObservationStream({ self.auth.isSignedIn }) {
                 if signedIn {
+                    await self.beginCredentialSession()
+                    guard self.auth.isSignedIn, !self.isSigningOut, !Task.isCancelled else { continue }
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
                     await self.link.sessionBegan(user: self.auth.user?.id)
@@ -216,7 +219,7 @@ final class CloudService {
         linkEvents = nil
         if let credentialEvents { machines.local.store.sideEvents.unsubscribe(credentialEvents) }
         credentialEvents = nil
-        credentialProvider?.stop()
+        credentialProvider?.suspend()
         for session in machines.cloud { session.disconnect() }
         // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
@@ -361,6 +364,9 @@ final class CloudService {
     }
 
     func signOut() async {
+        guard !isSigningOut else { return }
+        isSigningOut = true
+        defer { isSigningOut = false }
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()
