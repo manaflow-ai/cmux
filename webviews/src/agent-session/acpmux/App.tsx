@@ -213,7 +213,7 @@ import { RenderBridgeContext, useRenderBridge } from "./conversation/RenderBridg
 import { reactRenderPage } from "./conversation/renderFrameDoc";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
-import { detailsFloat } from "./chatViewerPanels";
+import { detailsFloat, openViewer } from "./chatViewerPanels";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
@@ -3027,6 +3027,8 @@ function AcpmuxPane() {
     useSummaryColumn(shell, artifact !== undefined || freshView || detailsFloats),
     summaryHasContent,
   );
+  const detailsRef = useRef(summaryCard);
+  detailsRef.current = summaryCard;
   const toggleInspector = useCallback((open?: boolean) => {
     if (inspectorHiddenSurfaceRef.current) {
       inspectorOpenRef.current = false;
@@ -3075,13 +3077,14 @@ function AcpmuxPane() {
       inspectorOpenRef.current = false;
       setInspectorOpen(false);
       setDiffView(undefined);
-      setFileView({
+      const file = {
         path: read.path,
         text: read.text,
         bytes: typeof read.bytes === "number" ? read.bytes : read.text.length,
         truncated: read.truncated === true,
         sessionId: sessionIdRef.current,
-      });
+      };
+      openViewer(detailsRef.current, () => setFileView(file));
     });
   }, []);
   useEffect(() => {
@@ -4802,14 +4805,14 @@ function AcpmuxPane() {
     setInspectorOpen(false);
     setDiffView(undefined);
     setFileView(undefined);
-    setFilesView({ sessionId: sessionIdRef.current, folder: cwd });
+    openViewer(summaryCard, () => setFilesView({ sessionId: sessionIdRef.current, folder: cwd }));
   };
   const toggleChangesViewer = (mode: QuickActionMode) => {
     if (diffView) return closeDiff();
     const row = [...snapshot.rows]
       .reverse()
       .find((candidate) => candidate.kind === "activity" && candidate.items?.some((item) => item.tool?.diffs?.length));
-    if (row) openDiff(row.id);
+    if (row) openViewer(summaryCard, () => openDiff(row.id));
     else runSplitAction(HEADER_ACTIONS.changes, localCwd, mode);
   };
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {

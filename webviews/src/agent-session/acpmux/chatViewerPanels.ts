@@ -6,3 +6,9 @@
 export function detailsFloat(chatViewer: boolean, open: { diff: boolean; file: boolean; files: boolean }): boolean {
   return chatViewer && (open.diff || open.file || open.files);
 }
+
+/// Opens the viewer, closing Thread details first so it does not come back when the viewer closes.
+export function openViewer(details: { shown: boolean; close(): void }, open: () => void): void {
+  if (details.shown) details.close();
+  open();
+}
