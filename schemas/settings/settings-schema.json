@@ -514,6 +514,7 @@
               "agentPane.showContextUsage",
               "agentPane.showDictation",
               "agentPane.zoom",
+              "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -24539,6 +24540,82 @@
     },
     {
       "accepts" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.permissionFullAccess",
+            "text" : "Full Access"
+          },
+          "value" : "fullAccess"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionStandard",
+            "text" : "Harness Default"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionAsk",
+            "text" : "Ask Before Changes"
+          },
+          "value" : "ask"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "fullAccess",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.defaultPermissionMode.help",
+        "text" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.defaultPermissionMode",
+      "keywords" : [
+        "permission",
+        "mode",
+        "full access",
+        "ask",
+        "approval",
+        "yolo",
+        "bypass",
+        "agent",
+        "new chat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "defaultPermissionMode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.defaultPermissionMode",
+        "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -25329,7 +25406,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c4f17c28a872cc7ba98046a2f919510444d399c06e2e418a73cebbda94e56225",
+  "schema_hash" : "03d0960f84c254bf768460ef357d3e4c7db955e3c1730f0d49069e6f2061dddb",
   "sections" : [
     {
       "id" : "general",
