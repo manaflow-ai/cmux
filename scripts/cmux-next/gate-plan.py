@@ -238,7 +238,7 @@ def main(argv: list[str]) -> int:
 
     if rust_wide:
         steps.append(CMUX_CI + " " + shlex.join(["run", "--class", "isolated", "--script", "scripts/ci/cmux-tui-rust-check.sh",
-                                                 "--ref", head, "--key", f"{args.lane}-rust-{head[:12]}"]))
+                                                 "--ref", head, "--arg", "all", "--key", f"{args.lane}-rust-{head[:12]}"]))
         notes.append("#   Rust workspace file or spec changed: the whole-workspace check (bindings and SDK tests too)")
     else:
         left_out.append("full cmux-tui suite (verify-cmux-tui-hosted.sh --full, cmux-tui-rust-check.sh): no Cargo.toml,"
@@ -297,10 +297,13 @@ def main(argv: list[str]) -> int:
                                  "--", "./scripts/cmux-next/build-web-bundles.sh", "--force"]))
         notes.append("#   web bundles: a bundle input changed (safe-push needs this build in the receipt)")
 
+    side_push = None
     if any("--ref" in s for s in steps) and not pushed(head):
-        # A cmux-ci step checks out the SHA from origin: push it to a side branch first.
-        notes.append(f"SAFE_PUSH_NEW_BRANCH_BASE=feat-cmux-next {shlex.quote(str(nx_worker(hq, 'safe-push.sh')))}"
+        # A cmux-ci step checks out the SHA from origin: push it to a side branch first. A comment, so
+        # gate-run never runs it (as a plain line it would run after the parallel group, too late).
+        side_push = (f"SAFE_PUSH_NEW_BRANCH_BASE=feat-cmux-next {shlex.quote(str(nx_worker(hq, 'safe-push.sh')))}"
                      f" cmux-next-gate-{head[:12]}")
+        notes.append(f"#   push first: {side_push}")
     for test in sorted(p for p in changed if p.startswith("tests/") and Path(p).name.startswith("test_") and p.endswith(".py")
                        and (ROOT / p).is_file()):
         after.append(f"python3 {shlex.quote(test)}")
@@ -329,6 +332,8 @@ def main(argv: list[str]) -> int:
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
         print(f"wrote {args.out}: {len(steps)} parallel steps + {len(after)} after", file=sys.stderr)
+        if side_push:
+            print(f"first: {side_push}", file=sys.stderr)
         print(f"next: {nx_worker(hq, 'gate-run.sh')} --head {head} --out /tmp/gates/{args.lane}-{head[:8]}.json"
               f" --steps {args.out}", file=sys.stderr)
     else:
