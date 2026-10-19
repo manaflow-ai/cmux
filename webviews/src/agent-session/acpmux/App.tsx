@@ -3569,7 +3569,9 @@ function AcpmuxPane() {
   const newTabSessions = useSharedSessions(composerSnapshot.sessions, !newTab?.privateChatLists);
   const newTabSnapshot = useMemo(
     () =>
-      newTabSessions === composerSnapshot.sessions ? composerSnapshot : { ...composerSnapshot, sessions: newTabSessions },
+      newTabSessions === composerSnapshot.sessions
+        ? composerSnapshot
+        : { ...composerSnapshot, sessions: newTabSessions },
     [composerSnapshot, newTabSessions],
   );
   useEffect(() => {

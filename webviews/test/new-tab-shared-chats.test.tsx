@@ -98,9 +98,15 @@ test("30 New Tabs created fast in two windows all list one identical list, drawn
       return titles(store.sharedSessions(page.own));
     }),
   );
-  for (const [index, list] of lists.entries()) expect({ page: index + 1, list }).toEqual({ page: index + 1, list: expected });
+  for (const [index, list] of lists.entries())
+    expect({ page: index + 1, list }).toEqual({ page: index + 1, list: expected });
   // Every page after the first drew chats on its first frame (the store), never an empty list.
-  expect(pages.slice(1).filter((page) => page.firstFrame.length === 0).map((_, index) => index + 2)).toEqual([]);
+  expect(
+    pages
+      .slice(1)
+      .filter((page) => page.firstFrame.length === 0)
+      .map((_, index) => index + 2),
+  ).toEqual([]);
   // No placeholder row: every row is a chat's own title.
   for (const list of lists) for (const title of list) expect(title).toMatch(/^Chat \d+$/);
 });
@@ -111,7 +117,13 @@ test("a list a page is showing updates in place when another page publishes", as
   const own: AcpmuxSessionEntry[] = [chat(1)];
   function Probe() {
     const sessions = store.useSharedSessions(own);
-    return <ul>{sessions.map((session) => <li key={session.sessionId}>{session.displayTitle}</li>)}</ul>;
+    return (
+      <ul>
+        {sessions.map((session) => (
+          <li key={session.sessionId}>{session.displayTitle}</li>
+        ))}
+      </ul>
+    );
   }
   const root: Root = createRoot(window.document.getElementById("root")!);
   await act(async () => root.render(<Probe />));
@@ -119,7 +131,9 @@ test("a list a page is showing updates in place when another page publishes", as
   const written = store.encodeChatStoreForTests(connected([chat(2), chat(1)]).sessions, T0 + 5);
   window.localStorage.setItem(store.CHAT_STORE_KEY_FOR_TESTS, written);
   await act(async () => {
-    window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: written }));
+    window.dispatchEvent(
+      new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: written }),
+    );
   });
   expect([...window.document.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["Chat 2", "Chat 1"]);
   await act(async () => root.unmount());

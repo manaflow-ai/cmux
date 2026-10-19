@@ -85,9 +85,9 @@ const urgent = (session: AcpmuxSessionEntry) => (session.pendingPermissions ?? 0
 /// of the device chats.
 function kept(sessions: Sessions): AcpmuxSessionEntry[] {
   // Every page talks to this Mac's daemon, whose list names other machines' chats too (`peer`).
-  const ordered = (sessions as AcpmuxSessionEntry[]).filter(Boolean).sort(
-    (a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId),
-  );
+  const ordered = (sessions as AcpmuxSessionEntry[])
+    .filter(Boolean)
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId));
   return ordered.map((session, index) =>
     index < FULL || urgent(session)
       ? session
