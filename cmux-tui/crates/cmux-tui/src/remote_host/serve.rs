@@ -268,7 +268,11 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         .stderr(Stdio::null())
         .spawn()
         .with_context(|| format!("cannot run {}", exe.display()))?;
-    let mut stdout = child.stdout.take().expect("piped stdout");
+    let Some(mut stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        bail!("`daemon ensure` started without its output pipe");
+    };
     let reader = std::thread::spawn(move || {
         let mut buf = Vec::new();
         let _ = (&mut stdout).take(1024 * 1024).read_to_end(&mut buf);

@@ -126,8 +126,12 @@ impl Tailnet {
             .stderr(Stdio::piped())
             .spawn()
             .with_context(|| format!("cannot run {}", self.bin.display()))?;
-        let mut stdout = child.stdout.take().expect("piped stdout");
-        let mut stderr = child.stderr.take().expect("piped stderr");
+        let (Some(mut stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take())
+        else {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("{} started without its output pipes", self.bin.display());
+        };
         // Read both pipes while the CLI runs: a large status fills a pipe
         // buffer, and the CLI would block on it forever.
         let out = std::thread::spawn(move || {
