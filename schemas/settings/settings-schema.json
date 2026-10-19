@@ -551,6 +551,18 @@
               "key" : "settings.group.sessions",
               "text" : "Agent Sessions"
             }
+          },
+          {
+            "key" : "settings.group.subsessions",
+            "rows" : [
+              "agents.subsessions.enabled",
+              "agents.subsessions.maxChildren",
+              "agents.subsessions.maxDepth"
+            ],
+            "title" : {
+              "key" : "settings.group.subsessions",
+              "text" : "Sub-sessions"
+            }
           }
         ],
         "id" : "agents",
@@ -3803,6 +3815,172 @@
       "title" : {
         "key" : "settings.sessions.keepAwake",
         "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.enabled.help",
+        "text" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.enabled",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "child",
+        "spawn",
+        "parallel",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.enabled",
+        "text" : "Let Agents Start Sub-sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        1000,
+        500.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 50,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxChildren.help",
+        "text" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxChildren",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "width",
+        "children",
+        "parallel"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxChildren"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -998,
+        1999,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxChildren",
+        "text" : "Open Sub-sessions per Session"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        100,
+        50.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 10,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxDepth.help",
+        "text" : "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxDepth",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "depth",
+        "nesting",
+        "levels"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxDepth"
+      ],
+      "range" : {
+        "max" : 100,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -98,
+        199,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxDepth",
+        "text" : "Deepest Nesting"
       },
       "validation" : "portable"
     },
@@ -25354,7 +25532,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b5a8a5f821bff8f0f2b9ac6f60d01e2b243d10a1263d54e6c60312d8e17774dc",
+  "schema_hash" : "65e3199ae1e79a9927ef6c95cb153994d57741169173385177c82b46586fa065",
   "sections" : [
     {
       "id" : "general",

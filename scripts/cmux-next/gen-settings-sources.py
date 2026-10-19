@@ -153,6 +153,13 @@ SECTIONS = [
         "enums": {"sessions.keepAwake": "SessionKeepAwakeSetting"},
     },
     {
+        "source": "schemas/settings/source/subsessions.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
+        "type": "SubsessionSettingsSchema",
+        "lists": {"subsessions": ("descriptors", "SubsessionSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/feed.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
         "type": "FeedSettingsSchema",

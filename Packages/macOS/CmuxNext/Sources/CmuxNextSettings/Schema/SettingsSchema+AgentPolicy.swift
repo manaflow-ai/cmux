@@ -244,6 +244,11 @@ extension SettingsSchema {
         "notifications.dockBounce": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
+        // How many agent sessions an agent may start, and how deep, is the person's call: an agent
+        // must not raise its own limits.
+        "agents.subsessions.enabled": .userOnly,
+        "agents.subsessions.maxChildren": .userOnly,
+        "agents.subsessions.maxDepth": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

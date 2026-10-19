@@ -1,6 +1,923 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.subsessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sub-sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجلسات الفرعية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undersessioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untersitzungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subsesiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-sessions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottosessioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブセッション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គរង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 세션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underøkter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsesje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subsessões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вложенные сеансы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt oturumlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладені сеанси"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phiên con"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子工作階段"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Agents Start Sub-sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح للوكلاء ببدء جلسات فرعية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli agentima da pokreću podsesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lad agenter starte undersessioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten dürfen Untersitzungen starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que los agentes inicien subsesiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser les agents à démarrer des sous-sessions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti agli agenti di avviare sottosessioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントにサブセッションの開始を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យភ្នាក់ងារចាប់ផ្ដើមវគ្គរង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 하위 세션을 시작하도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La agenter starte underøkter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwalaj agentom uruchamiać podsesje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que agentes iniciem subsessões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить агентам запускать вложенные сеансы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เอเจนต์เริ่มเซสชันย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanların alt oturum başlatmasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити агентам запускати вкладені сеанси"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép tác tử bắt đầu phiên con"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许智能体启动子会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許代理程式啟動子工作階段"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للوكيل بدء جلسات وكلاء أخرى للعمل على أجزاء من مهمة بالتوازي. تظهر تحت جلسته في الشريط الجانبي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent može pokrenuti druge sesije agenata da paralelno rade na dijelovima zadatka. Prikazuju se ispod njegove sesije na bočnoj traci."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kan starte andre agentsessioner, der arbejder på dele af en opgave parallelt. De vises under dens session i sidepanelet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent kann weitere Agentensitzungen starten, die parallel an Teilen einer Aufgabe arbeiten. Sie erscheinen in der Seitenleiste unter seiner Sitzung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente puede iniciar otras sesiones de agentes para trabajar en partes de una tarea en paralelo. Aparecen bajo su sesión en la barra lateral."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent peut démarrer d’autres sessions d’agents pour travailler en parallèle sur des parties d’une tâche. Elles s’affichent sous sa session dans la barre latérale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente può avviare altre sessioni di agenti per lavorare in parallelo su parti di un’attività. Vengono mostrate sotto la sua sessione nella barra laterale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは別のエージェントセッションを開始して、タスクの一部を並行して進められます。それらはサイドバーで元のセッションの下に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារអាចចាប់ផ្ដើមវគ្គភ្នាក់ងារផ្សេងទៀត ដើម្បីធ្វើការលើផ្នែកនៃកិច្ចការស្របគ្នា។ ពួកវាបង្ហាញនៅក្រោមវគ្គរបស់វានៅក្នុងរបារចំហៀង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트는 다른 에이전트 세션을 시작해 작업의 일부를 병렬로 처리할 수 있습니다. 이 세션은 사이드바에서 해당 세션 아래에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kan starte andre agentøkter som arbeider parallelt med deler av en oppgave. De vises under økten dens i sidefeltet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent może uruchamiać inne sesje agentów, które równolegle pracują nad częściami zadania. Pojawiają się pod jego sesją na pasku bocznym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um agente pode iniciar outras sessões de agentes para trabalhar em partes de uma tarefa em paralelo. Elas aparecem sob a sessão dele na barra lateral."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент может запускать другие сеансы агентов, чтобы параллельно работать над частями задачи. Они отображаются под его сеансом в боковой панели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์สามารถเริ่มเซสชันเอเจนต์อื่นเพื่อทำส่วนต่างๆ ของงานไปพร้อมกัน เซสชันเหล่านั้นจะแสดงใต้เซสชันของเอเจนต์ในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan, bir görevin parçaları üzerinde paralel çalışmak için başka ajan oturumları başlatabilir. Bunlar kenar çubuğunda onun oturumunun altında görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент може запускати інші сеанси агентів, щоб паралельно працювати над частинами завдання. Вони показуються під його сеансом на бічній панелі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một tác tử có thể bắt đầu các phiên tác tử khác để làm song song từng phần của một tác vụ. Các phiên này hiện bên dưới phiên của nó trong thanh bên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体可以启动其他智能体会话，并行处理任务的各个部分。它们显示在边栏中该会话的下方。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式可以啟動其他代理程式工作階段，平行處理工作的各個部分。它們會顯示在側邊欄中該工作階段的下方。"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.maxChildren": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Sub-sessions per Session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجلسات الفرعية المفتوحة لكل جلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvorene podsesije po sesiji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbne undersessioner pr. session"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offene Untersitzungen pro Sitzung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subsesiones abiertas por sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-sessions ouvertes par session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottosessioni aperte per sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションごとの開いているサブセッション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គរងដែលបើកក្នុងមួយវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션당 열린 하위 세션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne underøkter per økt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwarte podsesje na sesję"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subsessões abertas por sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открытых вложенных сеансов на сеанс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันย่อยที่เปิดอยู่ต่อเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum başına açık alt oturum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкритих вкладених сеансів на сеанс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phiên con đang mở mỗi phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个会话打开的子会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個工作階段開啟的子工作階段"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.maxChildren.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى عدد من الجلسات الفرعية التي يمكن لجلسة واحدة فتحها في الوقت نفسه. يؤدي إغلاق جلسة فرعية إلى تحرير مكانها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najveći broj podsesija koje jedna sesija može imati otvorene u isto vrijeme. Zatvaranje podsesije oslobađa njeno mjesto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det største antal undersessioner, én session kan have åbne på samme tid. Når du lukker en undersession, frigøres dens plads."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die höchste Zahl an Untersitzungen, die eine Sitzung gleichzeitig offen haben kann. Wird eine Untersitzung geschlossen, wird ihr Platz frei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El número máximo de subsesiones que una sesión puede tener abiertas a la vez. Al cerrar una subsesión se libera su lugar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nombre maximal de sous-sessions qu’une session peut avoir ouvertes en même temps. Fermer une sous-session libère sa place."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il numero massimo di sottosessioni che una sessione può avere aperte contemporaneamente. Chiudere una sottosessione libera il suo posto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つのセッションが同時に開いておけるサブセッションの最大数です。サブセッションを閉じると、その枠が空きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនវគ្គរងច្រើនបំផុតដែលវគ្គមួយអាចបើកក្នុងពេលតែមួយ។ ការបិទវគ្គរងមួយធ្វើឱ្យកន្លែងរបស់វាទំនេរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 세션이 동시에 열어 둘 수 있는 하위 세션의 최대 개수입니다. 하위 세션을 닫으면 그 자리가 비워집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det høyeste antallet underøkter én økt kan ha åpne samtidig. Når du lukker en underøkt, blir plassen dens ledig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Największa liczba podsesji, które jedna sesja może mieć otwarte jednocześnie. Zamknięcie podsesji zwalnia jej miejsce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O número máximo de subsessões que uma sessão pode ter abertas ao mesmo tempo. Fechar uma subsessão libera o lugar dela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наибольшее число вложенных сеансов, которые один сеанс может держать открытыми одновременно. Закрытие вложенного сеанса освобождает его место."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนเซสชันย่อยสูงสุดที่เซสชันหนึ่งเปิดไว้ได้พร้อมกัน การปิดเซสชันย่อยจะคืนที่ว่างให้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir oturumun aynı anda açık tutabileceği en fazla alt oturum sayısı. Bir alt oturumu kapatmak onun yerini boşaltır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найбільша кількість вкладених сеансів, які один сеанс може мати відкритими одночасно. Закриття вкладеного сеансу звільняє його місце."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số phiên con tối đa mà một phiên có thể mở cùng lúc. Đóng một phiên con sẽ giải phóng chỗ của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个会话可同时打开的子会话的最大数量。关闭一个子会话会空出它的位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個工作階段可同時開啟的子工作階段數量上限。關閉一個子工作階段會空出它的位置。"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.maxDepth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deepest Nesting"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى عمق للتداخل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najdublje ugniježđivanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dybeste indlejring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größte Verschachtelungstiefe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anidamiento máximo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imbrication maximale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annidamento massimo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大のネスト深さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្រិតជាន់ជ្រៅបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 중첩 깊이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dypeste nesting"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Największe zagnieżdżenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aninhamento máximo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наибольшая вложенность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระดับการซ้อนลึกที่สุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En derin iç içe geçme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найбільша вкладеність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức lồng sâu nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大嵌套深度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大巢狀深度"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.maxDepth.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد مستويات الجلسات الفرعية التي يمكن أن تبدأ تحت جلسة. القيمة 1 تتيح لجلسة بدء جلسات فرعية لا يمكنها بدء جلسات خاصة بها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko nivoa podsesija može započeti ispod jedne sesije. 1 dozvoljava sesiji da pokreće podsesije koje ne mogu pokretati vlastite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange niveauer af undersessioner der kan starte under en session. 1 lader en session starte undersessioner, som ikke kan starte deres egne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viele Ebenen von Untersitzungen unter einer Sitzung starten können. Bei 1 kann eine Sitzung Untersitzungen starten, die selbst keine starten können."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuántos niveles de subsesiones pueden iniciarse bajo una sesión. Con 1, una sesión puede iniciar subsesiones que no pueden iniciar las suyas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le nombre de niveaux de sous-sessions pouvant démarrer sous une session. Avec 1, une session peut démarrer des sous-sessions qui ne peuvent pas en démarrer elles-mêmes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanti livelli di sottosessioni possono avviarsi sotto una sessione. Con 1 una sessione può avviare sottosessioni che non possono avviarne di proprie."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 つのセッションの下に何階層までサブセッションを開始できるかを指定します。1 にすると、セッションはサブセッションを開始できますが、そのサブセッションは自身のサブセッションを開始できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនកម្រិតនៃវគ្គរងដែលអាចចាប់ផ្ដើមនៅក្រោមវគ្គមួយ។ 1 អនុញ្ញាតឱ្យវគ្គមួយចាប់ផ្ដើមវគ្គរង ដែលមិនអាចចាប់ផ្ដើមវគ្គរងផ្ទាល់ខ្លួនបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 세션 아래에서 하위 세션을 몇 단계까지 시작할 수 있는지 정합니다. 1이면 세션이 하위 세션을 시작할 수 있지만, 그 하위 세션은 자체 하위 세션을 시작할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor mange nivåer med underøkter som kan starte under en økt. 1 lar en økt starte underøkter som ikke kan starte sine egne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ile poziomów podsesji może się uruchomić pod jedną sesją. 1 pozwala sesji uruchamiać podsesje, które nie mogą uruchamiać własnych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantos níveis de subsessões podem ser iniciados sob uma sessão. Com 1, uma sessão pode iniciar subsessões que não podem iniciar as próprias."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько уровней вложенных сеансов может запускаться под сеансом. При значении 1 сеанс может запускать вложенные сеансы, которые не могут запускать свои."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนระดับของเซสชันย่อยที่เริ่มได้ภายใต้เซสชันหนึ่ง ค่า 1 ให้เซสชันเริ่มเซสชันย่อยได้ แต่เซสชันย่อยนั้นเริ่มของตัวเองไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir oturumun altında kaç düzey alt oturum başlayabileceği. 1, bir oturumun kendi alt oturumunu başlatamayan alt oturumlar başlatmasına izin verir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки рівнів вкладених сеансів може запускатися під сеансом. Значення 1 дозволяє сеансу запускати вкладені сеанси, які не можуть запускати власних."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số cấp phiên con có thể bắt đầu bên dưới một phiên. Giá trị 1 cho phép một phiên bắt đầu các phiên con không thể tự bắt đầu phiên con của riêng chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个会话下可以启动多少层子会话。设为 1 时，会话可以启动子会话，但这些子会话不能再启动自己的子会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一個工作階段下可以啟動多少層子工作階段。設為 1 時，工作階段可以啟動子工作階段，但這些子工作階段不能再啟動自己的子工作階段。"
+          }
+        }
+      }
+    },
     "settings.notifications.dockBounce": {
       "extractionState": "manual",
       "localizations": {
