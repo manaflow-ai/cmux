@@ -27,9 +27,17 @@ final class CreationInputCoordinator {
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
     /// script or agent run without `focus`), which leaves the keys where they are.
-    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil) -> CreationInputBuffer.Ticket? {
+    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
-        return buffer(in: window).open(generation: generation, earlyTab: earlyTab)
+        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
+    }
+
+    /// The person closed provisional tab `tab` of `pane` before the daemon made it: the keys held
+    /// for it (here, or by the New Tab page's hold) are dropped and the rest go on
+    /// (``CreationInputBuffer/cancel(tab:)``).
+    func drop(tab: String, in pane: PaneController) {
+        router?.newTabInputCoordinator.drop(pane: pane)
+        if let window = pane.view.window, buffers[window.windowNumber]?.cancel(tab: tab) == true { scheduleFlush(in: window) }
     }
 
     /// A selection shows a terminal whose surface comes later: keys wait for it, at most `holdLimit`.

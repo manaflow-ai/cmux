@@ -10,6 +10,8 @@ public final class CreationInputBuffer {
     private var awaited: Set<UInt64> = []
     /// Pending creations whose new terminal's view takes keys before the reply, by its tab id.
     private var earlyTabs: [Int: String] = [:]
+    /// Pending creations' provisional tabs, by ticket.
+    private var tabs: [Int: String] = [:]
     private var nextID = 0
     /// When the hold began.
     public let began: ContinuousClock.Instant
@@ -23,11 +25,28 @@ public final class CreationInputBuffer {
 
     /// `earlyTab`: the tab of the new terminal's view when that view takes keys before the reply
     /// (its keys reach the daemon by terminal id, which queues them, cx-wb5.78).
-    public func open(generation: UInt64, earlyTab: String? = nil) -> Ticket {
+    /// `tab`: the provisional tab the creation shows, so a close of it can cancel the hold (`cancel(tab:)`).
+    public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil) -> Ticket {
         nextID += 1
         pending[nextID] = generation
         if let earlyTab { earlyTabs[nextID] = earlyTab }
+        if let tab { tabs[nextID] = tab }
         return Ticket(id: nextID)
+    }
+
+    /// The person closed the creation of `tab` before it existed: it waits for nothing more, and
+    /// the keys held for it are dropped with it (never given to another tab) unless another
+    /// creation of this hold still waits for them. False when no pending creation shows `tab`.
+    public func cancel(tab: String) -> Bool {
+        let ids = tabs.filter { $0.value == tab }.map(\.key)
+        guard !ids.isEmpty else { return false }
+        for id in ids {
+            tabs[id] = nil
+            earlyTabs[id] = nil
+            pending[id] = nil
+        }
+        if pending.isEmpty { events.removeAll() }
+        return true
     }
 
     /// Whether a pending creation's new terminal view, tab `tab`, takes keys now.
@@ -37,6 +56,7 @@ public final class CreationInputBuffer {
     /// expectation landed or was replaced. A failed creation asked for nothing.
     public func resolve(_ ticket: Ticket, awaitsFocus: Bool) {
         earlyTabs[ticket.id] = nil
+        tabs[ticket.id] = nil
         guard let generation = pending.removeValue(forKey: ticket.id) else { return }
         if awaitsFocus { awaited.insert(generation) }
     }

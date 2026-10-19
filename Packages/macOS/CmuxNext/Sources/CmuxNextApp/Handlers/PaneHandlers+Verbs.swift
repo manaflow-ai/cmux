@@ -40,7 +40,8 @@ extension PaneHandlers {
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("closePane", invoke: { invocation in
-            guard let pane = ctx.daemonPane(invocation) else { return }
+            // The provisional pane of a pending split: the split is cancelled (CancelledCreation).
+            guard let pane = ctx.daemonPane(invocation), !ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) else { return }
             let handle = pane.handle
             ctx.send("close-pane") { try await $0.closePane(handle) }
         })

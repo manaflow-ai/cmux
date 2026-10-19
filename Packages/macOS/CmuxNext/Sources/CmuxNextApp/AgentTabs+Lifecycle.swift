@@ -97,19 +97,20 @@ extension AgentTabStore {
                 let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction,
                                                            splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID,
                                                                                           splitID: sendsSplitID ? $0.1.splitID : nil) })
-                tabCreated(key, as: created)
+                // Closed first (CancelledCreation): nothing moves to the store's tab, which the store
+                // hides and closes; the page's view state goes.
+                let cancelled = store.creationCancelled(transaction)
+                if !cancelled { tabCreated(key, as: created) }
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                if let close = pendingCloses.removeValue(forKey: key) {
-                    close(created.key)
-                } else if let started = sessions[created.key], !remote {
-                    // A chat its page started (or the harness acpmux reported) before the store answered binds now.
-                    sendSession(started, for: created.key)
-                }
+                if cancelled { throw CancellationError() }
+                // A chat its page started (or the harness acpmux reported) before the store answered binds now.
+                if let started = sessions[created.key], !remote { sendSession(started, for: created.key) }
                 return created
             } catch {
-                store.rejectIntent(transaction)
+                // A cancelled creation stays in the log until the store's close of its tab commits.
+                if !(error is CancellationError) || !store.creationCancelled(transaction) { store.rejectIntent(transaction) }
                 self?.release(key)
                 throw error
             }
@@ -160,6 +161,7 @@ extension AgentTabStore {
             } catch {
                 // A chat bound for a dock that never came: the pane stops waiting for it (cx-ihyx2).
                 if hidden { pane.dockFinished(pending.key) }
+                guard !(error is CancellationError) else { return nil } // the person closed it first
                 daemon.logger.error("new-conversation-tab (agent) failed: \(String(describing: error), privacy: .public)")
                 return "\(RefusalStrings.agentTabCreateFailed)"
             }
@@ -260,14 +262,6 @@ extension AgentTabStore {
             && lookup(key)?.record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) != true
     }
 
-    /// Close on a tab the store is still creating: it closes when the store answers (its
-    /// provisional surface names no daemon tab). False for any other tab.
-    func closeWhenCreated(_ key: String, close: @escaping @MainActor (String) -> Void) -> Bool {
-        guard ProvisionalTab.isProvisional(key), aliases[key] == nil, tabStores[key] != nil else { return false }
-        pendingCloses[key] = close
-        return true
-    }
-
     /// The tab already resuming the outside chat `adopt` while a tree lists it.
     func tab(resuming adopt: AgentPaneAdopt) -> String? {
         guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"], isAgentTab(key) else { return nil }
@@ -303,7 +297,6 @@ extension AgentTabStore {
             }
         }
         notices[key] = nil
-        pendingCloses[key] = nil
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil
