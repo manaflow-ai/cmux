@@ -201,6 +201,12 @@ public final class MessagesLabHomeView: NSView {
     /// - Parameter sender: The paste's sender, passed to the box's `paste(_:)`.
     public func pasteIntoPrimaryInput(_ sender: Any?) { controller.pasteIntoCompose(sender) }
 
+    /// After a drop on Home or the file picker: the message box takes the
+    /// keyboard with the caret at the end of the draft, and its window
+    /// becomes key, so the person can type at once. Call it only for an
+    /// entry point aimed at Home (never for automation).
+    public func focusPrimaryInputForTyping() { controller.focusComposeForTyping() }
+
     /// Puts text in the field (first-run suggestions).
     public func setDraft(_ text: String) {
         guard controller.store != nil else { return }

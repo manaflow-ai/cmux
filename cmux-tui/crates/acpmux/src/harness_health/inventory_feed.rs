@@ -52,8 +52,15 @@ impl HealthService {
 
     /// Serializes the cache write and its feed publication under the same lock.
     pub(super) fn replace_rows(&self, rows: Vec<HarnessHealth>) {
+        self.update_rows(|current| *current = rows);
+    }
+
+    /// Mutates selected observations and publishes their projection in one
+    /// critical section, preserving unrelated concurrent owner choices.
+    pub(super) fn update_rows<T>(&self, update: impl FnOnce(&mut Vec<HarnessHealth>) -> T) -> T {
         let mut current = self.rows.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        *current = rows;
+        let result = update(&mut current);
         self.inventory.publish(&current);
+        result
     }
 }
