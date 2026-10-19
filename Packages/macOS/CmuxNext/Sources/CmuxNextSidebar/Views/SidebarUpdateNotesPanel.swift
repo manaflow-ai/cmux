@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// The update card's highlights popup (Leo 2026-10-13): the popup every cmux popover is, not
 /// AppKit's NSPopover with its stock arrow. A borderless child window of the sidebar's window
-/// holding the solid popup surface with its hairline and shadow (`Glass.makeOverlayPanel`,
+/// holding the popup surface (themed glass, or the solid card under Reduce Transparency) with its hairline and shadow (`Glass.makeOverlayPanel`,
 /// `PopupStyle`), beside the card toward the content (left of it for a sidebar on the right, or
 /// with no room on the right) and top-aligned with it, in the card's theme. It takes clicks
 /// ("See all changes") and never becomes key, so the keys stay with the window. The app going

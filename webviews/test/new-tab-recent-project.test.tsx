@@ -30,6 +30,15 @@ test("the most recent project is the newest local chat's folder", () => {
   expect(mostRecentProject(sessions.slice(2), HOME)).toBeUndefined();
 });
 
+// coord-2 review: a deleted or removed folder must not become the start project. The host's
+// project list (`project.list` drops a missing folder) decides which chat folders count.
+test("with the host's project list, only a listed folder is the most recent project", () => {
+  expect(mostRecentProject(sessions, HOME, ["/Users/you/src/older"])).toBe("/Users/you/src/older");
+  expect(mostRecentProject(sessions, HOME, ["/Users/you/src/atlas/"])).toBe("/Users/you/src/atlas");
+  // Not loaded yet: every local chat folder counts.
+  expect(mostRecentProject(sessions, HOME, [])).toBe("/Users/you/src/atlas");
+});
+
 const scope = globalThis as Record<string, unknown>;
 const keys = [
   "window",
@@ -82,7 +91,7 @@ afterAll(() => {
 
 const noop = () => {};
 
-async function askFrom(fields: { cwd?: string; startCwd?: string }) {
+async function askFrom(fields: { cwd?: string; startCwd?: string; knownProjects?: string[] }) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -127,6 +136,46 @@ test("a New Tab with no folder starts on the most recent project", async () => {
 test("a New Tab in the home folder or a private folder starts on the most recent project too", async () => {
   expect((await askFrom({ cwd: HOME })).folder).toBe("/Users/you/src/atlas");
   expect((await askFrom({ cwd: AGENT_HOME })).folder).toBe("/Users/you/src/atlas");
+});
+
+test("a New Tab skips a recent chat folder the host does not list", async () => {
+  expect((await askFrom({ knownProjects: ["/Users/you/src/older"] })).folder).toBe("/Users/you/src/older");
+});
+
+// coord-2 review: the chip must not change under the user while a chat elsewhere updates.
+test("the start project stays put when a newer chat lands", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const calls: unknown[][] = [];
+  const page = (list: typeof sessions) => (
+    <NewTabScreen
+      snapshot={noChat(list)}
+      omnibar={EMPTY_OMNIBAR}
+      lastAgent="claude"
+      home={HOME}
+      onAsk={(...args) => calls.push(args)}
+      onOpen={noop}
+      onSearch={noop}
+      onShell={noop}
+      onJump={noop}
+      onOpenSession={noop}
+      onShowAll={noop}
+    />
+  );
+  await act(async () => root!.render(page(sessions)));
+  const newer = session({ sessionId: "newer", cwd: "/Users/you/src/billing", updatedAt: Date.now() });
+  await act(async () => root!.render(page([...sessions, newer])));
+  expect(host.querySelector(".nt-location")?.textContent).toContain("atlas");
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  await act(async () => {
+    setValue.call(field, "fix the flaky upload test");
+    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  expect(calls[0]?.[2]).toBe("/Users/you/src/atlas");
 });
 
 test("a tab with a project folder, or a start folder from the host, keeps it", async () => {
