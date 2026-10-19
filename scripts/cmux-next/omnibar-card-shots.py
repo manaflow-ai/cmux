@@ -5,7 +5,8 @@
 
 Attaches to a running tagged app (nx-remote --needs gui --app-from-fleet),
 opens a Chromium tab, then per appearance captures the window with the
-omnibar at rest (`MODE-closed.png`) and with "google.com" typed so the
+omnibar at rest (`MODE-closed.png`; MODE is dark, light, and compact:
+dark at compact density) and with "google.com" typed so the
 suggestion card shows (`MODE-open.png`), plus `MODE.json`: the
 `debug.omnibar` reports (pointer frames, card and bar rects). The pixels
 are measured afterwards (the card's corner radii and insets, and whether
@@ -84,10 +85,13 @@ if not wait(lambda: "error" not in omnibar(window), 90):
 settle()
 
 failures = 0
-for mode in ("dark", "light"):
-    looks = rpc("debug.appearance", {"mode": mode})
+for mode in ("dark", "light", "compact"):
+    if mode == "compact":  # dark again, at compact density (the tighter tab gap above the bar)
+        print("compact", rpc("settings.set", {"path": "appearance.density", "value": "compact"}), flush=True)
+        print("dark theme", rpc("settings.set", {"path": "appearance.theme", "value": None}), flush=True)
+    looks = rpc("debug.appearance", {"mode": "dark" if mode == "compact" else mode})
     print(mode, "appearance", looks, flush=True)
-    background = (looks or {}).get("background") if isinstance(looks, dict) else None
+    background = (looks or {}).get("terminal_background") if isinstance(looks, dict) else None
     if mode == "light" and isinstance(background, str) and background.startswith("#"):
         r, g, b = (int(background[i:i + 2], 16) for i in (1, 3, 5))
         if r + g + b < 384:  # the default theme has no light side: a light theme
@@ -96,15 +100,19 @@ for mode in ("dark", "light"):
     settle()
     report = {"mode": mode, "appearance": looks, "closed": omnibar(window)}
     print("snapshot closed", rpc("debug.window_snapshot", {"window": window, "path": os.path.join(opts.out, f"{mode}-closed.png")}), flush=True)
-    typed = rpc("debug.omnibar_type", {"window": window, "text": opts.text, "commit": False})
-    print("typed", typed, flush=True)
-    card = wait(lambda: omnibar(window).get("card"), 15)
-    if not card:
-        print(f"FAIL no card in {mode}: {omnibar(window)}", flush=True)
+    for attempt in range(3):  # a focus change can close the card before the capture: type again
+        typed = rpc("debug.omnibar_type", {"window": window, "text": opts.text, "commit": False})
+        print("typed", (typed or {}).get("typed"), (typed or {}).get("phase"), flush=True)
+        wait(lambda: omnibar(window).get("card"), 15)
+        settle()
+        report["open"] = omnibar(window)
+        if report["open"].get("card"):
+            break
+        close_card(window)
+    if not report["open"].get("card"):
+        print(f"FAIL no card in {mode}: {report['open'].get('phase')}", flush=True)
         failures += 1
-    # Hover off the rows: the first row stays highlighted by the keyboard.
-    settle()
-    report["open"] = omnibar(window)
+    print("card", report["open"].get("card"), "frames", (report["open"].get("pointer") or {}).get("frames"), flush=True)
     print("snapshot open", rpc("debug.window_snapshot", {"window": window, "path": os.path.join(opts.out, f"{mode}-open.png")}), flush=True)
     with open(os.path.join(opts.out, f"{mode}.json"), "w") as f:
         json.dump(report, f, indent=1, default=str)
