@@ -341,7 +341,10 @@ fn a_chief_makes_and_edits_chiefs_through_its_tool_and_only_its_own_turn_may() {
         &[(TURN_KEY_ENV, &key)],
         Some(LEAD_TURN),
     );
-    assert_eq!(turn.names(), ["zoom", "date", "tell", "profile", "chiefs"]);
+    assert_eq!(
+        turn.names(),
+        ["zoom", "date", "tell", "control", "profile", "chiefs"]
+    );
     let (err, made) = turn.call(
         "chiefs",
         json!({"action": "create", "display_name": "Docs", "role": "Docs writer"}),

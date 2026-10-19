@@ -70,8 +70,10 @@ fn chiefs(socket: &Path, env: &[(&str, &str)], under_host: bool) -> Output {
         .unwrap()
 }
 
+/// Refused as not the turn, or (a caller under a subagent session) as a subagent.
 fn refused(out: &Output) -> bool {
-    !out.status.success() && String::from_utf8_lossy(&out.stderr).contains(NOT_THE_TURN)
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    !out.status.success() && (stderr.contains(NOT_THE_TURN) || stderr.contains("subagents have no"))
 }
 
 #[test]
@@ -93,7 +95,10 @@ fn a_non_turn_agent_with_the_valid_seal_is_refused() {
     // it), even with the turn's own session name in its env.
     let out = chiefs(
         &socket,
-        &[(TURN_KEY_ENV, &seal), ("ACPMUX_SESSION_NAME", "optchat-home-2079")],
+        &[
+            (TURN_KEY_ENV, &seal),
+            ("ACPMUX_SESSION_NAME", "optchat-home-2079"),
+        ],
         false,
     );
     assert!(refused(&out), "orphan: {out:?}");
@@ -101,7 +106,10 @@ fn a_non_turn_agent_with_the_valid_seal_is_refused() {
     // has no registry, so the call itself then fails for that reason).
     let out = chiefs(
         &socket,
-        &[(TURN_KEY_ENV, &seal), ("ACPMUX_SESSION_NAME", "optchat-home-2079")],
+        &[
+            (TURN_KEY_ENV, &seal),
+            ("ACPMUX_SESSION_NAME", "optchat-home-2079"),
+        ],
         true,
     );
     assert!(!refused(&out), "turn: {out:?}");
@@ -109,7 +117,10 @@ fn a_non_turn_agent_with_the_valid_seal_is_refused() {
     for key in ["", &"0".repeat(64)] {
         let out = chiefs(
             &socket,
-            &[(TURN_KEY_ENV, key), ("ACPMUX_SESSION_NAME", "optchat-home-2079")],
+            &[
+                (TURN_KEY_ENV, key),
+                ("ACPMUX_SESSION_NAME", "optchat-home-2079"),
+            ],
             true,
         );
         assert!(refused(&out), "turn, key {key:?}: {out:?}");

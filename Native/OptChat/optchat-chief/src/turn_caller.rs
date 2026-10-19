@@ -101,15 +101,8 @@ fn parent_pid(pid: i32) -> Option<i32> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
     // SAFETY: `info` is a writable proc_bsdinfo of `size` bytes.
-    let read = unsafe {
-        libc::proc_pidinfo(
-            pid,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            (&raw mut info).cast(),
-            size,
-        )
-    };
+    let read =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
     (read == size).then(|| info.pbi_ppid as i32)
 }
 
