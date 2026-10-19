@@ -313,6 +313,7 @@ public nonisolated struct AgentPaneTunables {
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
             sessionStatus.descriptor,
+            sessionTools.descriptor,
             sidebarPreviewVariant.descriptor,
             sideSessions.descriptor,
             suggestedTasks.descriptor,

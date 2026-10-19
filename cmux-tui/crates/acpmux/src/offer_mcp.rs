@@ -7,20 +7,59 @@
 //! `suggest_tasks` (cx-lo9yf) offers 1 to [`MAX_TASKS`] follow-ups at the end
 //! of a turn: one `_acpmux/offer_session` per task, all with one fresh
 //! `groupId`, which the chat shows as one card.
+//!
+//! The same server has the session tools (`session_mcp.rs`): `start_session`,
+//! `list_sessions`, `read_session`, `send_to_session`. Its env says which sets
+//! it lists: the offer tools unless [`OFFERS_ENV`] is `0` (`agent_tools.rs`
+//! sets it from whether the app shows the chips), the session tools when
+//! [`SESSIONS_ENV`] is `1`.
 
 use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
 pub const SERVER_NAME: &str = "cmux-sessions";
 /// The session that offers, set in this server's own env.
 pub const SESSION_ENV: &str = "ACPMUX_OFFER_SESSION";
 /// Most tasks one `suggest_tasks` call offers.
 pub const MAX_TASKS: usize = 5;
+/// `0` in this server's env: it leaves out `offer_session` and `suggest_tasks`.
+pub const OFFERS_ENV: &str = "ACPMUX_OFFER_TOOLS";
+/// `1` in this server's env: it lists the session tools (`session_mcp.rs`).
+pub const SESSIONS_ENV: &str = "ACPMUX_SESSION_TOOLS";
 
-fn tools() -> Value {
+/// Which tool sets this server lists.
+#[derive(Debug, Clone, Copy)]
+struct Sets {
+    offers: bool,
+    sessions: bool,
+}
+
+impl Sets {
+    fn from_env() -> Self {
+        let var = |key: &str| std::env::var(key).ok();
+        Sets {
+            offers: var(OFFERS_ENV).is_none_or(|v| v != "0"),
+            sessions: var(SESSIONS_ENV).is_some_and(|v| v == "1"),
+        }
+    }
+
+    fn tools(self) -> Value {
+        let mut tools = Vec::new();
+        if self.offers {
+            tools.extend(offer_tools().as_array().cloned().unwrap_or_default());
+        }
+        if self.sessions {
+            tools.extend(crate::session_mcp::tools());
+        }
+        Value::Array(tools)
+    }
+}
+
+fn offer_tools() -> Value {
     json!([{
         "name": "offer_session",
         "description": "Offer the user a new chat, running in parallel, for work you noticed that is outside the task at hand (a bug, a follow-up, a cleanup). cmux shows the offer as a chip in this chat; if the user accepts, a new agent session starts with your prompt (in a new git worktree when worktree is true) while this chat goes on. Returns at once: do not wait for an answer, and do not do that work here. Offer only work the user is likely to want, at most a few per task. Use it for one suggestion in the middle of a turn; for follow-ups at the end of a turn, use suggest_tasks.",
@@ -67,21 +106,33 @@ fn tools() -> Value {
 
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
+    let sets = Sets::from_env();
+    let instructions = sets.sessions.then(|| crate::session_mcp::instructions(sets.offers));
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
-        tools(),
-        |daemon, session, params| async move { call(&daemon, &session, &params).await },
+        sets.tools(),
+        instructions,
+        move |daemon, session, params| async move { call(sets, &daemon, &session, &params).await },
     )
     .await
 }
 
-async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
+async fn call(sets: Sets, daemon: &Arc<Client>, session: &str, params: &Value) -> Value {
     let mut request = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     if !request.is_object() {
         return error_result("arguments must be an object".to_owned());
     }
-    match params["name"].as_str().unwrap_or_default() {
+    let name = params["name"].as_str().unwrap_or_default();
+    if sets.sessions
+        && let Some(result) = crate::session_mcp::call(daemon, session, name, &request).await
+    {
+        return result;
+    }
+    if !sets.offers {
+        return error_result(format!("unknown tool: {name}"));
+    }
+    match name {
         "offer_session" => {
             request["sessionId"] = Value::String(session.to_owned());
             match daemon.request(method::MUX_OFFER_SESSION, request).await {
