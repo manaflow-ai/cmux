@@ -1062,7 +1062,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         # is there (every workflow shares GITHUB_TOKEN's API budget; it ran out on 2026-10-06).
         pr = pr_number(gh, run)
         if pr:
-            existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+            existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") in pr_status.BOTS]
             if not any(MARKER in str(c.get("body") or "") for c in existing):
                 if report.get("conclusion") == "success":
                     write_summary(render_comment(report, ""))
@@ -1075,7 +1075,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: no open pull request at this head"}
     # Only this workflow's own comment: anyone can post one carrying the marker.
     if existing is None:
-        existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+        existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") in pr_status.BOTS]
     current = next((c for c in existing if MARKER in str(c.get("body") or "")), None)
     head = str((pull.get("head") or {}).get("sha") or "")
     if head != report.get("head_sha"):
@@ -1143,7 +1143,7 @@ def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
         return {"pr": pr, "rerun": False, "line": "skipped: not the open pull request's head"}
     # The comments first: without this bot's comment there is nothing to mark, and the pull
     # request is not read.
-    existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+    existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") in pr_status.BOTS]
     if not any(MARKER in str(c.get("body") or "") for c in existing):
         return {"pr": pr, "rerun": False, "line": "nothing to mark"}
     pull = gh.pull(pr)

@@ -21,8 +21,11 @@ existed; that comment is deleted once the section is written, so a pull request 
 does not show both.
 
 Callers off GitHub (bead-autoclose.py, hq's pr-preview) cannot post as github-actions, so
-they dispatch .github/workflows/pr-status.yml, which runs `field` below. `field` builds
-the text from validated values only; no caller can put free text on a pull request.
+they dispatch .github/workflows/pr-status.yml (`dispatch` below), which runs `field`.
+`field` builds the text from validated values only; no caller can put free text on a pull
+request. With CMUX_CI_GITHUB_APP_ID_FILE and CMUX_CI_GITHUB_APP_KEY_FILE set (the files the
+fleet controller already uses for its org App), the dispatch runs as that App with an
+Actions-write-only token; without them it uses gh's own login, which shows only in Actions.
 
 Usage:
   pr_status.py set   --repo R --pr N --section S (--body-file F | --clear) [--legacy MARKER]
@@ -33,18 +36,24 @@ Needs GH_TOKEN or GITHUB_TOKEN with pull-requests: write; GITHUB_API_URL overrid
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import random
 import re
 import os
 import sys
+import subprocess
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Callable, Mapping
 
 MARKER = "<!-- cmux-pr-status -->"
 BOT = "github-actions[bot]"
+# The attribution workflows post with the cmux-bot App's token once vars.CMUX_BOT_APP_ID is set
+# (#20858); its comments are this comment too.
+BOTS = (BOT, "cmux-bot[bot]")
 SECTIONS = ("bead", "review", "preview", "attribution", "checks", "guards", "tour", "receipt")
 TITLE = "**cmux status** <sub>(one comment, edited in place; each line is updated by the job that owns it)</sub>"
 SECTION = re.compile(r"<!-- cmux-pr-status:(?P<key>[a-z-]+) -->\n(?P<text>.*?)\n<!-- /cmux-pr-status:(?P=key) -->",
@@ -121,7 +130,7 @@ def marks(body: str, marker: str) -> bool:
 def bot_comments(comments: list[dict], marker: str) -> list[dict]:
     """This bot's comments marked with marker, oldest first."""
     found = [{"id": c["id"], "body": c.get("body") or ""} for c in comments
-             if (c.get("user") or {}).get("login") == BOT and marks(c.get("body") or "", marker)]
+             if (c.get("user") or {}).get("login") in BOTS and marks(c.get("body") or "", marker)]
     return sorted(found, key=lambda c: int(c["id"]))
 
 
@@ -196,6 +205,52 @@ def section(repo: str, pr: int, key: str, *, api: Api = http_api) -> str | None:
     """The section's current text, or None."""
     found = bot_comments(list_comments(api, repo, pr), MARKER)
     return parse(found[0]["body"]).get(key) if found else None
+
+
+def b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def app_token(app_id: str, key_path: str, repo: str, api: str = "https://api.github.com") -> str:
+    """An installation token of the org App for `repo` that can only dispatch workflows.
+    RS256 through openssl keeps this stdlib-only, as hq's fuzz collector and ci-dash do."""
+    now = int(time.time())
+    head = b64url(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+    body = b64url(json.dumps({"iat": now - 60, "exp": now + 540, "iss": str(app_id)}).encode())
+    signed = subprocess.run(["openssl", "dgst", "-sha256", "-sign", key_path], input=f"{head}.{body}".encode(),
+                            capture_output=True, timeout=10, check=True).stdout
+    jwt = f"{head}.{body}.{b64url(signed)}"
+
+    def call(path: str, payload: dict | None = None) -> dict:
+        request = urllib.request.Request(api + path, method="POST" if payload is not None else "GET",
+                                         data=None if payload is None else json.dumps(payload).encode(),
+                                         headers={"Authorization": "Bearer " + jwt,
+                                                  "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read())
+    installation = call(f"/repos/{repo}/installation")["id"]
+    return call(f"/app/installations/{installation}/access_tokens",
+                {"repositories": [repo.split("/", 1)[1]],
+                 "permissions": {"actions": "write", "metadata": "read"}})["token"]
+
+
+def dispatch(repo: str, pr: int, *, bead: str | None = None, preview: str | None = None,
+             env: dict | None = None, run=subprocess.run, mint=app_token) -> None:
+    """Dispatch pr-status.yml on main for one line; raises RuntimeError when it is not sent."""
+    field_text(bead, preview)  # refuse a bad value here, not in a workflow run
+    env = dict(os.environ if env is None else env)
+    id_file, key_file = env.get("CMUX_CI_GITHUB_APP_ID_FILE", ""), env.get("CMUX_CI_GITHUB_APP_KEY_FILE", "")
+    if id_file or key_file:
+        # The App is configured: use it or fail. Never fall back to a person's login quietly.
+        try:
+            env["GH_TOKEN"] = mint(Path(id_file).read_text().strip(), key_file, repo)
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError, urllib.error.URLError) as error:
+            raise RuntimeError(f"no App token for {repo}: {type(error).__name__}: {str(error)[:160]}") from error
+    args = ["gh", "workflow", "run", "pr-status.yml", "-R", repo, "--ref", "main", "-f", f"pr={pr}"]
+    args += ["-f", f"bead={bead}"] if bead is not None else ["-f", f"preview={preview}"]
+    done = run(args, capture_output=True, text=True, env=env)
+    if done.returncode:
+        raise RuntimeError((done.stderr or done.stdout).strip() or f"gh exited {done.returncode}")
 
 
 def field_text(bead: str | None, preview: str | None) -> tuple[str, str]:
