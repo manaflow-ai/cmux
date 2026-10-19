@@ -147,7 +147,7 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         case .tab(let id): return Self.isResourceID(id, prefix: "tab_")
         case .session(let id, let turn): return Self.isToken(id) && (turn.map(Self.isToken) ?? true)
         case .chiefSession(let home, let session): return Self.isChiefHome(home) && Self.isToken(session)
-        case .agent(let harness, let session): return Self.isHarness(harness) && Self.isToken(session)
+        case .agent(let harness, let session): return Self.isHarness(harness) && Self.isAgentSession(session)
         case .legacyWorkspace, .legacyPane, .legacySurface: return true
         }
     }
@@ -189,9 +189,20 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         }
     }
 
-    /// A display hint (`?host=`, `?name=`): a token of at most 64 characters.
+    /// A display hint (`?host=`, `?name=`): a token of at most 64 characters,
+    /// not only dots.
     static func isHint(_ text: String) -> Bool {
-        shortTokenLengths.contains(text.utf8.count) && isToken(text)
+        shortTokenLengths.contains(text.utf8.count) && isToken(text) && !isOnlyDots(text)
+    }
+
+    /// An agent link's harness session id: a token that is not only dots,
+    /// which a URL path would collapse (`.`, `..`).
+    static func isAgentSession(_ text: String) -> Bool {
+        isToken(text) && !isOnlyDots(text)
+    }
+
+    static func isOnlyDots(_ text: String) -> Bool {
+        text.utf8.allSatisfy { $0 == UInt8(ascii: ".") }
     }
 
     /// An RFC 3986 scheme: a letter, then letters, digits, `+`, `-` or `.`.

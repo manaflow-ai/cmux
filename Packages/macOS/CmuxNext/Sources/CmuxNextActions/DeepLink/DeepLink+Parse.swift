@@ -57,7 +57,7 @@ nonisolated extension DeepLink {
                   isChiefHome(first), isToken(segments[2]) else { return nil }
             return .chiefSession(home: first, session: segments[2])
         case "agent":
-            guard segments.count == 2, fragment == nil, isHarness(first), isToken(segments[1]) else { return nil }
+            guard segments.count == 2, fragment == nil, isHarness(first), isAgentSession(segments[1]) else { return nil }
             return .agent(harness: first, session: segments[1])
         case "session":
             guard segments.count == 1, isToken(first) else { return nil }
