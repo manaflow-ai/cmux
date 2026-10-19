@@ -26,8 +26,7 @@ on:
   pull_request_target:
     branches: [feat-cmux-next]
     types: [opened, reopened, synchronize]
-    # The cmux-tui tree inputs: feat-cmux-next's cmux-tui-artifacts.yml
-    # pull_request_target filter (scripts/cmux-next/cmux-tui-tree-inputs.txt).
+    # The cmux-tui tree inputs (scripts/cmux-next/cmux-tui-tree-inputs.txt).
     # A pull request that changes none of them keeps the base's tree.
     paths:
       - "cmux-tui/**"
