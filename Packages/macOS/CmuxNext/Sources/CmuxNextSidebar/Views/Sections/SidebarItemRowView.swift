@@ -37,6 +37,11 @@ class SidebarItemRowView: NSView {
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
+    /// True: the item acts on mouse-down, as workspace rows do (Home, the App
+    /// Store: `LayoutItemRef.activatesOnPress`); false: on release.
+    var activatesOnPress = false
+    /// The current press already ran the action on mouse-down; its release does not run it again.
+    private var activatedOnPress = false
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
@@ -368,6 +373,8 @@ class SidebarItemRowView: NSView {
         pressLocation = event.locationInWindow
         pressModifiers = event.modifierFlags
         didDrag = false
+        activatedOnPress = activatesOnPress
+        if activatesOnPress { activate(with: pressModifiers) }
     }
 
     /// Past the drag threshold the region reorders in place (R77).
@@ -377,19 +384,25 @@ class SidebarItemRowView: NSView {
         isPressed = false
     }
 
-    /// The item acts on release, like a button: a press that became a drag
-    /// (or left the item first) never opens it. Acting on the press opened
-    /// the App Store, Import and Sync or a new workspace under a tile the
-    /// user only meant to move.
+    /// An item that does not switch on press acts on release, like a button:
+    /// a press that became a drag (or left the item first) never opens it.
+    /// Acting on the press opened launchers or a new workspace under a tile
+    /// the user only meant to move.
     override func mouseUp(with event: NSEvent) {
         let dragged = didDrag
+        let activated = activatedOnPress
         if dragged { onDragEnded?() }
         pressLocation = nil
         didDrag = false
+        activatedOnPress = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
-        guard !dragged, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
-        if let onPressWithModifiers { onPressWithModifiers(pressModifiers) } else { onPress?() }
+        guard !dragged, !activated, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
+        activate(with: pressModifiers)
+    }
+
+    private func activate(with modifiers: NSEvent.ModifierFlags) {
+        if let onPressWithModifiers { onPressWithModifiers(modifiers) } else { onPress?() }
     }
 
     override func rightMouseDown(with event: NSEvent) {
