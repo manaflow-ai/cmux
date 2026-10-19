@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "84cd4c3f33af065e3de184ef0e7620f0a5ee2060ef94477fadee1b71ca92da36";
+inline constexpr std::string_view kProtocolIrSha256 = "c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -561,6 +561,7 @@ struct CloudConversationChangedEvent;
 struct CloudConversationLiveEvent;
 struct CloudConversationResyncedEvent;
 struct CloudConversationRunChangedEvent;
+struct CloudConversationTypingEvent;
 struct CloudInboxChangedEvent;
 struct CloudInboxResetEvent;
 struct CloudMuxResyncedEvent;
@@ -1702,6 +1703,14 @@ struct CloudConversationThreadRequest {
     Field<std::uint32_t> limit{};
     std::string root{};
     friend bool operator==(const CloudConversationThreadRequest&, const CloudConversationThreadRequest&) = default;
+};
+
+struct CloudConversationTypingEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    bool on{};
+    std::string participant{};
+    friend bool operator==(const CloudConversationTypingEvent&, const CloudConversationTypingEvent&) = default;
 };
 
 struct CloudConversationTypingRequest {
@@ -9073,6 +9082,12 @@ template <>
 struct Codec<CloudConversationRunChangedEvent> {
     static Result<Json> encode(const CloudConversationRunChangedEvent& value);
     static Result<CloudConversationRunChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationTypingEvent> {
+    static Result<Json> encode(const CloudConversationTypingEvent& value);
+    static Result<CloudConversationTypingEvent> decode(const Json& value);
 };
 
 template <>

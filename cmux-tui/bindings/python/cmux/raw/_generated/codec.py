@@ -531,6 +531,7 @@ MODEL_BY_PATH = {
     'events/cloud-conversation-live/payload': models.CloudConversationLiveEvent,
     'events/cloud-conversation-resynced/payload': models.CloudConversationResyncedEvent,
     'events/cloud-conversation-run-changed/payload': models.CloudConversationRunChangedEvent,
+    'events/cloud-conversation-typing/payload': models.CloudConversationTypingEvent,
     'events/cloud-inbox-changed/payload': models.CloudInboxChangedEvent,
     'events/cloud-inbox-reset/payload': models.CloudInboxResetEvent,
     'events/cloud-mux-resynced/payload': models.CloudMuxResyncedEvent,

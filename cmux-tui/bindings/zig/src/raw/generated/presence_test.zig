@@ -87,6 +87,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloudConversationLiveEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationResyncedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationRunChangedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudConversationTypingEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxResetEvent, "account");
     try expectExplicitNullRejected(protocol.CloudMuxResyncedEvent, "account");
