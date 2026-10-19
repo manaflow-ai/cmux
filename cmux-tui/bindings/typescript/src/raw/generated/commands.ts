@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8. */
+/* cmux-tui mux protocol 12, IR d6685d20764871f0c31c501adbdac32317c2aaba05737cf58233a0e372edd691. */
 
 
 import type * as T from "./types.js";
@@ -1258,6 +1258,7 @@ export type HomeInboxResult = {
 /** Protocol v5; authority: control. */
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
+  "machine_metadata"?: boolean;
 }
 
 /** Protocol v6; authority: control. */

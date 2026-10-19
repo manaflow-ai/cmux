@@ -204,7 +204,7 @@ final class SidebarListView: NSView {
     /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing
     /// layer-backed view this tall (1,000 rows) gets a visible-rect backing that AppKit marks for
     /// display on every scroll frame; with updateLayer it keeps no bitmap, so a scroll draws nothing here.
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }

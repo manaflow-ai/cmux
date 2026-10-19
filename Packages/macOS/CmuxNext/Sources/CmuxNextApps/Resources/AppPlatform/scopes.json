@@ -9,6 +9,10 @@
       "scope": "actions:run",
       "class": "mutation"
     },
+    "agent_cli.list": {
+      "scope": "agent_cli:read",
+      "class": "read"
+    },
     "agent.list": {
       "scope": "agent:read",
       "class": "read"
