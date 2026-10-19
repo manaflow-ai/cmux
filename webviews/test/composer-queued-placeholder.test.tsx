@@ -2,7 +2,7 @@
 // the empty prompt teaches both keys, as Claude's composer does ("↵ to send, ⌘↵ to queue for
 // later"; Leo 2026-10-18): "↵ to queue, ⌘↵ to steer", or "⌘↵ to interrupt" for an agent that
 // cannot take a prompt mid-turn. The Quick Composer, whose ⌘Return opens the window, says "Queue a
-// follow-up". An idle chat, and a running one whose composer cannot send (blocked), keep the usual
+// follow-up", as does a prompt with only attachments staged (⌘Return needs typed text). An idle chat, and a running one whose composer cannot send (blocked), keep the usual
 // placeholder.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -10,6 +10,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -78,7 +79,7 @@ function Chips() {
 async function render(
   snapshot: AcpmuxSnapshot,
   blocked?: { reason?: never },
-  extra: { onOpenInWindow?: () => void } = {},
+  extra: { onOpenInWindow?: () => void; handle?: React.Ref<ComposerHandle> } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
@@ -131,6 +132,15 @@ test("an agent that cannot steer says ⌘Return interrupts", async () => {
 
 test("the Quick Composer, whose ⌘Return opens the window, only says it queues", async () => {
   await render(steering({ isWorking: true }), undefined, { onOpenInWindow: () => {} });
+  expect(shown()).toBe("Queue a follow-up");
+});
+
+test("with only an attachment staged, ⌘Return has nothing to steer, so it only says it queues", async () => {
+  let handle: ComposerHandle | null = null;
+  await render(steering({ isWorking: true }), undefined, { handle: (value) => void (handle = value) });
+  await act(async () =>
+    handle!.restore("", [{ id: "a", kind: "text", name: "notes.txt", mimeType: "text/plain", size: 5, text: "notes" }]),
+  );
   expect(shown()).toBe("Queue a follow-up");
 });
 
