@@ -467,9 +467,8 @@ RUN chmod 0755 /etc/update-motd.d/00-cmux \
 RUN useradd --non-unique --uid 1000 --gid cmux --no-create-home --home-dir /home/cmux --shell "$(getent passwd cmux | cut -d: -f7)" ubuntu \
   && usermod -p "$(getent shadow cmux | cut -d: -f2)" ubuntu \
   && usermod -G "$(id -nG cmux | xargs -n1 | grep -vx cmux | paste -sd, -)" ubuntu \
-  && echo "cmux ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-cmux-work-user \
-  && echo "ubuntu ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/91-cmux-work-user \
-  && chmod 0440 /etc/sudoers.d/91-cmux-work-user && visudo -cq \
+  && echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/92-cmux-account-alias \
+  && chmod 0440 /etc/sudoers.d/92-cmux-account-alias && visudo -cq \
   && ln -s /home/cmux /home/ubuntu \
   && [ "$(getent passwd 1000 | cut -d: -f1)" = cmux ] && [ "$(id -u ubuntu)" = 1000 ]
 
