@@ -89,6 +89,27 @@
       ],
       "packages": []
     },
+    "CmuxNextAgentIntegrations": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
+    "CmuxNextAgentIntegrationsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentIntegrationsTests",
+      "targets": [
+        "CmuxNextAgentIntegrations",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextAgentLanes": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes",
@@ -158,6 +179,7 @@
         "CmuxNextAgentActivity",
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
+        "CmuxNextAgentIntegrations",
         "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
         "CmuxNextAgentQuestion",
