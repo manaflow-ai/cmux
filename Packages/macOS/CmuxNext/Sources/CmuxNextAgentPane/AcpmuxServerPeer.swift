@@ -42,6 +42,7 @@ nonisolated enum AcpmuxServerPeer {
     enum Refusal: Error, Equatable, CustomStringConvertible {
         case unreachable(String)
         case noPeer
+        case otherUser(uid_t)
         case otherExecutable(String)
         case notTeamSigned
         case closed
@@ -52,6 +53,7 @@ nonisolated enum AcpmuxServerPeer {
             switch self {
             case .unreachable(let why): "nothing answers on the socket (\(why))"
             case .noPeer: "the socket's peer process is unknown"
+            case .otherUser(let uid): "the socket's peer runs as uid \(uid), not this user"
             case .otherExecutable(let path): "the socket's peer is \(path), not the acpmux this app runs"
             case .notTeamSigned: "the socket's peer is not signed by this app's team"
             case .closed: "the daemon closed the connection"
@@ -242,9 +244,11 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     /// The check on a connected unix socket.
-    static func check(descriptor: Int32, executable: URL, allowForeign: Bool = false) -> Result<Match, Refusal> {
+    static func check(descriptor: Int32, executable: URL, allowForeign: Bool = false,
+                      expectedUID: uid_t = getuid()) -> Result<Match, Refusal> {
         // The peer's facts on this very descriptor (UnixSocketPeer, shared with the CUA client).
         guard let peer = UnixSocketPeer(descriptor: descriptor) else { return .failure(.noPeer) }
+        guard peer.uid == expectedUID else { return .failure(.otherUser(peer.uid)) }
         let own = peer.runs(executable)
         // DEV (ad hoc): the path alone decides; another install is never accepted.
         guard let team = ownTeam else { return own ? .success(.own) : .failure(.otherExecutable(peer.executablePath)) }

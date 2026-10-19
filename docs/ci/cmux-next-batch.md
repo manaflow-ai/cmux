@@ -10,10 +10,18 @@ Open a PR into `feat-cmux-next` and let the queue land it. You don't stack, reba
 - Its head commit is less than 5 days old.
 - GitHub doesn't report it as conflicting with feat-cmux-next. One that does waits for its owner to merge feat-cmux-next, instead of taking a batch slot.
 - It doesn't change `.github/workflows/`. Those PRs land by hand.
-- No check is red outside the heavy tier, except web formatting (`web / react-apps-check`, `web / Web status`) on a PR that changes `webviews/`. Before landing such a PR, the queue runs `bun run check:fix` (formatter and lint autofix) on its head in `regen-linux` and pushes the fix to its branch. That push happens only for a batch author's PR; an opted-in PR by anyone else keeps its red check. gh-merge-green then waits for the rerun.
+- coord-2 doesn't land it itself: every `manaflow-ai/cmux|<pr>|...` entry in the `CMUX_NEXT_BATCH_EXCLUDE` file (coord-2's merge-ready list) stays out. That file exists only on the coordinator's host, so an Actions batch never lands; it validates and posts receipts.
+- No check is red outside the heavy tier, except web formatting (`web / react-apps-check`, `web / Web status`) on a PR that changes `webviews/`. Before landing such a PR, the queue runs `bun run check:fix` (formatter and lint autofix) on its head in `regen-linux` and pushes the fix to its branch. That push happens only for a batch author's PR; an opted-in PR by anyone else keeps its red check. The formatted head is new, so it lands in a later batch once its checks rerun and it's reviewed.
 - Pending checks are fine. The heavy tier is swift test, the Release and scheme compiles, daemon tests, generated files and the cmux-tui wait. The batch runs it once on the stack, so the PR's own copy may be red or still running.
 
 To keep a PR out, add `hold`. A PR the queue dropped at its current head stays out until you push.
+
+### Overrides
+
+Two labels change what the queue does, but only when a login in `CMUX_NEXT_BATCH_OVERRIDERS` (default `lawrencecchen`; never `teamleaderleo`, the login every lane uses) applied them after the PR's head commit. A label from before a push says nothing about the new code.
+
+- `queue: land alone`: the next batch validates and lands this PR on its own, ahead of the others, once per head.
+- `queue: known base red`: a red check outside the heavy tier doesn't keep the PR out of a batch. Landing still goes through gh-merge-green, which lands it only when that red also fails the same way on feat-cmux-next (its base-red excuse).
 
 ## One batch
 
@@ -30,11 +38,20 @@ To keep a PR out, add `hold`. A PR the queue dropped at its current head stays o
    - Any other conflict drops that PR from the batch and comments on it.
 3. **Validate once.** The stack is pushed to `next-batch/<run>-<n>`. `cmux-next.yml` is dispatched there, and every tier runs. If the stack changes cmux-tui, `cmux-tui-artifacts.yml` is also dispatched on a `cmux-tui-pin-*` ref. At the same time, a mini submits a fleet `--production` build of the stack. A job that is red on feat-cmux-next itself doesn't count against the batch. Failed jobs get one rerun before any PR is blamed.
 4. **Land or bisect.**
-   - Green: each PR lands after a comment that links the batch. The queue's own `--land` uses `gh-merge-green --squash` (main's copy), and `--override` names the batch run when the PR's own heavy check is red.
+   - Green: each PR whose exact head was independently reviewed lands after a comment that links the batch. Landing stops at the first PR that doesn't land (refused, formatted, pushed meanwhile), so what lands is always a validated prefix of the stack; the rest wait for the next batch. See [Review gate](#review-gate) for which PRs are stacked at all. The queue's own `--land` uses `gh-merge-green --squash` (main's copy), and `--override` names the batch run when the PR's own heavy check is red.
    - Red: the batch tests prefixes of the stack by halving. The last PR of the smallest red prefix is the culprit. It gets a comment with the failing jobs, and the batch reruns without it, for at most 3 culprits per batch.
 5. **Report.** The job summary, and the sticky comment on `CMUX_NEXT_BATCH_STICKY` when set (an HQ issue), list each PR's outcome, every validation with its wall time, the heavy-tier run and the build link.
 
 In the workflow, pushes and merges use the `CMUX_NEXT_BATCH_APP_ID` App's token, which needs contents, workflows and pull-requests write. GitHub refuses the job token any branch based on feat-cmux-next. After landing, the batch dispatches `cmux-next.yml` and `cmux-tui-artifacts.yml` on feat-cmux-next, plus the next batch.
+
+## Review gate
+
+Every PR is independently reviewed before it merges, and the queue keeps that rule. It lands a PR only when one of these approves the exact head it validated:
+
+- `CMUX_NEXT_BATCH_REVIEWED`: a file of `<pr> <sha>` lines, written by the reviewer (coord-2 today). `#` starts a comment. The file counts only when this user owns it and nobody else can write it. Every lane on that host is this user too, so the file shows the reviewer's intent rather than proving it; it rests on coord-2 being its only writer.
+- A `review/independent` commit status with state `success`, created by a login in `CMUX_NEXT_BATCH_REVIEWERS`. Only a login no lane runs as can mean anything here, such as a review App or bot.
+
+A push makes a new head that neither names, so approval never carries over. When the queue lands, it stacks only reviewed heads, so the stack it validates is exactly what lands; an unreviewed PR waits, with no comment, and joins the batch after its review. The merge is pinned to the validated head (`--match-head-commit`), and a head the queue formatted waits for its own validation and review. With neither source configured, or in a batch that may not land (Actions without coord-2's list, `--no-land`), the queue still validates, but each PR gets a `validated` note instead of a receipt, so it isn't held out of a later batch that can land it. Only a receipt-only `serve` posts receipts, which tell later batches the owner lands that head.
 
 ## Serving locally
 
@@ -67,6 +84,10 @@ python3 scripts/ci/next_batch.py stack --prs "17505 17508" --no-regen --worktree
 | Setting | Use |
 | --- | --- |
 | `CMUX_NEXT_BATCH_ENABLED` (variable) | `1` turns the debounce dispatch on |
+| `CMUX_NEXT_BATCH_REVIEWED` (env, serve) | file of reviewed `<pr> <sha>` lines; the review gate |
+| `CMUX_NEXT_BATCH_REVIEWERS` (variable or env) | logins whose `review/independent` status approves a head |
+| `CMUX_NEXT_BATCH_OVERRIDERS` (variable or env) | logins whose override labels count (default `lawrencecchen`) |
+| `CMUX_NEXT_BATCH_EXCLUDE` (env, serve) | file whose PR numbers coord-2 lands itself |
 | `CMUX_NEXT_BATCH_APP_ID` (variable), `CMUX_NEXT_BATCH_APP_KEY` (secret) | the App that pushes stacks and merges |
 | `CMUX_FLEET_CONTROLLER` (variable) | the build controller URL the mini's build job submits to |
 | `CMUX_NEXT_BATCH_STICKY` (variable) | `owner/repo#issue` for the sticky report |
