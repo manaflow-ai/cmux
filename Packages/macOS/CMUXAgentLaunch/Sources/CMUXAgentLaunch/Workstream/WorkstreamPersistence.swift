@@ -482,7 +482,7 @@ public actor WorkstreamPersistence {
             let nsError = error as NSError
             if nsError.domain == NSCocoaErrorDomain,
                nsError.code == NSFileNoSuchFileError {
-                // The revision sidecar still needs to be removed below.
+                // The revision sidecar is intentionally preserved below.
             } else {
                 throw error
             }
