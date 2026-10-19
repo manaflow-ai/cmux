@@ -80,6 +80,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
+    /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
+    case projectIcon(String)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -124,7 +126,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// (once per document).
     case painted
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
-    /// or `dictation.openSettings` with `{permission}`.
+    /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.

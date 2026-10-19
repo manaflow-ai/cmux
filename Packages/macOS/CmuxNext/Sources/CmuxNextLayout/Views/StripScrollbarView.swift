@@ -80,7 +80,7 @@ final class StripScrollbarView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// Thumb thickness and the track inset from the band's bottom.
     static var thickness: CGFloat { Metrics.space2 }

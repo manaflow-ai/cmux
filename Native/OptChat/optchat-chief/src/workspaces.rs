@@ -205,15 +205,17 @@ pub fn link_subagents(
                 }
             }
             b'a' if i == 0
+                || emphasis_before(b, i)
                 || !(word(b[i - 1])
                     || matches!(b[i - 1], b'/' | b'.' | b'-' | b':' | b'#' | b'@')) =>
             {
                 let end = i + 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
                 let id = &text[i..end];
                 let bounded = end > i + 1
-                    && !(end < b.len()
-                        && (word(b[end])
-                            || (b[end] == b'.' && b.get(end + 1).is_some_and(|c| word(*c)))));
+                    && (emphasis_after(b, end)
+                        || !(end < b.len()
+                            && (word(b[end])
+                                || (b[end] == b'.' && b.get(end + 1).is_some_and(|c| word(*c))))));
                 if bounded
                     && is_id(id)
                     && let Some(link) = link_of(id)
@@ -229,6 +231,19 @@ pub fn link_subagents(
     }
     out.push_str(&text[copied..]);
     out
+}
+
+/// Whether `b[..i]` ends with a `_`/`__` emphasis opener (`_a1_`, `__a1__`), not snake_case
+/// (`foo_a1`): the underscores follow the start, a space or punctuation.
+fn emphasis_before(b: &[u8], i: usize) -> bool {
+    let run = b[..i].iter().rev().take_while(|c| **c == b'_').count();
+    (1..=3).contains(&run) && (run == i || !b[i - run - 1].is_ascii_alphanumeric())
+}
+
+/// Whether `b[end..]` starts with a `_`/`__` emphasis closer (`_a1_`), not snake_case (`a1_x`).
+fn emphasis_after(b: &[u8], end: usize) -> bool {
+    let run = b[end..].iter().take_while(|c| **c == b'_').count();
+    (1..=3).contains(&run) && b.get(end + run).is_none_or(|c| !c.is_ascii_alphanumeric())
 }
 
 /// A subagent id: `a` and 1 to 6 digits, no leading zero.
@@ -338,6 +353,44 @@ impl Workspaces for AppWorkspaces {
     }
 }
 
+/// The sidebar group every subagent workspace goes into (Lawrence
+/// 2026-10-18: "use groups more aggressively so that you can organize and
+/// the user feels less overwhelmed"). A fixed id makes the create
+/// idempotent: the daemon answers the stored group for the same id and name.
+pub const AGENTS_GROUP_ID: &str = "chief-agents";
+/// The name the group is made with; the user may rename it.
+pub const AGENTS_GROUP_NAME: &str = "Chief agents";
+/// The daemon capability of workspace groups.
+const GROUPS: &str = "workspace-groups-v1";
+
+/// Puts `workspace` in the Chief agents group, making the group first. A
+/// create refused because the user renamed the group still moves the
+/// workspace into it; only a failed move is an error.
+fn group_workspace(
+    client: &mut cmux::raw::Client,
+    workspace: u64,
+    key: &str,
+) -> Result<(), String> {
+    use cmux::raw::{CreateWorkspaceGroupRequest, MoveWorkspaceToGroupRequest, Optional};
+    let _ = client.create_workspace_group(CreateWorkspaceGroupRequest {
+        collapsed: None,
+        color: Optional::Missing,
+        group: Optional::Value(AGENTS_GROUP_ID.to_owned()),
+        index: Optional::Missing,
+        name: AGENTS_GROUP_NAME.to_owned(),
+    });
+    client
+        .move_workspace_to_group(MoveWorkspaceToGroupRequest {
+            workspace: Optional::Value(workspace),
+            group: Optional::Value(AGENTS_GROUP_ID.to_owned()),
+            mutation_id: Optional::Value(format!("optchat-subagent-group-{key}")),
+            origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
+            ..Default::default()
+        })
+        .map(|_| ())
+        .map_err(|e| format!("move-workspace-to-group: {e}"))
+}
+
 /// A host without a cmux app (an always-on brain on a server): each
 /// subagent's workspace is made in this host's OWN session daemon. The
 /// subagent runs on this machine, so its workspace belongs to this machine's
@@ -373,12 +426,13 @@ impl Workspaces for DaemonWorkspaces {
         const TABS: &str = "agent-session-tabs-v1";
         let mut client = self.client()?;
         // Refused before any write: a workspace without its chat tab helps no one.
-        let supported = client.identify_server().map(|info| {
-            info.capabilities
-                .unwrap_or_default()
-                .iter()
-                .any(|c| c == TABS)
-        });
+        let capabilities = client
+            .identify_server()
+            .map(|info| info.capabilities.unwrap_or_default());
+        let groups = capabilities
+            .as_ref()
+            .is_ok_and(|caps| caps.iter().any(|c| c == GROUPS));
+        let supported = capabilities.map(|caps| caps.iter().any(|c| c == TABS));
         match supported {
             Ok(true) => {}
             Ok(false) => {
@@ -402,6 +456,12 @@ impl Workspaces for DaemonWorkspaces {
                 })
                 .map_err(|e| format!("create-workspace: {e}"))?
                 .workspace;
+            if groups {
+                // Best effort: a sidebar group never fails the subagent's start.
+                if let Err(e) = group_workspace(&mut client, workspace, &key) {
+                    eprintln!("optchat: subagent workspace {key} stays ungrouped: {e}");
+                }
+            }
             let placement = client
                 .create_terminal(CreateTerminalRequest {
                     workspace: Optional::Value(workspace),
@@ -513,11 +573,14 @@ fn rename_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
     let result = client
         .rename_workspace(RenameWorkspaceRequest {
             expected_generation: Optional::Missing,
+            expected_name_revision: Optional::Missing,
             expected_revision: Optional::Missing,
             key: Optional::Value(key.to_owned()),
             mutation_id: Optional::Missing,
             name: name.to_owned(),
             origin: Optional::Missing,
+            release: None,
+            source: Optional::Missing,
             workspace: Optional::Missing,
         })
         .map(|_| ())

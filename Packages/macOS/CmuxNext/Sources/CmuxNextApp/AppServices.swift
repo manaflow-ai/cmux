@@ -4,17 +4,22 @@ import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextChromiumWarmup
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextPages
+import CmuxNextPopups
 import CmuxNextBrowserImport
+import CmuxNextPhoneAccess
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
+import CmuxNextWorkspaceRepair
 import os
 /// Process-wide services the window controllers share. Model state is not
 /// here: the daemon owns it, windows own their local state.
@@ -50,14 +55,13 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
-    /// Phone access; started by the account layer once signed in.
-    let mobile = MobileHostService()
+    let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
@@ -74,8 +78,7 @@ final class AppServices {
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
     let input = InputVerificationService()
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
-    /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind.
-    /// The daemon owns the closed history itself (`DaemonClosedHistory`).
+    /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
@@ -128,6 +131,8 @@ final class AppServices {
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
     let newTabTypeAhead = NewTabTypeAhead()
+    /// Home's first-run Switching card: Hide memory and the Mission Control check.
+    let homeSwitchKeys = HomeSwitchKeysSource()
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
     /// The spare React page hosts for Settings, History and Cloud.
@@ -170,8 +175,8 @@ final class AppServices {
     var borderObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
-    /// Sized browser popups (OAuth, payment) in floating panels.
-    let popups: BrowserPopupPanels
+    /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
+    let popups: BrowserPopupWindows
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
     /// Click by Hint over the whole window (`hints.show`, Cmd-J).
@@ -190,8 +195,7 @@ final class AppServices {
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
-    /// Internal page tabs (Settings, Debug Settings, the App Store).
-    let pages = InternalPageTabStore()
+    let pages = InternalPageTabStore()  // internal page tabs (Settings, Debug Settings, the App Store)
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
@@ -217,7 +221,7 @@ final class AppServices {
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupPanels(contextMenus: contextMenus)
+        popups = BrowserPopupWindows(contextMenus: contextMenus)
         self.environment = environment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
@@ -280,6 +284,7 @@ final class AppServices {
         keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
+        cache.onTerminalConfirmed = { [weak self] tab, daemon in self?.terminalConfirmed(tab, on: daemon) }
         cache.onBrowserEntryCreated = { [registry, weak self] entry in
             guard let self else { return }
             PageInfoHandlers.installRouter(on: entry, registry: registry)

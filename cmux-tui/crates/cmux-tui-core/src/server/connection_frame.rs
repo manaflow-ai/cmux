@@ -2,6 +2,9 @@
 //! dispatch with its cancellation, and the VT-state command reply. Moved out of
 //! server.rs unchanged (cx-6so.3).
 
+#[cfg(unix)]
+mod machine_catalog;
+
 use super::*;
 
 /// One frame of a connection. `transport` is the connection's own value
@@ -76,7 +79,14 @@ pub(super) fn handle_connection_frame(
     #[cfg(unix)]
     if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
+        .or_else(|| agent_inventory::try_handle(mux, client, message, writer))
+        .or_else(|| agent_cli_job::try_handle(mux, client, message, writer))
+        .or_else(|| agent_inventory::watch::try_handle(mux, client, message, writer))
     {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = machine_catalog::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     #[cfg(unix)]
