@@ -208,7 +208,7 @@ async fn outgoing_revocation_closes_reassigned_identities_and_rotated_keys() {
             "team" => fresh.peers[0].team = "other-team".into(),
             "key" => {
                 fresh.peers[0].public_key =
-                    base64::engine::general_purpose::STANDARD.encode([3; 32])
+                    base64::engine::general_purpose::STANDARD.encode([3; 32]);
             }
             _ => unreachable!(),
         }

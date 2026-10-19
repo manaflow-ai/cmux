@@ -359,7 +359,7 @@ async fn a_revoke_closes_the_daemon_stream_before_removing_its_wireguard_peer() 
 }
 
 #[tokio::test]
-async fn outgoing_revocation_delivers_a_close_across_two_real_meshes() {
+async fn outgoing_revocation_and_endpoint_updates_work_across_two_real_meshes() {
     let a = node("inst_a").await;
     let b = node("inst_b").await;
     let (a_udp, b_udp) = (a.socket.local_addr().unwrap(), b.socket.local_addr().unwrap());
@@ -392,6 +392,10 @@ async fn outgoing_revocation_delivers_a_close_across_two_real_meshes() {
         stream.read_line(&mut line).await.unwrap();
         assert_eq!(line, "hello\n");
         stream.get_mut().write_all(b"answer\n").await.unwrap();
+        line.clear();
+        stream.read_line(&mut line).await.unwrap();
+        assert_eq!(line, "after-endpoint-update\n");
+        stream.get_mut().write_all(line.as_bytes()).await.unwrap();
         let mut rest = Vec::new();
         tokio::io::AsyncReadExt::read_to_end(&mut stream, &mut rest).await.unwrap();
         rest
@@ -425,6 +429,16 @@ async fn outgoing_revocation_delivers_a_close_across_two_real_meshes() {
     line.clear();
     within(caller.read_line(&mut line)).await.unwrap();
     assert_eq!(line, "answer\n");
+
+    // Clearing a configured endpoint keeps the route authenticated traffic
+    // already established; it must not abort this stream during peer sync.
+    pairings_b.peers[0].endpoint = None;
+    pairings_b.save(&path_b).unwrap();
+    within(peers_b.reload(&*overlay_b)).await.unwrap();
+    caller.get_mut().write_all(b"after-endpoint-update\n").await.unwrap();
+    line.clear();
+    within(caller.read_line(&mut line)).await.unwrap();
+    assert_eq!(line, "after-endpoint-update\n");
 
     Pairings::default().save(&path_b).unwrap();
     let closed = async {
