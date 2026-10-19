@@ -36,6 +36,7 @@ if [[ ! -d "$APP_PATH/Contents" ]]; then
   echo "error: app bundle not found at $APP_PATH" >&2
   exit 1
 fi
+APP_PATH="$(cd "$APP_PATH" && pwd)"
 
 # This script runs code from the bundle. It refuses to run while a CI signing
 # keychain exists and gives the app no signing or publishing credentials.
@@ -105,9 +106,10 @@ cleanup() {
     # shellcheck source=SCRIPTDIR/lib/stop-cmux-tui-owners.sh
     source "$(dirname "${BASH_SOURCE[0]}")/lib/stop-cmux-tui-owners.sh"
     cmux_stop_cmux_tui_owners "$APP_PATH/Contents/Resources/bin"
-    # --canary started the bundle's acpmux daemon with this run's home.
-    if [[ "$CANARY" == 1 ]]; then
-      pkill -f "^$APP_PATH/Contents/Resources/bin/acpmux " 2>/dev/null || true
+    # --canary started the bundle's acpmux daemon with this run's home; stop
+    # it (and its test agents) through that home, as TagTeardown does.
+    if [[ "$CANARY" == 1 && -d "$ACPMUX_HOME_DIR" ]]; then
+      ACPMUX_HOME="$ACPMUX_HOME_DIR" "$APP_PATH/Contents/Resources/bin/acpmux" daemon shutdown --end-agents >/dev/null 2>&1 || true
     fi
   fi
   if [[ $status -ne 0 ]]; then
@@ -266,7 +268,7 @@ if [[ "$CANARY" == 1 ]]; then
   crashes="$(find "$HOME/Library/Logs/DiagnosticReports" -newer "$CRASH_MARKER" \
     \( -name "${EXECUTABLE_NAME}*.ips" -o -name "${EXECUTABLE_NAME}*.crash" -o -name 'cmux*.ips' -o -name 'acpmux*.ips' \) 2>/dev/null || true)"
   if [[ -n "$crashes" ]]; then
-    for c in $crashes; do echo "== $c" >&2; head -c 4000 "$c" >&2; echo >&2; done
+    while IFS= read -r c; do echo "== $c" >&2; head -c 4000 "$c" >&2; echo >&2; done <<<"$crashes"
     fail "a crash report was written in the first ${CANARY_SECONDS}s"
   fi
   echo "ok: up ${CANARY_SECONDS}s after launch with no crash report"

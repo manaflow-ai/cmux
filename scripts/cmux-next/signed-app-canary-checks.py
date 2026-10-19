@@ -68,8 +68,10 @@ def tabs(node):
 
 
 def visible_window(socket_path):
-    windows = snapshot(socket_path).get("windows") or []
-    return next((w for w in windows if w.get("isVisible", w.get("is_visible"))), None)
+    # snapshot.get answers {topology: {windows: [{id, visible, ...}], workspaces: [...]}}
+    # (ControlTopology+JSON.swift); `cmux window list` reads the same list.
+    windows = (snapshot(socket_path).get("topology") or {}).get("windows") or []
+    return next((w for w in windows if w.get("visible") is True), None)
 
 
 def main(argv=None):

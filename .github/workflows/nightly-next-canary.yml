@@ -101,7 +101,9 @@ jobs:
     permissions:
       contents: read
     outputs:
-      verdict: ${{ steps.run.outputs.verdict }}
+      # pass, fail or skipped; `fail` also when the feed's DMG fails its
+      # Gatekeeper, ticket or build-number check (a download error is none).
+      verdict: ${{ steps.run.outputs.verdict || steps.broken.outputs.verdict }}
     env:
       BUILD: ${{ needs.pick.outputs.build }}
       DMG_URL: ${{ needs.pick.outputs.url }}
@@ -179,18 +181,27 @@ jobs:
           echo "::error title=nightly-next canary::build $BUILD failed the canary twice"
           exit 1
 
+      - name: Record a broken DMG
+        id: broken
+        if: failure() && steps.app.outcome == 'failure'
+        run: |
+          echo "verdict=fail" >> "$GITHUB_OUTPUT"
+          echo "::error title=nightly-next canary::the feed's DMG for build $BUILD failed its Gatekeeper, ticket or build-number check"
+
       - name: Detach the DMG
         if: always() && steps.app.outputs.app != ''
         run: hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
 
       - name: Record the verdict
-        if: always() && github.event_name == 'schedule' && (steps.run.outputs.verdict == 'pass' || steps.run.outputs.verdict == 'fail' || steps.run.outputs.verdict == 'skipped')
+        if: always() && github.event_name == 'schedule' && (steps.run.outputs.verdict != '' || steps.broken.outputs.verdict != '')
+        env:
+          VERDICT: ${{ steps.run.outputs.verdict || steps.broken.outputs.verdict }}
         run: |
           mkdir -p canary-verdict
-          echo "${{ steps.run.outputs.verdict }}" > canary-verdict/verdict
+          echo "$VERDICT" > canary-verdict/verdict
 
       - name: Save the verdict
-        if: always() && github.event_name == 'schedule' && (steps.run.outputs.verdict == 'pass' || steps.run.outputs.verdict == 'fail' || steps.run.outputs.verdict == 'skipped')
+        if: always() && github.event_name == 'schedule' && (steps.run.outputs.verdict != '' || steps.broken.outputs.verdict != '')
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: canary-verdict
@@ -220,19 +231,24 @@ jobs:
             -f bad_build="$BUILD" -f reason="build $BUILD failed the nightly canary: $RUN_URL"
           echo "requested the pull of build $BUILD"
 
+      # Also when the dispatch failed: the issue then says the build is still up.
       - name: Open or comment on the canary issue
+        if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD: ${{ needs.pick.outputs.build }}
-          PULLED: ${{ steps.pull.outcome == 'success' }}
+          PULL: ${{ steps.pull.outcome }}
           MODE: ${{ vars.NIGHTLY_NEXT_CANARY || 'report' }}
         with:
           script: |
             const title = 'nightly-next canary failed';
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const action = process.env.PULLED === 'true'
+            const pull = `\`gh workflow run nightly-next-rollback.yml -R manaflow-ai/cmux --ref nightly-next -f bad_build=${process.env.BUILD} -f reason="canary"\``;
+            const action = process.env.PULL === 'success'
               ? 'The pull of this build off the feed was requested (nightly-next-rollback.yml).'
-              : `NIGHTLY_NEXT_CANARY is \`${process.env.MODE}\`, so the build stays on the feed. Pull it: \`gh workflow run nightly-next-rollback.yml -R manaflow-ai/cmux --ref nightly-next -f bad_build=${process.env.BUILD} -f reason="canary"\``;
+              : process.env.PULL === 'failure'
+                ? `Requesting the pull FAILED, so the build is still on the feed. Pull it: ${pull}`
+                : `NIGHTLY_NEXT_CANARY is \`${process.env.MODE}\`, so the build stays on the feed. Pull it: ${pull}`;
             const body = `cmux NEXT build ${process.env.BUILD} failed the canary twice: ${run}\n\n${action}`;
             const open = await github.paginate(github.rest.issues.listForRepo, { ...context.repo, state: 'open', per_page: 100, creator: 'github-actions[bot]' });
             const issue = open.find(i => i.title === title && !i.pull_request);
