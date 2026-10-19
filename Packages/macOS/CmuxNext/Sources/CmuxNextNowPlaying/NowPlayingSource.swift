@@ -9,6 +9,13 @@ public import CmuxNextSidebar
 public protocol NowPlayingSource: AnyObject {
     var nowPlaying: SidebarNowPlaying? { get }
     func perform(_ command: SidebarNowPlayingCommand)
+    /// Keeps the source reading while the card is on (another app's Now Playing streams only
+    /// then); most sources read nothing of their own and ignore it.
+    func run(_ on: Bool)
+}
+
+extension NowPlayingSource {
+    public func run(_ on: Bool) {}
 }
 
 extension NowPlayingSource {
@@ -21,13 +28,27 @@ extension NowPlayingSource {
 
 extension SidebarModel {
     /// Shows `source` on the Now Playing card while `enabled` (the App passes
-    /// `labs.previewFeatures`: a preview feature until it ships).
+    /// `sidebar.nowPlaying.enabled`, on by default).
+    /// The source runs while `enabled` (`NowPlayingSource.run`), and the New Tab page's player
+    /// shows the same track (`NewTabNowPlaying`).
     public func followNowPlaying(_ source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool) -> Task<Void, Never> {
         Task { [weak self] in
-            for await nowPlaying in ObservationStream({ enabled() ? source.nowPlaying : nil }) {
+            for await followed in ObservationStream({ enabled() ? NowPlayingFollowed.on(source.nowPlaying) : .off }) {
                 guard let self else { return }
-                if self.nowPlaying != nowPlaying { self.nowPlaying = nowPlaying }
+                source.run(followed != .off)
+                if self.nowPlaying != followed.nowPlaying { self.nowPlaying = followed.nowPlaying }
+                NewTabNowPlaying.show(followed.nowPlaying, from: source)
             }
         }
+    }
+}
+
+/// What the card follows: nothing while it is off, else what plays (nil while nothing does).
+nonisolated enum NowPlayingFollowed: Equatable, Sendable {
+    case off
+    case on(SidebarNowPlaying?)
+
+    var nowPlaying: SidebarNowPlaying? {
+        if case .on(let nowPlaying) = self { nowPlaying } else { nil }
     }
 }
