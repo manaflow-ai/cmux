@@ -318,6 +318,25 @@ jobs:
           # Assert on an AGENT shot at the top level (_diag/*.png are diagnostics).
           ls /tmp/streamed-ci/*.png >/dev/null 2>&1 || { echo "::error::no streamed screenshot was captured (capture rc=$CAP_RC); see _diag artifacts"; exit 1; }
 
+      - name: Verify live Agent Chat
+        # This is the production iOS Agent Chat route, not the deterministic
+        # UITest preview. The streamed step above leaves a resumed Claude
+        # process attached to a real Mac workspace; this step sends one unique
+        # prompt through the phone and waits for the provider transcript and
+        # rendered assistant response to converge.
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          export PATH="/tmp/idbvenv/bin:$HOME/.bun/bin:$PATH"
+          SIM_ID="$(xcrun simctl list devices booted -j | python3 -c 'import json, sys; data = json.load(sys.stdin); matches = [device["udid"] for runtime in data.get("devices", {}).values() for device in runtime if device.get("name") == "iPhone 17 Pro Max"]; sys.exit("no booted iPhone 17 Pro Max simulator found") if not matches else print(matches[0])')"
+          mkdir -p /tmp/streamed-ci/agent-chat
+          python3 ios/scripts/capture-agent-chat-live.py \
+            --tag cistream \
+            --sim-id "$SIM_ID" \
+            --out /tmp/streamed-ci/agent-chat \
+            --provider claude
+
       - name: Upload validation artifacts
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
