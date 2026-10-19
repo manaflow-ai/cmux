@@ -37,6 +37,9 @@ class Member(Protocol):
 def group_of(labels: Iterable[str]) -> str | None:
     """The PR's group: its `batch:<name>` label. Two such labels is no group
     (the PR is held until one is removed), so it is never landed twice."""
+    labels = list(labels)
+    if conflicting_groups(labels):
+        return None
     names = sorted({label[len(GROUP_PREFIX):] for label in labels
                     if label.startswith(GROUP_PREFIX) and label[len(GROUP_PREFIX):].strip()})
     return names[0] if len(names) == 1 else None
