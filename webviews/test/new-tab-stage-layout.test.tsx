@@ -90,7 +90,13 @@ const actions = async () => {
 };
 
 const sessions = () => [
-  session({ sessionId: "s-input", title: "Ship the release notes", indicator: "input", cwd: "/Users/you/src/app", updatedAt: Date.now() - 60_000 }),
+  session({
+    sessionId: "s-input",
+    title: "Ship the release notes",
+    indicator: "input",
+    cwd: "/Users/you/src/app",
+    updatedAt: Date.now() - 60_000,
+  }),
   session({ sessionId: "s-idle", title: "Index the docs", cwd: "/Users/you/src/app", updatedAt: Date.now() - 120_000 }),
 ];
 

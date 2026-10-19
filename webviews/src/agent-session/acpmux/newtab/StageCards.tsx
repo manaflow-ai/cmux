@@ -181,7 +181,12 @@ export function SuggestionsCard({
               </span>
               <span className="nt-stage-text">{nt("create.terminal")}</span>
             </button>
-            <button type="button" className="nt-stage-row nt-tool" data-create="browser" onClick={() => onCreate("browser")}>
+            <button
+              type="button"
+              className="nt-stage-row nt-tool"
+              data-create="browser"
+              onClick={() => onCreate("browser")}
+            >
               <span className="nt-stage-icon" aria-hidden="true">
                 <Icon name="browser" size={14} />
               </span>

@@ -65,7 +65,9 @@ function Chips() {
   return <span className="acpmux-chips">Claude Opus 5.5</span>;
 }
 
-async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot; template?: "default" | "threads" } = {}) {
+async function mount(
+  options: { machineName?: string; snapshot?: AcpmuxSnapshot; template?: "default" | "threads" } = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());

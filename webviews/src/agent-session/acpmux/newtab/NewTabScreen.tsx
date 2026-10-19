@@ -239,7 +239,8 @@ export function NewTabScreen(props: Props) {
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
   // input, or one that hit an error or lost its agent.
   const needsYou = useMemo(
-    () => (stage ? cards.filter((card) => card.state === "input" || card.state === "error" || card.state === "failed") : []),
+    () =>
+      stage ? cards.filter((card) => card.state === "input" || card.state === "error" || card.state === "failed") : [],
     [stage, cards],
   );
   const openCard = (id: string) => {
