@@ -788,14 +788,14 @@
     },
     "appearance.metrics.tabMinActiveWidth" : {
       "description" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.",
-      "maximum" : 200,
+      "maximum" : 320,
       "minimum" : 32,
       "title" : "Minimum Selected Tab Width",
       "type" : "number"
     },
     "appearance.metrics.tabMinInactiveWidth" : {
       "description" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.",
-      "maximum" : 120,
+      "maximum" : 320,
       "minimum" : 16,
       "title" : "Minimum Tab Width",
       "type" : "number"
@@ -2383,6 +2383,12 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
+    },
+    "sidebar.nowPlaying.enabled" : {
+      "default" : true,
+      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "title" : "Show Now Playing",
+      "type" : "boolean"
     },
     "sidebar.numbering" : {
       "default" : "allItems",

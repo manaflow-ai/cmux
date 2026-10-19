@@ -28,6 +28,7 @@ public struct TabChromeVisibility: Hashable, Sendable {
         isPinned: Bool,
         isSelected: Bool,
         isHovered: Bool,
+        isClosable: Bool = true,
         style: TabStripStyle,
         metrics: TabStripMetrics = .standard
     ) -> TabChromeVisibility {
@@ -39,11 +40,13 @@ public struct TabChromeVisibility: Hashable, Sendable {
         if width + 0.5 < min(metrics.minInactiveTabWidth, metrics.chrome.minInactiveWidth) { return .hidden }
         let contents = width - metrics.contentLeadingInset - metrics.contentTrailingInset
         let roomy = contents >= metrics.closeMinContentsWidth
-        let showsClose: Bool
+        let wantsClose: Bool
         switch style {
-        case .chrome: showsClose = isSelected ? (isHovered || !roomy) : (isHovered && roomy)
-        case .compact: showsClose = isHovered
+        case .chrome: wantsClose = isSelected ? (isHovered || !roomy) : (isHovered && roomy)
+        case .compact: wantsClose = isHovered
         }
+        // A tab that cannot close (Home's tab, `pinned-dock-v1`) never shows its x.
+        let showsClose = wantsClose && isClosable
         var available = contents
         if showsClose { available -= metrics.closeButtonSize + metrics.titleCloseSpacing }
         // The selected tab drops its icon when the x leaves no room;
@@ -69,11 +72,13 @@ public struct TabChromeVisibility: Hashable, Sendable {
         isPinned: Bool,
         isSelected: Bool,
         isHovered: Bool,
+        isClosable: Bool = true,
         style: TabStripStyle,
         metrics m: TabStripMetrics = .standard
     ) -> [TabChromeVisibility] {
         let rest = widths.map {
-            resolve(width: $0, isPinned: isPinned, isSelected: isSelected, isHovered: isHovered, style: style, metrics: m)
+            resolve(width: $0, isPinned: isPinned, isSelected: isSelected, isHovered: isHovered, isClosable: isClosable,
+                    style: style, metrics: m)
         }
         guard !isPinned, let end = rest.last else { return rest }
         let contents = widths.map { $0 - m.contentLeadingInset - m.contentTrailingInset }

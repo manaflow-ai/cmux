@@ -92,17 +92,11 @@ extension NotificationCenterService {
     /// Sets the Dock tile's unread count. Compares with the label it set
     /// last: reading `dockTile.badgeLabel` asks the Dock and can block.
     func updateDockBadge(_ count: Int) {
+        dockAttention.unreadChanged(count)
         let label = preferences.dockBadge && count > 0 ? String(count) : nil
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
         NSApp.dockTile.badgeLabel = label
-    }
-
-    /// Bounces the Dock icon for an alert that arrived while cmux was inactive
-    /// (`notifications.dockBounce`): once, or until the user switches to cmux.
-    func bounceDock(_ mode: DockBounceMode?) {
-        guard let mode, !NSApp.isActive else { return }
-        NSApp.requestUserAttention(mode == .untilActive ? .criticalRequest : .informationalRequest)
     }
 
     /// The handoff driver over the local daemon and this Mac's install
