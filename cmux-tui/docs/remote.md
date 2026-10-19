@@ -86,6 +86,28 @@ cmux-tui remote enroll disconnect <device-id> <session-id> --session dev
 
 Revocation closes an enrolled device's live sessions and rejects its key in the future. Carrier sessions have synthetic `carrier:*` device IDs and no persistent device record, so use `connections` followed by `disconnect` for a live carrier session. Other devices remain connected. Every enrolled device has full daemon authority, including all workspaces.
 
+## Decide what paired machines may do here
+
+Enrollment says two machines belong to the same user. It doesn't say what one may do on the other. Each machine keeps its own trust record for every peer, keyed by the peer's device fingerprint, and a peer without a record gets nothing.
+
+```sh
+cmux remote trust set FINGERPRINT --tier folders --folder ~/src/api --agent claude
+cmux remote trust set FINGERPRINT --tier ask --folder ~/src/api --agent claude --agent codex --expires-in-hours 24
+cmux remote trust list --json
+cmux remote trust forget FINGERPRINT
+cmux remote trust audit --limit 20
+```
+
+| Tier | The peer may |
+| --- | --- |
+| `none` | Nothing. Same as no record. |
+| `ask` | Request a session for a listed agent in a listed folder; each request waits for approval on this machine. |
+| `folders` | Start sessions for listed agents in listed folders without asking. |
+
+Folders are stored resolved through symlinks. A request's working directory is resolved too, so a link inside an allowed folder can't lead out of it, and a stored folder that's later replaced by a symlink admits nothing. `/`, the home folder and any folder above it can't be allowed. Records are written to `peer-trust.json` (updated under a lock) and requests to the append-only `peer-audit.jsonl` (rotated to `.1` past 4 MiB; oversized peer fields are cut, never dropped), both owner-only files in the remote state root (`--state-dir`, `CMUX_REMOTE_STATE_DIR`, or the platform default). A peer can't change them. There's no shell tier: opening a terminal for a peer needs its own design and review.
+
+Nothing remote consults these records yet. The next step, `machine.session.request`, will admit or refuse through them and log every decision ([design](../../docs/multi-machine-sessions.md#per-host-trust)).
+
 ## Connect directly or over SSH
 
 Connect through any route printed by the daemon:

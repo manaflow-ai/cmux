@@ -103,6 +103,7 @@ fn run_inner(
         Some("remote-sidecar") => run_remote_sidecar(&args[1..]),
         Some("remote-stop") => run_remote_stop(&args[1..]),
         Some("remote-doctor") => crate::remote_doctor::run(&args[1..]),
+        Some("remote-trust") => crate::remote_trust::run(&args[1..]),
         Some("install-self") => run_install_self(&args[1..]),
         Some("wg") => run_wg(&args[1..]),
         Some("remote") => Err(anyhow!(catalog().remote_client.remote_lifecycle_help)),
@@ -156,6 +157,11 @@ fn remote_help_requested(args: &[String]) -> bool {
         "--destination",
         "--user",
         "--timeout-seconds",
+        "--tier",
+        "--folder",
+        "--agent",
+        "--expires-in-hours",
+        "--limit",
     ];
 
     let mut index = 0;
@@ -198,6 +204,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("remote-link") => client.remote_link_help,
         Some("remote-stop") => catalog().remote.remote_stop_help,
         Some("remote-doctor") => client.remote_doctor_help,
+        Some("remote-trust") => catalog().peer_trust.help,
         Some("install-self") => client.install_self_help,
         Some("wg") => client.wg_hub_help,
         Some("remote") => client.remote_lifecycle_help,
