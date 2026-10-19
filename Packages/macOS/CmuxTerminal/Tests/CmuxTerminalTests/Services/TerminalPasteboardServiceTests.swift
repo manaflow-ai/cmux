@@ -611,3 +611,56 @@ struct ImageMaterializationTests {
         )
     }
 }
+
+// An OSC 52 write with an empty payload (`ESC ] 52 ; c ; BEL`) reaches the
+// write callback as one empty text/plain item. Programs on a remote host send
+// it (Leo hit it over ssh during `gh auth refresh`), and writing it would wipe
+// whatever the user had copied on this Mac.
+@MainActor
+@Suite("Empty clipboard writes")
+struct EmptyClipboardWriteTests {
+    private func makeService() -> (TerminalPasteboardService, ScratchPasteboard, ScratchPasteboard) {
+        let standard = ScratchPasteboard()
+        let selection = ScratchPasteboard()
+        let service = TerminalPasteboardService(
+            standardPasteboard: standard.pasteboard,
+            selectionPasteboard: selection.pasteboard
+        )
+        return (service, standard, selection)
+    }
+
+    @Test(arguments: [GHOSTTY_CLIPBOARD_STANDARD, GHOSTTY_CLIPBOARD_SELECTION])
+    func emptyWriteKeepsWhatTheUserCopied(location: ghostty_clipboard_e) throws {
+        let (service, _, _) = makeService()
+        let board = try #require(service.pasteboard(for: location))
+        let copied = "copied-\(UUID().uuidString)"
+        service.writeString(copied, to: location)
+        #expect(board.string(forType: .string) == copied)
+
+        service.writeRepresentations([.init(mimeType: "text/plain", string: "")], to: location)
+        service.writeString("", to: location)
+
+        #expect(board.string(forType: .string) == copied)
+    }
+
+    @Test func emptyPlainTextIsDroppedFromAMixedWrite() throws {
+        let (service, standard, _) = makeService()
+        let html = "<b>kept</b>"
+        service.writeRepresentations(
+            [
+                .init(mimeType: "text/plain", string: ""),
+                .init(mimeType: "text/html", string: html),
+            ],
+            to: GHOSTTY_CLIPBOARD_STANDARD
+        )
+        #expect(standard.pasteboard.string(forType: .html) == html)
+        #expect(standard.pasteboard.string(forType: .string) == nil)
+    }
+
+    @Test func nonEmptyWriteStillReplacesTheClipboard() throws {
+        let (service, standard, _) = makeService()
+        service.writeString("first", to: GHOSTTY_CLIPBOARD_STANDARD)
+        service.writeString("XXXX-XXXX", to: GHOSTTY_CLIPBOARD_STANDARD)
+        #expect(standard.pasteboard.string(forType: .string) == "XXXX-XXXX")
+    }
+}
