@@ -280,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
                 lapsed = lapsed_at(freeze, now)
                 if lapsed is None:
                     continue
-                state = "lapsed" if not freeze.problems else "was never active (" + "; ".join(freeze.problems) + ") and is past"
+                state = "lapsed" if not freeze.problems else "isn't active (" + "; ".join(freeze.problems) + ") and is past"
                 print(f"closing #{freeze.number}: {state} {lapsed:%Y-%m-%d %H:%MZ}")
                 if not args.dry_run:
                     gh("issue", "close", str(freeze.number), "--repo", args.repo, "--comment",
@@ -308,7 +308,8 @@ def main(argv: list[str] | None = None) -> int:
     # timestamp, say). Still unknown, not frozen.
     except (subprocess.CalledProcessError, OSError, KeyError, ValueError, TypeError, AttributeError) as error:
         detail = getattr(error, "stderr", "") or error
-        print(f"cannot read merge freezes for {args.repo}#{args.pr}: {detail}".strip(), file=sys.stderr)
+        target = f"{args.repo}#{args.pr}" if args.mode == "check" else args.repo
+        print(f"cannot read merge freezes for {target}: {detail}".strip(), file=sys.stderr)
         return 2
     for freeze in freezes:
         if freeze.problems:

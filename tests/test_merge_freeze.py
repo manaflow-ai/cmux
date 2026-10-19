@@ -177,6 +177,19 @@ class FreezeTests(unittest.TestCase):
                                       "--issues-file", str(issues), "--events-file", "/dev/null"])
         self.assertEqual(status, 2)
 
+    def test_list_and_expire_report_an_unreadable_list_as_status_2(self):
+        with tempfile.TemporaryDirectory() as directory:
+            issues = Path(directory) / "issues.json"
+            issues.write_text(json.dumps([{"number": 1, "created_at": None, "labels": [{"name": "merge-freeze"}]}]))
+            original = freeze.open_freezes
+            freeze.open_freezes = lambda repo, issues_file=None: original(repo, str(issues))
+            try:
+                for mode in (["list"], ["expire", "--dry-run"]):
+                    with self.subTest(mode=mode[0]), redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+                        self.assertEqual(freeze.main([*mode, "--repo", "x/y"]), 2)
+            finally:
+                freeze.open_freezes = original
+
     def test_an_unreadable_freeze_list_is_status_2_not_clear(self):
         with tempfile.TemporaryDirectory() as directory:
             files = Path(directory) / "files.txt"
