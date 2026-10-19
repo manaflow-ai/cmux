@@ -306,7 +306,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const invalid = patchError(patch, validModelName)
     if (invalid) return { ok: false, code: "validation.invalid", message: invalid }
     // Claude bills one person's metered account: allowed owners only, and never for background compaction.
-    const refused = modelRefusal(this.env, owner, patch)
+    // Turning the brain on (from off) checks the model it would run on (the patch's, else the current one), so an
+    // owner off the paid list cannot enable a Chief whose model is paid only to be refused at its first turn. A save
+    // that repeats enabled:true on a Chief already on is not refused for it (its turns say why they cannot run).
+    const turningOn = patch.enabled === true && !cur.enabled && patch.model === undefined
+    const refused = modelRefusal(this.env, owner, turningOn ? { ...patch, model: cur.model } : patch)
     if (refused) return refused
     if (patch.enabled === true) {
       const record = await chiefRecord(this.env, owner, agent)

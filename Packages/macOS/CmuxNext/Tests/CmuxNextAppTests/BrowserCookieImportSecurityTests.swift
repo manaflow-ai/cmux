@@ -1,6 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextBrowserImport
-@testable import CmuxNextApp
+import CmuxNextCookieImport
 import Foundation
 import Testing
 
@@ -10,7 +10,7 @@ import Testing
             name: "session", value: "test-value", domain: "accounts.example.com",
             secure: true, httpOnly: true
         )
-        let hostOnlyWrite = try #require(AppCookieDestination.write(for: hostOnly))
+        let hostOnlyWrite = try #require(ChromiumCookieDestination.write(for: hostOnly))
         #expect(hostOnlyWrite.url.host == "accounts.example.com")
         #expect(hostOnlyWrite.domain.isEmpty)
 
@@ -18,7 +18,7 @@ import Testing
             name: "preference", value: "test-value", domain: ".example.com",
             secure: true
         )
-        let domainWrite = try #require(AppCookieDestination.write(for: domain))
+        let domainWrite = try #require(ChromiumCookieDestination.write(for: domain))
         #expect(domainWrite.url.host == "example.com")
         #expect(domainWrite.domain == ".example.com")
     }

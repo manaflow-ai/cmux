@@ -1145,7 +1145,7 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
             Err(ConnectError::Unavailable(_)) => Ended::Dropped,
             Ok(mut wire) => {
                 stream.on_connect();
-                pump(
+                let ended = pump(
                     inner,
                     &target,
                     &mut stream,
@@ -1153,7 +1153,13 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                     wire.as_mut(),
                     &session,
                     &mut backoff,
-                )
+                );
+                // The owner's `off` for anyone still typing could only come
+                // on this socket.
+                for event in stream.typing_ended() {
+                    inner.emit(event.with_account(account));
+                }
+                ended
             }
         };
         match ended {
