@@ -55,6 +55,8 @@ nonisolated enum Strings {
     static var pasteAndSearch: String { String(localized: "browser.omnibar.pasteAndSearch", defaultValue: "Paste and Search", bundle: .module) }
     static var newTab: String { String(localized: "browser.tab.new", defaultValue: "New Tab", bundle: .module) }
     static var notSecure: String { String(localized: "browser.address.notSecure", defaultValue: "Not Secure", bundle: .module) }
+    /// Accessibility label of a popup window's read-only address field.
+    static var popupAddress: String { String(localized: "browser.popup.address", defaultValue: "Address", bundle: .module) }
 
     // Find
     static var findPlaceholder: String { String(localized: "browser.find.placeholder", defaultValue: "Find in page", bundle: .module) }

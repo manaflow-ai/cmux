@@ -9,7 +9,7 @@ import { RETRY_MS } from "./memory.ts"
 import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
-import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
+import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, msOr, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
 
 /**
  * The turn loop of a ChiefBrainDO (brain-do.ts): a wake queues messages, the drain admits and opens one
@@ -31,14 +31,14 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   const reading = readConversation(b.doEnv, w.conversation, chiefPrincipal(w.agent, w.owner))
   reading.catch(() => undefined)
   const a = await b.admitted(w.agent, w.owner, false)
-  if (!a.ok) return { skipped: a.reason }
+  if (!a.ok) return skip(b, w, a.reason)
   // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and the team's meter warm up.
   if (isMetered(a.config.model)) b.doCtx.waitUntil(b.turns(w.owner).warm().catch(() => undefined))
   if (isClaude(a.config.model)) b.doCtx.waitUntil(claudeAuthFor(b.doEnv, b.holder).catch(() => undefined))
   b.doCtx.waitUntil(b.harness.pi().catch(() => undefined))
   b.doCtx.waitUntil(creditsCanStart(b.doEnv, a.config).catch(() => undefined))
   const view = await reading
-  if ("refused" in view) return { skipped: view.refused }
+  if ("refused" in view) return skip(b, w, view.refused)
   // A conversation this brain never read starts at the wake: older history is not answered.
   const cursor = b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? w.seq - 1
   let queued = 0
@@ -63,6 +63,23 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   if (queued > 0 && b.turnLive && b.turnId && b.turnConversation === w.conversation) await b.steerQueued(w.conversation)
   b.kick()
   return { queued }
+}
+
+/**
+ * A skipped wake: when no brain answers the woken message (archived Chief, owner or conversation
+ * unreachable or refused), the Chief's typing goes off now, so a client that shows "Thinking…" from
+ * the send ends it. (A turn refused later, for the daily limit or credits, is drain's.) Not when
+ * another brain may answer (this brain is off: a server-placed Chief's brain is off here) or the
+ * object serves another Chief.
+ */
+const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
+const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string }, reason: string): { skipped: string } => {
+  // A turn that runs, messages that wait for one, or a reply that waits to post in this conversation keep their indicator.
+  const busy =
+    (b.turnLive && b.turnConversation === w.conversation) ||
+    b.sql.exec(`SELECT 1 FROM cb_inbox WHERE conversation = ? AND state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE conversation = ? AND post = 'pending' LIMIT 1`, w.conversation, w.conversation).toArray().length > 0
+  if (!OTHER_BRAIN.has(reason) && !busy) b.doCtx.waitUntil(typing(b.doEnv, w.conversation, w.agent, false))
+  return { skipped: reason }
 }
 
 /**
@@ -158,7 +175,9 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
       // Not answered (off, archived, placed, over the limit): the wakes are acked so the queue stays bounded.
       b.sql.exec(`UPDATE cb_inbox SET state = 'skipped' WHERE state = 'queued' AND conversation = ?`, woken.conversation)
       console.warn(JSON.stringify({ msg: "chief_brain.turn_refused", reason: a.reason }))
+      // The notice may post nothing (one per hour, or it failed): the typing goes off either way.
       if (a.reason === "credits_exhausted") await creditsNotice(b.doEnv, cfg, woken.conversation)
+      if (cfg.agent && !OTHER_BRAIN.has(a.reason)) await typing(b.doEnv, woken.conversation, cfg.agent, false)
       if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(b.doEnv, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
       continue
     }
@@ -168,7 +187,8 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     // A failing or rate-limited compactor costs no wait (the turn goes at once on the last view plus the whole messages).
     markPending(b.sql, "admitted")
     const healthy = !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
-    const fresh = healthy ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(SETTLE_MS)) : b.memory.first() >= b.memory.len()
+    const settleMs = msOr(b.doEnv.CHIEF_BRAIN_SETTLE_MS, SETTLE_MS)
+    const fresh = healthy && settleMs > 0 ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(settleMs)) : b.memory.first() >= b.memory.len()
     markPending(b.sql, "settled")
     // Messages that came during the wait ride along (the same conversation's queue, read again).
     const all = b.sql

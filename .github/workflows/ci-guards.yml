@@ -1098,6 +1098,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
 
+      - name: Validate the cmux-next tour drops stale prebuilt modules when a binary pin changes
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_media_module_cache_stamp.py
+
       - name: Validate feat-cmux-next publishes its cmux-tui tree before the daemon tests
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_feat_publish_order.py
@@ -1179,6 +1183,10 @@ jobs:
       - name: Validate the nightly-next guard
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
+
+      - name: Validate the nightly-next feed rollback
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_feed_rollback.py
 
       - name: Validate the nightly-next arm64-only track
         if: ${{ matrix.group == 'release-notary' }}
