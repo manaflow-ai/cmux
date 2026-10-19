@@ -106,6 +106,7 @@ extension TabCell {
     /// Re-adds `animation` with Chrome's ease-in curve (`Tween::EASE_IN`).
     private static func easeIn(_ animation: CAAnimation, on layer: CALayer, key: String) {
         guard let copy = animation.copy() as? CABasicAnimation else { return }
+        // motion-allow: Chrome's Tween::EASE_IN on a copy of a Motion.set animation (its duration and Reduce Motion stay Motion's)
         copy.timingFunction = CAMediaTimingFunction(name: .easeIn)
         layer.add(copy, forKey: key)
     }
