@@ -307,7 +307,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, base="feat-cmux-next"):
         gh = Path(directory) / "gh"
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
@@ -327,9 +327,9 @@ class InstalledHelperRegression(unittest.TestCase):
         gh.write_text(
             "#!/bin/sh\n"
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
-            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"" + base + "\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
-            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"isCrossRepository\":" + json.dumps(is_cross_repository) + ",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"" + base + "\",\"state\":\"OPEN\",\"isCrossRepository\":" + json.dumps(is_cross_repository) + ",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' \"$*\" >> \"$MERGE_ARGS_LOG\"; printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
@@ -1014,7 +1014,7 @@ class FreezeRegression(unittest.TestCase):
     def ok_by(self, login):
         return [{"event": "labeled", "label": {"name": "freeze-ok"}, "actor": {"login": login}}]
 
-    def run_with(self, directory, issues, changed_files, *, events=(), extra_args=(), issues_text=None):
+    def run_with(self, directory, issues, changed_files, *, events=(), extra_args=(), issues_text=None, base="feat-cmux-next"):
         directory = Path(directory)
         issues_path = directory / "freeze-issues.json"
         issues_path.write_text(issues_text if issues_text is not None else json.dumps(issues))
@@ -1028,7 +1028,7 @@ class FreezeRegression(unittest.TestCase):
         try:
             marker = directory / "merged"
             result = InstalledHelperRegression.run_helper(
-                self, str(directory), marker, changed_files=changed_files, extra_args=extra_args)
+                self, str(directory), marker, changed_files=changed_files, extra_args=extra_args, base=base)
         finally:
             for name, value in saved.items():
                 if value is None:
@@ -1097,6 +1097,15 @@ class FreezeRegression(unittest.TestCase):
                 directory, [self.freeze(13, "docs/frozen/", branch="main")], ("docs/frozen/a.md",))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
+
+    def test_a_main_merge_checks_freezes_too(self):
+        # The WINDOW check ran only for feat-cmux-next; a freeze issue covers every base.
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with(
+                directory, [self.freeze(16, "docs/frozen/", branch="main")], ("docs/frozen/a.md",), base="main")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("#16", result.stderr)
 
     def test_override_does_not_lift_a_freeze(self):
         with tempfile.TemporaryDirectory() as directory:

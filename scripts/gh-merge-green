@@ -756,24 +756,20 @@ fi
 # A merge stops at a frozen path: an open merge-freeze issue names the paths,
 # an owner and an expiry, and only that owner's freeze-ok label on the PR lets
 # it through (docs/ci/merge-freeze.md). --override never lifts a freeze, and a
-# freeze state that cannot be read refuses. The renamed-from side of a rename
-# counts, so moving a file out of a frozen directory touches it too.
-if changed_entries=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[] | [.filename, (.previous_filename // "")] | @tsv' 2>/dev/null); then
-  changed=$(cut -f1 <<<"$changed_entries")
-  freeze_paths=$(tr '\t' '\n' <<<"$changed_entries" | sed '/^$/d')
-else
+# freeze state that cannot be read refuses. merge_freeze.py lists the changed
+# files itself, with both ends of a rename, and refuses a list GitHub cut short.
+if ! changed=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
   if ! changed=$(graphql_changed_files); then
-    refuse "not merged: cannot list changed files for $ref to check freezes" 'restore GitHub API access or GraphQL access, then retry'
+    refuse "not merged: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry'
   fi
-  freeze_paths="$changed"
   echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
 fi
-freeze_args=(check --repo "$repo" --pr "$num" --base "$base" --files /dev/stdin)
+freeze_args=(check --repo "$repo" --pr "$num" --base "$base")
 if [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
-  freeze_args+=(--issues-file "${GH_MERGE_GREEN_FREEZE_ISSUES:-/dev/null}" --events-file "${GH_MERGE_GREEN_FREEZE_EVENTS:-/dev/null}")
+  freeze_args+=(--files /dev/stdin --issues-file "${GH_MERGE_GREEN_FREEZE_ISSUES:-/dev/null}" --events-file "${GH_MERGE_GREEN_FREEZE_EVENTS:-/dev/null}")
 fi
 freeze_status=0
-frozen=$(python3 "$script_dir/ci/merge_freeze.py" "${freeze_args[@]}" <<<"$freeze_paths") || freeze_status=$?
+frozen=$(python3 "$script_dir/ci/merge_freeze.py" "${freeze_args[@]}" <<<"$changed") || freeze_status=$?
 if [ "$freeze_status" -eq 1 ]; then
   refuse \
     "not merged: $ref touches frozen paths: $(printf '%s\n' "$frozen" | paste -sd ';' - | sed 's/;/; /g')" \
