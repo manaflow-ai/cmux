@@ -252,9 +252,9 @@ class PullRequest:
         return f"#{self.number}"
 
 
-# PRs per open_prs page. Each carries files and checks; 100 in one query
+# PRs per open_prs page. Each carries files, checks and label events; 100 in one query
 # times out at GitHub (HTTP 504).
-PRS_PAGE = 30
+PRS_PAGE = 15
 PRS_QUERY = """
 query($owner: String!, $name: String!, $base: String!, $first: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
