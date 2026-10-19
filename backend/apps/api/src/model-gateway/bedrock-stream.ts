@@ -39,6 +39,8 @@ export interface BedrockBodyOptions {
   readonly dropped?: (what: string) => void
   /** Prompt cache TTL for every cache mark (default "1h"; "5m" keeps Bedrock's default). */
   readonly ttl?: string
+  /** Blocks of the first user message to mark (chief-brain/cache-prefix.ts: where an earlier request wrote, and the view's last whole block); else the 5a rule. */
+  readonly cacheBlocks?: ReadonlyArray<number>
 }
 /** Anthropic allows at most this many cache marks per request. */
 const MAX_MARKS = 4
@@ -52,9 +54,11 @@ const MAX_MARKS = 4
  * adaptive Claude; the Chatmux route drops it).
  *
  * Cache: every cache mark gets the TTL (default 1 h, so the system prompt and the memory prefix
- * survive between turns), and the first user message gets one more mark at the end of its last
- * stable view piece (the block before the view's growing tail and the new messages; memory.ts
- * cutAtMarks) when the request has room for it.
+ * survive between turns). Bedrock reads an entry only at a mark (no look-back), so the request also
+ * marks where earlier requests wrote: a later call of the same turn marks the previous call's end;
+ * the first user message gets the brain's marks (`cacheBlocks`: the earlier turn's entry it reads,
+ * the view's last whole block it writes), or without them the 5a rule. The tools mark goes when a
+ * mark needs its place (the system mark after it covers the tools as well).
  */
 export const bedrockBody = (raw: string, opts: BedrockBodyOptions = {}): string => {
   try {
@@ -71,8 +75,9 @@ export const bedrockBody = (raw: string, opts: BedrockBodyOptions = {}): string 
     const messages = Array.isArray(body.messages) ? (body.messages as Array<Msg>) : []
     const system: Array<Block> = typeof body.system === "string" ? [{ type: "text", text: body.system }] : Array.isArray(body.system) ? (body.system as Array<Block>) : []
     for (const m of messages.filter((x) => x.role === "system")) system.push(...(typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content.filter((b) => b.type === "text")))
-    // The active effort is the last system message's output_config (pi-ai's mid-conversation effort).
-    const effort = [...messages].reverse().find((m) => m.role === "system" && m.output_config !== undefined)?.output_config as { effort?: unknown } | undefined
+    // The active effort is the last system message's output_config (pi-ai's mid-conversation effort), else the
+    // body's own output_config (a call with no system messages, as the compactor's completeSimple).
+    const effort = ([...messages].reverse().find((m) => m.role === "system" && m.output_config !== undefined)?.output_config ?? body.output_config) as { effort?: unknown } | undefined
     const plain = messages.filter((x) => x.role !== "system").map(({ output_config: _drop, ...m }) => m)
     out.messages = plain
     if (system.length > 0) out.system = system
@@ -80,7 +85,7 @@ export const bedrockBody = (raw: string, opts: BedrockBodyOptions = {}): string 
     const thinking = body.thinking as { type?: string; display?: unknown } | undefined
     if (thinking?.type === "adaptive") out.thinking = { type: "adaptive", ...(opts.effort === true && typeof thinking.display === "string" ? { display: thinking.display } : {}) }
     if (opts.effort === true && typeof effort?.effort === "string" && out.thinking) out.output_config = { effort: effort.effort }
-    markCache(out, opts.ttl ?? "1h")
+    markCache(out, opts.ttl ?? "1h", opts.cacheBlocks)
     return JSON.stringify(out)
   } catch {
     return raw
@@ -100,16 +105,45 @@ const marksOf = (v: unknown): Array<Block> => {
   return found
 }
 
-const markCache = (out: Record<string, unknown>, ttl: string): void => {
-  const first = (out.messages as Array<Msg>).find((m) => m.role === "user")
-  const blocks = Array.isArray(first?.content) ? first.content : []
-  // [frozen view blocks..., "</chat>" block, delta blocks...] (OptChat 5a): the mark goes on the
-  // frozen view's end, which stays byte-identical until the next re-render; the request's end mark
-  // (the client's) reads the previous turn's entry by look-back.
-  const prefix = blocks.find((b) => b.type === "text" && typeof b.text === "string" && b.text.endsWith("</chat>"))
+const MARKABLE = new Set(["text", "image", "tool_result"])
+
+const markCache = (out: Record<string, unknown>, ttl: string, hinted?: ReadonlyArray<number>): void => {
+  const users = (out.messages as Array<Msg>).filter((m) => m.role === "user")
+  const blocks = Array.isArray(users[0]?.content) ? users[0].content : []
   const marks = marksOf([out.system, out.tools, out.messages])
-  if (prefix && prefix.type === "text" && prefix.cache_control === undefined && marks.length < MAX_MARKS) marks.push(Object.assign(prefix, { cache_control: { type: "ephemeral" } }))
-  else if (prefix && prefix.cache_control === undefined) console.warn(JSON.stringify({ msg: "bedrock_body.view_mark_skipped", marks: marks.length }))
+  const add = (b: Block | undefined, why: string) => {
+    if (!b || !MARKABLE.has(b.type) || b.cache_control !== undefined) return
+    if (marks.length >= MAX_MARKS) {
+      // The tools mark is redundant with the system mark after it: it gives its place first.
+      const tool = Array.isArray(out.tools) ? (out.tools as Array<Block>).find((t) => t.cache_control !== undefined) : undefined
+      if (tool) [delete tool.cache_control, marks.splice(marks.indexOf(tool), 1)]
+    }
+    if (marks.length < MAX_MARKS) marks.push(Object.assign(b, { cache_control: { type: "ephemeral" } }))
+    else console.warn(JSON.stringify({ msg: "bedrock_body.view_mark_skipped", why, marks: marks.length }))
+  }
+  // The brain's marks go on the first user message (the view) on every call of a turn, the write mark first:
+  // the header lists it before the read mark, so a full request keeps the entry the next turn reads.
+  const [write, ...reads] = hinted ?? []
+  if (write !== undefined) add(blocks[write], "brain write mark")
+  // The previous call ended at the user message just before the last assistant message (a message steered in
+  // after that assistant message does not move it).
+  const msgs = out.messages as Array<Msg>
+  let last = -1
+  for (let k = msgs.length - 1; k >= 0; k--) if (msgs[k]!.role === "assistant") ((last = k), (k = -1))
+  let prev: Msg | undefined
+  for (let k = last - 1; k >= 0; k--) if (msgs[k]!.role === "user") ((prev = msgs[k]), (k = -1))
+  // (pi-ai marked that message's last block on the previous call, so this call reads its whole prefix there.)
+  if (prev && Array.isArray(prev.content)) add(prev.content[prev.content.length - 1], "previous call")
+  // The read mark is inside an entry already written on a later call: only the first call needs it.
+  if (last < 0) for (const k of reads) add(blocks[k], "brain read mark")
+  if (write === undefined && last < 0) {
+    // [frozen view blocks..., "</chat>" block, delta blocks...] (OptChat 5a): the mark goes where the previous
+    // turn's request ended: its newest user block, the second to last user block of the delta. With no earlier
+    // user block (the turn after a re-render), it goes on the frozen view's end.
+    const end = blocks.findIndex((b) => b.type === "text" && typeof b.text === "string" && b.text.endsWith("</chat>"))
+    const delta = end < 0 ? [] : blocks.slice(end + 1).filter((b) => b.type === "text" && /^\d+\+1\|user: /.test(b.text ?? ""))
+    add(delta.length >= 2 ? delta[delta.length - 2] : end >= 0 ? blocks[end] : undefined, "5a")
+  }
   if (ttl === "5m") return
   for (const b of marks) b.cache_control = { ...(b.cache_control as object), type: "ephemeral", ttl }
 }

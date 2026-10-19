@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
+import CmuxNextFocus
 /// The one key dispatcher (plans/cmux-next/keybindings.md section 4,
 /// focus.md section 5). It decides every key-down of every cmux window in
 /// `CmuxApplication.sendEvent` (``interceptKeyDown(_:in:)``), before any
@@ -207,7 +208,7 @@ final class KeyRouter: BrowserKeyRouting {
         // 1. The input method's keys reach it undecided (menus keep their rule).
         if Self.belongsToInputMethod(event, facts: facts) { return false }
         decided.add(event)
-        let focus = controller.focus.state
+        let focus = controller.focus.currentState()
         let context = keyContext(for: focus, facts: facts)
         // 2. A chord.
         if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
@@ -243,6 +244,8 @@ final class KeyRouter: BrowserKeyRouting {
 
     private func run(_ candidate: Candidate, context: KeyContext, window: String) {
         lastInterception = (candidate.id, window, true)
+        // A New Tab key predicts a browser tab: warm Chromium before its tab opens (ChromiumWarmup).
+        if candidate.id.rawValue.hasPrefix("newTab") { services?.chromiumWarmup.tabSignal(.newTabKey) }
         let ran: Bool
         switch candidate.source {
         case .registry(let argument):

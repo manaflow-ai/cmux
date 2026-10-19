@@ -23,7 +23,11 @@ public struct TabStripDebug {
     /// `[id, x, width, opacity]` in the tab row, and the strip's width; nil for another view.
     public static func motionSample(_ view: NSView) -> [String: [Any]]? {
         guard let strip = view as? TabStripView else { return nil }
-        return ["tabs": strip.cells.map { [$0.key.rawValue, Double($0.value.frame.minX), Double($0.value.frame.width), Double($0.value.layer.opacity)] as [Any] },
+        // What shows on this frame: the presentation layer, with every Core Animation move in flight.
+        return ["tabs": strip.cells.map { id, cell in
+            let shown = cell.layer.presentation() ?? cell.layer
+            return [id.rawValue, Double(shown.frame.minX), Double(shown.frame.width), Double(shown.opacity)] as [Any]
+        },
                 "strip": [Double(strip.bounds.width)]]
     }
 }

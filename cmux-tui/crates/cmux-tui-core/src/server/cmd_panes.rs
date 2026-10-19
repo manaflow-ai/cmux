@@ -331,7 +331,7 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
     let mut value = json!({
-        "layout": node_json(&screen.root, screen.active_pane),
+        "layout": node_json(&screen.root, screen.active_pane, &state.resource_indexes.split_ids),
         "panes": pane_ids.iter().map(|pane_id| {
             let surfaces = state
                 .panes

@@ -1,0 +1,162 @@
+/* Settings page tokens: every surface follows the terminal theme, including custom backgrounds. */
+:root[data-settings-look="refined"] {
+  --polish-ink: var(--cmux-text, var(--agent-text, CanvasText));
+  --polish-base: var(--cmux-surface-solid, var(--agent-accent-text, Canvas));
+  /* Surfaces mix from the page's own background: clear over a see-through window
+     (WebTheme --cmux-surface-background), the theme color in an opaque one. The solid base
+     stays for text and marks that must hide what is under them (Lawrence 2026-10-17). */
+  --polish-layer: var(--cmux-surface-background, var(--polish-base));
+  --polish-content: light-dark(
+    color-mix(in srgb, var(--polish-layer) 35%, Canvas),
+    color-mix(in srgb, var(--polish-ink) 4%, var(--polish-layer))
+  );
+  --polish-raised: light-dark(
+    color-mix(in srgb, var(--polish-layer) 15%, Canvas),
+    color-mix(in srgb, var(--polish-ink) 7%, var(--polish-layer))
+  );
+  --polish-edge: light-dark(
+    color-mix(in srgb, var(--polish-ink) 10%, transparent),
+    color-mix(in srgb, var(--polish-ink) 8%, transparent)
+  );
+  --polish-muted: color-mix(in srgb, var(--polish-ink) 60%, var(--polish-base));
+  --polish-placeholder: color-mix(in srgb, var(--polish-ink) 45%, var(--polish-base));
+  --polish-hover: color-mix(in srgb, var(--polish-ink) 5%, transparent);
+  --polish-pressed: color-mix(in srgb, var(--polish-ink) 9%, transparent);
+  --polish-focus: color-mix(in srgb, var(--polish-ink) 40%, transparent);
+  --polish-duration: 140ms;
+}
+
+:root[data-settings-look="refined"]:is([data-borders="none"], [data-cmux-borders="none"]) {
+  --polish-edge: transparent;
+}
+
+:root[data-settings-look="refined"] .settings :is(button, a, select):focus-visible {
+  outline: 2px solid var(--polish-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-settings-look="refined"] { --polish-duration: 0ms; }
+}
+
+:root[data-settings-look="refined"][data-reduce-motion] { --polish-duration: 0ms; }
+
+/* T3 Code's section navigation and grouped rows, in the current terminal theme. */
+:root[data-settings-look="refined"]:has(.settings) {
+  --text: var(--polish-ink);
+  --muted-text: var(--polish-muted);
+  --soft-text: var(--polish-placeholder);
+  --border: var(--polish-edge);
+  --border-strong: var(--polish-edge);
+  --input-bg: color-mix(in srgb, var(--polish-ink) 3%, var(--polish-content));
+  --accent: var(--polish-ink);
+  --on-accent: var(--polish-base);
+  --accent-soft: var(--polish-pressed);
+  --column: 800px;
+  --sidebar-width: 208px;
+  font-size: var(--text-body);
+}
+
+:root[data-settings-look="refined"] .settings > .sidebar {
+  padding: 18px 10px;
+  border-right: 1px solid var(--polish-edge);
+  background: transparent;
+  gap: 18px;
+}
+
+:root[data-settings-look="refined"] .settings .section-link {
+  min-height: 30px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--polish-muted);
+  font-size: var(--text-control);
+}
+
+:root[data-settings-look="refined"] .settings .section-link[aria-current] {
+  background: var(--polish-pressed);
+  color: var(--polish-ink);
+}
+
+:root[data-settings-look="refined"] .settings .section-link:hover { background: var(--polish-hover); }
+:root[data-settings-look="refined"] .settings .section-icon svg { width: 16px; height: 16px; }
+
+:root[data-settings-look="refined"] .settings > .content {
+  padding: 32px clamp(24px, 4vw, 64px) 64px;
+  margin: 6px 6px 6px 0;
+  border: 1px solid var(--polish-edge);
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+  background: var(--polish-content);
+}
+
+:root[data-settings-look="refined"] .settings .section-title {
+  margin-bottom: 28px;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: 600;
+}
+
+:root[data-settings-look="refined"] .settings .group { margin-bottom: 28px; }
+:root[data-settings-look="refined"] .settings .group-title {
+  margin: 0 0 10px 12px;
+  color: var(--polish-muted);
+  font-size: var(--text-detail);
+  font-weight: 500;
+}
+
+:root[data-settings-look="refined"] .settings .rows {
+  border: 1px solid var(--polish-edge);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--polish-ink) 2%, var(--polish-content));
+}
+
+:root[data-settings-look="refined"] .settings .row {
+  min-height: 58px;
+  padding: 12px 16px;
+  box-shadow: inset 0 -1px var(--polish-edge);
+}
+
+:root[data-settings-look="refined"] .settings .rows > .row:last-child { box-shadow: none; }
+:root[data-settings-look="refined"] .settings .row-main { gap: 24px; }
+:root[data-settings-look="refined"] .settings .row-title { font-size: var(--text-body); font-weight: 500; }
+:root[data-settings-look="refined"] .settings .row-help {
+  margin-top: 4px;
+  color: var(--polish-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: normal;
+}
+
+:root[data-settings-look="refined"] .settings .row-control { margin-left: auto; justify-content: flex-end; }
+:root[data-settings-look="refined"] .settings :is(.field, .button, .theme-button) { min-height: 28px; border-radius: 7px; }
+:root[data-settings-look="refined"] .settings .search-input { min-height: 32px; border: 1px solid var(--polish-edge); border-radius: 8px; }
+:root[data-settings-look="refined"] .settings .segmented { padding: 2px; border-radius: 8px; background: var(--polish-hover); }
+:root[data-settings-look="refined"] .settings .segment { padding: 3px 10px; border-radius: 5px; }
+
+:root[data-settings-look="refined"] .settings .theme-hero {
+  padding: 12px;
+  border: 1px solid var(--polish-edge);
+  border-radius: 12px;
+  background: var(--polish-raised);
+}
+
+:root[data-settings-look="refined"] .settings .theme-caption { margin-top: 12px; font-size: var(--text-detail); }
+:root[data-settings-look="refined"] .settings .theme-preview { border-radius: 8px; }
+
+@media (max-width: 640px) {
+  :root[data-settings-look="refined"]:has(.settings) { --sidebar-width: 156px; }
+  :root[data-settings-look="refined"] .settings > .content { padding: 20px 12px 32px; }
+  :root[data-settings-look="refined"] .settings .row { padding: 10px; }
+  :root[data-settings-look="refined"] .settings .row-main { gap: 8px; flex-wrap: wrap; }
+}
+
+/* Icon-only and text buttons (play a sound, reset, reveal): the base hover fills with the field
+   color, which these cards make invisible, so they take the section links' hover and pressed fills. */
+:root[data-settings-look="refined"] .settings :is(.icon-button, .button):hover:not(:disabled) {
+  background: var(--polish-hover);
+  color: var(--polish-ink);
+}
+
+:root[data-settings-look="refined"] .settings :is(.icon-button, .button):active:not(:disabled) {
+  background: var(--polish-pressed);
+}

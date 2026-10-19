@@ -230,7 +230,7 @@ public final class CmuxDialogView: NSView {
 
     /// A themed label: it re-reads its ink in the scope it draws in (on joining
     /// a window and on every theme change), never the scope it was built in.
-    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> NSTextField {
+    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> ThemedLabel {
         let label = ThemedLabel(wrappingLabelWithString: text)
         label.font = font
         label.preferredMaxLayoutWidth = width

@@ -34,7 +34,7 @@ struct WatchedDoneReadTests {
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let line = #"{"type":"stream_item","item":{"kind":"snapshot","snapshot":{"terminals":[{"id":"term_7","extra":{"program_status":\#(records)}}],"extra":{"state":{}}}}}"#
-        store.session.apply(try #require(SessionStreamItem.decode(Data(line.utf8))), to: store.workspaces)
+        store.session.apply(try #require(SessionStreamItem.decode(Data(line.utf8))), in: store)
         let wire = #"{"notification":5,"title":"\#(title)","body":"","level":"\#(level)","surface":1,"source":"\#(source)"}"#
         let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
         store.apply(.notification(notification))

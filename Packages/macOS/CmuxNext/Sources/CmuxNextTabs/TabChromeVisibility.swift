@@ -14,7 +14,7 @@ public import CoreGraphics
 /// One difference: the x shows only on the hovered tab (nxdog9). The
 /// selected tab also keeps it once its contents are narrower than Chromium's
 /// close-button threshold, where it costs no title text.
-public struct TabChromeVisibility: Equatable, Sendable {
+public struct TabChromeVisibility: Hashable, Sendable {
     public var showsIcon: Bool
     public var showsTitle: Bool
     public var showsClose: Bool
@@ -53,5 +53,57 @@ public struct TabChromeVisibility: Equatable, Sendable {
         let titleWidth = available - metrics.iconSize - metrics.iconTitleSpacing
         let showsTitle = iconFits && titleWidth >= metrics.titleMinVisibleWidth
         return TabChromeVisibility(showsIcon: showsIcon, showsTitle: showsTitle, showsClose: showsClose, centersContent: !showsTitle)
+    }
+
+    /// The form at each width of a width path (an open, a close, a selection change, a reflow), from
+    /// `start`, the form on screen when the path starts, to the rest form at the last width. Each of
+    /// the icon, the x and the title changes at most once on the path, as the parts decided before it
+    /// leave room: a part both ends agree on keeps that state at every width, and a part that changes
+    /// switches at the first width from which the rules keep it in its end state through the end. The
+    /// x is decided first (as at rest), but a tab that keeps its icon shows its x only where both fit,
+    /// so a crowded tab that gains the selection keeps its icon and gains the x once there is room
+    /// (never the x centered first and the icon after it: a motion reversal).
+    public static func path(
+        widths: [CGFloat],
+        from start: TabChromeVisibility,
+        isPinned: Bool,
+        isSelected: Bool,
+        isHovered: Bool,
+        style: TabStripStyle,
+        metrics m: TabStripMetrics = .standard
+    ) -> [TabChromeVisibility] {
+        let rest = widths.map {
+            resolve(width: $0, isPinned: isPinned, isSelected: isSelected, isHovered: isHovered, style: style, metrics: m)
+        }
+        guard !isPinned, let end = rest.last else { return rest }
+        let contents = widths.map { $0 - m.contentLeadingInset - m.contentTrailingInset }
+        let shows = rest.map { $0 != .hidden }
+        func available(_ index: Int, close: Bool) -> CGFloat {
+            contents[index] - (close ? m.closeButtonSize + m.titleCloseSpacing : 0)
+        }
+        let keepsIcon = start.showsIcon && end.showsIcon
+        // A width that springs past an end (bounce) or turns back (a retarget) can leave a kept icon no
+        // room for the x for a few samples: the x waits there instead of covering the icon.
+        let fits = rest.indices.map { !keepsIcon || available($0, close: true) >= m.iconSize }
+        let close = zip(once(rest.indices.map { rest[$0].showsClose && fits[$0] }, from: start.showsClose), fits).map { $0 && $1 }
+        let icon = once(rest.indices.map { index in
+            shows[index] && (available(index, close: close[index]) >= m.iconSize || !close[index])
+        }, from: start.showsIcon)
+        let title = once(rest.indices.map { index in
+            shows[index] && icon[index]
+                && available(index, close: close[index]) - m.iconSize - m.iconTitleSpacing >= m.titleMinVisibleWidth
+        }, from: start.showsTitle)
+        return rest.indices.map { index in
+            TabChromeVisibility(showsIcon: icon[index], showsTitle: title[index], showsClose: close[index], centersContent: !title[index])
+        }
+    }
+
+    /// `wanted` (one value per sample) changed at most once from `start`: the end value from the first
+    /// sample after the last one that wants otherwise.
+    private static func once(_ wanted: [Bool], from start: Bool) -> [Bool] {
+        guard let end = wanted.last else { return wanted }
+        if start == end { return wanted.map { _ in end } }
+        let first = (wanted.lastIndex { $0 != end } ?? -1) + 1
+        return wanted.indices.map { $0 >= first ? end : start }
     }
 }

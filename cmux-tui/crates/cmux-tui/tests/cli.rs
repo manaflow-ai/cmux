@@ -3684,6 +3684,9 @@ mod close_workspace_if_empty;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
+#[path = "cli/closed_ids.rs"]
+mod closed_ids;
+#[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
 #[path = "cli/command_history.rs"]
@@ -3731,6 +3734,8 @@ mod home_inbox;
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
 mod launch_credential;
+#[path = "cli/layout_delta.rs"]
+mod layout_delta;
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
 #[path = "cli/lone_width.rs"]

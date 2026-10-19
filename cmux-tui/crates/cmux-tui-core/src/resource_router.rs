@@ -5,6 +5,7 @@
 
 mod auxiliary;
 mod browser_engine;
+mod close_value;
 mod config;
 mod content;
 mod credential;
@@ -263,6 +264,7 @@ fn dispatch_resource_request(
         OperationOwner::Credential => credential::dispatch(mux, request),
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::OpenUrl => open_url::dispatch(mux, request),
+        OperationOwner::Stash => crate::state::stash_router::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,

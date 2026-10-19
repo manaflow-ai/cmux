@@ -54,7 +54,9 @@
     "typecheck": "tsgo --noEmit",
     "lint": "eslint",
     "lint:complexity": "bun scripts/check-complexity.mjs",
-    "test:e2e:dashboard": "playwright test -c playwright.dashboard.config.ts"
+    "test:e2e:dashboard": "playwright test -c playwright.dashboard.config.ts",
+    "test:runtime-slice": "bash scripts/run-runtime-slice-tests.sh",
+    "test:runtime-promotion:db": "CMUX_DB_TEST=1 bun test --timeout=30000 tests/runtime-promotion-db-behavior.test.ts"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.1.0",

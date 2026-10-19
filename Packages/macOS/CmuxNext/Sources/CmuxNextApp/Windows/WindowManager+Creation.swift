@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDaemon
 
 // Creating workspaces and windows. A window exists only while it owns a

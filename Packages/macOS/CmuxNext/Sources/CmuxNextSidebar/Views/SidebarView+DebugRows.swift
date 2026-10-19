@@ -10,6 +10,9 @@ public struct SidebarDebugRow: Sendable {
     public var windowFrame: CGRect
     public var viewFrame: CGRect?
     public var viewAlpha: CGFloat?
+    /// The workspace row's `SidebarRowState` (`live`, `stale`, `placeholder`, `creating`) and folder line.
+    public var rowState: String?
+    public var directory: String?
     public var inList: Bool
     public var suppressed: Bool
     /// The row's view stands for the selection now (`fill` says whether it paints).
@@ -22,6 +25,11 @@ public struct SidebarDebugRow: Sendable {
     /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace and
     /// tab rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
     public var icon: String? = nil
+    /// The address of the favicon a link row draws.
+    public var iconAddress: String? = nil
+    /// A url, tab or app row's document item id and ref kind (`url`, `tab`, `app`, ...), loose or a group's member.
+    public var item: String? = nil
+    public var itemKind: String? = nil
     /// The view's frame as drawn now (its presentation, mid-animation), and
     /// whether it clips its content (an opening or closing row).
     public var shownFrame: CGRect? = nil
@@ -84,16 +92,22 @@ public struct SidebarDropProbe: Sendable, Equatable {
     public var fraction: CGFloat?
     /// The resolved target, or nil when the drop is refused.
     public var target: String?
+    /// The drop look on the sidebar document: `gap` (a list section opens
+    /// its gap), `into` (a group header's drop fill), `line` (the band's
+    /// insertion line), `refused`; nil off the document.
+    public var indicator: String? = nil
+    /// The reducer's refusal of a refused drop (`cross_machine`, ...).
+    public var refusal: String? = nil
 }
 
-extension SidebarView {
+extension SidebarViewComponents {
     /// Every layout item of the shown sections and its view, client items at their places (debug).
     public func debugLayoutItems() -> [SidebarDebugItem] {
         let height = window?.contentView?.bounds.height ?? 0
         return model.placingTransientItems(in: model.layout.sections).flatMap { section in
             section.items.map { item -> SidebarDebugItem in
                 var frame: CGRect?
-                for region in bandRegions {
+                for region in bandRegions + list.blockRegions {
                     guard let view = region.itemView(item.id), view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue }
                     let inWindow = view.convert(view.bounds, to: nil)
                     frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
@@ -104,6 +118,29 @@ extension SidebarView {
             }
         }
     }
+
+    /// Every shown section header of the band and the list blocks: its section id, title and frame in window points
+    /// from the top-left (debug.sidebar_rows "sections").
+    public func debugSectionHeaders() -> [(id: String, title: String?, frame: CGRect)] {
+        let height = window?.contentView?.bounds.height ?? 0
+        return model.layout.sections.compactMap { section in
+            for region in bandRegions + list.blockRegions {
+                guard let view = region.headerViews[section.id], view.window != nil, !view.isHiddenOrHasHiddenAncestor else { continue }
+                let inWindow = view.convert(view.bounds, to: nil)
+                return (section.id.rawValue, section.title, CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height))
+            }
+            return nil
+        }
+    }
+
+    /// Every section of the shown layout with its arrangement fields, so a
+    /// proof reads an alignment, spacing or reset edit back.
+    public func debugLayoutSections() -> [(id: String, title: String?, align: String, gap: Int?, items: Int)] {
+        model.layout.sections.map { ($0.id.rawValue, $0.title, $0.arrangement.align.rawValue, $0.arrangement.gap, $0.items.count) }
+    }
+
+    /// Whether a drag is active now (a tile drag hides no list row, so `dragging` can be empty while it runs).
+    public func debugDragActive() -> Bool { list.drag != nil }
 
     /// The new-workspace button (+) in window points from the top-left, so a
     /// proof clicks it (`debug.mouse`); nil while it is hidden.
@@ -117,6 +154,13 @@ extension SidebarView {
     /// The list's rows and their views, the selection and the drag (debug).
     /// The drag's last drop probe (debug): nil while nothing is dragged.
     public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
+
+    /// Starts (`start` true) or stops the per-display-frame motion samples; stop returns them.
+    public func debugMotion(start: Bool) -> [SidebarMotionFrame] {
+        guard start else { return list.motionProbe.stop() }
+        list.motionProbe.start()
+        return []
+    }
 
     public func debugRows() -> (rows: [SidebarDebugRow], selection: [String], dragging: [String]) {
         // One lookup table: a per-row `model.workspace` scan is O(rows²) (seconds at 1,000 rows, a watchdog trip).
@@ -141,7 +185,9 @@ extension SidebarView {
                                    activity: activity, icon: view?.debugIcon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
                                    detail: row.content?.detail)
             var drawn = debugRow.drawn(by: view)
-            if case let .workspace(id) = row.key { drawn.unread = byID[id].map { String(describing: $0.unread) } }
+            drawn.iconAddress = view?.debugIconAddress
+            if case let .item(id) = row.key { (drawn.item, drawn.itemKind) = (id, list.listItems[id]?.ref.kind) }
+            if case let .workspace(id) = row.key, let ws = byID[id] { (drawn.unread, drawn.rowState, drawn.directory) = ("\(ws.unread)", "\(ws.rowState)", ws.directory) }
             (drawn.progress, drawn.showsWorking) = (row.content?.progress != nil, row.content?.showsWorking == true)
             return drawn
         }

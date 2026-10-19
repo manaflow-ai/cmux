@@ -87,6 +87,15 @@ Goal: a warm turn reads >= 90 % of its prompt from the provider's prompt cache (
 with the reference client). Both brains (the local optchat-chief and the Cloud ChiefBrainDO) follow
 this rule, through `optchat-core` (`turn_input`), not through host code.
 
+Cloud Chief (2026-10-19, hq-1f, UNII-PARITY section 7 rows 9 and 22): a turn first waits for the
+summaries of every message before its new ones (the reference client's `Memory.settle`, at most 5 s and
+only while the compactor is healthy), then renders the view again (`turn_input` with no frozen view): the
+view shows every earlier message as built lines and the delta holds only the new messages, as the
+reference client builds each call. The frozen view below is its fallback when the compactor is behind.
+Cache marks there come from `chief-brain/cache-prefix.ts`: the view's last whole block (written for the
+next turn) and the longest piece prefix an earlier request wrote (read; Bedrock has no look-back), kept
+in the brain object across evictions. The Rust Chief keeps the frozen rule below.
+
 A turn's input is: the system prompt and tools (byte-identical across calls), then the FROZEN VIEW,
 then the DELTA, in that order. Nothing before the delta's end changes between two turns unless a
 re-render happens.
@@ -102,8 +111,10 @@ re-render happens.
    render is invisible. The delta is cut into blocks at each change between the kind `user` and the
    other kinds, so the new messages of a turn are one block and that turn's work (talk, tool, echo)
    the next block. A block, once sent, is sent again byte for byte; a turn adds blocks only at the
-   end. The cache marks: one at the frozen view's end, one at the request's end (the provider looks
-   back from a mark for the previous request's mark, so the previous turn's whole input is read).
+   end. The cache marks: one at the request's end, and one where the previous turn's request ended
+   (its newest user block: the second to last user block of the delta), or at the frozen view's end
+   when there is none. Bedrock reads a cache entry only at a mark (no look-back; measured on staging
+   2026-10-16: reads stopped at the view's end until this mark), so the previous end needs its own mark.
    An entry that edits, retracts or deletes something a line of the frozen view already shows names
    that line's id: `<id>|edit of <target-id>: <new text>`, `<id>|retracted <target-id>`,
    `<id>|deleted <target-id>`. The system prompt says: "A line after </chat> that names an earlier
@@ -114,7 +125,10 @@ re-render happens.
 3. Anchoring (spec 7). The new messages are logged before the turn's input is built and appear only
    in the delta (never also in the view); the turn answers the newest woken message as before. A
    message delivered mid-run is logged and goes to the model as a user message, as before.
-4. Re-render (one cache write of the view). A turn re-renders, freezing a new view and an empty
+4. Re-render (one cache write of the view). The delta bytes counted here are the entries before
+   this turn's new messages (a turn's own long message never forces a re-render), and imported
+   messages are never delta lines (their build state changes later; the view shows them after a
+   re-render). A turn re-renders, freezing a new view and an empty
    delta, when (a) the delta is over DELTA_MAX = 8,000 bytes (about 2,000 tokens) and the
    compactor has built nodes past the front (the re-rendered view is then shorter than view +
    delta), or (b) the delta is over DELTA_HARD = 32,000 bytes (the growth cap between folds:

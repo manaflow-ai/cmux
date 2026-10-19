@@ -225,6 +225,11 @@
     "sidebar_view.input",
     "sidebar_view.reload",
     "sidebar_view.resize",
+    "stash.create",
+    "stash.delete",
+    "stash.import",
+    "stash.list",
+    "stash.restore",
     "stream.cancel",
     "tab.close",
     "tab.create_browser",
@@ -1102,6 +1107,18 @@
       "name": "cloud-session-needed",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "agent-inventory-changed",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
       ]
     }
   ],

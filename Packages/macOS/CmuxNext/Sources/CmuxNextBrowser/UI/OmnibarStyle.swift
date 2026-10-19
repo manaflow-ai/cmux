@@ -57,20 +57,22 @@ enum OmnibarStyle {
 
     // MARK: Popup
 
-    /// The popup card: the one popup corner (`PopupStyle`, cx-iif6y),
-    /// reaching 3 pt above the bar and 6 pt past each side so the bar sits
-    /// inside it (6 keeps the card off the reload button with cmux's 6 pt gap).
-    /// 12 pt, the reference browser's results frame (chief 2026-10-15); other popups keep `PopupStyle`.
-    static var cardCornerRadius: CGFloat { 12 }
-    static let cardTopOutset: CGFloat = basePadding
-    static let cardSideOutset: CGFloat = 2 * basePadding
+    /// The popup card is the bar grown downward: its top edge and sides are
+    /// the bar's own (no outset), so it never reaches over the reload or
+    /// extension buttons (`barMargin` stays clear on each side) or up into
+    /// the tab strip, and its corners are the bar's corners (the look's
+    /// radius, 8 pt by default), so the open bar and card are one shape.
+    static var cardCornerRadius: CGFloat { OmnibarGlassLook.current.resolvedCornerRadius(barHeight: barHeight) }
+    static let cardTopOutset: CGFloat = 0
+    static let cardSideOutset: CGFloat = 0
     /// Rows: bar height, inset 4 at the sides, 2 between rows, 4 at the end.
     static var rowHeight: CGFloat { barHeight }
     static let rowSideInset: CGFloat = 4
     static let rowGap: CGFloat = 2
     static let cardBottomPadding: CGFloat = 4
-    /// The popup's row corner (`PopupStyle`), inside the card's 4 pt inset.
-    static var rowCornerRadius: CGFloat { PopupStyle.standard.rowCornerRadius }
+    /// The highlighted row's corner, concentric with the card's: the card
+    /// radius less the row's inset.
+    static var rowCornerRadius: CGFloat { max(0, cardCornerRadius - rowSideInset) }
     static var rowDetailFont: NSFont { font }
 
     // MARK: Colors

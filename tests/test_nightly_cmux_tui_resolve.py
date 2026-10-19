@@ -61,14 +61,21 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # find-nightly-next-recovery and recover-nightly-next-notarization continue an
 # EARLIER run's build with this run's tools; this run's build commit does not
 # apply to them (the recovered build carries its own, from its manifest).
-# publish-nightly-identity-legacy builds nothing either: it downloads the cmux NEXT
-# DMG publish-nightly released and re-signs that build as cmux NIGHTLY with this
-# run's tools (cx-x7hwx). legacy-identity-target checks out only to run
+# The cmux NIGHTLY-identity jobs (sign-, verify- and publish-nightly-identity-legacy)
+# build nothing either: they download the cmux NEXT DMG publish-nightly released,
+# re-sign that build as cmux NIGHTLY, smoke it and publish it with this run's
+# tools; verify checks out the build's own commit only for its license check
+# (cx-x7hwx, cx-vws1x). legacy-identity-target checks out only to run
 # scripts/ci/nightly-next-legacy-target.py, which compares the two published
 # feeds to pick that build; it builds and ships nothing.
+# verify-recovered-nightly-next smokes the DMG recover-nightly-next-notarization
+# continued, with this run's tools. promote-nightly-next and its -acked job run
+# only on main and check out the promote guard at github.sha; they move a branch
+# and build nothing (#21049).
 exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
-          "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly-identity-legacy",
-          "legacy-identity-target"}
+          "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
+          "sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
+          "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.
 SELECTED_SHA = "${{ steps.source.outputs.build_sha }}"
@@ -86,6 +93,23 @@ for name in shipping:
         tooling = re.search(r"ref: \$\{\{ github\.sha \}\}\n\s+path: \.publish-tooling\n", body)
         check(tooling is not None, "publish-nightly must check out its publication tooling at github.sha into .publish-tooling")
         body = body.replace(tooling.group(0), "") if tooling else body
+    if name in {"build-nightly-app", "build-sign-notarize-nightly"}:
+        # Unsigned recovery restores bytes instead of compiling them, using
+        # this workflow's controls. Its separate source checkout stays pinned.
+        control_name = ("Checkout trusted unsigned-resume controls" if name == "build-nightly-app"
+                        else "Checkout trusted signing controls for unsigned resume")
+        control = re.search(rf"^      - name: {re.escape(control_name)}\n.*?(?=^      - name:|\Z)",
+                            body, re.MULTILINE | re.DOTALL)
+        check(control is not None, f"{name} must keep its explicit unsigned-recovery controls checkout")
+        if control:
+            check("if: inputs.nightly_next_unsigned_run != ''" in control.group(0),
+                  f"{name} control checkout must run only during unsigned recovery")
+            refs = re.findall(r"^\s+ref: (.*)$", control.group(0), re.MULTILINE)
+            check(refs == ["${{ github.sha }}"], f"{name} recovery controls must come from this workflow's commit")
+            if name == "build-sign-notarize-nightly":
+                check("path: .nightly-signing-control" in control.group(0),
+                      "signing controls must not replace the original source checkout")
+            body = body.replace(control.group(0), "")
     for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
         check(ref.strip() in allowed, f"{name} checks out {ref.strip()}, not the resolved build commit")
     for line in body.splitlines():

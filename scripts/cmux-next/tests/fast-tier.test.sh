@@ -29,7 +29,13 @@ sleep 5
 EOF
 
 registry() { printf '%s\n' "$1" > "$tmp/registry.json"; }
-quarantine() { printf '%s\n' "${1:-{\"entries\": []\}}" > "$tmp/quarantine.json"; }
+quarantine() {
+  if [ "$#" -gt 0 ]; then
+    printf '%s\n' "$1"
+  else
+    printf '%s\n' '{"entries": []}'
+  fi > "$tmp/quarantine.json"
+}
 entry() { printf '{"name": "%s", "kind": "script", "path": "bin/%s", "args": %s, "owner": "op-test", "bead": "cx-test"}' "$1" "$2" "${3:-[]}"; }
 run() {
   set +e

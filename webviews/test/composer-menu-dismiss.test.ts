@@ -1,5 +1,4 @@
 // cmux-web-test-timeout: 600
-// Sixty browser cases across Chromium/WebKit and two widths take about eight minutes locally.
 // How the composer's menus open and close under the mouse (cg-composer item 2, click polish; Codex
 // desktop is the reference): the + menu, model, reasoning and permission chips in the bar, and the
 // folder chip on the location strip, in a chat's composer, a new chat's and the New Tab page's.

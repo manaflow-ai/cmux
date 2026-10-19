@@ -244,6 +244,10 @@ impl Hub {
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
         }
+        // An automatic continuation runs only while its chat still ends on the cut turn: no await
+        // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
+        let after_turn = opts.after_turn.clone();
+        super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
             text: &text,
@@ -260,6 +264,11 @@ impl Hub {
             Ok(slot) => slot,
             Err(done) => return done,
         };
+        // A prompt that took the turn lock first (a person's) supersedes the continuation.
+        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
+            drop(guard);
+            return Err(e);
+        }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
         let text = prompt_text(&blocks);
@@ -432,8 +441,24 @@ impl Hub {
             }
         }
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
+        // What the agent said, before `finish_turn` adds a dead process's last stderr line; a
+        // model switch (`detach_child`) that ended the turn is no connection error.
+        let agent_error = result.as_ref().err().map(|e| e.message.clone());
+        let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
+        let cut = match (&result, detached) {
+            (Err(e), false) => Some(super::auto_resume::CutTurn {
+                prompt_id: &prompt_id,
+                turn_id: &turn_id,
+                control,
+                trust_gate,
+                error: agent_error.as_deref().unwrap_or(&e.message),
+            }),
+            _ => None,
+        };
+        self.schedule_auto_resume(session, &turn_id, cut);
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why.
@@ -459,12 +484,7 @@ impl Hub {
         turn_seq: u64,
     ) -> Result<Value, RpcError> {
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        let detached = session
-            .turn
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take()
-            .is_none_or(|t| t.turn_id != turn_id);
+        let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
@@ -939,6 +959,7 @@ impl Hub {
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        self.stop_auto_resume(session);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {
@@ -997,45 +1018,4 @@ impl Hub {
             self.set_status(session, SessionStatus::Idle);
         }
     }
-}
-
-/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
-/// agent sent.
-pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
-    let Some(obj) = v.as_object_mut() else { return };
-    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
-    if !meta.is_object() {
-        *meta = json!({});
-    }
-    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
-    if !mux.is_object() {
-        *mux = json!({});
-    }
-    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
-        for (k, v) in src {
-            dst.insert(k.clone(), v.clone());
-        }
-    }
-}
-
-/// Does an agent error mean the account cannot serve, not that the prompt
-/// was wrong? Usage and rate limits, and missing or rejected credentials:
-/// all of them are solved by another account, which the fallback provides.
-pub fn is_limit_error(message: &str) -> bool {
-    let m = message.to_lowercase();
-    m.contains("not logged in")
-        || m.contains("/login")
-        || m.contains("unauthorized")
-        || m.contains("authentication")
-        || m.contains("invalid api key")
-        || m.contains("401")
-        || (m.contains("reached your") && m.contains("limit"))
-        || m.contains("usage limit")
-        || m.contains("rate limit")
-        || m.contains("rate_limit")
-        || m.contains("out of credits")
-        || m.contains("insufficient credits")
-        || m.contains("quota")
-        || m.contains("overloaded")
-        || m.contains("429")
 }
