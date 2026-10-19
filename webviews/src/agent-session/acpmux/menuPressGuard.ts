@@ -70,7 +70,8 @@ function install(doc: Document): () => void {
     // Keyboard and programmatic activations do not belong to the pointer gesture. In particular,
     // releasing a drag outside the window may never deliver its click to clear the guard.
     if (event.type === "click" && (event as MouseEvent).detail === 0) return;
-    if (event instanceof view.PointerEvent && event.pointerId !== swallowing) return;
+    // Only the pointer events carry the gesture's id; a click may be a PointerEvent with another id.
+    if (event.type.startsWith("pointer") && (event as PointerEvent).pointerId !== swallowing) return;
     if (event.type === "click") swallowing = null;
     // After the dismiss's own listener on the target (added in the document's capture phase).
     event.target?.addEventListener(event.type, stop, { once: true });
