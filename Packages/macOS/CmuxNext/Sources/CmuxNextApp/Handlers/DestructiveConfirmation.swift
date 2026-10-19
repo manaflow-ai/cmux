@@ -72,8 +72,7 @@ enum DestructiveConfirmation {
             guard let (tabs, daemon) = tabGroup(invocation, context) else { return nil }
             return await TabCloseGuard.prompt(closing: tabs, on: daemon, services: services)
         case "closeWorkspace":
-            guard let workspace = context.scope(invocation).workspace, let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return nil }
-            return await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn)
+            return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn) // the selection's question, once
         default:
             return nil
         }
