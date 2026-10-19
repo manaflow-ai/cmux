@@ -66,15 +66,18 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
 }
 
 /**
- * A skipped wake: when no brain answers the woken message (archived Chief, daily turn limit, owner or
- * conversation unreachable or refused), the Chief's typing goes off now, so a client that shows
- * "Thinking…" from the send ends it. Not when another brain may answer (this brain is off: a
- * server-placed Chief's brain is off here) or the object serves another Chief.
+ * A skipped wake: when no brain answers the woken message (archived Chief, owner or conversation
+ * unreachable or refused), the Chief's typing goes off now, so a client that shows "Thinking…" from
+ * the send ends it. (A turn refused later, for the daily limit or credits, is drain's.) Not when
+ * another brain may answer (this brain is off: a server-placed Chief's brain is off here) or the
+ * object serves another Chief.
  */
 const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
 const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string }, reason: string): { skipped: string } => {
-  // A turn that runs or messages that wait for one in this conversation keep their indicator.
-  const busy = (b.turnLive && b.turnConversation === w.conversation) || b.sql.exec(`SELECT 1 FROM cb_inbox WHERE conversation = ? AND state IN ('queued', 'running') LIMIT 1`, w.conversation).toArray().length > 0
+  // A turn that runs, messages that wait for one, or a reply that waits to post in this conversation keep their indicator.
+  const busy =
+    (b.turnLive && b.turnConversation === w.conversation) ||
+    b.sql.exec(`SELECT 1 FROM cb_inbox WHERE conversation = ? AND state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE conversation = ? AND post = 'pending' LIMIT 1`, w.conversation, w.conversation).toArray().length > 0
   if (!OTHER_BRAIN.has(reason) && !busy) b.doCtx.waitUntil(typing(b.doEnv, w.conversation, w.agent, false))
   return { skipped: reason }
 }
@@ -172,8 +175,9 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
       // Not answered (off, archived, placed, over the limit): the wakes are acked so the queue stays bounded.
       b.sql.exec(`UPDATE cb_inbox SET state = 'skipped' WHERE state = 'queued' AND conversation = ?`, woken.conversation)
       console.warn(JSON.stringify({ msg: "chief_brain.turn_refused", reason: a.reason }))
+      // The notice may post nothing (one per hour, or it failed): the typing goes off either way.
       if (a.reason === "credits_exhausted") await creditsNotice(b.doEnv, cfg, woken.conversation)
-      else if (cfg.agent && !OTHER_BRAIN.has(a.reason)) await typing(b.doEnv, woken.conversation, cfg.agent, false)
+      if (cfg.agent && !OTHER_BRAIN.has(a.reason)) await typing(b.doEnv, woken.conversation, cfg.agent, false)
       if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(b.doEnv, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
       continue
     }
