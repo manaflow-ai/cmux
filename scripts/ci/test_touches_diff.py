@@ -24,13 +24,20 @@ blaming the diff.
   runner            the test runner or its dependencies (package.json, bun.lock,
                     bunfig.toml, tsconfig.json, run-tests.sh): every test sees it
 
---coverage runs the one test file with bun's lcov coverage, so it needs the
-dependencies installed (web/node_modules in this checkout). Without it, the
-check needs only git and bun: the head's web/ is extracted with `git archive`,
-so the head commit must exist locally (`git fetch origin pull/N/head`).
+The default check needs only git and bun and runs none of the head's code:
+the head's web/ is extracted with `git archive` (the commit must exist
+locally: `git fetch origin pull/N/head`), macro import attributes are
+stripped from that copy (bun runs macros while bundling), and the head's
+bunfig.toml is read as data, never handed to bun.
 
-What it cannot see: a test that reads a file at runtime (fs, fetch, spawn) or
-passes a computed path to import(), and `mock.module()` targets.
+--coverage RUNS THE HEAD'S TEST CODE on this machine, with this checkout's
+web/node_modules. Use it only on commits you trust; web_test_verdict.py
+refuses it for fork pull requests. bun gets an environment without tokens
+or secrets and a throwaway HOME, which limits but does not sandbox it.
+
+What it cannot see, and says so in its output: a test that reads a file at
+run time (fs, fetch, spawn), import() of a computed path, `mock.module()`
+targets, and deleted files (gone at the head, so outside any graph).
 """
 
 from __future__ import annotations
@@ -60,6 +67,7 @@ HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
 NOT_IMPORTED, TREE_SHAKEN, IMPORTED = "not imported", "tree-shaken", "imported"
 EXECUTED, NOT_EXECUTED, NO_CODE, RUNNER = "executed", "not executed", "no code changed", "runner"
 TOUCHING = {IMPORTED, EXECUTED, RUNNER}
+BLIND_SPOTS = "not seen: run-time file reads, import() of computed paths, mock.module() targets"
 
 
 def git(repo: Path, *args: str, binary: bool = False) -> str | bytes:
@@ -77,6 +85,11 @@ def test_path(path: str) -> str:
 
 def changed_files(repo: Path, base: str, head: str) -> list[str]:
     out = str(git(repo, "diff", "--name-only", "--diff-filter=d", f"{base}...{head}"))
+    return [line for line in out.splitlines() if line]
+
+
+def deleted_files(repo: Path, base: str, head: str) -> list[str]:
+    out = str(git(repo, "diff", "--name-only", "--diff-filter=D", f"{base}...{head}"))
     return [line for line in out.splitlines() if line]
 
 
@@ -119,12 +132,44 @@ def extract_web(repo: Path, head: str, into: Path) -> Path:
     return into / WEB
 
 
+# `import x from "./m" with { type: "macro" }` runs m at bundle time, and bun
+# 1.3's `--no-macros` does not stop it, so the extracted copy loses the
+# attribute and the macro is bundled like any other import.
+MACRO_ATTRIBUTE = re.compile(r"""\s*(?:with|assert)\s*\{\s*type\s*:\s*["']macro["']\s*,?\s*\}""")
+SOURCE = re.compile(r"\.[cm]?[jt]sx?$")
+SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|KEY|^GH_|^GITHUB_|^AWS_|^NPM_", re.IGNORECASE)
+
+
+def neutralize_macros(web_root: Path) -> list[str]:
+    """Strip macro import attributes from every source file in the extracted copy; the files changed."""
+    changed = []
+    for path in web_root.rglob("*"):
+        if not path.is_file() or not SOURCE.search(path.name):
+            continue
+        text = path.read_text(errors="replace")
+        if "macro" not in text:
+            continue
+        stripped = MACRO_ATTRIBUTE.sub("", text)
+        if stripped != text:
+            path.write_text(stripped)
+            changed.append(str(path.relative_to(web_root)))
+    return sorted(changed)
+
+
+def scrubbed_env(home: Path) -> dict[str, str]:
+    """The environment for bun, without credentials and with a throwaway HOME."""
+    env = {k: v for k, v in os.environ.items() if not SECRET_ENV.search(k)}
+    env["HOME"] = str(home)
+    home.mkdir(parents=True, exist_ok=True)
+    return env
+
+
 def bundle(web_root: Path, entries: Iterable[str], outdir: Path) -> dict:
     """bun's metafile for the entries, packages external."""
     meta = outdir / "meta.json"
     cmd = ["bun", "build", *entries, "--target=bun", "--packages=external",
            f"--outdir={outdir / 'out'}", f"--metafile={meta}"]
-    result = subprocess.run(cmd, cwd=web_root, capture_output=True, text=True)
+    result = subprocess.run(cmd, cwd=web_root, capture_output=True, text=True, env=scrubbed_env(outdir / "home"))
     if result.returncode != 0 or not meta.exists():
         raise SystemExit(f"bun build failed:\n{result.stderr.strip()[-2000:]}")
     return json.loads(meta.read_text())
@@ -238,7 +283,9 @@ def block_hits(file_hits: Mapping[int, int], wanted: set[int] | None) -> dict[in
 def run_coverage(web_root: Path, test: str, outdir: Path) -> dict[str, dict[int, int]]:
     cmd = ["bun", "test", "--isolate", "--coverage", "--coverage-reporter=lcov",
            f"--coverage-dir={outdir}", test]
-    result = subprocess.run(cmd, cwd=web_root, capture_output=True, text=True)
+    # This runs the head's code. web_test_verdict.py refuses it for fork PRs;
+    # the credentials stay out of its environment either way.
+    result = subprocess.run(cmd, cwd=web_root, capture_output=True, text=True, env=scrubbed_env(outdir / "home"))
     report = outdir / "lcov.info"
     if not report.exists():
         raise SystemExit(f"bun test --coverage wrote no lcov report (exit {result.returncode}):\n"
@@ -291,19 +338,25 @@ def check(repo: Path, test: str, base: str | None, head: str, *, changed: list[s
             raise SystemExit("give --base or --changed")
         changed = changed_files(repo, base, head)
     head_sha = str(git(repo, "rev-parse", f"{head}^{{commit}}")).strip()
-    worktree_sha = str(git(repo, "rev-parse", "HEAD")).strip()
-    clean = not str(git(repo, "status", "--porcelain", "--", WEB)).strip()
+    deleted = deleted_files(repo, base, head) if base else []
     with tempfile.TemporaryDirectory(prefix="test-touches-diff-") as tmp:
         work = Path(tmp)
-        if head_sha == worktree_sha and clean:
-            web_root = repo / WEB
-        else:
-            web_root = extract_web(repo, head_sha, work)
+        # Always a copy of the commit: the bundle may then be edited (macros), and a dirty
+        # checkout never stands in for the head.
+        web_root = extract_web(repo, head_sha, work)
         rel_test = test[len(WEB) + 1:]
         if not (web_root / rel_test).exists():
             raise SystemExit(f"{test} does not exist at {head_sha[:12]}")
         entries = [rel_test, *[p for p in preloads(web_root) if (web_root / p).exists()]]
+        neutralized = neutralize_macros(web_root)
+        # The preloads are read above as data; bun build never sees the head's bunfig.
+        config = web_root / "bunfig.toml"
+        parked = work / "bunfig.toml.parked"
+        if config.exists():
+            config.rename(parked)
         meta = bundle(web_root, entries, work)
+        if parked.exists():
+            parked.rename(config)
         edges, sizes = graph(meta, web_root)
         hits = None
         lines = None
@@ -331,6 +384,8 @@ def check(repo: Path, test: str, base: str | None, head: str, *, changed: list[s
         "graph_size": len(edges),
         "changed": len(changed),
         "coverage": coverage,
+        "macros_neutralized": neutralized,
+        "deleted": deleted,
         "touches": bool(touching),
         "files": files,
         "summary": summary_line(test, files, coverage),
@@ -371,6 +426,11 @@ def render(report: Mapping) -> str:
         lines.append(f"  {item['verdict']:<15} {item['file']}{extra}")
     outside = sum(1 for f in report["files"] if f["verdict"] == NOT_IMPORTED)
     lines.append(f"  {outside} changed file(s) not imported")
+    if report.get("deleted"):
+        lines.append(f"  {len(report['deleted'])} deleted file(s) not checked: {', '.join(report['deleted'][:5])}")
+    if report.get("macros_neutralized"):
+        lines.append(f"  macro imports bundled without running: {', '.join(report['macros_neutralized'][:5])}")
+    lines.append(f"  {BLIND_SPOTS}")
     return "\n".join(lines)
 
 
@@ -380,13 +440,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", help="base ref; the diff is base...head (from their merge base)")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--changed", nargs="*", help="repository paths to check instead of git diff")
-    parser.add_argument("--coverage", action="store_true", help="also run the test and check changed lines ran")
+    parser.add_argument("--coverage", action="store_true",
+                        help="also RUN the head's test (trusted commits only) to see whether changed lines execute")
     parser.add_argument("--repo", type=Path, default=None)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if shutil.which("bun") is None:
         raise SystemExit("bun is not on PATH")
     repo = args.repo or Path(str(git(Path.cwd(), "rev-parse", "--show-toplevel")).strip())
+    if args.coverage:
+        print("--coverage runs the head's test code on this machine; use it only on trusted commits.",
+              file=sys.stderr)
     report = check(repo, args.test, args.base, args.head, changed=args.changed, coverage=args.coverage)
     print(json.dumps(report, indent=2) if args.json else render(report))
     return 0

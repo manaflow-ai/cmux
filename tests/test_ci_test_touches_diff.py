@@ -98,6 +98,29 @@ class Verdicts(unittest.TestCase):
         text = "SF:/w/web/services/a.ts\nDA:1,2\nDA:2,0\nend_of_record\nSF:services/b.ts\nDA:5,1\nend_of_record\n"
         self.assertEqual(touches.parse_lcov(text, root), {"services/a.ts": {1: 2, 2: 0}, "services/b.ts": {5: 1}})
 
+    def test_credentials_stay_out_of_buns_environment(self):
+        import os
+        saved = dict(os.environ)
+        os.environ.update({"GH_TOKEN": "x", "GITHUB_TOKEN": "x", "AWS_SECRET_ACCESS_KEY": "x", "MY_API_KEY": "x",
+                           "PATH_KEEP": "1"})
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                env = touches.scrubbed_env(Path(tmp) / "home")
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        self.assertFalse({"GH_TOKEN", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY", "MY_API_KEY"} & set(env))
+        self.assertEqual(env["PATH_KEEP"], "1")
+        self.assertTrue(env["HOME"].endswith("home"))
+
+    def test_render_names_what_the_graph_cannot_see(self):
+        report = {"summary": "s", "test": "web/tests/a.test.ts", "head": "abc", "graph_size": 1, "entries": ["a"],
+                  "changed": 1, "files": [], "deleted": ["web/lib/gone.ts"], "macros_neutralized": ["m.ts"]}
+        text = touches.render(report)
+        self.assertIn("1 deleted file(s) not checked: web/lib/gone.ts", text)
+        self.assertIn("macro imports bundled without running: m.ts", text)
+        self.assertIn("mock.module()", text)
+
     def test_test_paths(self):
         self.assertEqual(touches.test_path("tests/a.test.ts"), "web/tests/a.test.ts")
         self.assertEqual(touches.test_path("./tests/a.test.ts"), "web/tests/a.test.ts")
@@ -152,6 +175,27 @@ class RealBundle(unittest.TestCase):
         self.git("checkout", "-q", "HEAD~1")
         report = touches.check(self.repo, "web/tests/a.test.ts", "main~1", "main")
         self.assertEqual(by_file(report["files"])["web/lib/used.ts"]["verdict"], "imported")
+
+    def test_a_macro_in_the_head_is_bundled_but_never_run(self):
+        # bun runs `with { type: "macro" }` imports while bundling; the check must not.
+        canary = self.repo / "PWNED"
+        self.write("web/lib/boom.ts", 'import { writeFileSync } from "node:fs";\n'
+                   f'export function boom() {{ writeFileSync({str(canary)!r}, "x"); return 1; }}\n')
+        self.write("web/tests/a.test.ts", 'import { test } from "bun:test";\n'
+                   'import { boom } from "../lib/boom" with { type: "macro" };\n'
+                   'test("a", () => { boom(); });\n')
+        self.git("add", "-A")
+        self.git("commit", "-qm", "macro")
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        self.assertFalse(canary.exists(), "bun build ran the head's macro")
+        self.assertEqual(report["macros_neutralized"], ["tests/a.test.ts"])
+        self.assertEqual(by_file(report["files"])["web/lib/boom.ts"]["verdict"], "imported")
+
+    def test_deleted_files_are_listed(self):
+        self.git("rm", "-q", "web/lib/other.ts")
+        self.git("commit", "-qm", "delete")
+        report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD")
+        self.assertEqual(report["deleted"], ["web/lib/other.ts"])
 
     def test_coverage_sees_that_the_changed_function_never_runs(self):
         report = touches.check(self.repo, "tests/a.test.ts", "HEAD~1", "HEAD", coverage=True)

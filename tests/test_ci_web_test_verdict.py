@@ -20,10 +20,13 @@ INSIDE = {"touches": True, "summary": "vm-route-deadlines.test.ts runs changed c
 
 
 class Decide(unittest.TestCase):
-    def test_unreachable_and_failing_elsewhere_is_an_unrelated_flake(self):
+    def test_unreachable_and_failing_on_other_prs_is_an_unrelated_flake(self):
+        self.assertEqual(verdict.decide(OWN, [OTHER_PR], OUTSIDE, 7)["verdict"], "unrelated flake")
+
+    def test_unreachable_but_red_on_main_points_at_main(self):
         result = verdict.decide(OWN, [MAIN, OTHER_PR], OUTSIDE, 7)
-        self.assertEqual(result["verdict"], "unrelated flake")
-        self.assertEqual(result["line"], "unrelated flake: 2 other failures in 7 days (1 on main, 1 other PR branch); "
+        self.assertEqual(result["verdict"], "also red on main")
+        self.assertEqual(result["line"], "also red on main: 2 other failures in 7 days (1 on main, 1 other PR branch); "
                                          "no changed file is in vm-route-deadlines.test.ts's import graph; "
                                          "1 of 1 failure(s) here passed on a re-run of the same SHA")
 
@@ -38,13 +41,30 @@ class Decide(unittest.TestCase):
         own, others = verdict.own_and_others({"failures": [*OWN, MAIN, OTHER_PR]}, "fix/repause")
         self.assertEqual((len(own), len(others)), (1, 2))
 
+    def test_a_forks_branch_of_the_same_name_is_someone_elses(self):
+        fork = {**OWN[0], "head_repository_id": 77}
+        mine = {**OWN[0], "head_repository_id": 1}
+        own, others = verdict.own_and_others({"failures": [fork, mine]}, "fix/repause", head_repo_id=1)
+        self.assertEqual((own, others), ([mine], [fork]))
+
+    def test_coverage_is_refused_for_a_fork(self):
+        ours = {"number": 1, "head": {"repo": {"full_name": "manaflow-ai/cmux"}}}
+        verdict.refuse_fork_coverage(ours, "manaflow-ai/cmux")
+        for head in ({"repo": {"full_name": "someone/cmux"}}, {"repo": None}):
+            with self.assertRaises(SystemExit) as raised:
+                verdict.refuse_fork_coverage({"number": 2, "head": head}, "manaflow-ai/cmux")
+            self.assertIn("--coverage would run its code", str(raised.exception))
+
+    def test_log_text_cannot_format_or_mention_in_the_comment(self):
+        self.assertEqual(verdict.safe("a `b`\n@team [x](y)"), "`a 'b' @\u200bteam [x](y)`")
+
     def test_render_names_each_job(self):
         pr = {"number": 21651, "head": {"sha": "43c75ca3529fe64132ceaf8309bb6af851153192", "ref": "fix/repause"}}
         result = {"file": "tests/vm-route-deadlines.test.ts", "own": OWN, "others": [MAIN, OTHER_PR],
                   "source": "logs", "verdict": verdict.decide(OWN, [MAIN, OTHER_PR], OUTSIDE, 7)}
         body = verdict.render(pr, [result], 7)
         self.assertTrue(body.startswith(verdict.MARKER))
-        self.assertIn("**unrelated flake**", body)
+        self.assertIn("**also red on main**", body)
         self.assertIn("[job](https://github.com/x/job/117692683085)", body)
         self.assertIn("#21600", body)
 

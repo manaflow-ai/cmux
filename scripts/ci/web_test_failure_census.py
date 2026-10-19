@@ -16,7 +16,7 @@ Two sources, cheapest first:
          ci.yml runs, read each failed or re-run run's jobs, and download the
          failed web shards' logs. One call per run inspected; --max-runs caps it.
 
-Downloads are cached under $XDG_CACHE_HOME/cmux-ci/web-test-census (reports
+Downloads are cached under $XDG_CACHE_HOME/cmux-ci/web-test-census-v2 (reports
 and logs by ID, forever; job lists only once their run completed), so a second
 census over the same window costs only the listings. The script reads the core
 REST rate limit first (that read is free) and refuses to start when the
@@ -85,6 +85,10 @@ def parse_junit(text: str) -> list[dict]:
     bun nests one <testsuite> per file and one per describe block; the test's
     full name joins the describe names and the case name with " > ", as bun's
     console output prints it."""
+    # Fork runs upload these too. ElementTree expands internal entities, so a
+    # report that declares any (a DOCTYPE) is refused rather than parsed.
+    if re.search(r"<!(?:DOCTYPE|ENTITY)", text[:4096], re.IGNORECASE):
+        raise ValueError("JUnit report declares a DOCTYPE; refusing to parse it")
     root = ET.fromstring(text)
     found: list[dict] = []
 
@@ -180,7 +184,8 @@ def token() -> str:
 
 def cache_dir() -> Path:
     base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
-    return base / "cmux-ci" / "web-test-census"
+    # v2: cached runs carry their repository IDs (a fork's main is not main).
+    return base / "cmux-ci" / "web-test-census-v2"
 
 
 class Source:
@@ -328,8 +333,17 @@ def slim_job(job: Mapping) -> dict:
 
 
 def slim_run(run: Mapping) -> dict:
-    return {k: run.get(k) for k in ("id", "run_attempt", "conclusion", "status", "event", "head_sha",
+    slim = {k: run.get(k) for k in ("id", "run_attempt", "conclusion", "status", "event", "head_sha",
                                     "head_branch", "created_at", "html_url")}
+    slim["head_repository_id"] = (run.get("head_repository") or {}).get("id", run.get("head_repository_id"))
+    slim["repository_id"] = (run.get("repository") or {}).get("id", run.get("repository_id"))
+    return slim
+
+
+def is_fork(run: Mapping) -> bool:
+    """A run of a fork's branch: its `main` is not this repository's main."""
+    head, base = run.get("head_repository_id"), run.get("repository_id")
+    return head is not None and base is not None and head != base
 
 
 def parse_time(value: object) -> datetime:
@@ -367,11 +381,18 @@ def from_junit(src: Source, since: datetime, test: str | None, file: str | None,
                     continue
                 reports += 1
                 run = artifact.get("workflow_run") or {}
-                for item in parse_junit(src.junit(artifact)):
+                try:
+                    items = parse_junit(src.junit(artifact))
+                except (ValueError, ET.ParseError) as error:
+                    print(f"warning: artifact {artifact['id']}: {error}", file=sys.stderr)
+                    continue
+                for item in items:
                     if matches(item, test, file):
                         failures.append({**item, "source": "junit", "run_id": run.get("id"), "attempt": attempt,
                                          "shard": shard, "sha": run.get("head_sha"),
-                                         "branch": run.get("head_branch"), "at": artifact.get("created_at")})
+                                         "branch": run.get("head_branch"), "fork": is_fork(run),
+                                         "head_repository_id": run.get("head_repository_id"),
+                                         "at": artifact.get("created_at")})
         if not any_found:
             break  # no shard reached this attempt in the window, so none reached a later one
     return failures, reports
@@ -426,6 +447,7 @@ def from_logs(src: Source, since: datetime, max_main_runs: int, max_runs: int, t
                     failures.append({**item, "source": "log", "run_id": run_id,
                                      "attempt": job.get("run_attempt"), "shard": shard,
                                      "sha": run.get("head_sha"), "branch": run.get("head_branch"),
+                                     "fork": is_fork(run), "head_repository_id": run.get("head_repository_id"),
                                      "at": job.get("started_at"), "job_url": job.get("html_url")})
     coverage = {"runs_inspected": len(picked) - unreadable, "runs_unreadable": unreadable,
                 "main_runs_inspected": sum(1 for r in picked.values() if r.get("head_branch") == "main")}
@@ -469,8 +491,9 @@ def enrich(src: Source, failures: list[dict], jobs_by_run: Mapping[int, list[dic
             item["job_url"] = (job or {}).get("html_url") or \
                 f"https://github.com/{src.gh.repo}/actions/runs/{run_id}/attempts/{item['attempt']}"
         item["rerun"] = rerun_outcome(item, sha_runs, jobs)
-        item["where"] = "main" if item.get("branch") == "main" else "pr"
-        if lookup_prs and item["where"] == "pr":
+        item["where"] = "main" if item.get("branch") == "main" and not item.get("fork") else "pr"
+        # A fork's branch name says nothing about this repository's pull requests.
+        if lookup_prs and item["where"] == "pr" and not item.get("fork"):
             item["pr"] = src.pr_for_branch(str(item.get("branch") or ""))
 
 

@@ -85,6 +85,18 @@ class Parsing(unittest.TestCase):
         self.assertFalse(census.matches(item, None, "route-deadlines.test.ts"))
         self.assertFalse(census.matches(item, "pause", None))
 
+    def test_a_report_declaring_entities_is_refused(self):
+        bomb = '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><testsuites>&a;</testsuites>'
+        with self.assertRaises(ValueError):
+            census.parse_junit(bomb)
+
+    def test_only_this_repositorys_main_is_main(self):
+        self.assertTrue(census.is_fork({"head_repository_id": 2, "repository_id": 1}))
+        self.assertFalse(census.is_fork({"head_repository_id": 1, "repository_id": 1}))
+        self.assertFalse(census.is_fork({}))
+        slim = census.slim_run({"id": 9, "head_repository": {"id": 2}, "repository": {"id": 1}})
+        self.assertTrue(census.is_fork(slim))
+
     def test_web_shard_job_names(self):
         self.assertEqual(census.shard_of("web / Web tests (2/4)"), 2)
         self.assertIsNone(census.shard_of("web / Web typecheck"))
@@ -154,9 +166,10 @@ class FakeSource(census.Source):
         return self._prs.get(branch)
 
 
-def artifact(id_, run_id, sha, branch, at="2026-10-18T13:51:20Z"):
+def artifact(id_, run_id, sha, branch, at="2026-10-18T13:51:20Z", head_repo=1):
     return {"id": id_, "created_at": at, "expired": False,
-            "workflow_run": {"id": run_id, "head_sha": sha, "head_branch": branch}}
+            "workflow_run": {"id": run_id, "head_sha": sha, "head_branch": branch,
+                             "head_repository_id": head_repo, "repository_id": 1}}
 
 
 class Census(unittest.TestCase):
@@ -185,6 +198,21 @@ class Census(unittest.TestCase):
         self.assertEqual(report["summary"]["main"], 1)
         self.assertEqual(report["summary"]["prs"], ["21651"])
         self.assertIn("1 on main", census.render(report))
+
+    def test_a_forks_main_counts_as_a_pr_and_skips_the_pr_lookup(self):
+        src = FakeSource(
+            artifacts={"web-test-junit-shard1-attempt1": [artifact(10, 100, "aaa", "main", head_repo=77)]},
+            reports={10: JUNIT}, prs={"main": 1})
+        report = census.census(src, test="top level", file=None, days=7, now=NOW)
+        [item] = report["failures"]
+        self.assertEqual((item["where"], item["fork"], item.get("pr")), ("pr", True, None))
+        self.assertEqual(report["summary"]["main"], 0)
+
+    def test_a_poisoned_report_is_skipped_not_fatal(self):
+        src = FakeSource(artifacts={"web-test-junit-shard1-attempt1": [artifact(10, 100, "aaa", "main")]},
+                         reports={10: "<!DOCTYPE x><testsuites/>"})
+        report = census.census(src, test=None, file="a.test.ts", days=7, now=NOW)
+        self.assertEqual(report["failures"], [])
 
     def test_junit_listing_stops_at_the_first_attempt_no_shard_reached(self):
         src = FakeSource(artifacts={"web-test-junit-shard1-attempt1": [artifact(10, 100, "aaa", "main")]},

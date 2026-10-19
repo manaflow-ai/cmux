@@ -20,13 +20,18 @@ and prints one verdict per file:
   likely this PR's   the test imports (or runs) code the PR changes, or the PR
                      changes the test runner, and it fails nowhere else
   touched, also flaky the PR touches its code, and it fails elsewhere too
-  unrelated flake    the PR cannot reach it, and it failed elsewhere too
+  also red on main   the PR cannot reach it, and it failed on main in the
+                     window: main may be broken or flaky, so check main first
+  unrelated flake    the PR cannot reach it, and it failed only on other PRs
   probably unrelated the PR cannot reach it, and nothing else failed it in the
                      window; a re-run settles it
 
 "Cannot reach" means outside the import graph, tree-shaken, or (--coverage)
 imported without running a changed line. The head and base commits must be
 fetchable; the script runs `git fetch origin <sha>` unless --no-fetch.
+
+--coverage runs the PR head's test code on this machine, so it is refused for
+a pull request from a fork. Without it, nothing from the PR runs.
 """
 
 from __future__ import annotations
@@ -44,8 +49,8 @@ import test_touches_diff as graph  # noqa: E402
 import web_test_failure_census as census  # noqa: E402
 
 MARKER = "<!-- cmux-web-test-verdict -->"
-LIKELY, TOUCHED_FLAKY, FLAKE, PROBABLY = "likely this PR's", "touched, also flaky", "unrelated flake", \
-    "probably unrelated"
+LIKELY, TOUCHED_FLAKY, ON_MAIN, FLAKE, PROBABLY = "likely this PR's", "touched, also flaky", "also red on main", \
+    "unrelated flake", "probably unrelated"
 MAX_FILES = 5
 
 
@@ -60,6 +65,8 @@ def decide(own: list[Mapping], others: list[Mapping], touch: Mapping, days: int)
     reach = touch["summary"]
     if touch["touches"]:
         verdict = TOUCHED_FLAKY if others else LIKELY
+    elif on_main:
+        verdict = ON_MAIN
     else:
         verdict = FLAKE if others else PROBABLY
     parts = [history, reach]
@@ -68,16 +75,39 @@ def decide(own: list[Mapping], others: list[Mapping], touch: Mapping, days: int)
     return {"verdict": verdict, "line": f"{verdict}: " + "; ".join(parts)}
 
 
-def own_and_others(report: Mapping, branch: str) -> tuple[list[dict], list[dict]]:
-    own = [f for f in report["failures"] if f.get("branch") == branch]
-    return own, [f for f in report["failures"] if f.get("branch") != branch]
+def own_and_others(report: Mapping, branch: str, head_repo_id: object = None) -> tuple[list[dict], list[dict]]:
+    """The PR's failures (its branch, in its head repository) and everyone else's. A fork's branch
+    of the same name is someone else's."""
+    def mine(f: Mapping) -> bool:
+        if f.get("branch") != branch:
+            return False
+        have = f.get("head_repository_id")
+        return head_repo_id is None or have is None or have == head_repo_id
+    failures = list(report["failures"])
+    return [f for f in failures if mine(f)], [f for f in failures if not mine(f)]
 
 
-def fetch(repo: Path, shas: Iterable[str]) -> None:
+def refuse_fork_coverage(pr: Mapping, repo: str) -> None:
+    """--coverage runs the head's code; a fork's head (or a deleted fork's) is not ours to run."""
+    head_repo = (pr.get("head") or {}).get("repo") or {}
+    if head_repo.get("full_name") != repo:
+        raise SystemExit(f"#{pr.get('number')} comes from {head_repo.get('full_name') or 'a deleted fork'}; "
+                         "--coverage would run its code on this machine. Rerun without --coverage.")
+
+
+def safe(text: object, limit: int = 160) -> str:
+    """Log-derived text for a PR comment: one line, no backticks or mentions, inside a code span."""
+    value = " ".join(str(text or "").split()).replace("`", "'").replace("@", "@\u200b")[:limit]
+    return f"`{value}`"
+
+
+def fetch(repo: Path, shas: Iterable[str], pr: int) -> None:
+    """Make the head and base commits local. A fork's head is reachable as pull/<n>/head."""
     missing = [s for s in shas if subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{s}^{{commit}}"],
                                                  capture_output=True).returncode]
     if missing:
-        subprocess.run(["git", "-C", str(repo), "fetch", "--quiet", "--no-tags", "origin", *missing], check=True)
+        refs = [*missing, f"pull/{pr}/head"]
+        subprocess.run(["git", "-C", str(repo), "fetch", "--quiet", "--no-tags", "origin", *refs], check=True)
 
 
 def render(pr: Mapping, results: list[Mapping], days: int) -> str:
@@ -85,13 +115,13 @@ def render(pr: Mapping, results: list[Mapping], days: int) -> str:
     if not results:
         lines.append(f"No web test failed on `{pr['head']['ref']}` in the last {days} days.")
     for result in results:
-        lines.append(f"- `{result['file']}`: **{result['verdict']['verdict']}**. "
+        lines.append(f"- {safe(result['file'], 120)}: **{result['verdict']['verdict']}**. "
                      f"{result['verdict']['line'].split(': ', 1)[1]}")
         for item in result["own"][:3]:
-            lines.append(f"  - here: {item['test']} ({item['kind']}) [job]({item['job_url']})")
+            lines.append(f"  - here: {safe(item['test'])} ({item['kind']}) [job]({item['job_url']})")
         for item in result["others"][:5]:
-            who = "main" if item["where"] == "main" else (f"#{item['pr']}" if item.get("pr") else item["branch"])
-            lines.append(f"  - {who}, {str(item.get('at'))[:10]}: {item['test']} [job]({item['job_url']})")
+            who = "main" if item["where"] == "main" else (f"#{item['pr']}" if item.get("pr") else safe(item["branch"], 60))
+            lines.append(f"  - {who}, {str(item.get('at'))[:10]}: {safe(item['test'])} [job]({item['job_url']})")
     lines += ["", f"<sub>scripts/ci/web_test_verdict.py; history from {results[0]['source'] if results else 'CI'}"
               "; logs history samples PR runs, see --max-runs.</sub>"]
     return "\n".join(lines)
@@ -117,20 +147,24 @@ def main(argv: list[str] | None = None) -> int:
     census.check_budget(src, census.estimate_calls(args.source, args.max_main_runs, args.max_runs, 300) + 10)
     pr = src.gh.get(f"repos/{args.repo}/pulls/{args.pr}") or {}
     branch, head, base = pr["head"]["ref"], pr["head"]["sha"], pr["base"]["sha"]  # type: ignore[index]
+    head_repo = pr["head"].get("repo") or {}  # type: ignore[index,union-attr]
+    if args.coverage:
+        refuse_fork_coverage(pr, args.repo)  # type: ignore[arg-type]
     # The PR's own failures first: they name the files to look at when --file is not given.
     mine = census.census(src, test=args.test, file=args.file, days=args.days, source=args.source,
                          max_main_runs=0, max_runs=0, branches=[branch])
-    files = sorted({f["file"] for f in mine["failures"] if f.get("branch") == branch and f.get("file")})
+    own_now, _ = own_and_others(mine, branch, head_repo.get("id"))
+    files = sorted({f["file"] for f in own_now if f.get("file")})
     if args.file and not files:
         files = [census.web_path(args.file) if "/" in args.file else f"tests/{args.file}"]
     repo = Path(str(graph.git(Path.cwd(), "rev-parse", "--show-toplevel")).strip())
     if files and not args.no_fetch:
-        fetch(repo, [head, base])
+        fetch(repo, [head, base], args.pr)
     results = []
     for file in files[:MAX_FILES]:
         history = census.census(src, test=args.test, file=file, days=args.days, source=args.source,
                                 max_main_runs=args.max_main_runs, max_runs=args.max_runs, branches=[branch])
-        own, others = own_and_others(history, branch)
+        own, others = own_and_others(history, branch, head_repo.get("id"))
         touch = graph.check(repo, file, base, head, coverage=args.coverage)
         results.append({"file": file, "own": own, "others": others, "touch": touch, "source": history["source"],
                         "verdict": decide(own, others, touch, args.days)})
