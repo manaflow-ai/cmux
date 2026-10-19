@@ -1,6 +1,7 @@
 import Foundation
 
-extension Strings {
+/// Strings of the popup panels (Resources/Popups.xcstrings).
+nonisolated enum PopupStrings {
     /// Popup panel title while the page has no title or address yet.
     static var popupUntitled: String {
         String(localized: "popup.untitled", defaultValue: "Popup", table: "Popups", bundle: .module)
