@@ -36,10 +36,13 @@ extension ControlRouter {
                 (request.params["wait"]?.boolValue ?? true)
                     && ((try? Self.resolveAction(request.params, in: snapshot.catalog))?.startsTerminal ?? false)
             }).claimingProgress().withLimit { request, snapshot in
+                guard let action = try? Self.resolveAction(request.params, in: snapshot.catalog) else { return nil }
+                let wait = request.params["wait"]?.boolValue
                 // A network action the caller awaits (Connect to CodeRouter).
-                guard request.params["wait"]?.boolValue == true,
-                      (try? Self.resolveAction(request.params, in: snapshot.catalog))?.waitsForResult == true else { return nil }
-                return ActionDescriptor.resultDeadline
+                if wait == true, action.waitsForResult { return ActionDescriptor.resultDeadline }
+                // A keyed create that asks again while its reply is late (a busy disk).
+                if wait ?? true, action.waitsForKeyedCreate { return KeyedCreateDeadline.request }
+                return nil
             },
             // `cmux tab <id> focus` (state-ownership.md 3): runs the
             // `tab.focus` action on the tab, with action.run's contract.

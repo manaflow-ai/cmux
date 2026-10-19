@@ -184,6 +184,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.startsTerminal = descriptor.startsTerminal
         info.isCLI = descriptor.cli
         info.waitsForResult = descriptor.waitsForResult
+        info.waitsForKeyedCreate = descriptor.waitsForKeyedCreate
         info.focuses = descriptor.focuses
         return info
     }

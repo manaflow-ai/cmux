@@ -1,7 +1,18 @@
 // Catalog rows for one domain. Titles live in Localizable.xcstrings (en, ja).
 
 nonisolated enum TabActionCatalog: ActionCatalogGroup {
+    /// New browser tabs: a keyed `new-frontend-browser-tab` that asks again when its reply is late.
+    static let keyedCreates: Set<ActionID> = ["openBrowser", "openBrowser.webkit", "openBrowser.chromium"]
+
     static func descriptors() -> [ActionDescriptor] {
+        var actions = allDescriptors()
+        for index in actions.indices where keyedCreates.contains(actions[index].id) {
+            actions[index].waitsForKeyedCreate = true
+        }
+        return actions
+    }
+
+    private static func allDescriptors() -> [ActionDescriptor] {
         [
             // Cmd-T: the New Tab page, where the kind is picked (Leo 2026-10-12). Was
             // `newTab.sameKind`, which named a setting value, not what it does (legacyAliases).
