@@ -290,3 +290,19 @@ test("a harness switch never draws another folder's start mode as the chat's cur
   rememberStartMode("claude", "/unanswered", { modeId: "bypassPermissions", name: "Bypass permissions" });
   expect(applySwitch(raw, view, [], profiles).summary?.modes?.currentModeId).toBe("bypassPermissions");
 });
+
+// Last: it fills the shared profile store (`harnessProfiles` keeps no reset), which every
+// test above relies on being empty.
+test("a pending chat's access menu names acpmux's start mode, never the mode this harness's last chat showed", async () => {
+  const { harnessProfiles } = await import("../src/agent-session/acpmux/harnessProfiles");
+  type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
+  // The last Claude chat sat in "Ask before edits"; new chats start in full access.
+  harnessProfiles.observe(reported("earlier", "default") as Snapshot["summary"]);
+  await kept({ modeId: "bypassPermissions", name: "Bypass permissions" });
+  const answer = await acpmux({ modeId: "bypassPermissions", name: "Bypass permissions" });
+  await fresh();
+  expect(access()).toEqual({ label: "Bypass permissions", warning: true });
+  expect(host.querySelector<HTMLButtonElement>(".acpmux-access-trigger")?.disabled).toBe(false);
+  await answer();
+  expect(access()).toEqual({ label: "Bypass permissions", warning: true });
+});
