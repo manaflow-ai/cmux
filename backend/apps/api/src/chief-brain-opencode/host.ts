@@ -1,4 +1,5 @@
 import type { Env } from "../env.ts"
+import { brainModel } from "../model-gateway/routes.ts"
 import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation } from "../chief-brain/brain-io.ts"
 import { manageChiefs } from "../chief-brain/brain-chiefs.ts"
 import type { BrainConfig } from "../chief-brain/brain-store.ts"
@@ -105,4 +106,4 @@ export const hostCall = async (env: Env, who: Who, method: string, params: Recor
   }
 }
 
-export { brainModel } from "../model-gateway/routes.ts"
+export { brainModel }

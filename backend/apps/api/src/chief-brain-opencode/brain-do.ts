@@ -192,8 +192,8 @@ export class OpencodeBrainDO extends DurableObject<Env> {
       const verdict = await turns.claudeTurn(owner, model).catch(() => "unreachable")
       if (verdict !== "ok") {
         this.endWake(row.n, run, "skipped", `no paid turn (${verdict})`)
-        // A paid model this owner may not use: the same notice as on P, never a silent wake.
-        if (verdict === "owner_not_allowed" || verdict === "model_not_offered") await turnFailedNotice(this.env, this.sql, admitted.config, conversation, run, `no paid turn (${verdict})`, undefined)
+        // A paid model this owner may not use: the same notice as on P, never a silent wake (its own key: P run ids use run_<n> too).
+        if (verdict === "owner_not_allowed" || verdict === "model_not_offered") await turnFailedNotice(this.env, this.sql, admitted.config, conversation, `oc_${run}`, `no paid turn (${verdict})`, undefined)
         return
       }
     }
