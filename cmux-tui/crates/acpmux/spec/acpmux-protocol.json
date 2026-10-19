@@ -2307,12 +2307,38 @@
     },
     "SessionsParams": {
       "additionalProperties": false,
+      "description": "Also the page fields of `_acpmux/watch` (`hub::session_pages`).",
+      "properties": {
+        "cursor": {
+          "description": "A previous reply's `nextCursor`: the page starts after that session.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Page size, at least 1. Without it the reply is the whole list.",
+          "format": "uint64",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "SessionsResult": {
       "properties": {
+        "nextCursor": {
+          "description": "With `limit`: the cursor for the next page, null when the list is\ndone. Absent without `limit`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "sessions": {
-          "description": "Local and peer sessions, newest first.",
+          "description": "Local and peer sessions, newest first, then by `sessionId`.",
           "items": {
             "$ref": "#/types/SessionSummary"
           },
