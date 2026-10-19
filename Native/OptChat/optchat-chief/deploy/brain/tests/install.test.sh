@@ -39,6 +39,7 @@ PATH="$tmp/bin:/usr/bin:/bin:/usr/sbin" "$here/install.sh" --optchat-chief "$tmp
 # The Claude route is in acpmux's own environment, so no login shell read decides the sign-in.
 [[ "$(env_of acpmux ANTHROPIC_BASE_URL)" == "http://router.test:31415" ]] || fail "--claude-base-url is not acpmux's ANTHROPIC_BASE_URL"
 [[ -n "$(env_of acpmux ANTHROPIC_AUTH_TOKEN)" ]] || fail "--claude-base-url sets no placeholder ANTHROPIC_AUTH_TOKEN"
+grep -q "^acpmux Claude route: http://router.test:31415 " "$tmp/out.log" || fail "install.sh does not print the Claude route it installs"
 # A URL that would break the plist XML, or a second Claude route, is refused before anything is written.
 for bad in "--claude-base-url http://router.test/?a=1&b=2|must be an http(s) URL" "--claude-base-url http://router.test:31415 --harness claude-sr|both set the Claude route"; do
   args="${bad%%|*}" why="${bad#*|}"

@@ -104,7 +104,13 @@ render "$P.daemon" "$BRAIN/logs/daemon.log" \
 acpmux_env=(ACPMUX_HOME "$BRAIN/acpmux" ACPMUX_CHIEF_MUX_HOME "$BRAIN/mux"
   CMUX_TUI_SOCKET "$SOCK" CMUX_MUX_SOCKET "$SOCK" CMUX_CHIEF_OWNER_SOCKET "$SOCK"
   CMUX_BUNDLED_CLI_PATH "$BRAIN/bin/cmux")
-[[ -z "$CLAUDE_URL" ]] || acpmux_env+=(ANTHROPIC_BASE_URL "$CLAUDE_URL" ANTHROPIC_AUTH_TOKEN "unused-route-signs-in-by-url")
+if [[ -n "$CLAUDE_URL" ]]; then
+  acpmux_env+=(ANTHROPIC_BASE_URL "$CLAUDE_URL" ANTHROPIC_AUTH_TOKEN "unused-route-signs-in-by-url")
+  # Said out loud: a copied URL can name a relay or an old router host (2026-10-19).
+  echo "acpmux Claude route: $CLAUDE_URL (no login shell read for it)"
+else
+  echo "acpmux Claude route: none given; acpmux reads it from the login shell (3 s limit)"
+fi
 render "$P.acpmux" "$BRAIN/logs/acpmux.log" \
   "$(xml_args "$BRAIN/bin/acpmux" daemon run)" \
   "$(xml_env "${acpmux_env[@]}")"
