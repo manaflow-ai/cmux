@@ -19,7 +19,9 @@ export const memberAuthorityWrites = (user: string, ctx: ReduceContext): Readonl
   if (generation.length > 64) throw new Error("member authority generation exhausted")
   return [
     { table: TABLE_MEMBER_AUTHORITY, op: "upsert", key: GENERATION_KEY, row: { generation } },
-    { table: TABLE_MEMBER_AUTHORITY, op: "upsert", key: user, row: { incarnation: `generation:${generation}` } }
+    // The counter prevents reuse; the owner's transaction tag keeps the
+    // underlying counter and policy version from being guessable from a hash.
+    { table: TABLE_MEMBER_AUTHORITY, op: "upsert", key: user, row: { incarnation: `generation:${generation}:${ctx.tx}` } }
   ]
 }
 
@@ -31,7 +33,14 @@ export const teamAuthorityVersion = (team: string, user: string, role: string, k
   const incarnation = kind === "personal" ? "personal-owner" : stored === undefined ? "legacy" : stored.row.incarnation
   if (kind === "stack") {
     const generation = generationOf(rows)
-    if (typeof incarnation !== "string" || (stored !== undefined && (incarnation.startsWith("generation:") ? !/^generation:[1-9][0-9]{0,63}$/.test(incarnation) || BigInt(incarnation.slice(11)) > generation : !/^[A-Za-z0-9_-]{22}$/.test(incarnation)))) throw new Error("invalid member authority incarnation")
+    if (typeof incarnation !== "string") throw new Error("invalid member authority incarnation")
+    if (stored !== undefined) {
+      const version = /^generation:([1-9][0-9]{0,63})(?::[A-Za-z0-9_-]{22})?$/.exec(incarnation)
+      const valid = incarnation.startsWith("generation:")
+        ? version !== null && BigInt(version[1]!) <= generation
+        : /^[A-Za-z0-9_-]{22}$/.test(incarnation)
+      if (!valid) throw new Error("invalid member authority incarnation")
+    }
   }
   const grants = [...(ROLE_GRANTS[role as Role] ?? [])].sort()
   return createHash("sha256").update(JSON.stringify(["cmux-team-authority-v1", team, user, role, grants, incarnation, policyVersion])).digest("hex")
