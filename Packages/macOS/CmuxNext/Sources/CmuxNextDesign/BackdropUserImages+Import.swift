@@ -81,7 +81,10 @@ nonisolated extension BackdropUserImages {
     /// A file name from the link's last path component: its own name only (no folders, no
     /// leading dots, nothing the file system reads as a path), at most 80 characters.
     nonisolated static func safeStem(_ link: URL) -> String {
-        let decoded = link.deletingPathExtension().lastPathComponent
+        // The extension cut at the last dot by hand: Foundation's deletingPathExtension keeps a
+        // name that is all dots and extension ("...png") whole on some macOS versions.
+        let name = link.lastPathComponent
+        let decoded = name.lastIndex(of: ".").map { String(name[..<$0]) } ?? name
         let cleaned = String(decoded.map { "/:\\".contains($0) || $0.isNewline ? "-" : $0 })
         let stem = String(cleaned.drop { $0 == "." || $0 == "-" || $0.isWhitespace }.prefix(80)).trimmingCharacters(in: .whitespaces)
         return stem.isEmpty ? "Background" : stem
