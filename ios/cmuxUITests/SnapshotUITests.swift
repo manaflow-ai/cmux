@@ -329,11 +329,12 @@ final class AgentChatModeUITests: XCTestCase {
         let codex = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Codex, Review the networking changes")).firstMatch
         XCTAssertTrue(codex.waitForExistence(timeout: 8))
         codex.tap()
-        let sessions = app.buttons["Agent sessions"]
-        XCTAssertTrue(sessions.waitForExistence(timeout: 8))
-        sessions.tap()
-        XCTAssertTrue(close.waitForExistence(timeout: 8))
-        close.tap()
+        let options = app.buttons["Agent mode options"]
+        XCTAssertTrue(options.waitForExistence(timeout: 8))
+        options.tap()
+        let detailClose = app.buttons["Close"]
+        XCTAssertTrue(detailClose.waitForExistence(timeout: 8))
+        detailClose.tap()
         XCTAssertTrue(reopen.waitForExistence(timeout: 8), "Closing from the detail navigation should dismiss Agent mode")
     }
 

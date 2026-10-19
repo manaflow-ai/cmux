@@ -637898,6 +637898,65 @@
           }
         }
       }
+    },
+    "mobile.chat.error.liveControlsUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change the model, permissions, or other agent settings in the terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ändere das Modell, die Berechtigungen oder andere Agenteneinstellungen im Terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifiez le modèle, les autorisations ou les autres paramètres de l’agent dans le terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غيّر النموذج أو الأذونات أو إعدادات الوكيل الأخرى في الطرفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia el modelo, los permisos u otros ajustes del agente en el terminal."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在終端機中變更模型、權限或其他代理程式設定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在终端中更改模型、权限或其他代理设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 모델, 권한 또는 기타 에이전트 설정을 변경하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル、権限、その他のエージェント設定はターミナルで変更してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
