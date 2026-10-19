@@ -1,19 +1,29 @@
 #!/usr/bin/env bash
 # Best-effort format-on-edit for Claude Code and Codex (PostToolUse).
 #
-# Formats the files an edit touched, the way the pre-commit hook will at commit
-# time: Rust with rustfmt (its Cargo package's edition and the nearest
-# rustfmt.toml in the checkout, rustfmt's defaults otherwise) and webviews
-# files with vp fmt (packages installed with bun when missing). Never blocks
-# the edit: a missing formatter or a parse error is a warning on stderr.
+# Formats only the files an edit touched, so many agents can share one
+# checkout without reformatting each other's work, the way the pre-commit hook
+# will at commit time:
+# - Rust with the rustfmt of the toolchain its rust-toolchain.toml pins (PATH
+#   rustfmt when nothing pins one or that toolchain is missing), with its Cargo package's edition and the
+#   nearest rustfmt.toml in the checkout (rustfmt's defaults otherwise).
+# - webviews/ and cmux-tui/frontends/web/ files with that package's own vp fmt.
+#   Packages that are missing, or older than the lockfile CI installs, are
+#   reinstalled from the lockfile first, so the formatter version matches CI.
+# Never blocks the edit: a missing formatter or a parse error is a warning on
+# stderr, and a clean format is silent. CMUX_SKIP_FORMAT_HOOKS=1 skips it.
 set -u
 
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ "${CMUX_SKIP_FORMAT_HOOKS:-0}" = 1 ] && exit 0
+
+# The checkout this script lives in, whatever directory the agent's shell is in.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd -P)"
 [ -n "$ROOT" ] || exit 0
 
 payload="$(cat 2>/dev/null || true)"
-# One "rust<TAB>edition<TAB>path<TAB>config" (config last: it may be empty) or
-# "web<TAB>path" line per file.
+# One line per file:
+#   rust<TAB>edition<TAB>toolchain<TAB>path<TAB>config  (toolchain, config may be empty)
+#   web<TAB>package<TAB>path-inside-package
 plan="$(PAYLOAD="$payload" python3 - "$ROOT" <<'PY'
 import json
 import os
@@ -29,6 +39,8 @@ except (TypeError, ValueError):
 
 paths = set()
 keys = {"file_path", "filePath", "path", "filename", "target_file", "targetFile"}
+WEB_PACKAGES = ("webviews", "cmux-tui/frontends/web")
+WEB_FILE = re.compile(r"\.(m?[jt]sx?|c[jt]s|css|scss|html|json|mdx?)$")
 
 def visit(value):
     if isinstance(value, dict):
@@ -46,9 +58,9 @@ visit(payload)
 for match in re.finditer(r"\*\*\* (?:Add|Update) File: ([^\n\\\"]+)", raw):
     paths.add(match.group(1).strip())
 
-def manifest_text(directory):
+def read(directory, name):
     try:
-        with open(os.path.join(root, directory, "Cargo.toml"), encoding="utf-8") as handle:
+        with open(os.path.join(root, directory, name), encoding="utf-8") as handle:
             return handle.read()
     except OSError:
         return None
@@ -61,19 +73,31 @@ def parents(directory):
         directory = os.path.dirname(directory)
 
 def edition(package):
-    text = manifest_text(package)
+    text = read(package, "Cargo.toml")
     found = re.search(r'^edition\s*=\s*"(\d{4})"', text, re.M)
     if found:
         return found.group(1)
     if re.search(r"^edition\s*(\.\s*workspace\s*=\s*true|=\s*\{\s*workspace\s*=\s*true)", text, re.M):
         for directory in list(parents(package))[1:]:
-            workspace = manifest_text(directory)
+            workspace = read(directory, "Cargo.toml")
             if workspace and "[workspace.package]" in workspace:
                 section = workspace.split("[workspace.package]", 1)[1].split("\n[", 1)[0]
                 found = re.search(r'^edition\s*=\s*"(\d{4})"', section, re.M)
                 if found:
                     return found.group(1)
     return "2015"
+
+def toolchain(package):
+    """The channel the nearest rust-toolchain(.toml) pins, as cargo fmt in CI sees it."""
+    for directory in parents(package):
+        text = read(directory, "rust-toolchain.toml")
+        if text is not None:
+            found = re.search(r'^\s*channel\s*=\s*"([^"]+)"', text, re.M)
+            return found.group(1) if found else ""
+        text = read(directory, "rust-toolchain")
+        if text is not None:
+            return text.strip() if re.fullmatch(r"[\w.\-]+", text.strip()) else ""
+    return ""
 
 for path in sorted(paths):
     if os.path.isabs(path):
@@ -83,49 +107,91 @@ for path in sorted(paths):
         continue
     if path.endswith(".rs"):
         package = next((d for d in parents(os.path.dirname(path))
-                        if (manifest_text(d) or "").count("[package]")), None)
+                        if (read(d, "Cargo.toml") or "").count("[package]")), None)
         if package is None:
             continue
         config = next((os.path.join(root, d, name) for d in parents(package)
                        for name in ("rustfmt.toml", ".rustfmt.toml")
                        if os.path.isfile(os.path.join(root, d, name))), "")
-        print(f"rust\t{edition(package)}\t{path}\t{config}")
-    elif path.startswith("webviews/") and re.search(r"\.(m?[jt]sx?|c[jt]s|css|scss|html|json|mdx?)$", path):
-        print(f"web\t{path}")
+        print(f"rust\t{edition(package)}\t{toolchain(package)}\t{path}\t{config}")
+        continue
+    package = next((p for p in WEB_PACKAGES if path.startswith(p + "/")), None)
+    if package and WEB_FILE.search(path) and "/node_modules/" not in path:
+        print(f"web\t{package}\t{path[len(package) + 1:]}")
 PY
 )"
 [ -n "$plan" ] || exit 0
 
 rust_lines="$(printf '%s\n' "$plan" | grep '^rust' || true)"
 if [ -n "$rust_lines" ]; then
-  if ! command -v rustfmt >/dev/null 2>&1; then
-    echo "warning: rustfmt is unavailable; edited Rust is unformatted (the pre-commit hook will refuse an agent commit)" >&2
-  else
-    # An empty config pins rustfmt's defaults, so a stray rustfmt.toml above the
-    # checkout never decides the format.
-    defaults="$(mktemp "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
-    trap 'rm -f "$defaults"' EXIT
-    printf '%s\n' "$rust_lines" | while IFS="$(printf '\t')" read -r _ edition path config; do
-      rustfmt --edition "$edition" --config-path "${config:-$defaults}" "$ROOT/$path" >/dev/null 2>&1 \
-        || echo "warning: rustfmt could not format $path (a syntax error?)" >&2
-    done
-  fi
+  # An empty config pins rustfmt's defaults, so a stray rustfmt.toml above the
+  # checkout never decides the format.
+  defaults="$(mktemp "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
+  trap 'rm -f "$defaults"' EXIT
+  printf '%s\n' "$rust_lines" | while IFS="$(printf '\t')" read -r _ edition toolchain path config; do
+    # The rustfmt of the toolchain CI's cargo fmt uses for this package.
+    # rustfmt keeps a stable style across versions, so without that toolchain
+    # the PATH rustfmt still formats.
+    rustfmt_bin=""
+    if [ -n "$toolchain" ]; then
+      rustfmt_bin="$(rustup which --toolchain "$toolchain" rustfmt 2>/dev/null || true)"
+      if [ -z "$rustfmt_bin" ] || [ ! -x "$rustfmt_bin" ]; then
+        rustfmt_bin=""
+        echo "warning: $path pins Rust $toolchain; formatting with the PATH rustfmt (rustup toolchain install $toolchain --component rustfmt)" >&2
+      fi
+    fi
+    [ -n "$rustfmt_bin" ] || rustfmt_bin="$(command -v rustfmt || true)"
+    if [ -z "$rustfmt_bin" ]; then
+      echo "warning: rustfmt is unavailable; $path is unformatted (the pre-commit hook will refuse an agent commit)" >&2
+      continue
+    fi
+    "$rustfmt_bin" --edition "$edition" --config-path "${config:-$defaults}" "$ROOT/$path" >/dev/null 2>&1 \
+      || echo "warning: rustfmt could not format $path (a syntax error?)" >&2
+  done
 fi
 
-web_paths="$(printf '%s\n' "$plan" | sed -n 's/^web\twebviews\///p')"
-if [ -n "$web_paths" ]; then
-  vp="$ROOT/webviews/node_modules/.bin/vp"
-  if [ ! -x "$vp" ] && command -v bun >/dev/null 2>&1; then
-    (cd "$ROOT/webviews" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
+# The version a lockfile pins for a package, or nothing.
+locked_version() { # package-dir name
+  if [ -f "$1/bun.lock" ]; then
+    sed -nE "s/^ *\"$2\": \[\"$2@([^\"]+)\".*/\1/p" "$1/bun.lock" | head -n 1
+  elif [ -f "$1/package-lock.json" ]; then
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["packages"].get("node_modules/"+sys.argv[2], {}).get("version", ""))' \
+      "$1/package-lock.json" "$2" 2>/dev/null
   fi
-  if [ ! -x "$vp" ]; then
-    echo "warning: vp is unavailable; edited webviews files are unformatted (install bun)" >&2
-  else
-    # shellcheck disable=SC2086 # one path per word; webviews paths have no spaces
-    (cd "$ROOT/webviews" && "$vp" fmt $web_paths >/dev/null 2>&1) \
-      || echo "warning: vp fmt could not format ${web_paths//$'\n'/ }" >&2
+}
+installed_version() { # package-dir name
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version", ""))' \
+    "$1/node_modules/$2/package.json" 2>/dev/null
+}
+# vp is missing, or its formatter is older or newer than the lockfile says.
+web_packages_stale() { # package-dir
+  [ -x "$1/node_modules/.bin/vp" ] || return 0
+  for name in vite-plus oxfmt; do
+    want="$(locked_version "$1" "$name")"
+    [ -z "$want" ] || [ "$want" = "$(installed_version "$1" "$name")" ] || return 0
+  done
+  return 1
+}
+
+web_packages="$(printf '%s\n' "$plan" | sed -n 's/^web\t\([^\t]*\)\t.*/\1/p' | sort -u)"
+for package in $web_packages; do
+  dir="$ROOT/$package"
+  files="$(printf '%s\n' "$plan" | awk -F '\t' -v p="$package" '$1 == "web" && $2 == p { print $3 }')"
+  if web_packages_stale "$dir"; then
+    if [ -f "$dir/bun.lock" ] && command -v bun >/dev/null 2>&1; then
+      (cd "$dir" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
+    elif [ -f "$dir/package-lock.json" ] && command -v npm >/dev/null 2>&1; then
+      (cd "$dir" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1) || true
+    fi
   fi
-fi
+  if [ ! -x "$dir/node_modules/.bin/vp" ]; then
+    echo "warning: vp is unavailable; edited $package files are unformatted (install its packages)" >&2
+    continue
+  fi
+  # shellcheck disable=SC2086 # one path per word; these packages have no paths with spaces
+  (cd "$dir" && "$dir/node_modules/.bin/vp" fmt --no-error-on-unmatched-pattern $files >/dev/null 2>&1) \
+    || echo "warning: vp fmt could not format $(printf '%s ' $files)in $package" >&2
+done
 
 # A post-edit hook is advisory by design.
 exit 0
