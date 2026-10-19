@@ -7,6 +7,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import CmuxNextCompat
+import typealias CmuxNextDaemon.SurfaceID
 
 /// Owns one file page's tabs (diff-host S6 `cmux.markdown`, S7 `cmux.editor`): pane tabs, one
 /// ``FilePageProvider`` and page view per tab, one shared look per page (its settings section,
@@ -111,10 +112,10 @@ final class FilePageService: InternalPageProvider {
     /// the file (a chat transcript); every other markdown file opens writable.
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
-              recoveredText: String? = nil) -> String {
+              recoveredText: String? = nil, placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
-        let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText)) { key in
+        let key = show(in: pane, focus: focus, placed: placed, Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText)) { key in
             self.file(key) == real
         }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -178,19 +179,23 @@ final class FilePageService: InternalPageProvider {
     /// (page-tabs-v1), on its file as the route (page-tab-route-v1), so it
     /// moves like any daemon tab and Reopen Closed brings it back on that
     /// file; else as an app-only tab.
-    private func show(in pane: PaneController, focus: Bool, _ tab: Tab, matching: (String) -> Bool) -> String {
+    /// `placed` (``LinkOpener``): a new store tab opens unselected and reports its surface there; a
+    /// tab that already shows the file, or a local tab no move can take, shows where it is.
+    private func show(in pane: PaneController, focus: Bool, placed: (@MainActor (SurfaceID) -> Void)? = nil, _ tab: Tab,
+                      matching: (String) -> Bool) -> String {
         let window = services.windowController(showing: pane)
+        let revealsExisting = focus || placed != nil
         for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {
             let keys = services.pages.tabIDs(in: candidate.paneKey) + candidate.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
             if let shown = keys.first(where: { tabs[$0] != nil && matching($0) }) {
-                if focus { reveal(shown, in: candidate) }
+                if revealsExisting { reveal(shown, in: candidate) }
                 return shown
             }
             // A store tab of the same file that has not been shown yet (relaunch): show it, not a second one.
             if let file = tab.file?.path, let unshown = candidate.pane.tabs.first(where: {
                 $0.page == kind.page.rawValue && $0.pageRoute == file && services.pages.storeKey(of: $0.id) == nil
             }) {
-                if focus {
+                if revealsExisting {
                     candidate.select(StripTabID(unshown.id))
                     candidate.focusContent()
                 }
@@ -202,13 +207,13 @@ final class FilePageService: InternalPageProvider {
         // A store tab only on this Mac's daemon that keeps the route: a file path of this Mac never
         // goes to another machine's daemon, and a tab without its route could not come back.
         if let window, pane.daemon.isLocal, services.pages.keepsRoutes(pane.daemon),
-           services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key) != nil {
+           services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key, created: placed) != nil {
             return key
         }
         services.pages.open(kind.page, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                             window: window, key: key)
         pane.apply(pane.snapshot())
-        if focus { reveal(key, in: pane) }
+        if revealsExisting { reveal(key, in: pane) }
         return key
     }
 
@@ -269,10 +274,13 @@ final class FilePageService: InternalPageProvider {
         return await services.viewers.picker.open(options, over: tabs[key]?.page?.window)?.first
     }
 
+    /// A web link clicked in the page: the link setting (``LinkRouter``, cmux browser or the default
+    /// browser) and, in cmux, beside the page's pane (``LinkOpener``).
     fileprivate func openExternal(_ url: URL, from key: String) {
         switch url.scheme?.lowercased() {
         case "http", "https":
-            if let pane = pane(of: key) { pane.newBrowserTab(url: url) } else { NSWorkspace.shared.openInBackground(url) }
+            guard LinkRouter.shared.target(for: url) == .cmuxBrowser else { return LinkRouter.shared.open(url, in: .system) }
+            if let pane = pane(of: key) { services.linkOpener.openWeb(url, from: pane, background: false) } else { NSWorkspace.shared.openInBackground(url) }
         default:
             NSWorkspace.shared.openInBackground(url)
         }
@@ -282,8 +290,9 @@ final class FilePageService: InternalPageProvider {
         CmuxAppLinks.open(url, services: services)
     }
 
+    /// A file link clicked in the page opens beside the page's pane (``LinkOpener``).
     fileprivate func openFile(_ url: URL, from key: String) {
-        services.viewers.openFile(url, in: pane(of: key), markdown: FilePageKind.isMarkdown(url))
+        services.linkOpener.openFile(url, from: pane(of: key), markdown: FilePageKind.isMarkdown(url))
     }
 
     // MARK: InternalPageProvider

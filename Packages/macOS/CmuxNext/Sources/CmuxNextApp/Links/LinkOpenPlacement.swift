@@ -28,6 +28,8 @@ struct LinkOpenPlacement<Pane: Equatable> {
     /// Where an item opened from `source` lands. `takesTabs`: the source's strip takes new tabs;
     /// `right`: the pane right of the source on its screen, if any.
     func target(source: Pane, takesTabs: Bool, right: Pane?) -> Target {
-        .pane(source) // the old behavior: a tab over the source
+        if setting == .samePane, takesTabs { return .pane(source) }
+        if let right, right != source { return .pane(right) }
+        return setting == .newColumn ? .newColumn(rightOf: source) : .splitRight(of: source)
     }
 }
