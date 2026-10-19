@@ -35,6 +35,7 @@ test("the categories are the approved ones, in order", () => {
     "keyboard",
     "privacy",
     "accounts",
+    "devices",
     "advanced",
     "experimental",
     "development",
@@ -55,7 +56,12 @@ test("the Development category shows only in DEV builds", () => {
   const ids = (devBuild: boolean) => shownCategories(devBuild).map((category) => category.id);
   expect(ids(false)).not.toContain("development");
   expect(ids(true)).toContain("development");
-  expect(categories.filter((category) => category.devOnly).map((category) => category.id)).toEqual(["development"]);
+  expect(ids(false)).not.toContain("devices");
+  expect(ids(true)).toContain("devices");
+  expect(categories.filter((category) => category.devOnly).map((category) => category.id)).toEqual([
+    "devices",
+    "development",
+  ]);
 });
 
 test("old section routes and focused keys open the category that holds the row", () => {

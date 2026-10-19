@@ -5,6 +5,7 @@ import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
 import { ComputerUseCard } from "./ComputerUseCard";
+import { DevicesCard } from "./DevicesCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
@@ -32,6 +33,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
   backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
+  devices: () => <DevicesCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

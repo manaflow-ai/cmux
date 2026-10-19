@@ -4,6 +4,7 @@ import type { AnyRouter } from "@tanstack/react-router";
 import {
   settingsKeys,
   type AccountsData,
+  type DevicesData,
   type HarnessesData,
   type HostData,
   type ScopeData,
@@ -41,6 +42,7 @@ export function useSettingsState(): SettingsState {
   const host = useQuery<HostData>({ queryKey: settingsKeys.host, ...reader });
   const accounts = useQuery<AccountsData>({ queryKey: settingsKeys.accounts, ...reader });
   const harnesses = useQuery<HarnessesData>({ queryKey: settingsKeys.harnesses, ...reader });
+  const devices = useQuery<DevicesData>({ queryKey: settingsKeys.devices, ...reader });
   const themeColors = useQuery<ThemeColorsData>({ queryKey: settingsKeys.themeColors, ...reader });
   return composeState(ui, {
     scope: scope.data,
@@ -48,6 +50,7 @@ export function useSettingsState(): SettingsState {
     host: host.data,
     accounts: accounts.data,
     harnesses: harnesses.data,
+    devices: devices.data,
     themeColors: themeColors.data,
   });
 }
