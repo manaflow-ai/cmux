@@ -82,7 +82,27 @@ struct AgentPaneSlowStartPromptTests {
         // A start under the gesture whose prompt comes after the credit's lifetime is refused too.
         pane.transport.gestures.record()
         #expect(await Self.start(pane, id: 3) == nil)
-        pane.clock.now += AgentPaneTransport.remoteStartCreditLifetime + 1
+        pane.clock.now += AgentPaneTransport.startCreditLifetime + 1
         #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 4, promptId: "p-2")]) == .gestureRequired)
+    }
+
+    /// A prompt acpmux held for the folder trust answer keeps the send's gesture as a ticket
+    /// (heldPrompt.ts reserves it at the refusal). The start already took that gesture, so its
+    /// credit becomes the ticket, which waits for the answer as long as a held prompt does.
+    @Test func aPromptHeldForTrustAfterTheStartStillGetsItsTicket() async throws {
+        let pane = try await Self.pane()
+        defer { pane.server.stop(); try? FileManager.default.removeItem(atPath: pane.folder) }
+
+        pane.transport.gestures.record()
+        #expect(await Self.start(pane, id: 1) == nil)
+        let request: [String: Any] = ["method": "session/prompt", "params": ["promptId": "p-1"] as [String: Any]]
+        let intent = try #require(AgentPaneGestureIntent(gestureParams: ["intent": request]))
+        let ticket = try #require(pane.transport.reserveGesture(intent), "the held prompt got no ticket from its send's gesture")
+        // The person takes five minutes over the Trust question.
+        pane.clock.now += 300
+        let frame = #"{"jsonrpc":"2.0","id":2,"method":"session/prompt","params":{"sessionId":"s-new","prompt":[{"type":"text","text":"Add a remove command"}],"_meta":{"acpmux":{"promptId":"p-1"},"cmuxGesture":"\#(ticket)"}}}"#
+        #expect(await pane.transport.send(connection: pane.id, frames: [frame]) == nil)
+        // The credit went into the ticket: a second ticket needs a new gesture.
+        #expect(pane.transport.reserveGesture(intent) == nil)
     }
 }
