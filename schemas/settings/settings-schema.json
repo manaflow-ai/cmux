@@ -14209,6 +14209,64 @@
     },
     {
       "accepts" : [
+        8,
+        40,
+        24
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 16,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.fontSize.help",
+        "text" : "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.font.size",
+      "keywords" : [
+        "markdown",
+        "font",
+        "size",
+        "text",
+        "zoom",
+        "viewer"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "font",
+        "size"
+      ],
+      "range" : {
+        "max" : 40,
+        "min" : 8,
+        "placeholder" : 16,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -24,
+        72,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.fontSize",
+        "text" : "Default Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -25767,7 +25825,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "eee241ee7280b98663c19999cfb5850babc5eb67621ca4944839d8970a1f4f56",
+  "schema_hash" : "63f499d47a950327123f30fe51ddc6a4196747ec787899a6f8468c9ae54b0868",
   "sections" : [
     {
       "id" : "general",
