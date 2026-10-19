@@ -130,10 +130,13 @@ jobs:
     name: action exports (Mac)
     needs: action-areas
     if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
-    # A newer push's regeneration replaces this one (autofix's own group cancels too).
+    # A running regeneration finishes; a newer push replaces only a pending one. Cancelling a running
+    # one meant that with merges minutes apart no Mac export ever finished, and the settings exports
+    # stayed stale on feat-cmux-next (2026-10-19: 8 runs in a row cancelled, defaults-snapshot red on
+    # every PR).
     concurrency:
       group: cmux-next-base-autofix-action-exports
-      cancel-in-progress: true
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 40
     permissions:
@@ -286,11 +289,11 @@ jobs:
     # action exports job fails or is skipped.
     needs: [webviews-fmt, action-exports]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' }}
-    # A newer push supersedes this run's repairs (the next run diffs from the
-    # last successful one).
+    # A running repair finishes and lands on whatever feat-cmux-next is by then (the push step re-applies
+    # it); a newer push replaces only a pending run. The next run diffs from the last successful one.
     concurrency:
       group: cmux-next-base-autofix
-      cancel-in-progress: true
+      cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 20
     permissions:
@@ -441,18 +444,31 @@ jobs:
           echo "::add-mask::$auth"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
           with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
-          current="$("${with_auth[@]}" git ls-remote "$remote" refs/heads/feat-cmux-next | awk '{print $1}')"
-          if [[ "$current" != "$HEAD_SHA" ]]; then
-            # Failing keeps this run out of the next run's "since".
-            echo "::error::feat-cmux-next moved to ${current:0:12} after ${HEAD_SHA:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          # A plain push: it fails rather than overwrite a commit pushed meanwhile.
-          if ! "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
-            echo "::error::feat-cmux-next moved during the repair; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+          # The repair is one commit on HEAD_SHA. When feat-cmux-next has moved, it is re-applied on the
+          # new tip (the repaired files are generated, and later commits rarely touch them); a conflict
+          # fails the run, which keeps it out of the next run's "since" so that run repairs it instead.
+          # Each push is a plain push: it fails rather than overwrite a commit pushed meanwhile.
+          repair="$(git rev-parse HEAD)"
+          for attempt in 1 2 3 4 5; do
+            if "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
+              echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next (attempt $attempt)." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            "${with_auth[@]}" git fetch --quiet --depth=1 "$remote" refs/heads/feat-cmux-next
+            echo "feat-cmux-next moved to $(git rev-parse --short FETCH_HEAD) (attempt $attempt); re-applying the repair."
+            git reset --quiet --hard FETCH_HEAD
+            if ! git cherry-pick --allow-empty --keep-redundant-commits "$repair" >/dev/null; then
+              git cherry-pick --abort || true
+              echo "::error::the repair conflicts with feat-cmux-next $(git rev-parse --short FETCH_HEAD); the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            if git diff --quiet HEAD~1 HEAD; then
+              echo "feat-cmux-next already has these repairs." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done
+          echo "::error::feat-cmux-next kept moving; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum
   # (scripts/ghosttykit-checksums.txt) from our own published release only
