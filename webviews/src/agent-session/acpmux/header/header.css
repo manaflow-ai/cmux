@@ -45,7 +45,7 @@
   html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer>.acpmux-diff-header .acpmux-diff-tool{width:26px;height:26px;border-radius:7px}
   html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer .acpmux-files-search{padding:2px 0 6px}
   html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer .acpmux-file-viewer-body{padding:0 0 6px}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-summary-card[data-placement=popover]{visibility:visible;z-index:6;right:calc(var(--acpmux-viewer-width) + 10px)}
+  html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-summary-card[data-placement=popover]{visibility:visible;right:calc(var(--acpmux-viewer-width) + 10px)}
 }
 /* The composer and the pull request dock sit under the transcript, not centered on the whole pane (the
    pane is the page, so the page width stands in for the stage's container query above). */

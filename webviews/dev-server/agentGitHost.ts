@@ -15,7 +15,13 @@ import { fuzzy } from "../src/agent-session/acpmux/mockFiles";
 import { OUTSIDE_REPOSITORY } from "../src/agent-session/acpmux/fileSearchModel";
 import { allowedPath } from "./viewerEmptyHost";
 
-export const AGENT_READ_METHODS = ["git.status", "git.diff", "git.checkpoint.diff", "file.search", "file.list"] as const;
+export const AGENT_READ_METHODS = [
+  "git.status",
+  "git.diff",
+  "git.checkpoint.diff",
+  "file.search",
+  "file.list",
+] as const;
 export type AgentReadMethod = (typeof AGENT_READ_METHODS)[number];
 
 /// The error a refused or failed read answers with, as the session host words it.
@@ -624,7 +630,9 @@ export async function fileList(cwd: string, params: Record<string, unknown>) {
   }
   const sorted = [...entries].sort(
     ([a, kindA], [b, kindB]) =>
-      (kindA === kindB ? 0 : kindA === "directory" ? -1 : 1) || a.toLowerCase().localeCompare(b.toLowerCase()) || a.localeCompare(b),
+      (kindA === kindB ? 0 : kindA === "directory" ? -1 : 1) ||
+      a.toLowerCase().localeCompare(b.toLowerCase()) ||
+      a.localeCompare(b),
   );
   return { entries: sorted.map(([name, kind]) => ({ name, kind })), truncated: false };
 }
