@@ -49,6 +49,7 @@ class BaseAutofixFinishes(unittest.TestCase):
                            ("scripts/cmux-next/autofix-areas.sh", (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text())):
             (seed / path).parent.mkdir(parents=True, exist_ok=True)
             (seed / path).write_text(text)
+        (seed / "scripts/cmux-next/autofix-areas.sh").chmod(0o755)
         git(seed, "add", "-A")
         git(seed, "commit", "-qm", "base")
         git(seed, "push", "-q", "origin", "feat-cmux-next")

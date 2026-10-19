@@ -445,21 +445,38 @@ jobs:
           remote="https://github.com/$GITHUB_REPOSITORY.git"
           with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
           # The repair is one commit on HEAD_SHA. When feat-cmux-next has moved, it is re-applied on the
-          # new tip (the repaired files are generated, and later commits rarely touch them); a conflict
-          # fails the run, which keeps it out of the next run's "since" so that run repairs it instead.
+          # new tip only if nothing in between touched any area this repair covers: then its inputs are
+          # unchanged and the regenerated files are exactly right at the tip. Otherwise (a revert of a new
+          # setting, say) the copy from HEAD_SHA could be wrong there, so the run stops and the newer
+          # push's run regenerates it; that also keeps a late re-run from landing old output. A conflict
+          # fails the run too, which keeps it out of the next run's "since".
           # Each push is a plain push: it fails rather than overwrite a commit pushed meanwhile.
           repair="$(git rev-parse HEAD)"
+          areas() { scripts/cmux-next/autofix-areas.sh | sed -n 's/=true$//p' | sort; }
+          repaired="$(git diff --name-only "$HEAD_SHA" "$repair" | areas)"
+          base="$HEAD_SHA"
           for attempt in 1 2 3 4 5; do
             if "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
               echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next (attempt $attempt)." | tee -a "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             "${with_auth[@]}" git fetch --quiet --depth=1 "$remote" refs/heads/feat-cmux-next
-            echo "feat-cmux-next moved to $(git rev-parse --short FETCH_HEAD) (attempt $attempt); re-applying the repair."
-            git reset --quiet --hard FETCH_HEAD
+            tip="$(git rev-parse FETCH_HEAD)"
+            if [[ "$tip" == "$base" ]]; then
+              echo "::error::the push was rejected but feat-cmux-next did not move; see the push output above." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            overlap="$(comm -12 <(git diff --name-only "$HEAD_SHA" "$tip" | areas) <(echo "$repaired") | tr '\n' ' ')"
+            if [[ -n "${overlap// }" ]]; then
+              echo "::error::feat-cmux-next ${tip:0:12} changed this repair's inputs since ${HEAD_SHA:0:12} (${overlap% }); the newer run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            echo "feat-cmux-next moved to ${tip:0:12} (attempt $attempt) without touching this repair's areas; re-applying it."
+            git reset --quiet --hard "$tip"
+            base="$tip"
             if ! git cherry-pick --allow-empty --keep-redundant-commits "$repair" >/dev/null; then
               git cherry-pick --abort || true
-              echo "::error::the repair conflicts with feat-cmux-next $(git rev-parse --short FETCH_HEAD); the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "::error::the repair conflicts with feat-cmux-next ${tip:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
             if git diff --quiet HEAD~1 HEAD; then
