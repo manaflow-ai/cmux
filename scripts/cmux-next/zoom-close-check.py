@@ -23,6 +23,15 @@ close scenarios (a pane in before.json is not in after.json):
   springs   trace: every remaining pane edge that moves covers the same share
             of its travel at each frame (one spring: spread <= 0.08), and the
             panes move in one run (no second motion after they came to rest).
+static    (every scenario) the rects a gesture does not move keep their pixels in every frame: the
+            sidebar, and each pane whose cell is the same before and after (a close: the panes
+            outside the closed pane's chain; a zoom or unzoom: every other pane), less the moving
+            pane's presented rect (its color's bounding box, 6 pt wider). A changed pixel differs
+            from the first frame by more than 40 in a channel; over 50 of them in any frame fails.
+            A fade, a dim change, a jump or a reflow outside the moving pane all show here.
+travel    (trace) the moving pane's travel curve: time to 90 % of it, time until 1 pt is left,
+            overshoot past the target, and the largest frame-to-frame change of its per-frame
+            step (smoothness), all from the first frame it moved.
 reduce scenarios (OUT dir recorded with --reduce-motion): frames between the
             first changed frame and the final one (one-step: <= 1).
 
@@ -139,11 +148,77 @@ def overlaps(a, b):
     return min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]) > 1 and min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]) > 1
 
 
+def rect_px(rect, scale, inset):
+    x, y, w, h = rect
+    return (int((x + inset) * scale), int((y + inset) * scale), int((x + w - inset) * scale), int((y + h - inset) * scale))
+
+
+def check_static(directory, frames, colors, scale, moving_color=None, exclude=()):
+    """Changed pixels per frame inside the rects that must not move (see the module doc)."""
+    before, _ = panes_of(load(os.path.join(directory, "before.json")))
+    after, _ = panes_of(load(os.path.join(directory, "after.json")))
+    windows = ((load(os.path.join(directory, "before.json"), {}) or {}).get("pane_chrome") or {}).get("windows") or [{}]
+    later = {p["pane"]: p["cell"] for p in after}
+    rects = [("sidebar", windows[0]["sidebar"])] if windows[0].get("sidebar") else []
+    for p in before:
+        cell = p["cell"]
+        if p["pane"] in exclude or p["pane"] not in later:
+            continue
+        if all(abs(a - b) <= 0.5 for a, b in zip(cell, later[p["pane"]])):
+            rects.append((colors.get(p["pane"], p["pane"][-4:]), cell))
+    base = frames[0]
+    worst, failing = {}, []
+    for index, frame in enumerate(frames[1:], 1):
+        cover = bbox(mask(frame, moving_color)) if moving_color else None
+        changed = np.abs(frame - base).max(axis=2) > 40
+        if cover:
+            pad = int(6 * scale)
+            changed[max(0, cover[1] - pad):cover[3] + pad, max(0, cover[0] - pad):cover[2] + pad] = False
+        for label, rect in rects:
+            x0, y0, x1, y1 = rect_px(rect, scale, 4)
+            count = int(changed[y0:y1, x0:x1].sum())
+            worst[label] = max(worst.get(label, 0), count)
+            if count > 50:
+                failing.append(f"{index}:{label}:{count}px")
+    return {"static_rects": [label for label, _ in rects], "static_worst_px": worst, "static_frames": failing[:16],
+            "static_failing_frames": len(failing)}
+
+
+def travel(series):
+    """Travel metrics of one (t ms, value) series from its first moving sample."""
+    values = [v for _, v in series]
+    if len(values) < 3 or abs(values[-1] - values[0]) < 4:
+        return None
+    start_value, end_value = values[0], values[-1]
+    total = end_value - start_value
+    moving = next((i for i in range(1, len(values)) if abs(values[i] - values[i - 1]) > 0.25), None)
+    if moving is None:
+        return None
+    t0 = series[moving - 1][0]
+    t90 = next((t for t, v in series if (v - start_value) / total >= 0.9), None)
+    end = next((t for i, (t, v) in enumerate(series) if all(abs(end_value - w) < 1 for _, w in series[i:])), None)
+    over = max(((v - end_value) * (1 if total > 0 else -1) for _, v in series), default=0)
+    steps = [b - a for a, b in zip(values[moving - 1:], values[moving:])]
+    jerk = max((abs(b - a) for a, b in zip(steps, steps[1:])), default=0)
+    gaps = [b[0] - a[0] for a, b in zip(series[moving - 1:], series[moving:])]
+    return {"travel_pt": round(total, 1), "t90_ms": round(t90 - t0) if t90 is not None else None,
+            "end_ms": round(end - t0) if end is not None else None, "overshoot_pt": round(max(0, over), 2),
+            "max_step_change_pt": round(jerk, 2), "max_frame_gap_ms": round(max(gaps, default=0), 1)}
+
+
 def check_zoom(name, directory, frames, colors, scale, zooming_in):
     samples = trace_samples(directory)
     pane = zoom_pane(samples)
     result = {"zoom_pane": pane, "frames": len(frames), "trace_samples": len(samples)}
     failures = []
+    widths = [(s["t"], row[3]) for s in samples for row in s.get("panes") or [] if row[0] == pane]
+    result["travel"] = travel(widths)
+    static = check_static(directory, frames, colors, scale, moving_color=colors.get(pane), exclude=(pane,))
+    result.update(static)
+    if not colors.get(pane):
+        result["static_note"] = "the zooming pane has no recorded color: the cover is not cut out"
+    if static["static_failing_frames"]:
+        failures.append(f"static rects changed in {static['static_failing_frames']} frames (first {static['static_frames'][0]})")
     if not pane:
         failures.append("no zoom motion in the trace (the zoom snapped or did not run)")
     color = colors.get(pane) if pane else None
@@ -248,6 +323,10 @@ def check_close(name, directory, frames, colors, scale):
     gone = [p["pane"] for p in before if p["pane"] not in {q["pane"] for q in after}]
     result = {"closed": [colors.get(p, p) for p in gone], "frames": len(frames)}
     failures = []
+    static = check_static(directory, frames, colors, scale)
+    result.update(static)
+    if static["static_failing_frames"]:
+        failures.append(f"static rects changed in {static['static_failing_frames']} frames (first {static['static_frames'][0]})")
     start = first_change(frames)
     end = last_change(frames)
     result["first_changed_frame"], result["rest_frame"] = start, end
@@ -303,6 +382,7 @@ def check_close(name, directory, frames, colors, scale):
             values = [s[index][1] for s in shares.values()]
             spread = max(spread, max(values) - min(values))
     result["moving_edges"] = len(shares)
+    result["travel"] = max((travel(edges[key]) or {} for key in shares), key=lambda m: abs(m.get("travel_pt") or 0), default=None)
     result["spring_spread"] = round(spread, 3)
     result["motion_runs"] = runs
     if spread > 0.08:

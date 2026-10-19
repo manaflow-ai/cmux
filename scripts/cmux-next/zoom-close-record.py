@@ -31,7 +31,8 @@ parser.add_argument("--socket", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--only", action="append", default=[])
 parser.add_argument("--seconds", type=float, default=1.2)
-parser.add_argument("--speed", default="normal", help="debug.motion speed for the run (fast, normal)")
+parser.add_argument("--speed", default="fast", help="debug.motion speed for the run (fast is the default setting)")
+parser.add_argument("--layout", action="append", default=[], help="close, row, grid, strip, springs (default: all)")
 parser.add_argument("--reduce-motion", action="store_true")
 parser.add_argument("--video", action="store_true", help="also record the display through the capture daemon (--cua-socket)")
 parser.add_argument("--cua-socket", default=os.path.expanduser("~/Library/Application Support/cmux/agent-capture/run/cua.sock"))
@@ -123,15 +124,24 @@ def cua(name, args, timeout=60):
         return {"error": str(error)}
 
 
+def focus_pane(pane):
+    reply = action("pane.focus", target=f"pane:{pane}")
+    settle(0.4)
+    return reply
+
+
 def paint_terminal(pane, color):
-    """`pane`'s terminal background becomes `color` (OSC 11), the screen cleared."""
-    text = "printf '\\033]11;#%s\\007'; clear\r" % COLORS[color].lstrip("#")
-    reply = action("terminal.sendText", target=f"pane:{pane}", args={"text": text})
+    """`pane`'s terminal background becomes `color` (OSC 11), the screen cleared and the cursor
+    hidden (a blinking cursor would change pixels in a pane that must stay static). The actions
+    take a tab target, so the pane is focused and its focused tab gets the text."""
+    text = "printf '\\033]11;#%s\\007'; clear; printf '\\033[?25l'\r" % COLORS[color].lstrip("#")
+    focus_pane(pane)
+    reply = action("terminal.sendText", args={"text": text})
     if isinstance(reply, dict) and reply.get("error"):
         # A pane that opened on a New Tab page: a terminal tab first.
-        action("newSurface", target=f"pane:{pane}")
+        action("newSurface")
         settle(0.8)
-        reply = action("terminal.sendText", target=f"pane:{pane}", args={"text": text})
+        reply = action("terminal.sendText", args={"text": text})
     print("paint", color, json.dumps(reply)[:140], flush=True)
 
 
@@ -156,7 +166,8 @@ def await_pane(before, color):
 
 def fill(pane, color, engine=None):
     if engine:
-        reply = rpc("action.run", {"action": f"openBrowser.{engine}", "target": f"pane:{pane}", "args": {"url": BASE + color}}, timeout=90)
+        focus_pane(pane)
+        reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": BASE + color}}, timeout=90)
         print("open", engine, color, json.dumps(reply)[:160], flush=True)
         settle(3.0 if engine == "chromium" else 1.5)
     else:
@@ -168,9 +179,7 @@ def focus(color):
     if color not in ids:
         print("focus: no pane for", color, json.dumps(ids), flush=True)
         return None
-    reply = action("pane.focus", target=f"pane:{ids[color]}")
-    settle(0.5)
-    return reply
+    return focus_pane(ids[color])
 
 
 def split(of, direction, color, engine=None):
@@ -314,18 +323,84 @@ def strip():
     zoom_pair("strip", "blue")
     focus("blue")
     record("strip-close-blue", lambda: action("closePane"))
-    # A docked column at the left edge, from a new terminal tab of the green column.
+
+
+def close_layouts():
+    """The close, first: a split of two, the middle of three side by side and stacked, a nested
+    split, and a strip column; each in its own workspace of terminals, one color per pane."""
+    first_terminal("red")
+    split("red", "right", "green")
+    record("close-two", lambda: action("closePane"))
+    first_terminal("red")
+    split("red", "right", "green")
+    split("green", "right", "blue")
     focus("green")
-    before = panes()
-    action("newSurface", target=f"pane:{ids['green']}")
-    settle(0.8)
-    paint_terminal(ids["green"], "purple")
-    settle(0.4)
-    print("dock", json.dumps(rpc("action.run", {"action": "tab.moveToNewDockColumn", "args": {"edge": "left"}}))[:160], flush=True)
-    settle(1.2)
-    new_pane(before, "purple")
-    print("strip+dock panes:", json.dumps(ids), flush=True)
-    zoom_pair("dock", "yellow")
+    record("close-mid-h", lambda: action("closePane"))
+    first_terminal("red")
+    split("red", "down", "green")
+    split("green", "down", "blue")
+    focus("green")
+    record("close-mid-v", lambda: action("closePane"))
+    # red | (green / blue): close green; blue grows up, red does not move.
+    first_terminal("red")
+    split("red", "right", "green")
+    split("green", "down", "blue")
+    focus("green")
+    record("close-nested", lambda: action("closePane"))
+    # (red / yellow) | green | blue: close red; yellow grows up, the right column does not move.
+    first_terminal("red")
+    split("red", "right", "green")
+    split("green", "right", "blue")
+    split("red", "down", "yellow")
+    focus("red")
+    record("close-nested-left", lambda: action("closePane"))
+    first_terminal("red")
+    for color in ("green", "blue", "yellow"):
+        before = panes()
+        action("newColumn")
+        pane = await_pane(before, color)
+        if pane:
+            fill(pane, color)
+    focus("green")
+    record("close-strip", lambda: action("closePane"))
+
+
+# Spring candidates (DESIGN.md "Spring"): set live through Debug Settings tunables, speed fast.
+CANDIDATES = {
+    "zoom": [("r28", 0.28, 1.0), ("r32", 0.32, 1.0), ("r38", 0.38, 1.0), ("r32b08", 0.32, 0.92)],
+    "exit": [("r20", 0.20, 1.0), ("r24", 0.24, 1.0), ("r28", 0.28, 1.0), ("r24b08", 0.24, 0.92)],
+}
+
+
+def tune(token, response, damping):
+    key = f"motion.spring.{token}"
+    value = None if response is None else {"response": response, "dampingFraction": damping}
+    reply = rpc("debug.tunables", {"action": "set", "key": key, "value": value})
+    rpc("debug.motion", {"action": "speed", "value": opts.speed})  # a tunable write reloads settings
+    return reply
+
+
+def springs():
+    first_terminal("red")
+    split("red", "right", "green")
+    split("green", "right", "blue")
+    for label, response, damping in CANDIDATES["zoom"]:
+        print("tune zoom", label, json.dumps(tune("zoom", response, damping))[:120], flush=True)
+        focus("green")
+        record(f"spring-zoom-{label}", toggle)
+        record(f"spring-unzoom-{label}", toggle)
+    tune("zoom", None, None)
+    for label, response, damping in CANDIDATES["exit"]:
+        print("tune exit", label, json.dumps(tune("exit", response, damping))[:120], flush=True)
+        first_terminal("red")
+        split("red", "right", "green")
+        split("green", "right", "blue")
+        focus("green")
+        record(f"spring-close-{label}", lambda: action("closePane"))
+    tune("exit", None, None)
+
+
+LAYOUTS = {"close": close_layouts, "row": row, "grid": grid, "strip": strip, "springs": springs}
 
 
 def main():
@@ -342,7 +417,7 @@ def main():
     if opts.reduce_motion:
         print("reduce motion:", json.dumps(rpc("debug.motion", {"action": "reduce", "value": True}))[:120], flush=True)
     try:
-        for layout in (row, grid, strip):
+        for layout in [LAYOUTS[name] for name in (opts.layout or list(LAYOUTS))]:
             layout()
     finally:
         if opts.reduce_motion:
