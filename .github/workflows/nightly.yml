@@ -6439,6 +6439,8 @@ jobs:
     permissions:
       contents: read
       issues: write
+      # The replaced-build check lists this run's jobs.
+      actions: read
     steps:
       - name: Open or update the nightly failure issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -6469,10 +6471,15 @@ jobs:
             // so does every other failed job of this run.
             let replaced = false;
             if (refName === 'nightly-next' && results['build-nightly-app']?.result === 'cancelled') {
-              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
-                { owner, repo, run_id: context.runId, attempt_number: context.runAttempt, per_page: 100 });
-              const build = jobs.find((job) => job.name === 'build-nightly-app');
-              replaced = Boolean(build) && !build.runner_name && !(build.steps || []).length;
+              try {
+                // Latest attempt of each job (the endpoint's default filter).
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
+                  { owner, repo, run_id: context.runId, per_page: 100 });
+                const build = jobs.find((job) => job.name === 'build-nightly-app');
+                replaced = Boolean(build) && !build.runner_name && !(build.steps || []).length;
+              } catch (error) {
+                core.warning(`Could not read this run's jobs (${error.message}); reporting the cancelled build.`);
+              }
             }
             const failed = Object.entries(results)
               .filter(([k, v]) => (v.result === 'failure' || v.result === 'cancelled') && !(replaced && k === 'build-nightly-app'))
