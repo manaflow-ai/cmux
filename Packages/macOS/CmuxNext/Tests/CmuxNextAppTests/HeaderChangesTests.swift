@@ -48,7 +48,7 @@ struct HeaderChangesTests {
                 continue
             }
             let row = Row(), toggles = AgentChatSplitToggles()
-            let actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
+            let actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry }, splitInherits: { NewTerminalStart.inherits(.split) })
             #expect(toggle)
             toggles.toggle(id, cwd: cwd, chat: row.chat, store: row.store, actions: actions)
             #expect(row.invocations["openDiffViewer"]?["path"]?.stringValue == folder)
