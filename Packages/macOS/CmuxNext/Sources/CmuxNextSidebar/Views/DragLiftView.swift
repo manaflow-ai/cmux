@@ -2,11 +2,15 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The row being dragged: a live row view on a flat themed card with a
-/// shadow (the sidebar has no glass).
-/// Multi-item drags show stacked cards behind it and a count badge.
+/// The row being dragged: a live row view on a card with a shadow. In a
+/// translucent window the card is glass over the window's art and tint, like
+/// the sidebar it was lifted from (`DragGlass`); in an opaque one it is the
+/// solid elevated surface. Multi-item drags show stacked cards behind it and
+/// a count badge.
 final class DragLiftView: NSView {
     private let card = NSView()
+    /// The card's glass, shown while the window is translucent (``isGlass``).
+    let glass = Glass.makePanel(style: .regular, cornerRadius: SidebarStyle.rowCornerRadius)
     private let content: NSView
     private var stack: [NSView] = []
     private let countBadge = ChromeLabel(labelWithString: "")
@@ -36,6 +40,9 @@ final class DragLiftView: NSView {
             stack.append(back)
         }
         addSubview(card)
+        glass.translatesAutoresizingMaskIntoConstraints = true
+        glass.isHidden = true
+        card.addSubview(glass)
         card.addSubview(content)
         content.autoresizingMask = [.width, .height]
 
@@ -66,6 +73,7 @@ final class DragLiftView: NSView {
     override func layout() {
         super.layout()
         card.frame = bounds
+        glass.frame = card.bounds
         content.frame = card.bounds
         for back in stack {
             let depth = CGFloat(Int(back.identifier?.rawValue ?? "1") ?? 1)
@@ -107,12 +115,20 @@ final class DragLiftView: NSView {
         updateColors()
     }
 
+    /// Whether the card is glass (the window is translucent) rather than the solid surface.
+    private(set) var isGlass = false
+
     private func updateColors() {
         performWithTheme {
-            card.layer?.backgroundColor = Palette.elevatedBackground.cgColor
+            let backdrop = DragGlass.backdrop(themeTokens)
+            isGlass = DragGlass.isGlass(backdrop)
+            glass.isHidden = !isGlass
+            glass.tintColor = Palette.glassTint
+            card.layer?.backgroundColor = DragGlass.cardFill(Palette.elevatedBackground, over: backdrop)?.cgColor
             layer?.shadowColor = Palette.shadow.cgColor
             for back in stack {
-                back.layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(0.85).cgColor
+                let fill = DragGlass.liftFill(Palette.elevatedBackground, over: backdrop)
+                back.layer?.backgroundColor = fill.withAlphaComponent(fill.alphaComponent * 0.85).cgColor
                 back.layer?.borderColor = Palette.separator.cgColor
             }
             badgeBackground.layer?.backgroundColor = Palette.textPrimary.cgColor
