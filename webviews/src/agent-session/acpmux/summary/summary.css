@@ -142,7 +142,9 @@
 .acpmux-rail-row{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:default}
 .acpmux-rail-row>svg{flex:none;color:var(--agent-muted)}
 .acpmux-rail-row__name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.acpmux-rail-row__detail{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
+.acpmux-rail-row__detail{flex:0 1000 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
+.acpmux-rail-row__state{flex:none;margin-left:auto;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-rail-row__state.is-failed{color:var(--agent-danger,var(--agent-muted))}
 .acpmux-rail-row .acpmux-diff-counts{flex:none;margin-left:auto;font-size:var(--text-detail);opacity:.8}
 .acpmux-rail-output{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-rail-output:hover{background:var(--acpmux-menu-hover)}
