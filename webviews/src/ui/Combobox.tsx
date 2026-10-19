@@ -45,8 +45,10 @@ export interface ComboboxProps {
   /** A row's content (a name over a path); default: the suggestion text. The row still submits
    * and completes its suggestion string. */
   renderItem?(value: string): ReactNode;
-  /** The highlighted suggestion changed (arrows, pointer); undefined when none is. */
-  onHighlight?(value: string | undefined): void;
+  /** The highlighted suggestion changed; undefined when none is. `by` says whether the arrow keys
+   * ("keyboard") or the pointer ("pointer") moved it, so a caller can treat a passing pointer as
+   * less deliberate than a key press. */
+  onHighlight?(value: string | undefined, by: "keyboard" | "pointer" | "none"): void;
 }
 
 export function Combobox({
@@ -95,7 +97,10 @@ export function Combobox({
     shell: "parent",
   });
   const [value, setValue] = useState(defaultValue);
-  const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
+  // Only Return and Tab read the highlighted row, so it is a ref, not state: a highlight change
+  // (every row the pointer crosses) must not re-render the whole list. Base UI marks the row
+  // itself (data-highlighted).
+  const highlightedRef = useRef<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
   const keep = inline && keepHeight;
   const [tallest, setTallest] = useState(0);
@@ -124,6 +129,7 @@ export function Combobox({
     if (event.key === "Enter") {
       event.preventDefault();
       event.preventBaseUIHandler?.();
+      const highlighted = highlightedRef.current;
       const next = highlighted && suggestions.includes(highlighted) ? highlighted : typed;
       if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
@@ -134,7 +140,7 @@ export function Combobox({
     } else if (event.key === "Tab" && !event.shiftKey && suggestions.length) {
       event.preventDefault();
       event.preventBaseUIHandler?.();
-      update(highlighted ?? suggestions[0]);
+      update(highlightedRef.current ?? suggestions[0]);
     }
   };
   const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
@@ -187,9 +193,9 @@ export function Combobox({
       open={inline || enabledSuggestions.length > 0}
       inline={inline}
       autoHighlight={autoHighlight}
-      onItemHighlighted={(item) => {
-        setHighlighted(item as string | undefined);
-        onHighlight?.(item as string | undefined);
+      onItemHighlighted={(item, details) => {
+        highlightedRef.current = item as string | undefined;
+        onHighlight?.(item as string | undefined, details.reason);
       }}
     >
       <Autocomplete.Input
