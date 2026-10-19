@@ -125,7 +125,7 @@ class GitHubApi:
         # curl drops the Authorization header on a redirect to another host.
         # The header goes in on stdin, not argv, where other jobs could read it.
         subprocess.run(
-            ["curl", "-fsSL", "--retry", "2", "--max-time", str(DOWNLOAD_SECONDS), "-K", "-", "-o", str(dest), url],
+            ["curl", "-fsSL", "--retry", "1", "--max-time", str(DOWNLOAD_SECONDS), "-K", "-", "-o", str(dest), url],
             input=f'header = "Authorization: Bearer {self.token}"\n', text=True, check=True,
         )
 
@@ -164,6 +164,10 @@ def fetch(*, repo: str, tag: str, sha: str, xcode: str, recipe: str, dest: Path,
     except (urllib.error.URLError, OSError, ValueError) as err:
         print(f"app cache: cannot list {name}: {err}", file=sys.stderr)
         return None
+    # A fork run could upload under this name too; drop those before taking
+    # the newest TRIES, so they can't push the tour's own upload out.
+    candidates = [a for a in candidates if (a.get("workflow_run") or {}).get("head_repository_id")
+                  == (a.get("workflow_run") or {}).get("repository_id")]
     candidates.sort(key=lambda a: a.get("created_at") or "", reverse=True)
     if not candidates:
         print(f"app cache: no live artifact {name}")
@@ -184,7 +188,11 @@ def fetch(*, repo: str, tag: str, sha: str, xcode: str, recipe: str, dest: Path,
             zipped = scratch / "app.zip"
             api.download(art["archive_download_url"], zipped)
             digest = str(art.get("digest") or "")
-            got_digest = "sha256:" + hashlib.sha256(zipped.read_bytes()).hexdigest()
+            hasher = hashlib.sha256()
+            with zipped.open("rb") as blob:
+                for chunk in iter(lambda: blob.read(1 << 20), b""):
+                    hasher.update(chunk)
+            got_digest = "sha256:" + hasher.hexdigest()
             if digest != got_digest:
                 print(f"app cache: artifact {art.get('id')} download {got_digest} does not match {digest or 'no digest'}; refused",
                       file=sys.stderr)

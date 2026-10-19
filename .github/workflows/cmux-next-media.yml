@@ -223,7 +223,8 @@ jobs:
 
       # A pull request branched before these scripts checks out a head
       # without them; this step takes them from the merge ref instead.
-      # MEDIA_APP_RECIPE hashes how this tour builds an app, so a pull request
+      # MEDIA_APP_RECIPE hashes how this tour builds an app (this workflow, the
+      # build scripts and their env), so a pull request
       # that changes that never shares its app with other tours.
       - name: Take the tour build scripts
         if: steps.scope.outputs.is_ui == 'true'
@@ -239,7 +240,10 @@ jobs:
             done
             chmod +x "$ci/media_build_app.sh"
           fi
+          # The workflow itself comes from GITHUB_SHA (the merge ref of a pull request).
+          git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
           recipe="$({ cat "$ci/media_build_app.sh" "$ci/media_module_cache_stamp.py"
+            git show "$GITHUB_SHA:.github/workflows/cmux-next-media.yml"
             env | grep -E '^(CMUX_SKIP_ZIG_BUILD|CMUX_GHOSTTYKIT_PREPROVISIONED|CMUX_CI_XCODE_APP)=' | sort
           } | shasum -a 256 | cut -c1-12)"
           { echo "MEDIA_TOUR_CI=$ci"; echo "MEDIA_APP_RECIPE=$recipe"; } >> "$GITHUB_ENV"
