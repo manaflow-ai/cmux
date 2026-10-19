@@ -11,7 +11,9 @@
 #     from FILE, the package's `swift package dump-package` output (Swift 6.2
 #     on Linux dumps the same manifest as the Mac);
 #   - page strings: every React page's generated/strings.json from its xcstrings
-#     catalogs (webviews/scripts/pages/gen-strings.mjs; with --strings);
+#     catalogs (webviews/scripts/pages/gen-strings.mjs; with --strings), on a
+#     checkout that still tracks them. Since #21946 they are ignored build
+#     output and this step commits nothing;
 #   - SDK wire layers: every language binding's generated files from
 #     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
@@ -114,7 +116,8 @@ if [[ -n "$package_dump" ]]; then
 fi
 
 # 1c. Page strings. The generator writes every stale page; a frozen one is put
-# back as it was and reported.
+# back as it was and reported. Ignored tables (#21946) are not listed below, so
+# on a current checkout this writes build output only.
 if (( strings )) && [[ -f "$repo/webviews/scripts/pages/gen-strings.mjs" ]]; then
   if ! (cd "$repo" && node webviews/scripts/pages/gen-strings.mjs --check >/dev/null 2>&1); then
     (cd "$repo" && node webviews/scripts/pages/gen-strings.mjs >/dev/null)
