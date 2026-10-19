@@ -561,6 +561,13 @@ mod tests {
 
         let d = TempDir::new();
         std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let state = d.path().join("mailbox.json");
+        std::fs::write(
+            &state,
+            r#"{"schema":"acpmux.mailbox.v1","next_seq":1,"messages":[],"deliveries":[]}"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o644)).unwrap();
         let b = Mailbox::open(d.path()).unwrap();
         b.send(input("m1", "b", "private message")).unwrap();
         let mode = |path: &std::path::Path| {
@@ -568,6 +575,19 @@ mod tests {
         };
         assert_eq!(mode(d.path()), 0o700);
         assert_eq!(mode(&d.path().join("mailbox.json")), 0o600);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn persistent_mailbox_refuses_a_symlinked_state_file() {
+        let d = TempDir::new();
+        let target = d.path().join("outside.json");
+        std::fs::write(
+            &target,
+            r#"{"schema":"acpmux.mailbox.v1","next_seq":1,"messages":[],"deliveries":[]}"#,
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&target, d.path().join("mailbox.json")).unwrap();
+        assert!(Mailbox::open(d.path()).is_err());
     }
     #[test]
     fn repeated_ack_is_idempotent() {

@@ -769,8 +769,21 @@ mod permission_tests {
     fn local_store_makes_existing_state_private_and_writes_private_events() {
         let temp = TempDir::new();
         let root = temp.0.join("sessions");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let session = root.join("session-1");
+        let events = session.join("events");
+        std::fs::create_dir_all(&events).unwrap();
+        let metadata = session.join("session.json");
+        let first = events.join("000001.ndjson");
+        let second = events.join("000002.ndjson");
+        std::fs::write(&metadata, "{}").unwrap();
+        std::fs::write(&first, "").unwrap();
+        std::fs::write(&second, "").unwrap();
+        for directory in [&root, &session, &events] {
+            std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        for file in [&metadata, &first, &second] {
+            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
 
         let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
         store
@@ -788,8 +801,21 @@ mod permission_tests {
             .unwrap();
 
         assert_eq!(mode(&root), 0o700, "the sessions root contains every chat");
-        assert_eq!(mode(&root.join("session-1")), 0o700);
-        assert_eq!(mode(&root.join("session-1/events")), 0o700);
-        assert_eq!(mode(&root.join("session-1/events/000001.ndjson")), 0o600);
+        assert_eq!(mode(&session), 0o700);
+        assert_eq!(mode(&events), 0o700);
+        assert_eq!(mode(&metadata), 0o600);
+        assert_eq!(mode(&first), 0o600);
+        assert_eq!(mode(&second), 0o600);
+    }
+
+    #[test]
+    fn local_store_refuses_a_symlinked_existing_session() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        let outside = temp.0.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("linked-session")).unwrap();
+        assert!(LocalStore::new(root, 64 * 1024).is_err());
     }
 }
