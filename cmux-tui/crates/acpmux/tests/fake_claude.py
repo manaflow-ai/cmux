@@ -323,6 +323,23 @@ while True:
         if said.strip() == "slow-stop":
             slow_stop()
             continue
+        # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
+        # boundary, the summary as a synthetic user line, the command's stdout, a result.
+        if said.strip() == "/compact":
+            send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
+            send({"type": "system", "subtype": "status", "status": None, "compact_result": "success",
+                  "session_id": SESSION})
+            send({"type": "system", "subtype": "compact_boundary", "session_id": SESSION,
+                  "compact_metadata": {"trigger": "manual", "pre_tokens": 27183, "post_tokens": 2047,
+                                       **json.loads(os.environ.get("FAKE_CLAUDE_COMPACT_META") or "{}")}})
+            send({"type": "user", "session_id": SESSION, "isReplay": False, "isSynthetic": True,
+                  "message": {"role": "user", "content": "This session is being continued from a previous "
+                              "conversation. Summary: the codeword is PLUM-42."}})
+            send({"type": "user", "session_id": SESSION, "isReplay": False,
+                  "message": {"role": "user", "content": "<local-command-stdout>Compacted </local-command-stdout>"}})
+            send({"type": "result", "subtype": "success", "result": "", "num_turns": 0, "duration_api_ms": 0,
+                  "local_command": True, "usage": {"input_tokens": 0, "output_tokens": 0}})
+            continue
         # "hold: PATH" keeps the turn running until PATH exists.
         if said.startswith("hold: "):
             import time

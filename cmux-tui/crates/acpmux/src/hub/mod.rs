@@ -86,6 +86,7 @@ mod remote_sandbox;
 mod start_gate;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
+mod transcript;
 mod transfer;
 mod transfer_guard;
 mod transfer_in;
