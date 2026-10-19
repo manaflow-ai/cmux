@@ -117,6 +117,19 @@ class FastGate(unittest.TestCase):
         with self.assertRaisesRegex(gate.Refused, "react-apps-check"):
             run(Reader([check("web", "IN_PROGRESS", "")], files=("webviews/src/a.ts",)), timeout=60, covered=False)
 
+    def test_risk_evidence_is_waited_for_and_a_red_one_refuses(self):
+        """Like the full gate (#21692): risk evidence reads only the description, so it is
+        never base-red and never waived here; the risk:waived label is its waiver."""
+        with self.assertRaisesRegex(gate.Refused, "still waiting on risk evidence"):
+            run(Reader(GREEN + [check("risk evidence", "IN_PROGRESS", "")]), timeout=60)
+        for conclusion in ("FAILURE", "CANCELLED"):
+            with self.subTest(conclusion=conclusion):
+                with self.assertRaisesRegex(gate.Refused, "risk evidence"):
+                    run(Reader(GREEN + [check("risk evidence", conclusion=conclusion)]))
+        _, seen, reds = run(Reader(GREEN + [check("risk evidence")]))
+        self.assertIn("risk evidence", seen)
+        self.assertEqual(reds, [])
+
     def test_times_out_naming_the_lane_and_refuses_a_moved_head(self):
         with self.assertRaisesRegex(gate.Refused, "still waiting on cmux-next fast tier"):
             run(Reader([check("cmux-next path routing"), check("cmux-next fast tier", "QUEUED", "")]), timeout=60)
