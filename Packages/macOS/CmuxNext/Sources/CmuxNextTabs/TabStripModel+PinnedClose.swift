@@ -28,3 +28,28 @@ extension TabStripModel {
         return .keep
     }
 }
+
+extension TabStripModel {
+    // Chrome's close commands (`TabStripModel::GetTabsClosedByCommand`): Close Other Tabs and
+    // Close Tabs to the Right (and cmux's Close Tabs to the Left) never close a pinned tab. Only
+    // the tab named by Close Tab, Cmd-W, the CLI or MCP closes a pinned tab.
+
+    /// The tabs Close Other Tabs closes for `keep`, in strip order: every other unpinned tab.
+    public func closedByCloseOthers(keeping keep: TabID) -> [TabID] {
+        orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id)
+    }
+
+    /// The tabs Close Tabs to the Right closes for `id`, in strip order: the unpinned tabs after it.
+    public func closedByCloseToRight(of id: TabID) -> [TabID] {
+        let ordered = orderedTabs
+        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return [] }
+        return ordered[(index + 1)...].filter { !$0.isPinned }.map(\.id)
+    }
+
+    /// The tabs Close Tabs to the Left closes for `id`, in strip order: the unpinned tabs before it.
+    public func closedByCloseToLeft(of id: TabID) -> [TabID] {
+        let ordered = orderedTabs
+        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return [] }
+        return ordered[..<index].filter { !$0.isPinned }.map(\.id)
+    }
+}

@@ -46,9 +46,7 @@ enum TabHandlers {
         })
         registry.bind("closeTabsToLeft", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
-            let tabs = pane.stripModel.orderedTabs
-            guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-            CloseUndoToasts.close(in: pane, tabs[..<index].filter { !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: pane, pane.stripModel.closedByCloseToLeft(of: id))
         })
         registry.bind("duplicateTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
