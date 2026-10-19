@@ -1184,6 +1184,7 @@ final class TerminalControllerSocketSecurityTests {
                 "vm.env_set",
                 "vm.file_put",
                 "vm.pause",
+                "vm.hygiene",
                 "vm.resume",
                 "vm.restart",
                 "vm.reflection",
