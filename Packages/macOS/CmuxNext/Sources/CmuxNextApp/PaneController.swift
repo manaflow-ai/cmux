@@ -158,7 +158,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 item.icon = .icon(.terminal)
             } else if tab.kind != .browser {
                 item.machineBadge = machine
-                item.themeBadge = drawn(tab).themeBadge
+                let drawn = drawn(tab)
+                item.themeBadge = drawn.themeBadge
+                if drawn.restarting { drawRestarting(tab, &item) }
             } else {
                 // A browser tab names the machine whose localhost it sees.
                 let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit

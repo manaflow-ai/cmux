@@ -20,6 +20,8 @@ public struct KeptTabsRelaunched: Sendable, Equatable {
     public var relaunched: Int
     /// One line per kept tab that failed (it stays dead).
     public var failures: [String]
+    /// The kept tabs that failed.
+    public var failedSurfaces: Set<SurfaceID> = []
 }
 
 extension DaemonConnection {
@@ -33,30 +35,31 @@ extension DaemonConnection {
     @discardableResult
     public func relaunchKeptTabs() async throws -> KeptTabsRelaunched {
         let steps = KeptTabRelaunch.steps(tree: try await listWorkspaces())
-        let failures = await withTaskGroup(of: String?.self) { group in
+        let failures = await withTaskGroup(of: (SurfaceID, String)?.self) { group in
             // At most `keptTabRestartsInFlight` at once: each restart starts a host and a shell.
             var pending = steps.makeIterator()
             for step in steps.prefix(Self.keptTabRestartsInFlight) {
                 _ = pending.next()
                 group.addTask { await self.restart(step) }
             }
-            var failures: [String] = []
+            var failures: [(SurfaceID, String)] = []
             for await failure in group {
                 if let failure { failures.append(failure) }
                 if let step = pending.next() { group.addTask { await self.restart(step) } }
             }
             return failures
         }
-        return KeptTabsRelaunched(relaunched: steps.count - failures.count, failures: failures)
+        return KeptTabsRelaunched(relaunched: steps.count - failures.count, failures: failures.map(\.1),
+                                  failedSurfaces: Set(failures.map(\.0)))
     }
 
-    /// One kept tab's `restart-tab`: nil when the daemon took it, else the failure line.
-    private func restart(_ step: KeptTabRelaunch) async -> String? {
+    /// One kept tab's `restart-tab`: nil when the daemon took it, else the tab and the failure line.
+    private func restart(_ step: KeptTabRelaunch) async -> (SurfaceID, String)? {
         do {
             _ = try await request(RestartTabRequest(surface: step.surface))
             return nil
         } catch {
-            return "surface \(step.surface.rawValue): \(error)"
+            return (step.surface, "surface \(step.surface.rawValue): \(error)")
         }
     }
 }

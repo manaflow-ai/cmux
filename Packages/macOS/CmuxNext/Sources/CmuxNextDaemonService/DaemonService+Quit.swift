@@ -43,8 +43,13 @@ extension DaemonService {
     /// service (a reconnect while it runs does not start a second), and a
     /// closed connection cancels it.
     func relaunchKeptLayoutIfNeeded(_ connection: DaemonConnection) {
-        guard isLocal, keptLayoutRelaunch == nil, supports(DaemonCapabilities.shared.endTerminalsKeepLayout),
-              supports(DaemonCapabilities.shared.tabRestartKeptLayout) else { return }
+        guard keptLayoutRelaunch == nil else { return }
+        guard isLocal, supports(DaemonCapabilities.shared.endTerminalsKeepLayout),
+              supports(DaemonCapabilities.shared.tabRestartKeptLayout) else {
+            // This daemon's kept tabs stay dead: they draw as dead.
+            if keptTabRestarts != .none { keptTabRestarts = .none }
+            return
+        }
         let logger = logger
         keptLayoutRelaunch = Task { [weak self] in
             defer { self?.keptLayoutRelaunch = nil }
@@ -54,9 +59,37 @@ extension DaemonService {
                 for failure in result.failures {
                     logger.error("kept layout: a kept tab stays dead: \(failure, privacy: .public)")
                 }
+                let restarts = KeptTabRestarts.accepted(failed: result.failedSurfaces)
+                if self?.keptTabRestarts != restarts { self?.keptTabRestarts = restarts }
             } catch {
+                // The next connect tries again; until then the kept tabs still draw as restarting.
                 logger.error("kept layout relaunch failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
+
+    /// Whether `tab` is a kept tab this launch restarts: it draws as the terminal it becomes (the
+    /// app shows its own intent at once), not as a dead tab and then a tab with no directory until
+    /// its new shell runs. The daemon reports the record while the tab is dead or restarting and
+    /// drops it once the new shell is in the tab. A kept tab whose restart failed, or on a daemon
+    /// that does not restart kept tabs, draws as dead. Observation-tracked (`keptTabRestarts`,
+    /// the tab's own fields).
+    public func restartsKeptTab(_ tab: TabModel) -> Bool {
+        guard tab.relaunch != nil else { return false }
+        switch keptTabRestarts {
+        case .none: return false
+        case .expected: return true
+        case .accepted(let failed): return !failed.contains(tab.surface)
+        }
+    }
+}
+
+/// Which kept tabs (`end-terminals-keep-layout-v1`) a daemon service restarts.
+public enum KeptTabRestarts: Equatable, Sendable {
+    /// None: a remote daemon, or one without `tab-restart-kept-layout-v1`.
+    case none
+    /// Every kept tab: the relaunch has not answered yet (before the first connect, or while it runs).
+    case expected
+    /// The relaunch asked for every kept tab; the daemon refused `failed`.
+    case accepted(failed: Set<SurfaceID>)
 }

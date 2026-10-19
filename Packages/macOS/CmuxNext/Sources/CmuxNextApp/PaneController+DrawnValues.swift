@@ -1,13 +1,16 @@
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextTabs
 import Observation
 
 /// What a tab's strip item draws from app state outside the tab's own record: whether it shows
-/// the New Tab page, and the badge of the terminal's own theme.
+/// the New Tab page, the badge of the terminal's own theme, and whether it is a kept tab this
+/// launch restarts (drawn as the terminal it becomes, `DaemonService.restartsKeptTab`).
 struct TabDrawnValue: Equatable, Sendable {
     var newTabPage = false
     var themeBadge: TabThemeBadge?
+    var restarting = false
 }
 
 /// One tab's ``TabDrawnValue``, kept by its own observation (I1, I2, cx-8w027.23). Its inputs are
@@ -81,8 +84,18 @@ extension PaneController {
         // This pane's own workspace: a known workspace makes the New Tab page check look nothing up.
         let ownWorkspace = workspace?.workspace ?? daemon.store.workspace(containing: pane.handle)
         let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
-        let badge = tab.kind == .browser || tab.kind == .remoteTerminal
-            ? nil : services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
-        return TabDrawnValue(newTabPage: titles.isNewTabPage(tab), themeBadge: badge)
+        let terminal = tab.kind != .browser && tab.kind != .remoteTerminal
+        let badge = terminal ? services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab)) : nil
+        return TabDrawnValue(newTabPage: titles.isNewTabPage(tab), themeBadge: badge,
+                             restarting: terminal && daemon.restartsKeptTab(tab))
+    }
+
+    /// A kept tab this launch restarts draws as the running terminal it becomes: the terminal
+    /// icon, no failure mark, and the directory its new shell starts in (`relaunch.cwd`), so the
+    /// strip item stays the same when the new shell runs.
+    func drawRestarting(_ tab: TabModel, _ item: inout StripTabItem) {
+        if item.icon == .icon(.terminalDead) { item.icon = .icon(.terminal) }
+        if item.status == .failure { item.status = .none }
+        if item.subtitle == nil, let cwd = tab.relaunch?.cwd { item.subtitle = SidebarMapping.shared.abbreviate(cwd) }
     }
 }
