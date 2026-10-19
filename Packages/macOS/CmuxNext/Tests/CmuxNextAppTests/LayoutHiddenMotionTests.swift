@@ -64,7 +64,8 @@ struct LayoutHiddenMotionTests {
     @Test func showingAnUnchangedSettledRootLeavesTheDriverIdle() {
         let fixture = Screens()
         let root = fixture.root
-        #expect(!root.screenViews.values.contains(where: \.hasMotion))
+        let moving = root.screenViews.values.contains(where: \.hasMotion)
+        #expect(!moving)
         #expect(!root.driver.isRunning)
         root.isHidden = true
         root.isHidden = false
