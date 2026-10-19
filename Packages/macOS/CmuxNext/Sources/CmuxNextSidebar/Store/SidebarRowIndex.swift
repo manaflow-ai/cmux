@@ -127,7 +127,8 @@ extension SidebarListView {
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else { continue }
             let o = options ?? self.options(includeGap: true)
             options = o
-            let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
+            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
+            content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
             let m = o.minimal ? metrics.minimal : metrics
             guard m.height(for: content) == row.height else {
                 heightChanged = true

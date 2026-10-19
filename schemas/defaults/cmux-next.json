@@ -526,6 +526,7 @@
     "setting.sidebar.numbering": "allItems",
     "setting.sidebar.pinnedBandsScroll": true,
     "setting.sidebar.sectionLook": "quiet",
+    "setting.sidebar.sessionTree": false,
     "setting.sidebar.showChats": true,
     "setting.sidebar.showProfileControl": true,
     "setting.sidebar.showProjects": true,
