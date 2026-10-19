@@ -141,6 +141,30 @@ fn json_shape_has_agents_with_age_title_and_folder_and_counts() {
 }
 
 #[test]
+fn an_empty_title_or_folder_is_left_out() {
+    let terminals = [json!({"id": "term_1", "title": "", "cwd": ""})];
+    let rows = json!([agent("agent_a", "idle", NOW, "term_1")]);
+    let result = shape(rows, &terminals, AgentRosterView::default(), NOW);
+    assert!(result["agents"][0].get("title").is_none());
+    assert!(result["agents"][0].get("cwd").is_none());
+}
+
+#[test]
+fn a_state_the_cli_does_not_know_counts_and_ranks_as_unknown() {
+    let rows = json!([
+        agent("agent_new_state", "paused", NOW, "term_1"),
+        {"session": "session_2", "result": {"error": "refused"}},
+        agent("agent_idle", "idle", NOW - 1_000, "term_2"),
+    ]);
+    let result = shape(rows, &[], AgentRosterView::default(), NOW);
+    assert_eq!(
+        result["counts"],
+        json!({"blocked": 0, "working": 0, "idle": 1, "done": 0, "unknown": 2, "total": 3})
+    );
+    assert_eq!(result["agents"][0]["id"], "agent_idle");
+}
+
+#[test]
 fn empty_roster_has_zero_counts() {
     let result = shape(json!([]), &[], AgentRosterView::default(), NOW);
     assert_eq!(
