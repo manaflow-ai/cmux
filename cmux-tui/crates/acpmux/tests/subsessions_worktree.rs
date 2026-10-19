@@ -140,10 +140,14 @@ async fn a_worktree_start_runs_nothing_the_agent_wrote_in_its_repository() {
     let canonical = |p: &Path| std::fs::canonicalize(p).unwrap();
     assert_eq!(canonical(info["cwd"].as_str().unwrap().as_ref()), canonical(&wt), "{info}");
     assert_eq!(git(&repo, &["config", "branch.cmux/child-task.cmuxBase"]), "main");
-    assert!(!hook_ran.exists(), "the repository's post-checkout hook ran outside the agent's sandbox");
+    assert!(
+        !hook_ran.exists(),
+        "the repository's post-checkout hook ran outside the agent's sandbox"
+    );
 
     // A second start with the same name takes the next free one.
-    let again = p.ok(START, json!({"prompt": "echo again", "name": "Child task", "worktree": true})).await;
+    let again =
+        p.ok(START, json!({"prompt": "echo again", "name": "Child task", "worktree": true})).await;
     assert_eq!(again["worktree"]["branch"], "cmux/child-task-2", "{again}");
 
     // A checkout filter in the repository's own config: no worktree, and it never runs.
@@ -154,7 +158,8 @@ async fn a_worktree_start_runs_nothing_the_agent_wrote_in_its_repository() {
     let filter_ran = root.join("filter-ran");
     let smudge = format!("sh -c 'touch \"{}\"; cat'", filter_ran.display());
     git(&repo, &["config", "filter.agent.smudge", &smudge]);
-    let refused = p.call(START, json!({"prompt": "echo x", "name": "Filtered", "worktree": true})).await;
+    let refused =
+        p.call(START, json!({"prompt": "echo x", "name": "Filtered", "worktree": true})).await;
     assert!(!filter_ran.exists(), "the repository's smudge filter ran outside the agent's sandbox");
     assert!(refused.get("error").is_some(), "{refused}");
     assert_eq!(refused["error"]["data"]["reason"], "subsessions.worktree_refused", "{refused}");
