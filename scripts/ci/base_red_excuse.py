@@ -184,14 +184,63 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     return audit
 
 
+RED = frozenset({"failure", "timed_out", "cancelled", "action_required", "startup_failure"})
+
+
+def report_pr(repo: str, number: int, github) -> tuple[bool, list[str]]:
+    """One verdict line per red check on the PR's head: is it the base's red?
+
+    The same rule as gh-merge-green, judged check by check so one red the base
+    does not have still shows which of the others it does. True when every red
+    check is the base's.
+    """
+    pull = github.json(f"repos/{repo}/pulls/{number}")
+    sha, base = pull["head"]["sha"], pull["base"]["ref"]
+    red: dict[str, dict] = {}
+    for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
+        for check in page["check_runs"]:
+            previous = red.get(check["name"])
+            if previous is None or check["id"] > previous["id"]:
+                red[check["name"]] = check
+    red = {name: check for name, check in red.items()
+           if check.get("status") == "completed" and check.get("conclusion") in RED}
+    lines = [f"#{number} head {sha} into {base}"]
+    if not red:
+        lines.append("no red check on the head")
+        return True, lines
+    ok = True
+    for name in sorted(red):
+        check = red[name]
+        if check.get("app", {}).get("slug") != "github-actions":
+            ok = False
+            lines.append(f"NOT base red: '{name}' is a {check.get('app', {}).get('slug', 'third-party')} check; "
+                         "only GitHub Actions jobs can be compared with the base")
+            continue
+        try:
+            audit = judge(repo, base, sha, [], github, checks=[name])
+        except (Refused, KeyError, ValueError) as error:
+            ok = False
+            lines.append(f"NOT base red: '{name}': {error}")
+            continue
+        lines.extend(line.replace("excused ", "base red: ", 1) for line in audit)
+    return ok, lines
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", required=True)
-    parser.add_argument("--base", required=True)
-    parser.add_argument("--sha", required=True)
+    parser.add_argument("--pr", type=int, help="report every red check of this pull request (no --base/--sha)")
+    parser.add_argument("--base")
+    parser.add_argument("--sha")
     parser.add_argument("--run", type=int, action="append", default=[], help="a failed workflow run on the head")
     parser.add_argument("--check", action="append", default=[], help="a red required check on the head")
     args = parser.parse_args(argv)
+    if args.pr is not None:
+        ok, lines = report_pr(args.repo, args.pr, GitHub())
+        print("\n".join(lines))
+        return 0 if ok else 1
+    if not args.base or not args.sha:
+        parser.error("--base and --sha are required without --pr")
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check)
     except (Refused, KeyError, ValueError) as error:
