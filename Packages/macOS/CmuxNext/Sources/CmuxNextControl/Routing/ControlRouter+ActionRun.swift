@@ -26,6 +26,7 @@ extension ControlRouter {
         let action = try Self.resolveAction(call.params, in: catalog)
         var given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
                                               connection: call.connection)
+        given.callerApp = call.request.callerApp
         // The caller is part of the fingerprint; where it places is resolved
         // per run (`execute`), so a retry with the key replays, never conflicts.
         given.callerAgentSession = try ControlCaller(call.params)?.agentSession
