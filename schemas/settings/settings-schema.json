@@ -545,7 +545,9 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake"
+              "sessions.keepAwake",
+              "sessions.allowFullAccess",
+              "sessions.promptSuggestions"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -3814,6 +3816,105 @@
       "title" : {
         "key" : "settings.sessions.keepAwake",
         "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.allowFullAccess.help",
+        "text" : "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.allowFullAccess",
+      "keywords" : [
+        "bypass",
+        "permissions",
+        "yolo",
+        "full access",
+        "dangerous",
+        "approve",
+        "safety"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "allowFullAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.allowFullAccess",
+        "text" : "Allow Full-Access Modes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.promptSuggestions.help",
+        "text" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.promptSuggestions",
+      "keywords" : [
+        "suggestions",
+        "prompt",
+        "follow-up",
+        "tasks",
+        "child chats",
+        "subagents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "promptSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.promptSuggestions",
+        "text" : "Suggest Follow-Up Tasks"
       },
       "validation" : "portable"
     },
@@ -25537,7 +25638,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "01618b3130227f81d62bb56dc71fc908906b1043090b7c672dd20fa25772ee5c",
+  "schema_hash" : "7a5a54656a544e62e76997de4128b444527a451244a3d074f030a203b47c7ace",
   "sections" : [
     {
       "id" : "general",
