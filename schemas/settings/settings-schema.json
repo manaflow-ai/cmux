@@ -1116,7 +1116,8 @@
             "rows" : [
               "phone.allowConnections",
               "phone.startSessions",
-              "phone.keepAwake"
+              "phone.keepAwake",
+              "phone.cloudReplica"
             ],
             "title" : {
               "key" : "settings.group.phone",
@@ -4178,6 +4179,57 @@
       "title" : {
         "key" : "settings.phone.keepAwake",
         "text" : "Keep Mac Awake for Your Phone"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.cloudReplica.help",
+        "text" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.cloudReplica",
+      "keywords" : [
+        "iphone",
+        "mobile",
+        "phone",
+        "cloud",
+        "offline",
+        "workspaces",
+        "sync",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "cloudReplica"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.cloudReplica",
+        "text" : "Show This Mac's Workspaces on Your Phone While It's Off"
       },
       "validation" : "portable"
     },
@@ -29474,7 +29526,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bee73217f9dac8bb6996f0b2a03802da6bd96d46d67c6e5d77c18889face9fb8",
+  "schema_hash" : "9318ddf45f00e4de87d26cb5c04f02790c5eb36ab98192bf615afb67ecd03396",
   "sections" : [
     {
       "id" : "general",
