@@ -101,6 +101,10 @@ impl RemoteClientMessages {
         self.wireguard_config_invalid.replace("{error}", error)
     }
 
+    pub(crate) fn wireguard_config_input_invalid(&self) -> &'static str {
+        self.wireguard_config_input_invalid
+    }
+
     pub(crate) fn wireguard_start_failed(&self, error: &str) -> String {
         self.wireguard_start_failed.replace("{error}", error)
     }

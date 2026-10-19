@@ -224,8 +224,8 @@ fn start_wireguard_hub_tunnel(
 
 /// An owned pipe supplies one bounded configuration, ending at EOF. Raw bytes
 /// stay zeroizing even when reading, UTF-8 validation or parsing fails.
-fn read_wireguard_config_input(input: &mut impl io::Read) -> anyhow::Result<cmux_wg::WgConfig> {
-    let refused = || anyhow!(catalog().remote_client.wireguard_config_input_invalid);
+fn read_wireguard_config_input(input: &mut impl Read) -> anyhow::Result<cmux_wg::WgConfig> {
+    let refused = || anyhow!(catalog().remote_client.wireguard_config_input_invalid());
     let mut bytes = Zeroizing::new(Vec::new());
     input
         .take((MAX_WIREGUARD_CONFIG_BYTES + 1) as u64)
