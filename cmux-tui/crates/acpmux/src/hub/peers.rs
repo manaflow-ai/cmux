@@ -573,6 +573,6 @@ mod tests {
                 "lane": {"state": "working", "since": 5, "error": null},
             }),
         );
-        assert_eq!(summary["lane"]["step"], "push [github token]", "{summary}");
+        assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
     }
 }
