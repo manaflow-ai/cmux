@@ -40,10 +40,12 @@ PATH="$tmp/bin:/usr/bin:/bin:/usr/sbin" "$here/install.sh" --optchat-chief "$tmp
 [[ "$(env_of acpmux ANTHROPIC_BASE_URL)" == "http://router.test:31415" ]] || fail "--claude-base-url is not acpmux's ANTHROPIC_BASE_URL"
 [[ -n "$(env_of acpmux ANTHROPIC_AUTH_TOKEN)" ]] || fail "--claude-base-url sets no placeholder ANTHROPIC_AUTH_TOKEN"
 # A URL that would break the plist XML, or a second Claude route, is refused before anything is written.
-for bad in "--claude-base-url http://router.test/?a=1&b=2" "--claude-base-url http://router.test:31415 --harness claude-sr"; do
+for bad in "--claude-base-url http://router.test/?a=1&b=2|must be an http(s) URL" "--claude-base-url http://router.test:31415 --harness claude-sr|both set the Claude route"; do
+  args="${bad%%|*}" why="${bad#*|}"
   # shellcheck disable=SC2086
   if PATH="$tmp/bin:/usr/bin:/bin:/usr/sbin" "$here/install.sh" --optchat-chief "$tmp/bin/optchat-chief" --cmux-tui "$tmp/bin/cmux-tui" \
-    --cmux "$tmp/bin/cmux" --acpmux "$tmp/bin/acpmux" $bad --no-start > "$tmp/out.log" 2>&1; then fail "install.sh accepted $bad"; fi
+    --cmux "$tmp/bin/cmux" --acpmux "$tmp/bin/acpmux" $args --no-start > "$tmp/out.log" 2>&1; then fail "install.sh accepted $args"; fi
+  grep -q "$why" "$tmp/out.log" || fail "install.sh refused $args for another reason: $(cat "$tmp/out.log")"
 done
 [[ "$(env_of acpmux ANTHROPIC_BASE_URL)" == "http://router.test:31415" ]] || fail "a refused install changed acpmux's plist"
 echo "install.test.sh: ok"

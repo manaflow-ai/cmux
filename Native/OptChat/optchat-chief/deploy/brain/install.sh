@@ -52,7 +52,7 @@ for b in "$CHIEF" "$TUI" "$CLI" "$ACPMUX"; do [[ -x "$b" ]] || die "not an execu
 command -v claude >/dev/null || [[ -x "$HOME/.local/bin/claude" ]] || die "claude is not installed for $USER"
 if [[ -n "$CLAUDE_URL" ]]; then
   url_re='^https?://[^][:space:]&<>"'"'"'[]+$'
-  [[ "$CLAUDE_URL" =~ $url_re ]] || die "--claude-base-url must be an http(s) URL without spaces, quotes or & < > (got '$CLAUDE_URL')"
+  [[ "$CLAUDE_URL" =~ $url_re ]] || die "--claude-base-url must be an http(s) URL without spaces, quotes, brackets or & < > (got '$CLAUDE_URL')"
   [[ "$HARNESS" != claude-sr ]] || die "--claude-base-url and --harness claude-sr both set the Claude route; give one"
 fi
 if [[ "$HARNESS" == claude-sr ]]; then
