@@ -10,7 +10,7 @@ const SECRET_QUERY_KEY =
   /^(?:access_token|refresh_token|token|key|api_key|apikey|sig|signature|code|auth|authorization|password|passwd|pwd|secret)$/i;
 const SECRET_QUERY_COMPONENT =
   /(?:^|_)(?:auth|authorization|code|credentials?|key|password|passwd|pwd|secret|sig|signature|token)(?:_|$)/;
-const QUERY_ASSIGNMENT = /(^|[?&#;])([^=?&#;\s]+)=([^&#;\s]*)/g;
+const QUERY_ASSIGNMENT = /(^|[?&#;\s])([^=?&#;\s]+)=([^&#;\s]*)/g;
 const ROUTE_TOKEN = /\b(?:crt|crk)_[A-Za-z0-9_-]{32,}\b/g;
 const HANDOFF_LEASE = /\bcrh_[A-Za-z0-9_-]{32,}\b/g;
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
@@ -22,7 +22,7 @@ const EMAIL = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g;
 const CREDENTIAL_HEADER =
   /\b((?:proxy-)?authorization|(?:set-)?cookie)(\s*[:=]\s*)[^\r\n]+/gi;
 const SECRET_ASSIGNMENT =
-  /\b([A-Za-z_][A-Za-z0-9_-]*)((?:(?:\\+)?["'])?\s*[:=]\s*)((?:\\+)?"[^"\r\n]*(?:\\+)?"|(?:\\+)?'[^'\r\n]*(?:\\+)?'|[^\s&,;}]+)/g;
+  /\b([A-Za-z_][A-Za-z0-9_-]*)((?:(?:\\+)?["'])?\s*[:=]\s*)/g;
 
 /**
  * Defense in depth for telemetry. Product code must still avoid attaching
@@ -110,21 +110,65 @@ function normalizedKey(key: string): string {
 }
 
 function scrubString(value: string): string {
-  return value
+  const scrubbed = value
     .replace(URL_CREDENTIALS, "$1[Filtered credentials]@")
     .replace(CREDENTIAL_HEADER, "$1$2[Filtered]")
     .replace(ROUTE_TOKEN, "[Filtered route token]")
     .replace(HANDOFF_LEASE, "[Filtered handoff lease]")
     .replace(BEARER_TOKEN, "Bearer [Filtered]")
     .replace(JWT, "[Filtered JWT]")
-    .replace(PROVIDER_SECRET, "[Filtered provider secret]")
-    .replace(SECRET_ASSIGNMENT, (match, key: string, separator: string) =>
-      isSensitiveKey(key) ? `${key}${separator}[Filtered]` : match,
-    )
+    .replace(PROVIDER_SECRET, "[Filtered provider secret]");
+  return scrubSecretAssignments(scrubbed)
     .replace(QUERY_ASSIGNMENT, (match, prefix: string, key: string) =>
       isSensitiveQueryKey(key) ? `${prefix}${key}=[Filtered]` : match,
     )
     .replace(EMAIL, "[Filtered email]");
+}
+
+function scrubSecretAssignments(value: string): string {
+  let output = "";
+  let cursor = 0;
+  let changed = false;
+  SECRET_ASSIGNMENT.lastIndex = 0;
+  for (let match = SECRET_ASSIGNMENT.exec(value); match; match = SECRET_ASSIGNMENT.exec(value)) {
+    if (!isSensitiveKey(match[1])) continue;
+    const valueStart = match.index + match[0].length;
+    const valueEnd = secretValueEnd(value, valueStart);
+    output += `${value.slice(cursor, valueStart)}[Filtered]`;
+    cursor = valueEnd;
+    changed = true;
+    SECRET_ASSIGNMENT.lastIndex = valueEnd;
+  }
+  return changed ? output + value.slice(cursor) : value;
+}
+
+function secretValueEnd(value: string, start: number): number {
+  let quoteIndex = start;
+  while (value[quoteIndex] === "\\") quoteIndex += 1;
+  const quote = value[quoteIndex];
+  if (quote !== '"' && quote !== "'") {
+    let end = start;
+    while (end < value.length && !/[\s&,;}]/.test(value[end])) end += 1;
+    return end;
+  }
+
+  const delimiterEscapeDepth = quoteIndex - start;
+  let index = quoteIndex + 1;
+  while (index < value.length) {
+    if (value[index] === "\n" || value[index] === "\r") return index;
+    if (value[index] === "\\") {
+      const runStart = index;
+      while (value[index] === "\\") index += 1;
+      if (value[index] === quote) {
+        if (index - runStart === delimiterEscapeDepth) return index + 1;
+        index += 1;
+      }
+      continue;
+    }
+    if (delimiterEscapeDepth === 0 && value[index] === quote) return index + 1;
+    index += 1;
+  }
+  return value.length;
 }
 
 function scrubQueryString(value: unknown): unknown {
