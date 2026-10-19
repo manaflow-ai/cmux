@@ -16,6 +16,23 @@ def git(cwd, *args):
 
 
 class ReleaseNotesTests(unittest.TestCase):
+    def test_digest_titles_are_unique_when_long_lines_share_a_first_clause(self):
+        # Review of #22099: short_title cuts both lines to "Sidebar rows keep their order",
+        # and the pre-publish check rejects a digest that shows one title twice.
+        import argparse, importlib.util
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "cmux-next", "release-notes.py")
+        spec = importlib.util.spec_from_file_location("release_notes_digest", script)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        lines = [
+            {"group": "fixed", "title": "Sidebar rows keep their order, even when a workspace is renamed while another one is dragged"},
+            {"group": "fixed", "title": "Sidebar rows keep their order, after a relaunch restores every window and each of its workspaces"},
+        ]
+        args = argparse.Namespace(short="1.0.0-nightly.1", date="2026-10-19")
+        digest = notes.summary_whats_new_digest(args, lines)
+        titles = [entry["title"]["en"].lower() for entry in digest["entries"]]
+        self.assertEqual(len(titles), len(set(titles)), titles)
+
     def setUp(self):
         self.repo = tempfile.mkdtemp()
         git(self.repo, "init", "-q")

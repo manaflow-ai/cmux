@@ -74,6 +74,16 @@ test("a leaked bead id, a cut title and internal work in the build's own lines f
   expect(kinds).toContain("notes truncated Tabs reopen where they were...");
 });
 
+// The generator keeps a menu command's ellipsis ("Rename Workspace…"); only a cut sentence fails.
+test("a title ending in a menu command's ellipsis passes", () => {
+  const { notes, previous } = at("3917159104301");
+  const menu: ReleaseNotes = {
+    ...clean(notes),
+    summary: [...(clean(notes).summary ?? []), { group: "new", title: "Rename Workspace…" }],
+  };
+  expect(checkNightlyNotes(menu, previous)).toEqual([]);
+});
+
 test("a reviewed entry the page would show twice, or with its title as its description, fails", () => {
   const { notes, previous } = at("3917159104301");
   const twice = withEntries(notes, [

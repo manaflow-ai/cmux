@@ -58,6 +58,29 @@ test("tool-name, PR-number and history-repair commits are internal work", () => 
     expect(readableChange(subject).internal).toBe(false);
 });
 
+// Review of #22099 (2026-10-19): user-facing titles the tool-name, PR-number and squash rules
+// must leave alone, a hyphenated name with a non-ASCII letter included.
+const USER_FACING = [
+  "feat(cmux-next): two-finger-swipe goes back in the browser",
+  "feat(cmux-next): cmd-shift-t reopens the last closed tab",
+  "feat(cmux-next): do-not-disturb holds notifications while you present",
+  "fix(cmux-next): the pop-up-menu closes on Escape",
+  "feat(cmux-next): a follow-up-question chip under each answer",
+  "feat(cmux-next): per-tab-zoom remembers each tab's zoom",
+  "fix(cmux-next): utf-8-encoded file names open",
+  "fix(cmux-next): the #1 crash on wake is gone",
+  "feat(cmux-next): tabs #1 to #9 have shortcuts",
+  "feat(cmux-next): squash commits from the review pane",
+  "feat(cmux-next): end-to-end-encrypted sync of settings",
+  "fix(cmux-next): right-to-left-text lines wrap correctly",
+  "feat(cmux-next): side-by-side-diff view for changed files",
+  "feat: a naïve-mode-switch for the prompt",
+];
+
+test("hyphenated feature names, small numbers and squash commits stay user-facing", () => {
+  for (const subject of USER_FACING) expect([subject, readableChange(subject).internal]).toEqual([subject, false]);
+});
+
 test("readable change titles", () => {
   expect(readableChange("cmux NEXT perf-split: snapshot sources name a new pane's first runs (cx-8w027.14)")).toEqual({
     title: "Snapshot sources name a new pane's first runs",
@@ -156,6 +179,9 @@ test("the page and the pipeline read every subject of the span alike", () => {
       ...(nightlies as ReleaseNotes[]).flatMap((n) => changeItems(n).map((c) => c.title)),
       "fix: macOS 26 window shadows match the system",
       "iPhone pairing shows the Mac's name",
+      ...USER_FACING,
+      "cmux-next: export-backdrop-art reads each entry's subject box and exports it",
+      "fix(cmux-next): restore #21369 and #21384, undone by the Chief Dock squash",
     ]),
   ];
   const script = `
