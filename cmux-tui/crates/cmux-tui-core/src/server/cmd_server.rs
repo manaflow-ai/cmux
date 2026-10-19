@@ -6,6 +6,7 @@
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
+use super::daemon_build::{stamped_build_commit, stamped_ghostty_commit};
 use super::identify_capabilities;
 use crate::platform;
 
@@ -273,14 +274,4 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         };
         anyhow::bail!("machine listening TCP inventory failed: {detail}");
     }
-}
-
-pub(super) fn stamped_build_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty())
-}
-
-pub(super) fn stamped_ghostty_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
 }

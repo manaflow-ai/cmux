@@ -194,7 +194,7 @@ mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
 #[cfg(test)]
-use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
+use daemon_build::{stamped_build_commit, stamped_ghostty_commit};
 mod cmd_frontend;
 mod cmd_sizing;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
@@ -257,7 +257,9 @@ use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_a
 mod capabilities;
 pub use capabilities::build_capabilities;
 mod daemon_build;
-pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
+pub use daemon_build::{
+    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
+};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;
