@@ -15,7 +15,11 @@ public enum TransportKind: String, CaseIterable, Codable, Sendable {
 
 /// How the bytes currently travel.
 public enum LinkPathKind: String, Sendable {
-    case direct, relay, turn
+    case direct, turn
+    /// TURN whose leg to the server is TLS (a network that blocks UDP).
+    case turnTLS
+    /// No working route at the moment (WireGuard).
+    case noPath
 }
 
 /// Connection state shown in banners and Settings.
@@ -85,20 +89,25 @@ public struct LinkEndpoint: Sendable, Hashable {
     public var teamID: String
     public var deviceID: String
     public var macDeviceID: String
-    /// Debug "simulate distant network": no direct path. WebRTC uses only
-    /// TURN (path `turn`), WireGuard only the service's relay (path `relay`).
+    /// Debug "simulate distant network": no direct path. WebRTC and
+    /// WireGuard use only TURN (path `turn`, or `turnTLS` when WireGuard's
+    /// allocation had to use TLS).
     public var relayOnly: Bool
+    /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over
+    /// TLS (path `turnTLS`). WebRTC ignores it.
+    public var blockUDP: Bool
     /// Debug baseline: do not offer the media lane, so browser video rides
     /// its reliable channel even over WebRTC (verify/browser-video-track.md).
     public var browserVideoOnChannel: Bool
 
     public init(baseURL: URL, teamID: String, deviceID: String, macDeviceID: String, relayOnly: Bool = false,
-                browserVideoOnChannel: Bool = false) {
+                blockUDP: Bool = false, browserVideoOnChannel: Bool = false) {
         self.baseURL = baseURL
         self.teamID = teamID
         self.deviceID = deviceID
         self.macDeviceID = macDeviceID
         self.relayOnly = relayOnly
+        self.blockUDP = blockUDP
         self.browserVideoOnChannel = browserVideoOnChannel
     }
 }

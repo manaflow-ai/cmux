@@ -56,11 +56,12 @@ public final class LinkController {
     public init(
         transport: TransportKind,
         relayOnly: Bool = false,
+        blockUDP: Bool = false,
         dialer: any MacLinkDialer,
         clock: any Clock<Duration> = ContinuousClock(),
         accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String
     ) {
-        machine = LinkMachine(transport: transport, relayOnly: relayOnly)
+        machine = LinkMachine(transport: transport, relayOnly: relayOnly, blockUDP: blockUDP)
         self.dialer = dialer
         self.clock = clock
         self.accessToken = accessToken
@@ -137,6 +138,7 @@ public final class LinkController {
     }
     public var transport: TransportKind { machine.transport }
     public var relayOnly: Bool { machine.relayOnly }
+    public var blockUDP: Bool { machine.blockUDP }
 
     public func send(_ event: LinkMachine.Event) {
         let effects = machine.handle(event)
@@ -171,8 +173,9 @@ public final class LinkController {
                 return
             }
             endpoint.relayOnly = machine.relayOnly
+            endpoint.blockUDP = machine.blockUDP
             endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
-            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public)")
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial

@@ -164,6 +164,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 
     private var transportValue: String {
         #if DEBUG
+        if DeveloperOptions.blockUDP { return "\(settings.transport.title), UDP blocked" }
         if DeveloperOptions.relayOnly { return "\(settings.transport.title), relay only" }
         #endif
         return settings.transport.title

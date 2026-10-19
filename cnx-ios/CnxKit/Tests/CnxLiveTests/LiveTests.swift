@@ -16,10 +16,10 @@ import Testing
         var machine = LinkMachine(transport: .wireGuard)
         #expect(machine.handle(.target(mac)) == [.dial(generation: 1, macID: "m1", transport: .wireGuard)])
         #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
-        #expect(machine.handle(.dialSucceeded(generation: 1, path: .relay)) == [])
-        #expect(machine.phase == .connected(.wireGuard, .relay, rttMillis: nil))
-        _ = machine.handle(.linkUpdated(generation: 1, path: .relay, rttMillis: 27))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay · 27 ms")
+        #expect(machine.handle(.dialSucceeded(generation: 1, path: .turnTLS)) == [])
+        #expect(machine.phase == .connected(.wireGuard, .turnTLS, rttMillis: nil))
+        _ = machine.handle(.linkUpdated(generation: 1, path: .turnTLS, rttMillis: 27))
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 27 ms")
     }
 
     @Test func offlineMacIsNotDialed() {
@@ -69,13 +69,25 @@ import Testing
         #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.relayOnly)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WebRTC TURN")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WebRTC relay (TURN)")
+    }
+
+    /// Settings → Developer "Block UDP": a change redials, like relay only.
+    @Test func blockUDPChangeRedials() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(machine.handle(.blockUDP(false)) == [])
+        #expect(machine.handle(.blockUDP(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
+        #expect(machine.blockUDP)
+        #expect(machine.handle(.dialSucceeded(generation: 2, path: .turnTLS)) == [])
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS)")
     }
 
     @Test func dropReconnectsAndForegroundProbes() {
         var machine = LinkMachine(transport: .wireGuard)
         _ = machine.handle(.target(mac))
-        _ = machine.handle(.dialSucceeded(generation: 1, path: .relay))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .turn))
         #expect(machine.handle(.foreground) == [.probe(generation: 1)])
         // A dead link redials at once.
         #expect(machine.handle(.probeFailed(generation: 1, reason: "closed")) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
@@ -88,7 +100,7 @@ import Testing
     @Test func sameTargetKeepsLinkAndNilTargetCloses() {
         var machine = LinkMachine(transport: .wireGuard)
         _ = machine.handle(.target(mac))
-        _ = machine.handle(.dialSucceeded(generation: 1, path: .relay))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .turn))
         #expect(machine.handle(.target(mac)) == [])
         #expect(machine.handle(.target(nil)) == [.close])
         #expect(machine.phase == .idle)
