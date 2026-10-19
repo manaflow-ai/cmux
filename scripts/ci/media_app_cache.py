@@ -10,10 +10,19 @@ commit and Xcode build; `fetch` finds the newest live artifact of that name in
 any run and puts the app where reload.sh would have: the tag's DerivedData
 product dir. The tag is compiled into the app (bundle id, sockets, rpaths into
 its DerivedData), so an app is only reused under the tag it was built with.
+RECIPE is a short hash of how the tour builds (its build scripts and env), so
+a pull request that changes that never hands its app to others.
 
-    media_app_cache.py name  --tag TAG --sha SHA [--xcode BUILD]
-    media_app_cache.py pack  --app APP --tag TAG --sha SHA --out TAR [--xcode BUILD]
-    media_app_cache.py fetch --repo OWNER/REPO --tag TAG --sha SHA --dest DIR
+Only an artifact uploaded by this repository's cmux-next-media.yml runs counts
+(a fork's run could upload one under the same name), and its download must
+match the artifact's digest. Debug Mach-Os search the DerivedData's
+Build/Products/Debug/PackageFrameworks before the bundle's own Frameworks, so
+an app beside package frameworks is never packed, and none is restored beside
+them: the consumer's would come from another build.
+
+    media_app_cache.py name  --tag TAG --sha SHA --recipe R [--xcode BUILD]
+    media_app_cache.py pack  --app APP --tag TAG --sha SHA --recipe R --out TAR [--xcode BUILD]
+    media_app_cache.py fetch --repo OWNER/REPO --tag TAG --sha SHA --recipe R --dest DIR
                              [--xcode BUILD] [--github-output FILE]
 
 fetch reads GH_TOKEN (actions: read) and exits 0 with the app path on a hit, 1
@@ -23,6 +32,7 @@ on a miss or any refusal; the tour then builds as before.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -38,6 +48,11 @@ from pathlib import Path
 
 MANIFEST = "media-app.json"
 API = "https://api.github.com"
+WORKFLOW = ".github/workflows/cmux-next-media.yml"
+# The newest two live artifacts are tried; each download is capped so a slow
+# blob store never costs more than the ~6 min build it replaces.
+TRIES = 2
+DOWNLOAD_SECONDS = 240
 
 
 def xcode_build() -> str:
@@ -52,22 +67,31 @@ def app_name(tag: str) -> str:
     return f"cmux DEV {tag}.app"
 
 
-def artifact_name(tag: str, sha: str, xcode: str) -> str:
-    for label, value in (("tag", tag), ("xcode", xcode)):
+def artifact_name(tag: str, sha: str, xcode: str, recipe: str) -> str:
+    for label, value in (("tag", tag), ("xcode", xcode), ("recipe", recipe)):
         if not re.fullmatch(r"[A-Za-z0-9._-]+", value):
             raise ValueError(f"bad {label}: {value!r}")
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError(f"bad commit: {sha!r}")
-    return f"cmux-media-app-{tag}-{sha}-xcode-{xcode}"
+    return f"cmux-media-app-{tag}-{sha}-xcode-{xcode}-{recipe}"
 
 
-def pack(*, app: Path, tag: str, sha: str, xcode: str, out: Path) -> None:
-    artifact_name(tag, sha, xcode)  # validates
+def package_frameworks(products: Path) -> list[str]:
+    path = products / "PackageFrameworks"
+    return sorted(p.name for p in path.iterdir()) if path.is_dir() else []
+
+
+def pack(*, app: Path, tag: str, sha: str, xcode: str, recipe: str, out: Path) -> None:
+    artifact_name(tag, sha, xcode, recipe)  # validates
     if app.name != app_name(tag) or not app.is_dir():
         raise ValueError(f"{app} is not the {tag} app")
+    beside = package_frameworks(app.parent)
+    if beside:
+        raise ValueError(f"{app} loads package frameworks from its DerivedData ({', '.join(beside)}); not packed")
     with tempfile.TemporaryDirectory() as tmp:
         manifest = Path(tmp) / MANIFEST
-        manifest.write_text(json.dumps({"tag": tag, "sha": sha, "xcode": xcode, "app": app.name}) + "\n")
+        manifest.write_text(json.dumps({"tag": tag, "sha": sha, "xcode": xcode, "recipe": recipe,
+                                        "app": app.name}) + "\n")
         out.parent.mkdir(parents=True, exist_ok=True)
         # System tar keeps the bundle's framework symlinks, modes and xattrs;
         # upload-artifact alone would follow the symlinks and break the signature.
@@ -93,14 +117,17 @@ class GitHubApi:
         data = json.loads(self._get(f"{API}/repos/{repo}/actions/artifacts?{query}"))
         return list(data.get("artifacts") or [])
 
+    def run(self, repo: str, run_id: int) -> dict:
+        return json.loads(self._get(f"{API}/repos/{repo}/actions/runs/{int(run_id)}"))
+
     def download(self, url: str, dest: Path) -> None:
-        # The zip URL redirects to blob storage, which must not get the token.
+        # The zip URL redirects to blob storage, which must not get the token:
         # curl drops the Authorization header on a redirect to another host.
-        subprocess.run([
-            "curl", "-fsSL", "--retry", "3", "--max-time", "900",
-            "-H", f"Authorization: Bearer {self.token}",
-            "-o", str(dest), url,
-        ], check=True)
+        # The header goes in on stdin, not argv, where other jobs could read it.
+        subprocess.run(
+            ["curl", "-fsSL", "--retry", "2", "--max-time", str(DOWNLOAD_SECONDS), "-K", "-", "-o", str(dest), url],
+            input=f'header = "Authorization: Bearer {self.token}"\n', text=True, check=True,
+        )
 
 
 def _members(tar: Path) -> list[str]:
@@ -118,8 +145,20 @@ def _safe(members: list[str], app: str) -> bool:
     return True
 
 
-def fetch(*, repo: str, tag: str, sha: str, xcode: str, dest: Path, api, verify: bool = True) -> Path | None:
-    name = artifact_name(tag, sha, xcode)
+def trusted(api, repo: str, art: dict) -> str:
+    """Why this artifact is not the tour's own upload, or "" when it is."""
+    run = art.get("workflow_run") or {}
+    if not run.get("id") or run.get("head_repository_id") != run.get("repository_id"):
+        return "it was not uploaded by a run of this repository's own branches"
+    path = (api.run(repo, run["id"]) or {}).get("path") or ""
+    if path.split("@", 1)[0] != WORKFLOW:
+        return f"it was uploaded by {path or 'an unknown workflow'}, not {WORKFLOW}"
+    return ""
+
+
+def fetch(*, repo: str, tag: str, sha: str, xcode: str, recipe: str, dest: Path, api,
+          verify: bool = True) -> Path | None:
+    name = artifact_name(tag, sha, xcode, recipe)
     try:
         candidates = [a for a in api.list_artifacts(repo, name) if a.get("name") == name and not a.get("expired")]
     except (urllib.error.URLError, OSError, ValueError) as err:
@@ -130,12 +169,26 @@ def fetch(*, repo: str, tag: str, sha: str, xcode: str, dest: Path, api, verify:
         print(f"app cache: no live artifact {name}")
         return None
     want = app_name(tag)
+    beside = package_frameworks(dest)
+    if beside:
+        print(f"app cache: {dest} has package frameworks from another build ({', '.join(beside)}); building instead")
+        return None
     dest.mkdir(parents=True, exist_ok=True)
-    for art in candidates:
+    for art in candidates[:TRIES]:
         scratch = Path(tempfile.mkdtemp(prefix=".media-app-", dir=dest))
         try:
+            why = trusted(api, repo, art)
+            if why:
+                print(f"app cache: artifact {art.get('id')} refused: {why}", file=sys.stderr)
+                continue
             zipped = scratch / "app.zip"
             api.download(art["archive_download_url"], zipped)
+            digest = str(art.get("digest") or "")
+            got_digest = "sha256:" + hashlib.sha256(zipped.read_bytes()).hexdigest()
+            if digest != got_digest:
+                print(f"app cache: artifact {art.get('id')} download {got_digest} does not match {digest or 'no digest'}; refused",
+                      file=sys.stderr)
+                continue
             with zipfile.ZipFile(zipped) as zf:
                 tars = [n for n in zf.namelist() if n.endswith(".tar") and "/" not in n]
                 if len(tars) != 1:
@@ -151,7 +204,7 @@ def fetch(*, repo: str, tag: str, sha: str, xcode: str, dest: Path, api, verify:
             out.mkdir()
             subprocess.run(["tar", "-xpf", str(tar), "-C", str(out)], check=True)
             manifest = json.loads((out / MANIFEST).read_text())
-            expect = {"tag": tag, "sha": sha, "xcode": xcode, "app": want}
+            expect = {"tag": tag, "sha": sha, "xcode": xcode, "recipe": recipe, "app": want}
             if any(manifest.get(k) != v for k, v in expect.items()):
                 print(f"app cache: artifact {art.get('id')} was packed for {manifest}; refused", file=sys.stderr)
                 continue
@@ -170,7 +223,8 @@ def fetch(*, repo: str, tag: str, sha: str, xcode: str, dest: Path, api, verify:
             got.rename(final)
             print(f"app cache: {want} for {sha} from artifact {art.get('id')} ({art.get('created_at')})")
             return final
-        except (subprocess.CalledProcessError, OSError, ValueError, zipfile.BadZipFile, KeyError) as err:
+        except (subprocess.CalledProcessError, OSError, ValueError, zipfile.BadZipFile, KeyError,
+                urllib.error.URLError) as err:
             print(f"app cache: artifact {art.get('id')} unusable: {err}", file=sys.stderr)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
@@ -184,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         p = sub.add_parser(cmd)
         p.add_argument("--tag", required=True)
         p.add_argument("--sha", required=True)
+        p.add_argument("--recipe", required=True, help="short hash of the tour's build recipe")
         p.add_argument("--xcode", help="Xcode build version (default: xcodebuild -version)")
         if cmd == "pack":
             p.add_argument("--app", type=Path, required=True)
@@ -195,16 +250,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     xcode = args.xcode or xcode_build()
     if args.cmd == "name":
-        print(artifact_name(args.tag, args.sha, xcode))
+        print(artifact_name(args.tag, args.sha, xcode, args.recipe))
         return 0
     if args.cmd == "pack":
-        pack(app=args.app, tag=args.tag, sha=args.sha, xcode=xcode, out=args.out)
+        pack(app=args.app, tag=args.tag, sha=args.sha, xcode=xcode, recipe=args.recipe, out=args.out)
         return 0
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     if not token:
         print("app cache: no GH_TOKEN", file=sys.stderr)
         return 1
-    app = fetch(repo=args.repo, tag=args.tag, sha=args.sha, xcode=xcode, dest=args.dest, api=GitHubApi(token))
+    app = fetch(repo=args.repo, tag=args.tag, sha=args.sha, xcode=xcode, recipe=args.recipe, dest=args.dest,
+                api=GitHubApi(token))
     if app is None:
         return 1
     if args.github_output:
