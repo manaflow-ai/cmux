@@ -233,6 +233,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.nt-widget-row[aria-pressed="true"]') !== null);
       },
     },
+    "widgets-off": {
+      note: "The same chats and projects with the widget view off (the default): no cards, only the calm chat rows.",
+      ready: newTab({ projects: WIDGET_PROJECTS }),
+      snapshot: noChat(widgetSessions()),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length > 0);
+        if (ctx.document.querySelector(".nt-widgets")) throw new Error("widget cards show with the widget view off");
+      },
+    },
     "widgets-hover": {
       note: "Widget view, a pointer over a Needs you chat: a hover card with its whole title and why it needs you (its last line).",
       ready: newTab({ widgets: true, projects: WIDGET_PROJECTS }),
