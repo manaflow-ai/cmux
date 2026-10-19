@@ -1,4 +1,4 @@
-//! Cache-only agent inventory of THIS machine, over the trusted native
+//! Cached inventory and explicit registry refresh of THIS machine, over the trusted native
 //! daemon carrier (local, SSH or Cloud). The conversations-only relay never
 //! admits this verb. No client-selected socket, machine or control params.
 
@@ -20,9 +20,51 @@ use crate::mux::Mux;
 
 pub(super) const CAPABILITY: &str = "agent-inventory-v1";
 pub(super) const OWNER_CAPABILITY: &str = "agent-inventory-owner-v1";
+pub(super) const REFRESH_CAPABILITY: &str = "agent-inventory-refresh-v1";
 const MAX_READS: usize = 8;
 const MAX_HARNESSES: usize = 256;
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Copy)]
+enum ReadMode {
+    Cached,
+    Refresh,
+}
+
+impl ReadMode {
+    fn feature(self) -> &'static str {
+        match self {
+            Self::Cached => "harnessInventory",
+            Self::Refresh => "harnessInventoryRefresh",
+        }
+    }
+
+    fn request(self) -> (&'static str, Value, Duration) {
+        match self {
+            Self::Cached => ("_acpmux/harness/health", json!({"view":"inventory"}), CALL_TIMEOUT),
+            // The raw owner bounds a refresh at twenty seconds. No caller
+            // chooses this timeout, method, params or a registry address.
+            Self::Refresh => {
+                ("_acpmux/harness/inventory/refresh", json!({}), Duration::from_secs(25))
+            }
+        }
+    }
+
+    fn failure(self, error: LinkError) -> Failure {
+        match error {
+            LinkError::MethodNotFound(_) => Failure::Unsupported,
+            LinkError::Rpc(_, data) if matches!(self, Self::Refresh) => {
+                match data.get("reason").and_then(Value::as_str) {
+                    Some("harness_inventory.busy") => Failure::Busy,
+                    Some("harness_inventory.unsupported") => Failure::Unsupported,
+                    _ => Failure::Unavailable,
+                }
+            }
+            LinkError::Busy if matches!(self, Self::Refresh) => Failure::Busy,
+            _ => Failure::Unavailable,
+        }
+    }
+}
 
 /// Holds one bounded worker until completion, failed spawn or unwinding.
 pub(super) struct ReadSlot(Arc<Mux>);
@@ -58,7 +100,7 @@ impl Failure {
     }
 }
 
-/// The optional owner fence only verifies this daemon; it never selects or
+/// The owner fence (required for refresh) only verifies this daemon; it never selects or
 /// connects to another machine. Trust precedes params and no client fields
 /// reach the owner's acpmux.
 pub(super) fn try_handle(
@@ -73,15 +115,17 @@ pub(super) fn try_handle(
     let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
         return None;
     };
-    if fields.remove("cmd").as_ref().and_then(Value::as_str) != Some("agent-inventory") {
-        return None;
-    }
+    let mode = match fields.remove("cmd").as_ref().and_then(Value::as_str) {
+        Some("agent-inventory") => ReadMode::Cached,
+        Some("agent-inventory-refresh") => ReadMode::Refresh,
+        _ => return None,
+    };
     let id = fields.remove("id");
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Failure::NotTrusted)));
     }
     let expected_machine = fields.remove("expected_machine_id");
-    if !fields.is_empty() {
+    if !fields.is_empty() || (matches!(mode, ReadMode::Refresh) && expected_machine.is_none()) {
         return Some(reply(writer, id, Err(Failure::BadRequest)));
     }
     if let Some(expected) = expected_machine {
@@ -104,11 +148,17 @@ pub(super) fn try_handle(
     };
     let worker_writer = writer.clone();
     let worker_id = id.clone();
+    let owner_echo = matches!(mode, ReadMode::Refresh).then(|| mux.machine_public_id.clone());
     let spawned = std::thread::Builder::new()
         .name("mux-agent-inventory".into())
         .stack_size(256 * 1024)
         .spawn(move || {
-            let result = read(&socket);
+            let result = read(&socket, mode).map(|mut value| {
+                if let Some(machine) = owner_echo {
+                    value["machine"] = json!(machine);
+                }
+                value
+            });
             drop(slot);
             reply(&worker_writer, worker_id, result);
         });
@@ -118,7 +168,7 @@ pub(super) fn try_handle(
     Some(true)
 }
 
-/// Reads and watch handshakes share the same bounded worker budget, including
+/// Reads, registry refresh and watch handshakes share one bounded worker budget, including
 /// a cancelled connection whose Unix connect has not finished yet.
 pub(super) fn reserve(mux: &Arc<Mux>) -> Result<ReadSlot, Failure> {
     if mux
@@ -146,7 +196,7 @@ pub(super) fn valid_snapshot(value: &Value) -> bool {
     serde_json::from_value::<Inventory>(value.clone()).is_ok_and(|inventory| inventory.valid())
 }
 
-fn read(socket: &Path) -> Result<Value, Failure> {
+fn read(socket: &Path, mode: ReadMode) -> Result<Value, Failure> {
     // Never use agent_session_start::connect: a read must not start or
     // hand off acpmux. Nothing listening is unavailable, not an empty inventory.
     let link = AcpmuxLink::connect(socket, |_| {}).map_err(|_| Failure::Unavailable)?;
@@ -159,17 +209,13 @@ fn read(socket: &Path) -> Result<Value, Failure> {
             CALL_TIMEOUT,
         )
         .map_err(|_| Failure::Unavailable)?;
-    if !supports(&initialized, "harnessInventory") {
+    if !supports(&initialized, mode.feature()) {
         return Err(Failure::Unsupported);
     }
-    // Old acpmux builds ignore view and can check or update on this method.
-    // Negotiate first, on this same link, and never fall back to legacy health.
-    let result = link
-        .call("_acpmux/harness/health", json!({"view":"inventory"}), CALL_TIMEOUT)
-        .map_err(|error| match error {
-            LinkError::MethodNotFound(_) => Failure::Unsupported,
-            _ => Failure::Unavailable,
-        })?;
+    // Old builds can interpret health params as a probe/auto-update request.
+    // Negotiate on this captured link and never fall back between modes.
+    let (method, params, timeout) = mode.request();
+    let result = link.call(method, params, timeout).map_err(|error| mode.failure(error))?;
     let mut inventory: Inventory =
         serde_json::from_value(result).map_err(|_| Failure::InvalidResponse)?;
     if !inventory.valid() {

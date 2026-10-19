@@ -23,8 +23,10 @@
 
 mod approvals;
 mod children;
+mod control;
 mod drafts;
 mod engine_control;
+mod image_fit;
 pub mod images;
 mod inbox;
 mod mux_ack;
@@ -122,6 +124,10 @@ pub enum Input {
         /// `ask` under the spawn floor.
         policy: Option<String>,
     },
+    /// A subagent's first prompt (view and task) is sent: its inbox follows.
+    SubagentPrompted {
+        id: String,
+    },
     /// A subagent's cmux workspace exists.
     SubagentWorkspace {
         id: String,
@@ -167,12 +173,20 @@ pub enum Input {
     TurnView {
         reply: Sender<Option<String>>,
     },
-    /// `tell(id, message)`.
+    /// `tell(id, message, key)`.
     Tell {
         id: String,
         message: String,
+        key: Option<String>,
         reply: Sender<Result<String, String>>,
     },
+    /// `control(action, ...)` (control.rs).
+    Control {
+        request: crate::tools::ControlCall,
+        reply: Sender<Result<String, String>>,
+    },
+    /// Once a minute while subagents work: stuck detection (control.rs).
+    SubTick,
     /// Changes a per-Chief setting (`chief_settings`); refused for
     /// `remote.autoApprove` on during a remote-origin turn.
     Setting {
@@ -718,6 +732,10 @@ impl Brain {
 
     /// Where queued subagents are started when a slot frees.
     pub fn set_sub_starter(&mut self, starter: Option<Sender<crate::subagents::QueuedStart>>) {
+        // A host that runs subagents checks them for stuck runs.
+        if starter.is_some() && self.sub_starter.is_none() {
+            control::start_ticker(self.tx.clone());
+        }
         self.sub_starter = starter;
     }
 
@@ -829,6 +847,7 @@ impl Brain {
                 session_id,
                 policy,
             } => self.sub_started(&id, session_id, policy),
+            Input::SubagentPrompted { id } => self.sub_prompted(&id),
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
@@ -853,10 +872,20 @@ impl Brain {
                 let session = self.state.sub(&id).and_then(|(_, s)| s.session_id.clone());
                 let _ = reply.send(session);
             }
-            Input::Tell { id, message, reply } => {
-                let answer = self.tell(&id, &message);
+            Input::Tell {
+                id,
+                message,
+                key,
+                reply,
+            } => {
+                let answer = self.tell_keyed(&id, &message, key.as_deref());
                 let _ = reply.send(answer);
             }
+            Input::Control { request, reply } => {
+                let answer = self.control(&request);
+                let _ = reply.send(answer);
+            }
+            Input::SubTick => self.sub_tick(),
             Input::Setting { key, value, reply } => {
                 let _ = reply.send(self.set_setting(&key, &value));
             }

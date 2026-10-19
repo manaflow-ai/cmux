@@ -227,6 +227,28 @@ export function isAgentHome(cwd: string | undefined): boolean {
   return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
+/// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
+/// folder of its own starts. Not a private agent-home folder, the home folder or `/`, and not a chat
+/// on another machine (a peer or a Cloud host). With `known` (the host's project list, which drops
+/// folders that no longer exist), only a folder in it: a deleted or removed project never starts one.
+/// An empty list is one not loaded yet, so every local chat folder counts until it lands.
+export function mostRecentProject(
+  sessions: readonly AcpmuxSessionEntry[],
+  home?: string,
+  known?: readonly string[],
+): string | undefined {
+  const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
+  let newest: AcpmuxSessionEntry | undefined;
+  for (const session of sessions) {
+    const cwd = session.cwd?.replace(/\/+$/, "");
+    if (!cwd || cwd === "~" || cwd === home?.replace(/\/+$/, "") || isAgentHome(cwd)) continue;
+    if (projects && !projects.has(cwd)) continue;
+    if (session.peer || (session.hostKind && session.hostKind !== "local") || !listed(session)) continue;
+    if (!newest || (session.updatedAt ?? 0) > (newest.updatedAt ?? 0)) newest = session;
+  }
+  return newest?.cwd;
+}
+
 /** A project's name for its header: the folder's last component, `~` for a home folder. */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");

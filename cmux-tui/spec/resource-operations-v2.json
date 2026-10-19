@@ -28162,6 +28162,7 @@
         "extra": false,
         "constraints": [
           "Restored members leave the stash in the commit that stores the result; the stash is removed with its last member. A retry with the same key replays.",
+          "All or nothing: when a member cannot reopen, or the commit fails, the pages this call opened close again (unrecorded), every member stays in the stash, and the error is returned; a retry opens each page once.",
           "A page reopens with its back/forward history, its browser profile and its engine."
         ]
       },
@@ -28969,6 +28970,14 @@
               }
             },
             "description": "The tab's user icon: an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the tab's extra.icon on every client."
+          },
+          "marked_unread": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "tab-mark-unread-v1: true marks the tab unread by hand (no notification needed), false clears the mark. Shown as the tab's extra.marked_unread (present only while marked) on every client; a client clears it when the person views the tab."
           },
           "expected_revision": {
             "required": false,
