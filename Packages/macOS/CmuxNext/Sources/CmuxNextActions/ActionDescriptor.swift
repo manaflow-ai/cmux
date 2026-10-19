@@ -102,6 +102,11 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// for a person: the consent panel's own limit plus time for the
     /// Keychain prompt and the import. The cmux CLI waits a little longer.
     public static let personDeadline: Duration = .seconds(200)
+    /// The action's work makes a daemon object with a keyed create that asks
+    /// again when its reply is late (`NewFrontendBrowserTabRequest.send(on:)`):
+    /// `action.run` with `wait` (the default) then allows that retry budget
+    /// instead of failing at the control-plane deadline while the tab opens.
+    public var waitsForKeyedCreate: Bool = false
 
     public init(
         id: ActionID,
