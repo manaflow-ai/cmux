@@ -2974,7 +2974,14 @@ jobs:
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
-          DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          DERIVED_PUBLIC_KEY=$(
+            printf '%s' "$SPARKLE_PRIVATE_KEY" |
+              env -u SPARKLE_PRIVATE_KEY \
+                -u SHARED_SPARKLE_PRIVATE_KEY \
+                -u NIGHTLY_SPARKLE_PRIVATE_KEY \
+                -u NEXT_SPARKLE_PRIVATE_KEY \
+                swift scripts/derive_sparkle_public_key.swift --stdin
+          )
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           if [ "$TRACK" = "nightly-next" ] && [ "$DERIVED_PUBLIC_KEY" != "$NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" ]; then
             echo "SPARKLE_NEXT_PRIVATE_KEY does not derive the pinned NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY" >&2
@@ -5955,7 +5962,14 @@ jobs:
           fi
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           export SPARKLE_PRIVATE_KEY
-          SPARKLE_PUBLIC_KEY="$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")"
+          SPARKLE_PUBLIC_KEY="$(
+            printf '%s' "$SPARKLE_PRIVATE_KEY" |
+              env -u SPARKLE_PRIVATE_KEY \
+                -u SHARED_SPARKLE_PRIVATE_KEY \
+                -u NIGHTLY_SPARKLE_PRIVATE_KEY \
+                -u NEXT_SPARKLE_PRIVATE_KEY \
+                swift scripts/derive_sparkle_public_key.swift --stdin
+          )"
           export SPARKLE_PUBLIC_KEY
           ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh \
             nightly-delta/previous "$SPARKLE_PUBLIC_KEY"
