@@ -1050,9 +1050,11 @@ final class AgentChatModeModel {
     func interrupt(hard: Bool = false) async {
         guard let selectedSessionID, let source, selectedSession?.state != .ended else { return }
         guard interruptingSessionIDs.insert(selectedSessionID).inserted else { return }
-        defer { interruptingSessionIDs.remove(selectedSessionID) }
         let generation = sourceGeneration
-        guard generation == sourceGeneration, !Task.isCancelled else { return }
+        defer {
+            if generation == sourceGeneration { interruptingSessionIDs.remove(selectedSessionID) }
+        }
+        guard !Task.isCancelled else { return }
         do {
             try await source.interrupt(sessionID: selectedSessionID, hard: hard)
         } catch {
@@ -1072,7 +1074,10 @@ final class AgentChatModeModel {
               case .failed = selectedSession.state,
               let queued = lastTurnBySession[selectedSessionID],
               retryingSessionIDs.insert(selectedSessionID).inserted else { return }
-        defer { retryingSessionIDs.remove(selectedSessionID) }
+        let generation = sourceGeneration
+        defer {
+            if generation == sourceGeneration { retryingSessionIDs.remove(selectedSessionID) }
+        }
         // A failed queued send is reinserted at the head of the queue. Retry
         // transmits that item directly, so consume the matching queue entry
         // first; otherwise the next ordinary send would deliver the same
@@ -1084,8 +1089,7 @@ final class AgentChatModeModel {
             pending.removeFirst()
             pendingSendsBySession[selectedSessionID] = pending.isEmpty ? nil : pending
         }
-        let generation = sourceGeneration
-        guard generation == sourceGeneration, !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return }
         do {
             inFlightSendsBySession[selectedSessionID] = queued
             try await source.send(
@@ -1362,11 +1366,14 @@ final class AgentChatModeModel {
         sessionID: String,
         source: any AgentChatSessionSource,
         reset: Bool,
-        generation: Int? = nil
+        generation: Int
     ) async {
+        guard generation == sourceGeneration, !Task.isCancelled else { return }
         guard !loadingSessionIDs.contains(sessionID) else { return }
         loadingSessionIDs.insert(sessionID)
-        defer { loadingSessionIDs.remove(sessionID) }
+        defer {
+            if generation == sourceGeneration { loadingSessionIDs.remove(sessionID) }
+        }
         do {
             var resetRequest = reset
             while true {
@@ -1376,7 +1383,7 @@ final class AgentChatModeModel {
                 let resetTokenAtStart = historyResetTokens[sessionID, default: 0]
                 let page = try await source.history(sessionID: sessionID, beforeSeq: before, limit: 80)
                 guard !Task.isCancelled,
-                      generation.map({ $0 == sourceGeneration }) ?? true else { return }
+                      generation == sourceGeneration else { return }
                 // A removal can race this RPC. The session's transcript was
                 // purged in that case, so do not retry the request or restore
                 // state for a session that is no longer in the live list.
@@ -1438,7 +1445,7 @@ final class AgentChatModeModel {
             return
         } catch {
             guard !Task.isCancelled,
-                  generation.map({ $0 == sourceGeneration }) ?? true else { return }
+                  generation == sourceGeneration else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -1760,8 +1767,11 @@ final class AgentChatModeModel {
         source: any AgentChatSessionSource,
         generation: Int
     ) async {
+        guard generation == sourceGeneration, !Task.isCancelled else { return }
         guard sendingSessionIDs.insert(sessionID).inserted else { return }
-        defer { sendingSessionIDs.remove(sessionID) }
+        defer {
+            if generation == sourceGeneration { sendingSessionIDs.remove(sessionID) }
+        }
 
         while let queued = pendingSendsBySession[sessionID]?.first {
             guard !Task.isCancelled, generation == sourceGeneration else { return }
