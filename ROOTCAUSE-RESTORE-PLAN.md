@@ -536,3 +536,24 @@ after its `lsregister` child stalled on the external worktree.
 The next two explicit evidence gaps are (a) whether the workstream log is read
 after startup and (b) whether hidden surfaces retain renderer/IOSurface state.
 Measure both before implementing renderer hibernation or workstream rotation.
+
+## Live helper/process audit (2026-10-19T19:15Z)
+
+The protected process and socket were left untouched while the host process
+table was sampled. There were 39 Codex processes using about 24.56 GiB RSS,
+and 120 `cmux-cua` command rows using about 26.29 GiB RSS. Twenty-three of
+the CUA rows had PPID 1; the largest group used the same
+`com.-0c0b3cbd74e3657a` runtime/socket and included many long-lived `serve`
+helpers. The current runtime pid files identify only one canonical helper per
+runtime, so the extra PPID-1 helpers are a concrete orphan/leak candidate, but
+their panel ownership is not yet proven. No process was killed based on this
+snapshot. The next instrumentation must map each helper to a panel/session
+and distinguish the protected restore namespace before any cleanup.
+
+The 83-panel preserved layout is an exact reproduction fixture: 47 direct
+Codex records, 7 Subrouter Codex records, 1 Claude record, 2 Codex records
+without a launcher, and 26 non-agent/file-preview/shell surfaces. The seven
+Subrouter records must be routed from captured provider evidence; executable
+basename alone is insufficient. The one record retaining only a Subrouter
+`CODEX_HOME` has no durable provider proof and remains deliberately
+fail-closed until capture writes an explicit identity marker.
