@@ -391,7 +391,7 @@ fn sync_row(
         && anchor_item.is_none()
     {
         anchor_item =
-            doc.list(&section, Some(parent)).filter(|child| child.body.is_group()).last().cloned();
+            doc.list(&section, Some(parent)).filter(|child| child.body.is_group()).next_back().cloned();
         has_neighbor |= anchor_item.is_some();
     }
     let target = anchored(&section, parent.as_deref(), anchor_item.as_ref(), has_neighbor);
@@ -539,7 +539,7 @@ fn sync_group(
         try_apply(
             batch,
             Op::Move {
-                items: vec![item.id.clone()],
+                items: vec![item.id],
                 to: Target { section, after: Some(after), ..Target::default() },
             },
         );
