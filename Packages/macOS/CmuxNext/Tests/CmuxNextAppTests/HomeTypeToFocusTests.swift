@@ -34,8 +34,10 @@ import Testing
         let surface: NSView
 
         /// The focus applier's step for this content (`FocusEffectApplier.moveResponder`): the
-        /// content's focus target takes the keyboard when it is outside the content.
+        /// content's primary input lands the keyboard by its rule; else the content's focus target
+        /// takes it when it is outside the content.
         func focusPane() {
+            if content.landKeyboardInPrimaryInput(in: window) { return }
             if let responder = window.firstResponder as? NSView, responder === content.view || responder.isDescendant(of: content.view) {
                 return
             }
@@ -195,5 +197,71 @@ import Testing
         h.type("abc")
         #expect(h.box.string.isEmpty, "\(container): the field's typing went to the box")
         #expect(field.currentEditor()?.string == "abc" || field.stringValue == "abc")
+    }
+
+    // MARK: Where the keyboard lands (the applier's rule)
+
+    /// A pane focus lands in the box itself, not only typing after it: the caret shows there.
+    @Test(arguments: Container.allCases)
+    func aPaneFocusLandsTheKeyboardInTheBox(_ container: Container) async throws {
+        let h = try await Self.harness(container)
+        defer { h.close() }
+        for start: NSResponder? in [h.other, nil] {
+            h.window.makeFirstResponder(start)
+            #expect(h.content.landKeyboardInPrimaryInput(in: h.window))
+            #expect(h.window.firstResponder === h.box, "\(container): from \(String(describing: start)) the keyboard is on \(String(describing: h.window.firstResponder))")
+        }
+    }
+
+    /// The conversation list keeps the keyboard a pane focus finds there (its arrow keys move the
+    /// selection), and a printable key still goes to the box.
+    @Test(arguments: [Container.dock, .homeTab])
+    func theConversationListKeepsArrowsAndTypingGoesToTheBox(_ container: Container) async throws {
+        let h = try await Self.harness(container)
+        defer { h.close() }
+        let page: TopHomePageView
+        switch h.content {
+        case .page(let view): page = try #require((view.content as? HomeDockView)?.messages ?? view.content as? TopHomePageView)
+        default: Issue.record("not a page"); return
+        }
+        var stack: [NSView] = [page.list]
+        var list: NSView?
+        while let next = stack.popLast(), list == nil {
+            stack.append(contentsOf: next.subviews)
+            if next.acceptsFirstResponder, !(next is NSText || next is NSTextField), !next.isHiddenOrHasHiddenAncestor { list = next }
+        }
+        let holder = try #require(list, "the conversation list takes no keyboard")
+        try #require(h.window.makeFirstResponder(holder))
+        #expect(h.content.landKeyboardInPrimaryInput(in: h.window))
+        #expect(h.window.firstResponder === holder, "a pane focus took the keyboard from the list")
+        h.type("yo")
+        #expect(h.box.string == "yo")
+    }
+
+    /// A hidden field inside Home gives the keyboard to the box on a pane focus.
+    @Test(arguments: Container.allCases)
+    func aPaneFocusTakesTheKeyboardFromAHiddenField(_ container: Container) async throws {
+        let h = try await Self.harness(container)
+        defer { h.close() }
+        let field = NSTextField(string: "")
+        h.surface.addSubview(field)
+        try #require(h.window.makeFirstResponder(field))
+        field.isHidden = true
+        #expect(h.content.landKeyboardInPrimaryInput(in: h.window))
+        #expect(h.window.firstResponder === h.box)
+    }
+
+    // MARK: Keys
+
+    /// A dead key (Option-E) goes where the next key goes: it composes there.
+    @Test func aDeadKeyIsTyping() throws {
+        func key(_ characters: String, _ ignoring: String, _ flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+            try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                                          characters: characters, charactersIgnoringModifiers: ignoring, isARepeat: false, keyCode: 14))
+        }
+        #expect(KeyRouter.isDeadKey(try key("", "e", .option)))
+        #expect(!KeyRouter.isDeadKey(try key("e", "e")))
+        #expect(!KeyRouter.isDeadKey(try key("", "e", .command)))
+        #expect(!KeyRouter.isDeadKey(try key("", String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey))!)))))
     }
 }
