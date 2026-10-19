@@ -8,7 +8,8 @@ import Testing
 @MainActor @Suite
 struct BrowserClientCertificateAuthenticationHandlerTests {
     private func makeChallenge(
-        authenticationMethod: String = NSURLAuthenticationMethodClientCertificate
+        authenticationMethod: String = NSURLAuthenticationMethodClientCertificate,
+        previousFailureCount: Int = 0
     ) -> URLAuthenticationChallenge {
         let protectionSpace = URLProtectionSpace(
             host: "client.badssl.com",
@@ -20,7 +21,7 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
         return URLAuthenticationChallenge(
             protectionSpace: protectionSpace,
             proposedCredential: nil,
-            previousFailureCount: 0,
+            previousFailureCount: previousFailureCount,
             failureResponse: nil,
             error: nil,
             sender: BrowserAuthChallengeSenderStub()
@@ -245,6 +246,45 @@ struct BrowserClientCertificateAuthenticationHandlerTests {
 
         #expect(!recorderCalled)
         #expect(disposition == .cancelAuthenticationChallenge)
+    }
+
+    @Test
+    func presentsPickerAgainAfterThePreferredCandidateFailed() throws {
+        // A server that starts rejecting the preferred certificate re-challenges with
+        // a failure count. Answering with the same preference again would loop on a
+        // rejected certificate, so the picker must come back.
+        let otherCredential = URLCredential(user: "other", password: "unused", persistence: .forSession)
+        var recorded: URLCredential?
+        let handler = BrowserClientCertificateAuthenticationHandler(
+            candidateProvider: { _, completion in
+                completion([
+                    BrowserClientCertificateCredentialCandidate(
+                        credential: URLCredential(user: "preferred", password: "unused", persistence: .forSession),
+                        isPreferred: true
+                    ),
+                    BrowserClientCertificateCredentialCandidate(credential: otherCredential),
+                ])
+                return nil
+            },
+            selectionRecorder: { _, candidate in recorded = candidate.credential }
+        )
+        var pickerWasPresented = false
+        var credential: URLCredential?
+
+        handler.handle(
+            challenge: makeChallenge(previousFailureCount: 1),
+            candidatePicker: { _, candidates, completion, _ in
+                pickerWasPresented = true
+                completion(candidates[1])
+            }
+        ) { _, returnedCredential in
+            credential = returnedCredential
+        }
+
+        #expect(pickerWasPresented)
+        let returnedCredential = try #require(credential)
+        #expect(returnedCredential === otherCredential)
+        #expect(recorded === otherCredential)
     }
 
     @Test
