@@ -159,15 +159,20 @@ shows); the CLI never writes the browser tab record.
 
 A browser profile has its own cookies, local storage, IndexedDB, cache and
 permissions. Make a new, empty one for an agent's sign-ins, open tabs in it,
-or move a tab into it (the move is also the MCP tool `browser_tab_set_profile`):
+or move a tab into it. Each command is also an MCP tool: `browser_profile_list`,
+`browser_profile_create`, `browser_profile_open` and `browser_tab_set_profile`.
 
 ```bash
-cmux --json browser profile list                         # browser_profiles: id, name, ...
-cmux --json browser profile create --name "Research"     # browser_profile.id
-cmux --json browser profile open https://example.com --engine webkit --profile Research
+cmux --json browser profile list                         # browser_profiles[]: id, name, color, icon, index
+cmux --json browser profile create --name "Research"     # value.browser_profile.id
+cmux --json browser profile open https://example.com --profile Research   # value.tab_id
 cmux --json browser tab "$TAB" set-profile --profile Research
 cmux --json tab "$TAB" show                              # extra.browser_profile_id
 ```
+
+`open` takes an http or https URL. Without `--engine webkit|cef` the tab opens
+in the person's default engine setting; `--pane <pane_…>` picks the pane (else
+the focused one) and `--background true` keeps the pane's selected tab.
 
 A profile is named by its id or its exact name. `set-profile` keeps the tab (same id and
 position): the daemon moves the tab record and the app reloads the page at the

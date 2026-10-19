@@ -132,8 +132,10 @@ authorizes the event. It contains principal, lease, generation, and role.
 groups one operation or flow. `causation_depth` bounds recursive automation.
 
 `subjects` is a deduplicated set. A pane event includes the pane and every
-known ancestor. A move includes source and destination subjects. Consumers
-filter subjects rather than scraping IDs from payloads.
+known ancestor. A move includes source and destination subjects. A workspace
+is a subject when its own value changes (created, moved, renamed, selected,
+closed), not when a workspace order change only shifts its position.
+Consumers filter subjects rather than scraping IDs from payloads.
 
 `sensitivity` is `public`, `metadata`, `sensitive`, or `secret`. Subscription
 authority and export redaction use this field before payload delivery.

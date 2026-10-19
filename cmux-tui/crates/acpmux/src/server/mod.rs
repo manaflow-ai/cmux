@@ -5,7 +5,7 @@
 use crate::config::PermissionPolicy;
 use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
 use crate::rpc::{Message, RpcError, method};
-use crate::store::EventRecord;
+use crate::session_identity::SessionReceipt;
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
 use futures_util::{SinkExt, StreamExt};
@@ -22,7 +22,7 @@ use tokio::sync::{broadcast, mpsc};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
-pub use windows_socket::{UnixListener, bind_unix, serve_unix};
+pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
 /// How one connection receives one attached session's live records.
 #[derive(Debug, Clone, Default)]
@@ -45,7 +45,10 @@ pub struct Conn {
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
+    /// Server-derived mailbox identities for this connection's local attachments.
+    mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
+    watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
@@ -59,6 +62,8 @@ pub struct Conn {
     person: AtomicBool,
     /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
+    /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
+    caller: std::sync::OnceLock<String>,
 }
 
 impl Conn {
@@ -67,8 +72,12 @@ impl Conn {
         self.person.load(Ordering::SeqCst)
     }
 
-    /// Whether this connection gets the person challenge: the unix socket
-    /// or the proven local app.
+    /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
+    pub(super) fn caller(&self) -> Option<&str> {
+        self.caller.get().map(String::as_str)
+    }
+
+    /// Whether this connection gets the person challenge: the unix socket or the proven local app.
     pub(super) fn challengeable(&self) -> bool {
         matches!(self.origin, Origin::Local | Origin::LocalApp)
     }
@@ -80,9 +89,15 @@ impl Conn {
     /// the proof matches its own nonce and id. Nothing else ever does.
     fn bind_person(&self, hub: &Hub, m: &str, params: &mut Option<Value>) {
         let _ = params.as_mut().and_then(crate::hub::person::take_key);
+        // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
+        let caller = params.as_mut().and_then(crate::hub::person::take_caller);
         let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
         if n == 1 && m == method::INITIALIZE && self.challengeable() {
             self.challenged.store(true, Ordering::SeqCst);
+        }
+        let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
+        if let Some(id) = caller.filter(|_| first_local).and_then(|c| hub.proven_caller(c)) {
+            let _ = self.caller.set(id);
         }
         if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
@@ -101,6 +116,21 @@ impl Conn {
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
+    }
+    pub(super) fn bind_mailbox_receipt(&self, receipt: SessionReceipt) {
+        self.mailbox_bindings.lock().unwrap().insert(receipt.mux_session_id.clone(), receipt);
+    }
+    pub(super) fn mailbox_receipt(&self, session_id: &str) -> Option<SessionReceipt> {
+        let key = session_id.strip_prefix("acp:").unwrap_or(session_id);
+        self.mailbox_bindings
+            .lock()
+            .unwrap()
+            .values()
+            .find(|receipt| key == receipt.mux_session_id || key == receipt.qualified_id())
+            .cloned()
+    }
+    pub(super) fn unbind_mailbox_receipt(&self, session_id: &str) {
+        self.mailbox_bindings.lock().unwrap().remove(session_id);
     }
     /// Subscribe with default options; keeps options already set.
     fn subscribe(&self, session_id: &str) -> bool {
@@ -173,7 +203,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 use std::os::fd::AsRawFd;
                 cmux_link::app_caller::peer_token(stream.as_raw_fd())
             };
-            serve_stream(hub, stream, peer).await;
+            stream::serve_stream(hub, stream, peer).await;
         });
     }
 }
@@ -678,61 +708,20 @@ async fn serve_connection_from(
         name: StdMutex::new(String::new()),
         out,
         subs: StdMutex::new(HashMap::new()),
+        mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
+        watch_inventory: StdMutex::new(false),
         peer,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
+        caller: std::sync::OnceLock::new(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
-    // Fan-out task.
-    let fan = {
-        let hub = hub.clone();
-        let conn = conn.clone();
-        let mut rx = hub.subscribe();
-        let mut harnesses = hub.subscribe_harness_changes();
-        let mut catalog = hub.catalog.subscribe();
-        tokio::spawn(async move {
-            loop {
-                let ev = tokio::select! {
-                    ev = rx.recv() => ev,
-                    note = harnesses.recv() => {
-                        match note {
-                            Ok(note) if conn.watch_all.load(Ordering::SeqCst) => conn.send(
-                                &Message::notification(method::MUX_HARNESSES_CHANGED, note),
-                            ),
-                            // Lagged: a newer change follows with the full list.
-                            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
-                            Err(broadcast::error::RecvError::Closed) => break,
-                        }
-                        continue;
-                    }
-                    // Every connection hears a catalog change: no watch or attach is needed.
-                    changed = catalog.recv() => {
-                        match changed {
-                            Ok(summary) => conn.send(&Message::notification(crate::catalog::EVENT_CHANGED, summary)),
-                            Err(broadcast::error::RecvError::Lagged(_)) => conn.send(&Message::notification(
-                                crate::catalog::EVENT_CHANGED,
-                                hub.catalog.summary(),
-                            )),
-                            Err(broadcast::error::RecvError::Closed) => break,
-                        }
-                        continue;
-                    }
-                };
-                match ev {
-                    Ok(ev) => deliver(&hub, &conn, ev),
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        conn.send(&Message::notification("_acpmux/lagged", json!({"dropped": n})));
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
-            }
-        })
-    };
+    let fan = fanout::start(hub.clone(), conn.clone());
 
     while let Some(line) = inbound.recv().await {
         if line.trim().is_empty() {
@@ -806,6 +795,7 @@ async fn refuse_unauthenticated(
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     chats::push_activity(hub, conn, &ev);
+    processes::push_update(conn, &ev);
     let rec = &ev.record;
     let watching = conn.watch_all.load(Ordering::SeqCst);
     let sub = conn.sub_opts(&ev.session_id);
@@ -854,6 +844,18 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
     if watching {
         if let Some(remote) = &ev.remote {
+            // A peer's prompt the person must answer, for a unix socket or app
+            // watcher that did not attach the session (`hub/person.rs` (c)):
+            // never relayed on to a Web client or another peer daemon.
+            if rec.kind == crate::hub::PEER_PERMISSION_PENDING {
+                if !attached && !conn.origin.web_class() {
+                    conn.send(&Message::notification(
+                        method::MUX_PERMISSION_PENDING,
+                        peer_permission_pending(&ev.session_id, rec, &remote.peer),
+                    ));
+                }
+                return;
+            }
             // Peers already filter to the interesting kinds and send a summary.
             if rec.dir == "peer" {
                 let sid = remote
@@ -878,32 +880,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir != "mux" {
             return;
         }
-        let kind = match rec.kind.as_str() {
-            "status"
-            | "created"
-            | "user_message"
-            | "turn_end"
-            | "turn_error"
-            | "renamed"
-            | "forked"
-            | "imported"
-            | "permission_request"
-            | "permission_decision"
-            | "permission_group"
-            | "permission_chat_allowance"
-            | "mode"
-            | "model"
-            | "config"
-            | "policy"
-            | "rules"
-            | "tags"
-            | "turn_started"
-            | "turn_result" => rec.kind.as_str(),
-            k if k == "dequeued" || k.starts_with("queue") => "queue",
-            "permission_auto" => "permission_resolved",
-            "permission_reissued" => "permission_request",
-            _ => return,
-        };
+        let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
         if let Ok(s) = hub.resolve(&ev.session_id) {
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
@@ -918,35 +895,6 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             ));
         }
     }
-}
-
-/// A record that asks a client to answer a prompt: a new one, or one the
-/// next daemon adopted with a new decision nonce (`hub/hosts.rs`).
-fn is_permission_ask(kind: &str) -> bool {
-    matches!(kind, "permission_request" | "permission_reissued")
-}
-
-/// The `_acpmux/permission_pending` notification. The record's
-/// `decisionNonce` and `personInstance` (the daemon run that asks, also for a
-/// peer's session) are what a relayed allow's decision proof covers
-/// (`hub/person.rs`, cx-0q7o).
-fn permission_pending(session_id: &str, rec: &EventRecord, via: &str) -> Value {
-    let mut p = rec.msg.clone();
-    p["sessionId"] = Value::String(session_id.to_owned());
-    p["seq"] = json!(rec.seq);
-    p["via"] = Value::String(via.to_owned());
-    p
-}
-
-pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {
-    json!({
-        "sessionId": session_id,
-        "seq": rec.seq,
-        "at": rec.at,
-        "dir": rec.dir,
-        "kind": rec.kind,
-        "msg": rec.msg,
-    })
 }
 
 fn str_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
@@ -992,23 +940,28 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+mod change_kind;
 mod chats;
 pub mod conn_auth;
+mod fanout;
 pub use conn_auth::ConnAuth;
 mod fork_through;
-pub use fork_through::FORK_OPERATIONS;
 mod harness_admin;
 mod harness_enable;
+mod inventory_watch;
 pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
+mod pending;
+mod processes;
+pub use pending::event_value;
+use pending::{is_permission_ask, peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;
-mod stream;
-use stream::serve_stream;
 mod routes;
 mod secrets;
+mod stream;
 pub(crate) mod trust_gate;
 mod view;
 mod wait;

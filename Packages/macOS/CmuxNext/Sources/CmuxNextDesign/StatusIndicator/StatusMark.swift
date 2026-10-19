@@ -1,6 +1,7 @@
 /// One drawn mark of a status icon set (`StatusIconSet`), as a value: a
 /// figure alone, a figure knocked out of a filled container (a badge), a
-/// figure inside a stroked container, a monogram, or an SF Symbol.
+/// figure inside a stroked container, a monogram, an SF Symbol, or a static
+/// status glyph.
 /// `StatusMarkArt` draws it as an alpha mask the indicator tints with a theme
 /// role, so every mark takes the theme's colors in light and dark.
 public nonisolated enum StatusMark: Hashable, Sendable {
@@ -14,6 +15,8 @@ public nonisolated enum StatusMark: Hashable, Sendable {
     case letter(String)
     /// An SF Symbol, drawn as a template.
     case symbol(String)
+    /// A static status glyph (`StaticStatusGlyph`), drawn from its vectors, pixel art at 10 pt 1x.
+    case vector(StaticStatusGlyph)
 
     public enum Container: Hashable, Sendable {
         case circle, roundedSquare, triangle, octagon

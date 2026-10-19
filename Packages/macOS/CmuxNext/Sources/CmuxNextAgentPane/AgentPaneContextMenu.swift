@@ -85,6 +85,10 @@ enum AgentPaneContextMenu {
         var retry: (String) -> Void = { _ in }
         var edit: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
+        /// A link part's rows (``LinkMenu``): Open in cmux Browser, ..., Copy Link; nil: Open Link and Copy Link.
+        var linkItems: ((URL) -> [NSMenuItem])? = nil
+        /// A path part's rows after Open (``LinkMenu``); nil (or a nil answer): Copy Path.
+        var pathItems: ((String) -> [NSMenuItem]?)? = nil
         var search: (String) -> Void = { _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
@@ -127,7 +131,8 @@ enum AgentPaneContextMenu {
             image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage) { actions.page("chat.menu.openImage", [:]) })
         }
         if let copyImage { image.append(copyImage) }
-        let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open) ?? []
+        let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
+                                       linkItems: actions.linkItems, pathItems: actions.pathItems) ?? []
         var copies = edits
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []

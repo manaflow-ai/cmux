@@ -30,6 +30,11 @@ pub(super) fn run_for(
     limit: Duration,
     family: Option<&str>,
 ) -> Result<(bool, String), String> {
+    // A sign-in check (`family` set) reads the user's credentials: none while
+    // agent launches are off (cx-9ettq). `--version` checks still run.
+    if family.is_some() && crate::launch_policy::agent_launch_disabled() {
+        return Err(crate::launch_policy::DISABLED_MESSAGE.to_owned());
+    }
     let (program, args) = argv.split_first().ok_or("no command")?;
     let mut cmd = Command::new(program);
     crate::login_env::apply_std_for(&mut cmd, family, Some(env));
@@ -125,6 +130,19 @@ pub fn auth_check(
     family: &str,
 ) -> Result<bool, String> {
     run_for(argv, env, TIMEOUT, Some(family)).map(|(ok, _)| ok)
+}
+
+/// `codex login status` with the harness's `env`: Some(true) signed in (exit
+/// 0), Some(false) only for Codex's own "Not logged in"; None for any other
+/// failure (a custom provider, a bad config, an older CLI, no `codex` here),
+/// which says nothing about a sign-in.
+pub fn codex_login_status(env: &BTreeMap<String, String>) -> Option<bool> {
+    let argv = ["codex", "login", "status"].map(String::from);
+    match run_for(&argv, env, TIMEOUT, Some("codex")) {
+        Ok((true, _)) => Some(true),
+        Ok((false, text)) if text.to_ascii_lowercase().contains("not logged in") => Some(false),
+        _ => None,
+    }
 }
 
 /// Whether `latest` is newer than `installed`, by their numeric parts. A

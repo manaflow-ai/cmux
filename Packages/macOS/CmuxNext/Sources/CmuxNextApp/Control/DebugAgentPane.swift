@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextResources
 import CmuxNextSettings
 import ObjectiveC
 import WebKit
@@ -85,9 +86,7 @@ enum DebugAgentPane {
         keepRenderingWhenCovered(view.webView)
         actAsUser(action, gestures: view.model.transport.gestures)
         if action == "pid" {
-            let selector = NSSelectorFromString("_webProcessIdentifier")
-            guard view.webView.responds(to: selector),
-                  let pid = (view.webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value, pid > 0 else {
+            guard let pid = WebContentProcess.identifier(of: view.webView) else {
                 return .object(["pane": .string(pane), "error": .string("no WebContent process")])
             }
             return .object(["pane": .string(pane), "pid": .number(Double(pid))])
@@ -167,6 +166,9 @@ enum DebugAgentPane {
         }
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
+        }
+        if action == "hover" {
+            return await DebugAgentPaneClick.hover(params, pane: pane, view: view)
         }
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
@@ -276,7 +278,7 @@ enum DebugAgentPane {
         case "stream":
             // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
             var options: [String: Any] = [:]
-            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms"] {
+            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms", "trace"] {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]

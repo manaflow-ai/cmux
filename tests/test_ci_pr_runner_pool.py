@@ -865,6 +865,8 @@ class OwnedPools(unittest.TestCase):
     def test_persistent_means_a_glaeda_pool_label(self):
         self.assertTrue(pool.persistent(MINI))
         self.assertTrue(pool.persistent("glaeda-light-xcode-26.6"))
+        # The fast tier's reserved runner (CI_FAST_LANE_RUNNER) is owned too.
+        self.assertTrue(pool.persistent("glaeda-fast-std-xcode-26.6"))
         for label in (SMALL, "ubuntu-24.04", "glaeda-mini", "glaeda-class-std", ""):
             self.assertFalse(pool.persistent(label), label)
 

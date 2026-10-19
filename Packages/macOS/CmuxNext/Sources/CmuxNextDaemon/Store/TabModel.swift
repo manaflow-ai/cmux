@@ -28,6 +28,9 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalState: TerminalTabState?
     /// How a dead terminal ended (R41): the banner names this reason.
     public internal(set) var end: TerminalTabEnd?
+    /// A kept tab's keep-layout record (`end-terminals-keep-layout-v1`): its terminal ended at
+    /// Quit's End Sessions, Keep Layout and this launch restarts it.
+    public internal(set) var relaunch: TabRelaunch?
     public internal(set) var notification: TabNotification?
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
@@ -57,6 +60,8 @@ public final class TabModel: Identifiable {
     /// The device a browser tab emulates, as the daemon resolved it
     /// (`extra.emulation`, browser-devices-v1); the engine applies it as is.
     public internal(set) var emulation: JSONValue?
+    /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
+    public var fitValue: String? { emulation?["mode"]?.stringValue == "fit" ? emulation?["fit"]?["value"]?.stringValue ?? "16:9" : nil }
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []
@@ -85,7 +90,6 @@ public final class TabModel: Identifiable {
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
     @ObservationIgnored private var observedCwd: String?
-
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
         return title
@@ -135,6 +139,7 @@ public final class TabModel: Identifiable {
         dead = s.dead
         terminalState = s.terminalState
         end = s.end
+        relaunch = s.relaunch
         notification = s.notification
         url = s.url
         pinned = s.pinned
@@ -150,6 +155,12 @@ public final class TabModel: Identifiable {
         remote = s.remote
         conversation = s.conversation
         app = s.app
+        #if DEBUG
+        // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
+        if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)
+        }
+        #endif
     }
 
     static func identity(_ s: TabSnapshot) -> String {
@@ -171,6 +182,7 @@ public final class TabModel: Identifiable {
         if dead != s.dead { dead = s.dead }
         if terminalState != s.terminalState { terminalState = s.terminalState }
         if end != s.end { end = s.end }
+        if relaunch != s.relaunch { relaunch = s.relaunch }
         if notification != s.notification { notification = s.notification }
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }

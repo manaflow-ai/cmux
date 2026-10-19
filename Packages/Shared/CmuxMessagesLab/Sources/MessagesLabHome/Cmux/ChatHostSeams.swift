@@ -5,6 +5,10 @@ import CmuxHomeRender
 /// projection store is a mirror of HomeStore (the single writer), so a send
 /// or a tapback is an intent, never a local transcript edit.
 protocol ChatIntents: AnyObject {
+    /// The user opened, drilled or closed a thread view (a permalink waiting for its message stops waiting).
+    func threadMovedByUser()
+    /// The message's permalink (`<scheme>://conversation/<c>/message/<m>`), nil when it has none yet.
+    func messageLink(_ id: ID) -> String?
     /// Return in the field: send the draft (the adapter dispatches `.send` on
     /// the projection at once, so the morph starts, and gives the draft to
     /// HomeStore, which delivers it or queues it while offline).

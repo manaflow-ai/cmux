@@ -38,6 +38,7 @@ import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
+import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
@@ -62,17 +63,9 @@ export type NewTabScreenActions = {
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
-  /// No agent to ask: opens the Harnesses page (cx-uj5g8).
-  onAddHarness?(): void;
-  /// acpmux has answered with its harnesses (a fetch landed): only then can none be missing.
-  harnessesListed?: boolean;
   /// The machine the page runs on and its chat starts on (the host's name for it), for the
   /// location row's computer.
   machineName?: string;
-  /// Integrate a harness was dismissed for good (the app keeps it across relaunches).
-  harnessHintDismissed?: boolean;
-  /// Dismisses Integrate a harness for every later page (`newTab.remember` `harnessHint: "dismissed"`).
-  onDismissHarnessHint?(): void;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
 };
@@ -131,15 +124,8 @@ export function NewTabScreen(props: Props) {
   const [selected, setSelected] = useState<number | undefined>(undefined);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
-  /// Return asked with no agent to ask: the note under the field says so until the next edit.
-  const [noAgent, setNoAgent] = useState(false);
-  // With no harness installed, the note offers one up front once acpmux has answered; with any
-  // installed, never, even one acpmux cannot run now (Leo 2026-10-12). The app keeps a dismissal.
-  const [hintDismissed, setHintDismissed] = useState(props.harnessHintDismissed === true);
-  const noneInstalled = props.harnessesListed === true && snapshot.catalog.length === 0;
-  const showNote = noAgent || (noneInstalled && !hintDismissed && props.onAddHarness !== undefined);
   const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
-  const field = useRef<HTMLInputElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
   const inputReported = useRef(false);
@@ -191,14 +177,16 @@ export function NewTabScreen(props: Props) {
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
   const t = useT();
   const chrome = useComposerChrome();
+  // A press outside an open chip menu only closes it (menuPressGuard.ts).
+  useMenuPressGuard();
   const device = useDeviceChats();
   const closed = useRecentlyClosed();
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
   const at = now ?? clock;
   const cards = useMemo(
-    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent),
-    [snapshot.sessions, at, t, device, sections.recent],
+    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent, sections.chats === "list"),
+    [snapshot.sessions, at, t, device, sections.recent, sections.chats],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user.
@@ -265,6 +253,36 @@ export function NewTabScreen(props: Props) {
     else if (at.bottom > inner.bottom) box.scrollTop += at.bottom - inner.bottom;
   }, []);
 
+  // The field is as tall as its draft, up to its cap (screen.css max-height), then it scrolls. It
+  // fits again when the draft changes and when the pane's width changes (the lines rewrap). Its
+  // scroll offset is kept, except that a caret at the draft's end (typing, a paste, dictation) is
+  // scrolled into view: the engine revealed it before this fit changed the field's height.
+  const fitField = useCallback(() => {
+    const node = field.current;
+    if (!node) return;
+    const top = node.scrollTop;
+    node.style.height = "0px";
+    node.style.height = `${node.scrollHeight}px`;
+    const typingAtEnd = node.ownerDocument.activeElement === node && node.selectionEnd === node.value.length;
+    node.scrollTop = typingAtEnd ? node.scrollHeight : top;
+  }, []);
+  useLayoutEffect(fitField, [fitField, text, shell, template]);
+  useEffect(() => {
+    const node = field.current;
+    const view = node?.ownerDocument.defaultView;
+    if (!node || !view?.ResizeObserver) return undefined;
+    let width = node.clientWidth;
+    const observer = new view.ResizeObserver(() => {
+      if (node.clientWidth === width) return;
+      width = node.clientWidth;
+      fitField();
+    });
+    observer.observe(node);
+    // The web font can land after the first fit and rewrap the draft.
+    void node.ownerDocument.fonts?.ready.then(fitField);
+    return () => observer.disconnect();
+  }, [fitField]);
+
   // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
   // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT); only then, so an
   // update or a click into the field never moves its caret or restarts its blink.
@@ -311,7 +329,6 @@ export function NewTabScreen(props: Props) {
     }
     setText(next);
     setSelected(undefined);
-    setNoAgent(false);
   };
   const submit = () => {
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
@@ -319,7 +336,8 @@ export function NewTabScreen(props: Props) {
     if (row) return activate(row);
     const prompt = text.trim();
     if (!prompt || isAddress(prompt, home)) return;
-    if (!harness) return setNoAgent(true);
+    // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
+    if (!harness) return;
     props.onAsk(harness, prompt, project, chipModel);
   };
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
@@ -334,7 +352,7 @@ export function NewTabScreen(props: Props) {
   // behind: the chat starts empty).
   const startChat = () => {
     touch();
-    if (!harness) return setNoAgent(true);
+    if (!harness) return;
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
@@ -416,7 +434,7 @@ export function NewTabScreen(props: Props) {
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   };
-  const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+  const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
     const input = event.currentTarget;
@@ -442,6 +460,8 @@ export function NewTabScreen(props: Props) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();
       setDismissed(undefined);
+    } else if (event.key === "Enter" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // Shift-Return adds a line, as in the chat composer: the field keeps its own newline.
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
@@ -481,73 +501,12 @@ export function NewTabScreen(props: Props) {
       data-all-chats={allChats || undefined}
     >
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
-          bar with the agent's model chip, the mic and Send, then the location row with the project
-          the chat starts in (ComposerContext, the composer's own). */}
-      <div ref={setBox} className="nt-box">
-        {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
-            browser's address bar does; the text itself keeps its own press (caret, selection).
-            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
-        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
-        <div className="nt-input" onMouseDown={focusFromRow}>
-          {shell ? (
-            <span className="nt-shell-glyph" aria-hidden="true">
-              !
-            </span>
-          ) : (
-            sections.prompt && (
-              <span className="nt-prompt-glyph" aria-hidden="true">
-                &gt;
-              </span>
-            )
-          )}
-          <input
-            ref={field}
-            className="nt-field"
-            data-focus-ring="none"
-            aria-label={shell ? t("composer.shell") : nt("placeholder")}
-            placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
-            value={text}
-            aria-controls="nt-rows"
-            aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
-            spellCheck={!shell}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(event) => edit(event.target.value)}
-            onKeyDown={keyDown}
-            onMouseDown={() => setDismissed(undefined)}
-            onCompositionStart={() => {
-              composing.current = true;
-            }}
-            onCompositionEnd={() => {
-              composing.current = false;
-            }}
-          />
-        </div>
-        {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
-            this page draws no context ring. */}
-        <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-          <div className="nt-pickers" onPointerDownCapture={touch}>
-            {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
-              switch is the one Enter reuses. */}
-            {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
-            <span className="acpmux-composer-actions">
-              {props.accessory}
-              {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
-              <button
-                type="button"
-                className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
-                aria-label={t("composer.send")}
-                title={t("composer.sendTooltip")}
-                disabled={!text.trim()}
-                onClick={send}
-              >
-                <ArrowUpIcon />
-              </button>
-            </span>
-          </div>
-        </ChromeArea>
+          bar with the agent's model chip, the mic and Send. The location strip with the project the
+          chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
+          composer location strip; newtab/screen.css). */}
+      <div className="nt-composer">
         {/* Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent
-            composer's location row; never the home ~ the tab inherited (cx-7fje0). */}
+            composer's location strip; never the home ~ the tab inherited (cx-7fje0). */}
         <div className="nt-location" onPointerDownCapture={touch}>
           <ComposerContext
             summary={{
@@ -563,6 +522,74 @@ export function NewTabScreen(props: Props) {
             onProject={(cwd) => pickProject(cwd)}
             {...(browseProject ? { onBrowseProject: browseProject } : {})}
           />
+        </div>
+        <div ref={setBox} className="nt-box">
+          {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
+            browser's address bar does; the text itself keeps its own press (caret, selection).
+            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
+          {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
+          <div className="nt-input" onMouseDown={focusFromRow}>
+            {shell ? (
+              <span className="nt-shell-glyph" aria-hidden="true">
+                !
+              </span>
+            ) : (
+              sections.prompt && (
+                <span className="nt-prompt-glyph" aria-hidden="true">
+                  &gt;
+                </span>
+              )
+            )}
+            {/* A textarea, not a one-line input (Austin: a typed draft was cut to its first line): a long
+              draft wraps and the field grows with it up to its cap (screen.css), then scrolls. Return
+              still sends; every line break is one the draft brought in (a paste). */}
+            <textarea
+              ref={field}
+              className="nt-field"
+              rows={1}
+              data-focus-ring="none"
+              aria-label={shell ? t("composer.shell") : nt("placeholder")}
+              placeholder={shell ? t("composer.shellPlaceholder") : nt("placeholder")}
+              value={text}
+              aria-controls="nt-rows"
+              aria-activedescendant={rows[current] ? `nt-row-${current}` : undefined}
+              spellCheck={!shell}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(event) => edit(event.target.value)}
+              onKeyDown={keyDown}
+              onMouseDown={() => setDismissed(undefined)}
+              onCompositionStart={() => {
+                composing.current = true;
+              }}
+              onCompositionEnd={() => {
+                composing.current = false;
+              }}
+            />
+          </div>
+          {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
+            this page draws no context ring. */}
+          <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
+            <div className="nt-pickers" onPointerDownCapture={touch}>
+              {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+              switch is the one Enter reuses. */}
+              {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+              <span className="acpmux-composer-actions">
+                {props.accessory}
+                {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
+                <button
+                  type="button"
+                  className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+                  aria-label={t("composer.send")}
+                  title={t("composer.sendTooltip")}
+                  disabled={!text.trim()}
+                  onClick={send}
+                >
+                  <ArrowUpIcon />
+                </button>
+              </span>
+            </div>
+          </ChromeArea>
         </div>
       </div>
       {rows.length > 0 && box && (
@@ -613,38 +640,6 @@ export function NewTabScreen(props: Props) {
         </Popover>
       )}
       {props.notice}
-      {showNote && (
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div className="nt-no-agent" role="status">
-          <span>{t("newtab.noAgent")}</span>
-          {props.onAddHarness && (
-            <button type="button" className="nt-tool nt-add-harness ui-ghost" onClick={() => props.onAddHarness?.()}>
-              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                <PlusIcon />
-              </span>
-              <span>{t("newtab.addHarness")}</span>
-            </button>
-          )}
-          {props.onAddHarness && (
-            <button
-              type="button"
-              className="nt-tool nt-hint-dismiss ui-ghost"
-              data-dismiss-hint
-              aria-label={t("newtab.addHarness.dismiss")}
-              title={t("newtab.addHarness.dismiss")}
-              onClick={() => {
-                props.onDismissHarnessHint?.();
-                setHintDismissed(true);
-                setNoAgent(false);
-              }}
-            >
-              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                <CrossIcon />
-              </span>
-            </button>
-          )}
-        </div>
-      )}
       {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
           browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
           Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
@@ -736,41 +731,6 @@ function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
 function ownsKeys(element: Element): boolean {
   if ((element as HTMLElement).isContentEditable || element.closest("input, textarea, select")) return true;
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
-}
-
-/// The 14 px cross in currentColor that dismisses Integrate a harness.
-function CrossIcon() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-    >
-      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-    </svg>
-  );
-}
-
-/// The 14 px plus in currentColor before "Integrate a harness".
-function PlusIcon() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M8 3v10M3 8h10" />
-    </svg>
-  );
 }
 
 function rowKey(row: ScreenRow): string {

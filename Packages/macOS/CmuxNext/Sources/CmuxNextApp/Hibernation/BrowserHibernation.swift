@@ -34,8 +34,7 @@ final class BrowserHibernation {
     private var pressureSource: (any DispatchSourceMemoryPressure)?
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
-    /// Memory pressure changed (the App resizes the terminal warm set and
-    /// the parked workspaces).
+    /// Memory pressure changed (the App resizes the terminal warm set).
     var onPressureChange: ((MemoryPressureLevel) -> Void)?
     private(set) var exemptions: [String: HibernationPlanner.Exemption] = [:]
     private var settingsObservation: Task<Void, Never>?
@@ -171,7 +170,9 @@ final class BrowserHibernation {
         let tab = entry.tab
         Task { @MainActor [weak self] in
             let probe = user ? PageProbe() : await PageProbe.run(tab)
-            let snapshot = await Self.snapshot(tab, cached: self?.cache?.previews.image(for: key))
+            let exemption = probe.exemption(pressure: self?.pressure ?? .normal) ?? (source.showsFormSubmission ? .formSubmission : nil)
+            // A page that stays needs no picture (each replan probes it again).
+            let snapshot = exemption == nil ? await self?.snapshot(tab, key: key) : nil
             guard let self, let cache = self.cache else { return }
             self.probing.remove(key)
             // Still the same hidden page: no show, hide or close since.
@@ -180,7 +181,7 @@ final class BrowserHibernation {
                 cache.trace(key, "hibernate probe dropped (stale)")
                 return
             }
-            if let exemption = probe.exemption(pressure: self.pressure) ?? (source.showsFormSubmission ? .formSubmission : nil) {
+            if let exemption {
                 self.exemptions[key] = exemption
                 return
             }
@@ -193,15 +194,27 @@ final class BrowserHibernation {
         }
     }
 
-    private static func snapshot(_ tab: any BrowserTab, cached: CGImage?) async -> CGImage? {
-        if let cached { return cached }
-        return try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
+    /// Takes a hidden page's picture (a seam for tests).
+    var capture: (any BrowserTab) async -> CGImage? = { tab in
+        try? await ControlDeadline.shared.run(method: "hibernation.snapshot", deadline: .now + .seconds(2)) { @MainActor in
             try await tab.snapshot()
         }
     }
 
+    /// A fresh picture (never one from an earlier sleep), scaled so that several fit the 32 MB
+    /// `previews` cache, which refuses a picture larger than itself (a big pane at 2x).
+    private func snapshot(_ tab: any BrowserTab, key: String) async -> CGImage? {
+        guard let image = await capture(tab) else { return nil }
+        // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
+        let bytes = Double((cache?.previews.capacityBytes ?? 32 << 20) / 4) * 0.98
+        let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())
+        return await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
+    }
+
     /// The `release` effect: swaps the page for a `HibernatedBrowserTab`
-    /// holding its history and snapshot, and closes the engine page.
+    /// holding its history, and closes the engine page. Its snapshot lives in the
+    /// 32 MB `previews` LRU only: each placeholder used to keep its own full-size
+    /// picture (about 7 MB of app memory per hibernated tab in the 2026-10-14 audit).
     func release(_ key: String, token: ContentLifecycle<String>.Token) {
         guard let cache, let entry = cache.browsers[key], let saved = prepared.removeValue(forKey: key) else {
             logger.error("hibernate \(key, privacy: .public): nothing prepared")
@@ -210,13 +223,15 @@ final class BrowserHibernation {
         let page = entry.tab
         let placeholder = HibernatedBrowserTab(
             id: page.id, engine: page.engineKind, profile: page.profileID, state: page.state,
-            favicon: page.favicon, restoreState: saved.state, snapshot: saved.snapshot
+            favicon: page.favicon, restoreState: saved.state, snapshot: { [weak cache] in cache?.previews.image(for: key) }
         )
         placeholder.onWake = { [weak self] wake in self?.wakeForNavigation(key, wake) }
         if let snapshot = saved.snapshot { cache.previews.insert(snapshot, for: key) }
         cache.swapPage(key, with: placeholder)
         cache.dormantTabs.set(key, true)
         hiddenAt[key] = nil
+        // A probe that kept the page before no longer applies (`debug.surfaces`).
+        exemptions[key] = nil
         hibernatedCount += 1
         logger.info("hibernated \(key, privacy: .public) \(token.description, privacy: .public)")
     }
@@ -285,6 +300,7 @@ final class BrowserHibernation {
         }
         cache.swapPage(key, with: page)
         cache.dormantTabs.set(key, false)
+        cache.previews.remove(key)  // the live page now; a later sleep takes a new picture
         restoredCount += 1
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
         // A navigation or history step that woke the page runs once its
@@ -315,33 +331,17 @@ struct PageProbe {
         return webAudio && pressure != .critical ? .webAudio : nil
     }
 
-    /// Unmuted media playing, a running Web Audio context, a live camera,
-    /// microphone or screen capture, or form fields whose value differs from the
-    /// page's default (form interaction). A page that does not
-    /// answer within the deadline is treated as busy and kept.
-    static let script = """
-    (() => {
-      const media = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
-      const form = [...document.querySelectorAll('input,textarea,select')].some(e => {
-        if (e.disabled || e.type === 'hidden' || e.type === 'submit' || e.type === 'button') return false;
-        if (e.tagName === 'SELECT') return [...e.options].some(o => o.selected !== o.defaultSelected);
-        if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
-        return e.value !== e.defaultValue;
-      });
-      return JSON.stringify({media, form});
-    })()
-    """
-
     static func run(_ tab: any BrowserTab) async -> PageProbe {
         do {
             let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
-                (try await tab.evaluate(script, world: .isolated), try await tab.pageBusy())
+                (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
-            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: object["form"] ?? true,
+            // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
+            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio)
         } catch {
             return PageProbe(playingMedia: true)

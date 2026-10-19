@@ -41,7 +41,7 @@ final class SidebarUpdateButton: NSView {
     /// A secondary button (the tip card's Try It): the hover fill and the
     /// primary text, never the call-to-action fill.
     var isQuiet = false { didSet { if isQuiet != oldValue { needsDisplay = true } } }
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
     /// Full Keyboard Access focus: a ring in the theme's focus color, not the system's blue.
@@ -65,13 +65,13 @@ final class SidebarUpdateButton: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     static var height: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
-    static var font: NSFont { .systemFont(ofSize: Typography.caption.pointSize, weight: .semibold) }
+    static var font: NSFont { Typography.system(size: Typography.caption.pointSize, weight: .semibold) }
 
     func configure(title: String, enabled: Bool, help: String?) {
         label.stringValue = title
@@ -193,7 +193,7 @@ final class SidebarUpdateCheckbox: NSView {
     private(set) var isOn = false
     private let box = CALayer()
     private let mark = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
 
     /// Full Keyboard Access focus: the box's edge in the theme's focus color, not the system's blue ring.
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
@@ -219,8 +219,8 @@ final class SidebarUpdateCheckbox: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 

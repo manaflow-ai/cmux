@@ -11,10 +11,6 @@ public struct TabLayoutItem: Equatable, Sendable {
     /// Member of a collapsed group: laid out at zero width, behind its chip.
     public var isCollapsed: Bool
     public var isGroupChip: Bool
-    /// The tab's content width (icon, title and the close button's room),
-    /// for `.chrome` strips that fit tabs to their titles. Nil keeps the
-    /// even max-width split.
-    public var naturalWidth: CGFloat?
 
     public init(
         id: TabID,
@@ -23,8 +19,7 @@ public struct TabLayoutItem: Equatable, Sendable {
         groupID: TabGroupID? = nil,
         fixedWidth: CGFloat? = nil,
         isCollapsed: Bool = false,
-        isGroupChip: Bool = false,
-        naturalWidth: CGFloat? = nil
+        isGroupChip: Bool = false
     ) {
         self.id = id
         self.isPinned = isPinned
@@ -33,7 +28,6 @@ public struct TabLayoutItem: Equatable, Sendable {
         self.fixedWidth = fixedWidth
         self.isCollapsed = isCollapsed
         self.isGroupChip = isGroupChip
-        self.naturalWidth = naturalWidth
     }
 }
 
@@ -58,10 +52,33 @@ public struct TabLayoutResult: Equatable, Sendable {
     public var standardWidth: CGFloat
     /// The width tabs were allowed to fill.
     public var availableWidth: CGFloat
+    /// Too narrow for every tab: the selected one keeps its minimum, so a
+    /// selection change moves tabs. Otherwise a switch changes no geometry.
+    public var dependsOnSelection = false
 
     public var isOverflowing: Bool { contentWidth > availableWidth + 0.5 }
 
     public func slot(_ id: TabID) -> TabLayoutSlot? {
         slots.first { $0.id == id }
+    }
+}
+
+extension [TabLayoutItem] {
+    /// Inserts a drop gap before the `tabIndex`-th tab. The gap goes before
+    /// that tab's chip unless it joins that tab's group.
+    mutating func insertPlaceholder(_ placeholder: TabLayoutItem, atTabIndex tabIndex: Int) {
+        var seen = 0
+        var position = count
+        for (offset, item) in enumerated() where !item.isGroupChip {
+            if seen == tabIndex {
+                position = offset
+                break
+            }
+            seen += 1
+        }
+        if position > 0, self[position - 1].isGroupChip, self[position - 1].groupID != placeholder.groupID {
+            position -= 1
+        }
+        insert(placeholder, at: position)
     }
 }

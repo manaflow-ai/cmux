@@ -5,6 +5,23 @@ use super::*;
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
 const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
 const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
+/// Debug builds only: overrides [`JOURNAL_MAINTENANCE_INTERVAL`] so behavior
+/// tests through the binary see maintenance ticks in seconds. Release builds
+/// ignore it.
+#[cfg(debug_assertions)]
+const JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV: &str = "CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS";
+
+fn journal_maintenance_interval() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var(JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+    {
+        return Duration::from_millis(ms);
+    }
+    JOURNAL_MAINTENANCE_INTERVAL
+}
 
 struct JournalMaintenanceControl {
     stopped: Mutex<bool>,
@@ -28,6 +45,7 @@ impl JournalMaintenance {
         });
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
+        let interval = journal_maintenance_interval();
         let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
             move || loop {
                 let mut stopped =
@@ -37,7 +55,7 @@ impl JournalMaintenance {
                 }
                 let (next, timeout) = worker_control
                     .changed
-                    .wait_timeout(stopped, JOURNAL_MAINTENANCE_INTERVAL)
+                    .wait_timeout(stopped, interval)
                     .unwrap_or_else(PoisonError::into_inner);
                 stopped = next;
                 if *stopped {
@@ -91,6 +109,22 @@ impl Mux {
         }
     }
 
+    /// Once per owner: a legacy registry too large to convert without a
+    /// long stall keeps its free pages (cx-4bd8m).
+    fn note_auto_vacuum_deferred(&self, live_bytes: u64) {
+        static NOTED: AtomicBool = AtomicBool::new(false);
+        if NOTED.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        eprintln!(
+            "cmux-tui: session journal auto-vacuum conversion deferred: {} MiB live data",
+            live_bytes / (1024 * 1024)
+        );
+        self.report_internal_diagnostic(
+            "session journal auto-vacuum conversion deferred; the registry keeps its free pages",
+        );
+    }
+
     fn run_journal_maintenance(&self) {
         // Like the reconnect retention worker: no capture while the daemon
         // shuts down, hands off its hosts, or ends terminals.
@@ -101,16 +135,20 @@ impl Mux {
             return;
         }
         let result = (|| -> anyhow::Result<()> {
-            if self
+            let migration = self
                 .workspace_registry
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .migrate_journal_auto_vacuum()?
-            {
+                .migrate_journal_auto_vacuum()?;
+            match migration {
                 // A legacy registry migration performs one full VACUUM. Keep
                 // that rewrite isolated to this maintenance tick before
                 // attempting checkpoint or sealing work.
-                return Ok(());
+                crate::workspace_registry::AutoVacuumMigration::Converted => return Ok(()),
+                crate::workspace_registry::AutoVacuumMigration::Deferred { live_bytes } => {
+                    self.note_auto_vacuum_deferred(live_bytes);
+                }
+                crate::workspace_registry::AutoVacuumMigration::NotNeeded => {}
             }
             let head = self
                 .workspace_registry

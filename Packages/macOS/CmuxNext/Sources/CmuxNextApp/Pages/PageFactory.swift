@@ -1,5 +1,6 @@
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -155,7 +156,7 @@ struct PageFactory {
             pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
         provider.backdropImages = SettingsWindowService.userImages.map { images in
             SettingsBackdropImages(images: images) { [weak services] in
-                await services?.viewers.picker.open(.init(choose: .files, types: [.image]))?.first
+                await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
         let museumArt = MuseumArtSession()
@@ -174,6 +175,7 @@ struct PageFactory {
                       PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone))]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
+                                                          currentChoices: { SettingsWindowService.backdrops.choices },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)

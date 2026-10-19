@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// Sidebar sizes and fonts, derived only from CmuxNextDesign tokens
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
-    static var horizontalInset: CGFloat { Metrics.space3 }
+    static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -33,7 +33,7 @@ enum SidebarStyle {
     static var railGlyphSize: CGFloat { Metrics.iconSize + 1 }
     static var railTileCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
     /// The glyph well of a large sidebar-top tile (the tiles arrangement).
-    static var favoriteWell: CGFloat { Metrics.sidebarRowHeight + Metrics.space1 }
+    static var favoriteWell: CGFloat { SidebarDensityTokens.rowHeight + Metrics.space1 }
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
@@ -84,7 +84,7 @@ enum SidebarStyle {
     static var headerFont: NSFont { Typography.header }
     /// The count: tabular digits in the system face (a monospaced face read
     /// boxy and cramped, Leo 2026-10-13), at the shortcut size.
-    static var badgeFont: NSFont { .monospacedDigitSystemFont(ofSize: Typography.shortcut.pointSize, weight: .medium) }
+    static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }
     /// How far an AppKit label cell draws its text inside its frame: a label
     /// sits this much before the edge its text aligns to.
     static var labelCellPadding: CGFloat { Metrics.space1 }
@@ -95,7 +95,7 @@ enum SidebarStyle {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)
     }
 
-    /// A user color in the theme's palette, shared with tab groups (`GroupColor.markColor`).
+    /// A user color from the group palette, shared with tab groups (`GroupColor.markColor`).
     static func color(_ color: GroupColor) -> NSColor {
         color.markColor
     }

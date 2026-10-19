@@ -2080,28 +2080,29 @@
   "springs": {
    "move": {
     "value": {
-     "response": 0.2,
-     "dampingFraction": 0.9
+     "response": 0.15,
+     "dampingFraction": 1
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:11 (MotionTunables.springDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "Tab reflow and reorder, sidebar row moves, pane and divider frames"
+    "use": "Tab reflow and reorder, sidebar row moves, pane and divider frames",
+    "note": "Structural (motion.structural): critically damped unless motion.bounce is subtle. Response 0.15 s ends visibly (within 0.5%) at 0.177 s, under the 0.2 s budget (hq-1d D1)."
    },
    "appear": {
     "value": {
-     "response": 0.18,
-     "dampingFraction": 0.9
+     "response": 0.135,
+     "dampingFraction": 1
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:12 (MotionTunables.springDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "Palette scale-in, tab grow-in, group expand, row insert, sidebar show"
    },
    "disappear": {
     "value": {
-     "response": 0.15,
-     "dampingFraction": 0.9
+     "response": 0.11,
+     "dampingFraction": 1
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:13 (MotionTunables.springDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "Tab close, group collapse, row removal, sidebar hide"
    },
@@ -2158,11 +2159,155 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:19 (MotionTunables.springDefaults)",
     "unit": "s",
     "use": "Hover card slide"
+   },
+   "pinDrag": {
+    "value": {
+     "response": 0.3512407365520363,
+     "dampingFraction": 0.8385254915624211
+    },
+    "source": "cmux-tui/crates/cmux-motion (MotionSpring::PinDrag): MessagesLab SidebarPinDragging.spring, CASpringAnimation mass 1, stiffness 320, damping 30",
+    "unit": "s",
+    "use": "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing"
+   },
+   "zoom": {
+    "value": {
+     "response": 0.30,
+     "dampingFraction": 1
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A pane zooming to fill its screen and back (Cmd-Shift-Enter): its content takes the full size once, the spring rect reveals it, and it covers the other panes, which do not fade (Leo 2026-10-13, Lawrence 2026-10-18)"
+   },
+   "exit": {
+    "value": {
+     "response": 0.24,
+     "dampingFraction": 1
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A pane closing: the neighbours that take its space grow over it with their dividers, one spring, critically damped (Lawrence 2026-10-18)"
+   },
+   "tabOpen": {
+    "value": {
+     "response": 0.1,
+     "dampingFraction": 1
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A new tab growing in at its final slot and the tabs right of it making room, on one spring (ui.animations.newTab, on by default; Lawrence 2026-10-14: the tab-open motion of 10-11, about 7 frames / 115 ms). Visible end 118 ms."
    }
   },
+  "tweens": {
+   "description": "Tab strip tweens (Chrome's model): a value goes from where it is on screen to its target over duration with the curve; a new target restarts the duration from the current value (no velocity carry), an unchanged target does not restart. easeOutQuad = 1-(1-t)^2 = cubic-bezier(1/3, 2/3, 2/3, 1) (gfx::Tween::EASE_OUT, Chromium ui/gfx/animation/tween.cc L72-73). Reduce Motion and speed off: 0 s; speed normal x1.5.",
+   "tabOpen": {
+    "value": {
+     "duration": 0.2,
+     "curve": "easeOutQuad"
+    },
+    "source": "Chromium main 6d3c98f4fe5 tab_container_impl.cc L1229-1256 (StartInsertTabAnimation), bounds_animator.h L205-207 (200 ms EASE_OUT); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A new tab starts at the previous tab's right edge minus the overlap (18 pt) with width 18 and tweens to its slot; the tabs right of it and the + button move on the same tween (ui.animations.newTab; Lawrence 2026-10-14: match Chrome)."
+   },
+   "tabClose": {
+    "value": {
+     "duration": 0.2,
+     "curve": "easeOutQuad"
+    },
+    "source": "Chromium main 6d3c98f4fe5 tab_container_impl.cc L1258-1306, L1348-1377 (StartRemoveTabAnimation)",
+    "unit": "s",
+    "use": "A closing tab shrinks to the overlap width (18 pt) with its left edge pinned while the others move to their slots (ui.animations.newTab); also the resize when mouse closing mode ends."
+   },
+   "tabMove": {
+    "value": {
+     "duration": 0.2,
+     "curve": "easeOutQuad"
+    },
+    "source": "Chromium main 6d3c98f4fe5 tab_container_impl.cc L1170-1175 (retarget), dragging_tabs_session.cc (reorder neighbours, release)",
+    "unit": "s",
+    "use": "Tabs moving to a new slot in a reorder, and a dragged tab settling into its slot on release. A gesture: not under ui.animations.newTab."
+   }
+  },
+  "tabStrip": {
+   "value": {
+    "compact": {
+     "maxWidth": 200,
+     "openStartWidth": 0,
+     "closeEndWidth": 0,
+     "minActiveWidth": 56,
+     "minInactiveWidth": 32,
+     "pinnedWidth": 64,
+     "reorderThreshold": 16,
+     "closingMode": {
+      "belowPad": 40,
+      "trailingPad": 60,
+      "exitDelay": 0.3
+     }
+    },
+    "comfortable": {
+     "maxWidth": 240,
+     "openStartWidth": 0,
+     "closeEndWidth": 0,
+     "minActiveWidth": 56,
+     "minInactiveWidth": 32,
+     "pinnedWidth": 64,
+     "reorderThreshold": 16,
+     "closingMode": {
+      "belowPad": 40,
+      "trailingPad": 60,
+      "exitDelay": 0.3
+     }
+    }
+   },
+   "unit": "pt (exitDelay s)",
+   "source": "Chromium main 6d3c98f4fe5 (hq-4e spec .cmux-scratch/chrome-tab-motion/SPEC.md): tab_container_impl.cc L1229-1306 (open from the previous right edge minus the 18 DIP overlap, close to the overlap width), L716-741 + L1418-1474 + mouse_watcher.cc L26 (closing mode), dragging_tabs_session.cc L89-94 (reorder threshold 16 DIP x width/256), tab_style.cc (min 56 active, 32 inactive, pinned 64). Lawrence 2026-10-14 \"keep 200\": max width stays 200 (threshold 16 x width/200). cmux-tui/crates/cmux-motion reads this at build time (TabStripGeometry); macOS reads it through cmux-app-ffi.",
+   "chromeOverlap": {
+    "value": 18,
+    "unit": "pt",
+    "use": "Chrome's tab overlap (TabStyle overlap, 18 DIP). Chrome opens a tab at width 18 at prev.right - 18 and closes it to that, which shows nothing because of the overlap. cmux tabs do not overlap, so openStartWidth and closeEndWidth are 0 (hq-4e 2026-10-15): open from prev.right at width 0, close to width 0 with the left edge pinned to prev.right."
+   },
+   "use": "Tab strip geometry for the Chrome motion. maxWidth is the default of appearance tabMaxWidth (metrics.tabMaxWidth; Lawrence 2026-10-14 \"keep 200\" = keep today's maxima, 200 compact and 240 comfortable, instead of Chrome's 256); a new tab starts openStartWidth wide at the previous tab's right edge minus openStartWidth; a closing tab ends closeEndWidth wide with its left edge pinned there; crowding shrinks every tab evenly from maxWidth to minActiveWidth, then the inactive ones to minInactiveWidth (then the strip scrolls); a dragged tab reorders once the pointer has moved reorderThreshold x (width of the tab at the target index) / the density's maxWidth (200 compact, 240 comfortable) since the last reorder; mouse closing mode ends belowPad under / trailingPad after the strip plus exitDelay. Min widths are Chrome's in both densities."
+  },
   "springModel": {
-   "value": "omega = 2*pi/response; stiffness = omega^2; damping = 2*dampingFraction*omega; semi-implicit Euler at 1/480 s (SwiftUI .spring(response:dampingFraction:) equivalent)",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/SpringParameters.swift:18-22,79-96 (SpringParameters.omega)"
+   "value": "omega = 2*pi/response; stiffness = omega^2; damping = 2*dampingFraction*omega (SwiftUI .spring(response:dampingFraction:), mass 1). Stepped in closed form from the current displacement AND velocity (exact damped harmonic oscillator, under-, critically or over-damped), so the path is identical at every frame rate; dt is capped at 0.1 s per frame. Retargeting keeps value and velocity. A spring rests (snaps to its target) once |value - target| < epsilon and |velocity| < epsilon * motion.settle.velocityFactor.",
+   "source": "cmux-tui/crates/cmux-motion/src/spring.rs (SpringValue::solve); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/SpringParameters.swift (SpringValue.solve)"
+  },
+  "settle": {
+   "value": {
+    "geometry": 0.25,
+    "unit": 0.001,
+    "velocityFactor": 8
+   },
+   "source": "cmux-tui/crates/cmux-motion/src/spring.rs (GEOMETRY_EPSILON, UNIT_EPSILON, SpringValue::is_settled)",
+   "unit": "pt (geometry), fraction (unit)",
+   "use": "Rest rule: 0.25 pt is invisible after pixel snapping at 2x; 0..1 values (opacity) use 0.001"
+  },
+  "structural": {
+   "value": [
+    "move",
+    "appear",
+    "disappear",
+    "tabOpen"
+   ],
+   "source": "cmux-tui/crates/cmux-motion (MotionSpring::is_structural); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionKinds.swift (MotionSpring.isStructural)",
+   "use": "Springs that take or give up room. They follow motion.bounce; release, scroll and overlay springs keep their own damping."
+  },
+  "bounce": {
+   "value": {
+    "none": 0,
+    "subtle": 0.15,
+    "default": "none"
+   },
+   "source": "ui.animations.bounce (cmux.json); cmux-tui/crates/cmux-motion (MotionBounce); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.subtleBounce)",
+   "use": "SwiftUI bounce of the structural springs: none = critically damped (never passes the target), subtle = damping fraction 1 - 0.15 (overshoots about 1%)."
+  },
+  "kinds": {
+   "value": {
+    "paneAnimations": false,
+    "newTab": true,
+    "newWorkspace": false
+   },
+   "source": "ui.paneAnimations / ui.animations.newTab / ui.animations.newWorkspace (cmux.json); cmux-tui/crates/cmux-motion (AnimationSwitches, MotionKind::config_path)",
+   "use": "Per-kind switches under ui.animationSpeed, paneAnimations and newWorkspace off by default (Lawrence 2026-10-14: no big animations by default), newTab on (Lawrence 2026-10-14: keep the tab-open motion); off applies the change in one frame (no crossfade). paneAnimations: split grow-in, close, move, swap, zoom and unzoom, column reveal, screen switch, divider release. newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
   },
   "fades": {
    "hover": {
@@ -2170,6 +2315,12 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:31 (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Hover fills, hover-revealed buttons, divider hover"
+   },
+   "hoverOut": {
+    "value": 0,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Hover and pressed fills clearing: 0 is instant"
    },
    "focus": {
     "value": 0.1,
@@ -2218,24 +2369,56 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:39 (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Launch mark resolving on the glass of a window still connecting (Motion.revealLaunchMark); under 400 ms at normal speed"
+   },
+   "clickPulse": {
+    "value": 0.25,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Agent cursor click ripple grows and fades"
+   },
+   "cursorHide": {
+    "value": 0.3,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Agent cursor fades out once its agent goes idle"
+   },
+   "pinLift": {
+    "value": 0.15,
+    "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
+    "unit": "s",
+    "use": "Home list pin drag: the tile lifting (linear)",
+    "curve": "linear"
+   },
+   "pinSettle": {
+    "value": 0.25,
+    "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
+    "unit": "s",
+    "use": "Home list pin drag: a dropped tile scaling back (linear)",
+    "curve": "linear"
+   },
+   "pinShrink": {
+    "value": 0.22,
+    "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
+    "unit": "s",
+    "use": "Home list pin drag: a ghost shrinking onto its row avatar"
    }
   },
   "loops": {
    "spinner": {
     "value": 0.9,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:49 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:76 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "One spinner turn"
    },
    "pulse": {
     "value": 1.8,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:50 (MotionTunables.loopDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:77 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "Agent-waiting pulse cycle (easeInEaseOut)"
    },
    "flash": {
-    "value": 0.6,
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:51 (MotionTunables.loopDefaults)",
+    "value": 1.0,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:78 (MotionTunables.loopDefaults)",
     "unit": "s",
     "use": "Pane attention flash, two blinks"
    }
@@ -2412,7 +2595,7 @@
     "showOnSidebar": true
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift:17-35 (AttentionSettings); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+Attention.swift:14-50 (Motion.attentionAnimation)",
-   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (0.6 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: fadeIn. Reduce Motion: one fadeIn."
+   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (1.0 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: fadeIn. Reduce Motion: one fadeIn."
   },
   "layout.paneBorder/paneBorderColor/paneBorderWidth/paneCornerRadius/panePadding": {
    "value": "pane chrome overrides",
@@ -3209,7 +3392,7 @@
     },
     "attention": {
      "ring": {
-      "value": "token:attention (or notification color), width 2; blink: 2 blinks over 0.6 s (loop.flash), then persists. See settings.notifications.attention.*.timing",
+      "value": "token:attention (or notification color), width 2; blink: 2 blinks over 1.0 s (loop.flash), then persists. See settings.notifications.attention.*.timing",
       "source": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneOverlayView.swift:200-228 (PaneOverlayView.applyAttention); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift:17-29 (AttentionSettings); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+Attention.swift:32-40 (Motion.attentionAnimation)"
      }
     },

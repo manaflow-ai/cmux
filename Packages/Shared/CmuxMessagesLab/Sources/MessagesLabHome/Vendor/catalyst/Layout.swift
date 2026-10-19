@@ -4,6 +4,25 @@ import UIKit
 import AppKit
 #endif
 
+/// The render scale of the view whose work runs now on this thread (cx-3cb view-scale). Two window views can show at
+/// two backing scales at the same time (cmux Home: windows on a 2x and a 1x display), so the scale is the view's own
+/// (MessagesWindowView.renderScale, set by its setRenderScale), not one process value. Code that has its view uses
+/// that value directly; the static drawing and layout helpers it calls (RowDraw, SoftBalloon, RowBitmaps.render,
+/// ThreadPreview.height, Images.load) read `Fixture.renderScale`, which is the scope's value inside
+/// `Fixture.withRenderScale(_:_:)` and the process fallback outside one. Work sent to another queue takes the scale
+/// with it (a task local does not follow DispatchQueue blocks): RowBitmaps, Pager, TiledBody, MorphBubble.prepare.
+enum RenderScaleScope {
+    @TaskLocal static var scoped: CGFloat? = nil
+}
+
+extension Fixture {
+    /// Runs `body` with `Fixture.renderScale` = `s` on this thread (a scale of 0 or less: the current value).
+    static func withRenderScale<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
+        guard s > 0, RenderScaleScope.scoped != s else { return try body() }
+        return try RenderScaleScope.$scoped.withValue(s, operation: body)
+    }
+}
+
 /// Text measured and wrapped with Core Text, the way the bubbles draw it.
 struct TextLayout: Hashable {
     struct Line: Hashable {
@@ -38,9 +57,18 @@ struct TextLayout: Hashable {
             // A hard newline ends the line but is not drawn or measured.
             let s = (text as NSString).substring(with: range)
             if s.hasSuffix("\n") { range.length -= 1 }
-            let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
-            let w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-            lines.append(Line(range: range, width: w, fit: w - CGFloat(CTLineGetTrailingWhitespaceWidth(line))))
+            // A blank line (the empty line of a paragraph break) is 0 pt wide: CTTypesetterCreateLine with
+            // length 0 lays out the whole rest of the text, which made every text with a paragraph break
+            // whose rest is longer than the column as wide as the column (cx-3cb wide-window: Messages'
+            // 9-line "That's WebAuthn's ..." balloon is 738.5 pt in a 1192 pt pane, its widest line + 24;
+            // ours was the column + 24, 751.3 pt).
+            var w: CGFloat = 0, fit: CGFloat = 0
+            if range.length > 0 {
+                let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
+                w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+                fit = w - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
+            }
+            lines.append(Line(range: range, width: w, fit: fit))
             start += n
             if start == len && s.hasSuffix("\n") { lines.append(Line(range: NSRange(location: len, length: 0), width: 0, fit: 0)) }
         }
@@ -136,7 +164,11 @@ struct Metrics: Hashable {
     var rightEdge: CGFloat { Fixture.rightEdge + dx }
     var centerX: CGFloat { Fixture.centerX + dx / 2 }
     var receiptRight: CGFloat { Fixture.receiptRight + dx }
-    /// Text column: 358.4 pt at the 628 pt window, then 0.654 pt per point of window width.
+    /// Text column: 358.4 pt at the 628 pt window, then 0.654 pt per point of window width, with no
+    /// upper cap: Messages' column follows the same rule in wide panes (cx-3cb wide-window, macOS 27, a
+    /// 320 pt sidebar: panes 480, 680, 920 and 1192 pt bound it to [260.5, 263.5], [390.75, 393.5],
+    /// [544, 553.25] and [713, 729]; the rule gives 261.6, 392.4, 549.4 and 727.3;
+    /// tools/evidence/anim/colwidth).
     /// Measured on macOS 27 Messages at 434, 480, 520, 560 and 600 pt (lossless stills,
     /// references/real-messages/recordings/stills/widths; line breaks bound it per width to
     /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
@@ -186,6 +218,8 @@ struct RowSpec: Hashable {
         case replies(count: Int, root: PartRef, outgoing: Bool)
         case receipt(bold: String, rest: String)
         case typing
+        /// The host's status line under the transcript (ask 9, HostHooks.swift): one line of centered secondary text.
+        case notice(String)
         /// A copy of a thread's root above a reply whose root is not directly
         /// above it (macOS 26): a mini card or thumbnail, a short stub, and
         /// "N Replies" when the thread has 2 or more replies.
@@ -366,8 +400,11 @@ struct ThreadPreview: Hashable {
     /// (nosb-active against deactivate-activate tp0000ms: incoming edges 798.00 / 864.00 px, ours were 798.31 / 864.31
     /// with 41.65), so its preview row is 41.5 pt at 2x. The drawing keeps its measured places from the row's top: the
     /// stub's end lies 0.15 pt inside the reply gap (cx-3cb row-snap).
-    var height: CGFloat {
-        let s = max(1, Fixture.renderScale)
+    var height: CGFloat { height(scale: Fixture.renderScale) }
+    /// The height at a view's own scale (a window view derives its rows at its renderScale: two views on displays of
+    /// two scales round the same preview to their own grids).
+    func height(scale: CGFloat) -> CGFloat {
+        let s = max(1, scale)
         return ((box.height + stubGap + stubHeight) * s).rounded() / s
     }
 }
@@ -414,28 +451,28 @@ enum Sizing {
     /// both sides (cx-3cb incoming-width, tools/evidence/ANIMATIONS.md, tools/evidence/anim/balwidth): the accessibility
     /// frames of 50 balloons in the reference scenes (ax-scene.json, round 3-6) are ceil(2 (t + 24)) / 2 pt exactly, and
     /// 117 balloons in the lossless stills (incoming right edges, outgoing left edges; windows 434-628 pt) are within
-    /// 0.09 px of it; without the rounding the frames were 0.01-0.50 pt narrower. The grid is 2x, the references'
-    /// scale (layout runs off the main thread and keys its cache on the width only; a 1x screen keeps half points). The
-    /// iOS app keeps the unrounded width (no reference).
-    static func textBalloonWidth(_ text: CGFloat, column: CGFloat) -> CGFloat {
+    /// 0.09 px of it; without the rounding the frames were 0.01-0.50 pt narrower. The grid is the view's scale
+    /// (`scale`, its renderScale; cx-3cb view-scale: whole pixels at 1x too); measurements are cached per scale
+    /// (MeasureCache.Key). The iOS app keeps the unrounded width (no reference).
+    static func textBalloonWidth(_ text: CGFloat, column: CGFloat, scale: CGFloat = Fixture.renderScale) -> CGFloat {
         let w = min(text, column) + 2 * Fixture.bubblePadX
 #if os(iOS) && !targetEnvironment(macCatalyst)
         return w
 #else
         // 1e-4 px: a width on the grid stays there (no step up from float noise).
-        return (w * balloonGrid - 1e-4).rounded(.up) / balloonGrid
+        let g = max(1, scale)
+        return (w * g - 1e-4).rounded(.up) / g
 #endif
     }
-    /// Device pixels per point of `textBalloonWidth`'s grid.
-    static let balloonGrid: CGFloat = 2
 
-    static func size(of part: Part, width: CGFloat) -> (CGSize, TextLayout?) {
+    /// `scale`: the view's (text balloon widths end on its device pixels).
+    static func size(of part: Part, width: CGFloat, scale: CGFloat = Fixture.renderScale) -> (CGSize, TextLayout?) {
         let m = Metrics(width: width)
         let maxTextWidth = m.maxTextWidth, mediaWidth = m.mediaWidth
         switch part {
         case let .text(t, runs):
             let tl = TextLayout.make(t, runs: runs, maxWidth: maxTextWidth)
-            let w = Sizing.textBalloonWidth(tl.width, column: maxTextWidth)
+            let w = Sizing.textBalloonWidth(tl.width, column: maxTextWidth, scale: scale)
             return (CGSize(width: w, height: CGFloat(tl.lines.count) * Fixture.lineHeight + 2 * Fixture.bubblePadY), tl)
         case let .link(_, title, site, image, _):
             if Sizing.linkPending(title: title, site: site, image: image) { return (Sizing.linkPlaceholder, nil) }
@@ -633,10 +670,15 @@ final class MeasureCache: @unchecked Sendable {
     static let shared = MeasureCache()
     /// `markdown`: the message's format (Message.format). A plain/markdown change under the same
     /// id and text (a host marking a message later, a local echo) is a new measurement.
-    struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool }
-    struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool }
+    /// `scale`: the asking view's render scale (text balloon widths end on its device pixels; two views at two
+    /// scales keep their own measurements).
+    struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool; var scale: CGFloat }
+    struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool; var scale: CGFloat }
     struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
     private var store: [Key: Value] = [:]
+    /// Streaming bubbles (ask 11): every chunk is a new text under one id; only their latest measurements are kept
+    /// (at most 16), never in `store` or `latest` (they grew by one text layout per chunk).
+    private var streamStore: [Key: Value] = [:]
     /// The latest exact measurement of each part at any width (estimates).
     private var latest: [PartKey: Value] = [:]
     private let lock = NSLock()
@@ -661,17 +703,26 @@ final class MeasureCache: @unchecked Sendable {
         return h.finalize()
     }
 
+    /// One exact measurement (Core Text or the markdown layout), no cache.
+    private static func measure(_ m: Message, _ part: Part, width: CGFloat, scale: CGFloat) -> Value {
+        if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
+            return Value(size: md.size, text: md.proxy, width: width, markdown: md)
+        }
+        let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
+        return Value(size: size, text: tl, width: width)
+    }
+
     static func version(_ m: Message) -> Int { ((m.edits?.count ?? 0) * 2 + (m.retractedAt == nil ? 0 : 1)) * 2 + (m.deletedAt == nil ? 0 : 1) }
 
     /// The part's size at `width`. With `estimate`, a miss does not run Core
     /// Text: it scales a measurement taken at another width (no text layout;
     /// the row is re-measured before it draws). Exact misses measure now.
-    func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false) -> Value {
+    func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false, scale: CGFloat = Fixture.renderScale) -> Value {
         // a part index from another version of the message measures nothing (no trap).
         guard let part = m.parts[checked: pi] else { return Value(size: .zero, text: nil, width: width) }
         // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
         if case let .text(t, _) = part, LongText.isLong(t) { // checked part
-            return Value(size: LongTextStore.shared.size(t, width: width, message: m.id, markdown: m.isMarkdown), text: nil, width: width)
+            return Value(size: LongTextStore.shared.size(t, width: width, message: m.id, markdown: m.isMarkdown, scale: scale), text: nil, width: width)
         }
         // Custom rows: their own cache, estimates for main-only providers (CustomRows.swift).
         if case let .custom(c) = part {
@@ -679,14 +730,25 @@ final class MeasureCache: @unchecked Sendable {
             return Value(size: s, text: tl, width: width, estimated: est)
         }
         let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
-        let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown)
-        let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown)
+        let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale)
+        let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
+        let streaming = StreamBubble.isStream(m.id)
         lock.lock()
-        if let v = store[k] { hits += 1; lock.unlock(); return v }
+        if let v = streaming ? streamStore[k] : store[k] { hits += 1; lock.unlock(); return v }
+        if streaming {
+            misses += 1
+            lock.unlock()
+            let v = MeasureCache.measure(m, part, width: width, scale: scale)
+            lock.lock()
+            if streamStore.count >= 16 { streamStore.removeAll() }
+            streamStore.updateValue(v, forKey: k)
+            lock.unlock()
+            return v
+        }
         // Plain text that no width wrapped and that fits the new column: the same lines at the new
         // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
         // short bubbles' widths only in this way.
-        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part) { // the checked part
+        if let old = latest[pk], let v = MeasureCache.sameLayout(old, at: width, part: part, scale: scale) { // the checked part
             reuses += 1
             store[k] = v
             lock.unlock()
@@ -695,17 +757,11 @@ final class MeasureCache: @unchecked Sendable {
         if estimate, let old = latest[pk] {
             estimates += 1
             lock.unlock()
-            return MeasureCache.scale(old, to: width, part: part)
+            return MeasureCache.scale(old, to: width, part: part, scale: scale)
         }
         misses += 1
         lock.unlock()
-        var v: Value
-        if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
-            v = Value(size: md.size, text: md.proxy, width: width, markdown: md)
-        } else {
-            let (size, tl) = Sizing.size(of: part, width: width)
-            v = Value(size: size, text: tl, width: width)
-        }
+        let v = MeasureCache.measure(m, part, width: width, scale: scale)
         lock.lock()
         store.updateValue(v, forKey: k) // dictionary writes
         latest.updateValue(v, forKey: pk)
@@ -725,11 +781,11 @@ final class MeasureCache: @unchecked Sendable {
     /// each line is the same again; the bubble width follows the new column (Sizing.size: a wrapped line's
     /// trailing space can reach past it). A line within 0.01 pt of the column is measured again (Core Text's
     /// own fit test may sum the widths differently from the cut line's).
-    static func sameLayout(_ v: Value, at width: CGFloat, part: Part) -> Value? {
+    static func sameLayout(_ v: Value, at width: CGFloat, part: Part, scale: CGFloat = Fixture.renderScale) -> Value? {
         guard v.markdown == nil, !v.estimated, let tl = v.text, case .text = part else { return nil }
         let col = Metrics(width: width).maxTextWidth
         if v.width > 0, col <= Metrics(width: v.width).maxTextWidth, tl.lines.allSatisfy({ $0.fit <= col - 0.01 }) {
-            return Value(size: CGSize(width: Sizing.textBalloonWidth(tl.width, column: col), height: v.size.height), text: tl, width: width)
+            return Value(size: CGSize(width: Sizing.textBalloonWidth(tl.width, column: col, scale: scale), height: v.size.height), text: tl, width: width)
         }
         guard tl.width <= col else { return nil }
         let s = tl.text as NSString
@@ -740,7 +796,7 @@ final class MeasureCache: @unchecked Sendable {
         return Value(size: v.size, text: tl, width: width)
     }
 
-    private static func scale(_ v: Value, to width: CGFloat, part: Part) -> Value {
+    private static func scale(_ v: Value, to width: CGFloat, part: Part, scale: CGFloat) -> Value {
         if v.markdown != nil {
             // Markdown keeps its height until measured at the new width.
             let col = Metrics(width: width).maxTextWidth + 2 * Fixture.bubblePadX
@@ -748,30 +804,31 @@ final class MeasureCache: @unchecked Sendable {
         }
         guard let tl = v.text else {
             // Media and cards: same aspect, clamped to the new column.
-            let (fresh, _) = Sizing.size(of: part, width: width)
+            let (fresh, _) = Sizing.size(of: part, width: width, scale: scale)
             return Value(size: fresh, text: nil, width: width, estimated: true)
         }
         let col = Metrics(width: width).maxTextWidth
         let total = tl.lines.reduce(0) { $0 + $1.width }
         let lines = max(1, CrashGuard.int((total / col).rounded(.up), in: CrashGuard.countRange)) // no trap on NaN
-        let w = Sizing.textBalloonWidth(max(tl.width, total / CGFloat(lines)), column: col)
+        let w = Sizing.textBalloonWidth(max(tl.width, total / CGFloat(lines)), column: col, scale: scale)
         return Value(size: CGSize(width: w, height: CGFloat(lines) * Fixture.lineHeight + 2 * Fixture.bubblePadY),
                      text: nil, width: width, estimated: true)
     }
 
     /// Measure every part of `messages` at `width` (call off the main thread).
-    func prefetch(_ messages: [Message], width: CGFloat) {
-        for m in messages { for pi in m.parts.indices { _ = size(m, pi, width: width) } }
+    /// `scale`: the view's (pass it from another queue: a task-local scope does not follow a block).
+    func prefetch(_ messages: [Message], width: CGFloat, scale: CGFloat = Fixture.renderScale) {
+        for m in messages { for pi in m.parts.indices { _ = size(m, pi, width: width, scale: scale) } }
     }
     /// `prefetch` on all cores (interleaved slices); returns when every message is measured.
-    func prefetchParallel(_ messages: [Message], width: CGFloat) {
+    func prefetchParallel(_ messages: [Message], width: CGFloat, scale: CGFloat = Fixture.renderScale) {
         let n = min(messages.count / 4, ProcessInfo.processInfo.activeProcessorCount)
-        guard n > 1 else { return prefetch(messages, width: width) }
+        guard n > 1 else { return prefetch(messages, width: width, scale: scale) }
         DispatchQueue.concurrentPerform(iterations: n) { k in
             for i in stride(from: k, to: messages.count, by: n) {
                 // checked read (crash ratchet)
                 guard let m = messages[checked: i] else { continue }
-                for pi in m.parts.indices { _ = size(m, pi, width: width) }
+                for pi in m.parts.indices { _ = size(m, pi, width: width, scale: scale) }
             }
         }
     }
@@ -792,18 +849,31 @@ final class MeasureCache: @unchecked Sendable {
 /// Derives the transcript rows from state (MODEL.md "Derived").
 enum RowBuilder {
     static let groupGap: TimeInterval = 60
-    static let separatorGap: TimeInterval = 15 * 60
+    /// A time label above a message more than an hour after the one above it on macOS 27 (AX walk of the real
+    /// transcript, macOS 27.0.1, 2026-10-14: no label in 29 of 29 pairs 11 to 57 min apart, a label in 21 of 22
+    /// pairs 72 min or more apart, one 5 h pair without one UNEXPLAINED; 60 min is UNVERIFIED between 57 and 72
+    /// min), more than 15 min on macOS 26 (the original
+    /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
+    static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
 
     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
     /// `width`: layout width (captured on main). `exact`: message indices to
     /// measure exactly; others may use estimates (nil: all exact).
-    static func rows(_ s: AppState, messages: [Message], now: Date, threadMode: Bool = false, range: Range<Int>? = nil,
-                     previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil) -> [RowSpec] {
+    static func rows(_ s: AppState, messages loaded: [Message], now: Date, threadMode: Bool = false, range: Range<Int>? = nil,
+                     previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
+                     scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
         let me = s.me
         var rows: [RowSpec] = []
+        var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
+        // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
+        // they will be: grouping, tails, gaps and receipts come out as they will with the final message. None: the
+        // loaded messages as they are (no copy).
+        let tail = !threadMode && span.upperBound == loaded.count && s.atNewest
+        let writing = tail ? s.ui.streams.filter { !$0.parts.isEmpty } : []
+        let messages = writing.isEmpty ? loaded : loaded + writing.map(\.message)
+        if !writing.isEmpty { span = span.lowerBound..<messages.count }
         let receipts = receiptTargets(messages, me: me)
         // Thread counts (roots with 2+ replies get a label).
-        let span = (range ?? 0..<messages.count).clamped(to: 0..<messages.count) // a range from an older window stays inside
         var replyCount: [ID: Int] = [:]
         if !threadMode {
             for m in messages.slice(span.lowerBound, span.upperBound) { // no index math
@@ -812,23 +882,30 @@ enum RowBuilder {
             for m in s.conversation.messages {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
             }
+            // ThreadMode.tree: every reply of a tree stores its root in `replyTo`, so the count above
+            // is the root's whole subtree; the host's count wins when it gives one (Message.replyCount).
+            if s.ui.threadMode == .tree {
+                for m in s.conversation.messages where replyCount[m.id] != nil {
+                    if let n = m.replyCount { replyCount[m.id] = max(0, n) }
+                }
+            }
         }
-        // A message's thread: a reply's root, or the message itself when the message after it is its inline reply (a
-        // thread root with its replies under it). Messages separates such a thread from the messages around it like a
-        // sender change: when the first inline reply to a message arrives, the gap above that root grows to 32 pt
-        // (macOS 27, lossless typing-unfocused-take1: root top minus the bubble above, tail included, 7.5 -> 30.0 pt
-        // while the reply arrives). A root whose replies are elsewhere ("2 Replies", a preview at the reply) keeps
-        // its group (real still scenes). No thread view: one thread.
-        // `i`: x's index. x is a root when the messages right after it (deleted ones skipped) are its replies and one
-        // of them is not unsent: a root whose last inline reply is unsent or deleted returns to its group gap.
+        // A message's thread: a reply's root, or the message itself when it has a reply that is not unsent or deleted
+        // (inline under it, or elsewhere with "N Replies" or a preview at the reply). Messages separates a thread from
+        // the messages around it: the gap above a root is 32 pt (macOS 27, lossless typing-unfocused-take1: root top
+        // minus the bubble above 7.5 -> 30.0 pt while the first reply arrives; AX of the 18:00 scene: "Alpha.", whose
+        // two replies are further down, 32 pt under my message; AX walk of the real transcript 2026-10-14, cx-3cb
+        // row-gap: every gap above a root with replies is 32). A root whose replies are all unsent or deleted is not
+        // a root. No thread view: one thread.
+        var liveRoots: Set<ID> = []
+        if !threadMode {
+            for m in s.conversation.messages where m.retractedAt == nil && m.deletedAt == nil {
+                if let r = m.replyTo { liveRoots.insert(r.messageId) }
+            }
+        }
         func thread(_ x: Message, at i: Int) -> ID? {
             if let r = x.replyTo { return r.messageId }
-            guard !threadMode else { return nil }
-            for n in messages.dropFirst(i + 1) where n.deletedAt == nil {
-                guard n.replyTo?.messageId == x.id else { break }
-                if n.retractedAt == nil { return x.id }
-            }
-            return nil
+            return liveRoots.contains(x.id) ? x.id : nil
         }
         // The message above the range: the nearest one that is not deleted.
         var prevIndex = messages.prefix(max(0, span.lowerBound)).lastIndex { $0.deletedAt == nil } ?? -1
@@ -840,8 +917,13 @@ enum RowBuilder {
             var gap: CGFloat
             var connector: String?
             if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // no force unwrap
+                // The time label sits 17.5 pt under a thread reply and 13.5 pt under any other bubble, and the next
+                // bubble 5 pt under the label (macOS 27, AX walk of the real transcript, 2026-10-14, cx-3cb row-gap:
+                // 17.0 to 17.5 under 16 of 16 replies, 13.5 under 5 of 5 other messages, 5.0 below in 3 of 3). The
+                // row is 4 pt shorter under a non-reply; its text keeps its place over the row's bottom (RowDrawing).
+                let underReply = prev.map { $0.replyTo != nil } ?? true
                 rows.append(RowSpec(key: "sep:\(m.id)", kind: .separator(bold: Format.day(m.date, now: now), rest: Format.time(m.date)),
-                                    gap: prev == nil ? 12 : 0, height: 35.5))
+                                    gap: prev == nil ? 12 : 0, height: underReply ? 35.5 : 31.5))
                 gap = 0
             } else if let r = m.replyTo, let p = prev, p.id == r.messageId {
                 // Measured: 2.5 pt right under the root bubble, 3.5 pt under a
@@ -859,17 +941,33 @@ enum RowBuilder {
                 // has no stub, and Instinct's replies take the line on the left). The mirrored arc ran
                 // from the root's centre through my root's text (hq-6d, cmux Home, 2026-10-11).
                 if !threadMode, !(outgoing && p.senderId == me) { connector = "part:\(r.messageId):\(r.partIndex)" }
-            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap, thread(p, at: prevIndex) == thread(m, at: idx) {
+            } else if case .replies = rows.last?.kind ?? previousRow {
+                // Under a root's "N Replies" label the next bubble sits 8 pt under the label's text (3 pt under
+                // our 22 pt label row), with or without a sender change, also when the thread ends there; another
+                // root right under it sits 4 pt under the text (-1 pt) (macOS 27, AX walk of the real transcript,
+                // 2026-10-14, cx-3cb row-gap: 7.5 to 8.0 in 30 of 30 pairs, 4.0 in 5 of 5 pairs root to root).
+                let otherRoot = m.replyTo == nil && liveRoots.contains(m.id) && prev.map { thread($0, at: prevIndex) != m.id } ?? false
+                gap = otherRoot ? -1 : 3
+            } else if let p = prev, thread(p, at: prevIndex) != thread(m, at: idx) {
+                // A change of thread, for either sender: 32 pt (macOS 27, AX walk of the real transcript
+                // 2026-10-14, cx-3cb row-gap: 32.0 to 32.5 in 35 of 35 pairs across a thread boundary).
+                gap = 32
+            } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
-            } else if let p = prev, p.senderId != m.senderId, p.replyTo != nil, p.replyTo == m.replyTo {
-                // The next reply of the same thread from the other sender: 7 pt (macOS 27, lossless
-                // send-typed and send-typed-media takes: "Reply to Charlie from the menu." then
-                // Instinct's "Got it, ..." 4 pt apart at the sample columns, where 32 shows 29).
-                gap = 7
-            } else if let p = prev, p.senderId != m.senderId || thread(p, at: prevIndex) != thread(m, at: idx) {
-                gap = 32     // a new sender, or a change of thread (measured on macOS 26)
+            } else if let p = prev, p.senderId == m.senderId, thread(m, at: idx) != nil {
+                // The same sender a minute or more later inside one thread: 32 pt (AX walk: Instinct's two
+                // replies to one root 95 s apart). UNVERIFIED beyond that one pair.
+                gap = 32
             } else {
-                gap = 12
+                // One thread (or none) and a new group: a sender change, or the same sender a minute or more
+                // later outside threads: 8 pt (macOS 27; AX of the 18:00 scene: "The photo failed..." to my
+                // "Round 3 ..." 52.5 -> 60.5 pt, 53 min apart; AX walk of the real transcript, 2026-10-14: 8.0
+                // in 10 of 10 sender changes inside one thread or outside threads, 0 s to 53 min apart, and 2 of 2
+                // same-sender pairs 98 s and 53 min apart; settled lossless stills: "Reply to Charlie
+                // from the menu." to Instinct's reply in the same thread 482.0 -> 490.0 pt, bubble-stills
+                // tp0000ms, and 795.0 -> 803.0 pt, send-typed tp8000ms). It was 32 for every sender change, 7
+                // in one thread and 12 for the same sender a minute later (cx-3cb row-gap).
+                gap = 8
             }
             // Under a receipt ("Delivered", "Read") the receipt row takes the place of the gap:
             // the next bubble sits 4 pt under it (body to body 20 pt), for a sender change too
@@ -881,7 +979,11 @@ enum RowBuilder {
                 let root = s.conversation.messages.first { $0.id == r.messageId }
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
                 let pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
-                rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: ThreadPreview.gap, height: pv.height))
+                // Under a root's "N Replies" label the preview sits 32 pt under the label's text, 5 pt less
+                // under our label row (AX walk 2026-10-14: 32.0 in 11 of 11 label-to-preview pairs, cx-3cb row-gap).
+                var pvGap = ThreadPreview.gap
+                if case .replies = rows.last?.kind ?? previousRow { pvGap -= 5 }
+                rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: pvGap, height: pv.height(scale: scale)))
                 gap = ThreadPreview.replyGap
             }
 
@@ -891,9 +993,10 @@ enum RowBuilder {
                 // no force unwrap 
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                     || next.retractedAt != nil || next.replyTo != m.replyTo
-                    || thread(next, at: messages.dropFirst(idx + 1).firstIndex { $0.deletedAt == nil } ?? idx + 1) != thread(m, at: idx) } ?? true
+                    || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
                 for (pi, part) in m.parts.enumerated() {
-                    let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false)
+                    // A streaming bubble (past the loaded messages) is always measured: it draws now.
+                    let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
                     let (size, tl) = (measured.size, measured.text)
                     let reactions = m.reactions.filter { $0.partIndex == pi }
                     var g = pi == 0 ? gap : 3
@@ -907,7 +1010,9 @@ enum RowBuilder {
                     // A tapback badge: 27.5 pt over the part, and a sender change above it is 27 pt,
                     // not 32 (macOS 27, lossless takes: a heart on an incoming bubble in a group moves
                     // the rows above by 27.5 pt, tapback-menu-heart; one on my bubble under Instinct's,
-                    // by 22.5 pt, send-typed; macOS 26 measured 10).
+                    // by 22.5 pt, send-typed; macOS 26 measured 10). AX walk 2026-10-14 (cx-3cb row-gap): a
+                    // change of thread above a badge 54.5 to 55 pt bubble to bubble in 34 of 35 pairs (one 32), the same sender
+                    // 30.5 to 31 in 3 of 3; a sender change in one thread (8 + 27.5) is UNVERIFIED (no pair).
                     if !reactions.isEmpty { g = (g >= 32 ? g - 5 : g) + 27.5 }
                     var failed = false
                     if case .failed = m.status { failed = true }
@@ -932,18 +1037,33 @@ enum RowBuilder {
                     rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
                                                                                outgoing: outgoing), gap: 0, height: 22))
                 }
+                // ThreadMode.tree thread view: "N Replies" under a reply that has replies opens its
+                // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
+                if threadMode, let n = threadCounts?[m.id], n >= 1 {
+                    rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
+                                                                               outgoing: outgoing), gap: 0, height: 22))
+                }
                 if let r = receipts[m.id] {
                     rows.append(RowSpec(key: "receipt:\(m.id)", kind: .receipt(bold: r.0, rest: r.1), gap: 0, height: 16))
                 }
             }
             prev = m; prevIndex = idx
         }
-        // cmux: the host's notice, centered like the date row, under the newest message.
-        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
+        // cmux: the host's notice, centered like the date row, under the newest message. Row key "notice" (the
+        // tail rows' paging rules); none while upstream's status line (ask 9, same key) is set.
+        if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
             rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
         }
-        if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
+        // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
+        let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
+            || (tail && s.ui.streams.contains { $0.parts.isEmpty && $0.sender != me })
+        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
+        }
+        // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
+        // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
+        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
+            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows
@@ -957,7 +1077,8 @@ enum RowBuilder {
     /// divider drag or live resize step re-measures the parts and skips the derivation (receipts,
     /// reply counts, thread previews, day labels) over the loaded window. Nil when a part row
     /// does not name a loaded message (the caller then derives).
-    static func rewidth(_ derived: [RowSpec], messages: [Message], width: CGFloat, exact: Range<Int>?) -> [RowSpec]? {
+    static func rewidth(_ derived: [RowSpec], messages: [Message], width: CGFloat, exact: Range<Int>?,
+                        scale: CGFloat = Fixture.renderScale) -> [RowSpec]? {
         var out: [RowSpec] = []
         out.reserveCapacity(derived.count)
         var idx = 0
@@ -968,7 +1089,7 @@ enum RowBuilder {
             if case let .threadPreview(pv) = row.kind, pv.isText {
                 let again = ThreadPreview.make(root: pv.root, part: pv.part, count: pv.count, outgoing: pv.outgoing, width: width)
                 row.kind = .threadPreview(again)
-                row.height = again.height
+                row.height = again.height(scale: scale)
             }
             guard case var .part(p) = row.kind else { out.append(row); continue }
             // Rows follow message order: the part's message is at or after the previous one.
@@ -976,7 +1097,7 @@ enum RowBuilder {
             while let m = messages.dropFirst(idx).first, m.id != p.ref.messageId { idx += 1 }
             guard let m = messages.dropFirst(idx).first, p.ref.partIndex < m.parts.count else { return nil }
             let measured = MeasureCache.shared.size(m, p.ref.partIndex, width: width,
-                                                    estimate: exact.map { !$0.contains(idx) } ?? false)
+                                                    estimate: exact.map { !$0.contains(idx) } ?? false, scale: scale)
             p.size = measured.size
             p.text = measured.text
             p.markdown = measured.markdown
@@ -986,6 +1107,12 @@ enum RowBuilder {
             out.append(row)
         }
         return out
+    }
+
+    /// Rows that belong after the newest loaded message, always derived again with it: the typing indicator, the
+    /// host's status line (ask 9) and the host's streaming bubbles (ask 11).
+    static func isTrailing(_ key: String) -> Bool {
+        key == "typing" || key == "notice" || owner(key).map(StreamBubble.isStream) == true
     }
 
     /// The message id of a row key ("kind:messageID[:part]"), without allocating.
@@ -1121,8 +1248,16 @@ enum Strings {
     static var unsentMine: String { MessagesLabLocalization.string("row.unsent.mine", "You unsent a message") }
     static var unsentTheirs: String { MessagesLabLocalization.string("row.unsent.theirs", "A message was unsent") }
     static func replies(_ n: Int) -> String {
-        String(format: MessagesLabLocalization.string("label.replies", "%lld Replies"), n)
+        // One reply: only a `.tree` thread view's drill-in label shows it (Messages labels 2 or more).
+        if n == 1 { return MessagesLabLocalization.string("label.replies.one", "1 Reply") }
+        return String(format: MessagesLabLocalization.string("label.replies", "%lld Replies"), n)
     }
+    /// The `.tree` thread view's back control (cmux only).
+    static var threadBack: String { MessagesLabLocalization.string("thread.back", "Back") }
+    /// The host thread header's status chip and owner placeholder (cmux only).
+    static var threadOpen: String { MessagesLabLocalization.string("thread.status.open", "Open") }
+    static var threadResolved: String { MessagesLabLocalization.string("thread.status.resolved", "Resolved") }
+    static var threadUnassigned: String { MessagesLabLocalization.string("thread.owner.none", "Unassigned") }
     static var location: String { MessagesLabLocalization.string("preview.location", "Location") }
     static func fileKind(_ a: Attachment) -> String {
         switch (a.fileName as NSString).pathExtension.lowercased() {
@@ -1138,6 +1273,8 @@ enum Strings {
     static var menuReply: String { MessagesLabLocalization.string("menu.reply", "Reply") }
     static var menuCopy: String { MessagesLabLocalization.string("menu.copy", "Copy") }
     static var menuEdit: String { MessagesLabLocalization.string("menu.edit", "Edit") }
+    /// cmux-only (Messages has no message links): the host's Copy Link (HostHooks.copyLink).
+    static var menuCopyLink: String { MessagesLabLocalization.string("menu.copyLink", "Copy Link") }
     static var menuUndoSend: String { MessagesLabLocalization.string("menu.undoSend", "Undo Send") }
     static var menuReplyEllipsis: String { MessagesLabLocalization.string("menu.replyEllipsis", "Reply…") }
     static var menuTapbackDetails: String { MessagesLabLocalization.string("menu.tapbackDetails", "Tapback Details…") }

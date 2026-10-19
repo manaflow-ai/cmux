@@ -6,9 +6,9 @@
 # Usage: cmux-tui-mark-daemon-tested.sh <key> [<legacy key>]
 # Env: R2_ENDPOINT and the R2 AWS_* credentials; GITHUB_SHA, GITHUB_RUN_ID,
 # GITHUB_SERVER_URL and GITHUB_REPOSITORY (the run that tested the tree).
-# Callers: cmux-tui-artifacts.yml publish-tree-tested (after a feat-cmux-next
-# publication) and, before they publish, publish-tree on any other ref and
-# publish-pr-tree, so those never publish a shared key without the marker.
+# Caller: cmux-tui-artifacts.yml publish-tree-tested, after the run's daemon
+# tests of this key passed. The publishers (publish-tree, publish-pr-tree)
+# publish without the marker and never write it (cx-y0nf2).
 set -euo pipefail
 
 key="${1:-}"

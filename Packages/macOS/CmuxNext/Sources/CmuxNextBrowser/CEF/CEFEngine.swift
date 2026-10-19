@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The Chromium engine: the patched CEF fork (manaflow-ai/cef, Chrome style
@@ -56,7 +57,40 @@ public final class CEFEngine: BrowserEngine {
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
         try await CEFRuntime.shared.start(layout: layout)
-        return makeReadyTab(configuration)
+        return CEFStartSteps.shared.makeTab { makeReadyTab(configuration) }
+    }
+
+    /// `makeTab` for a tab the user opens (not a sign-in window): also writes
+    /// the recent-use record the launch warm start reads (`noteTabOpened`).
+    public func makeUserTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
+        let tab = try await makeTab(configuration)
+        noteTabOpened(configuration)
+        return tab
+    }
+
+    /// The last-used record (`ChromiumUseRecord`) of this app's Chromium storage.
+    public var useRecord: ChromiumUseRecord { ChromiumUseRecord(storageRoot: storageRoot) }
+
+    /// A user's Chromium tab opened (the App's tab path, not a sign-in
+    /// window): writes the last-used record off the main thread, at most once
+    /// a day per process, never for an incognito profile.
+    public func noteTabOpened(_ configuration: BrowserTabConfiguration) {
+        guard !OffTheRecordProfiles.shared.isOffTheRecord(configuration.profile) else { return }
+        let now = Date()
+        if let last = Self.lastRecorded, now.timeIntervalSince(last) < 24 * 60 * 60 { return }
+        Self.lastRecorded = now
+        let record = useRecord
+        // task-owner: one small atomic file write; nothing waits for it
+        Task.detached(priority: .utility) { record.recordTabOpened(at: now) }
+    }
+
+    private static var lastRecorded: Date?
+
+    /// True when this app opened a Chromium tab within `window` (read off
+    /// the main thread).
+    public func usedRecently(within window: TimeInterval) async -> Bool {
+        let record = useRecord
+        return await Task.detached(priority: .utility) { record.usedRecently(within: window) }.value
     }
 
     /// Maps the Chromium framework on a background thread without starting
@@ -77,6 +111,51 @@ public final class CEFEngine: BrowserEngine {
         guard layout != nil else { return }
         try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
     }
+
+    /// Builds a spare Chromium window (`CEFSpareWindow`) once Chromium runs
+    /// and no Chromium window exists, so the first tab skips building one.
+    /// Call at an idle moment: building it holds the main thread. True when
+    /// it started.
+    @discardableResult
+    public func prepareSpareWindow() -> Bool {
+        CEFSpareWindow.shared.prepare(runtime: .shared)
+    }
+
+    /// Returns once the framework load that `preload` started ended (at once
+    /// when none runs).
+    public func libraryLoadEnded() async {
+        _ = await CEFRuntime.shared.loadTask?.value
+    }
+
+    /// Records `name` once in the start marks (the first Chromium page's
+    /// creation points, `debug.cef` `start_steps`); true, for a `guard`.
+    public func notePoint(_ name: String) -> Bool {
+        CEFStartSteps.shared.point(name)
+        return true
+    }
+
+    /// `notePoint(name)`, then `value`.
+    public func noted<T>(_ name: String, _ value: T) -> T {
+        CEFStartSteps.shared.point(name)
+        return value
+    }
+
+    /// The timed steps of Chromium's start in this process (`debug.cef`).
+    public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
+
+
+    /// The framework read before CefInitialize (`CEFFrameworkPrefetch`):
+    /// bytes, files and milliseconds; nil before one ran.
+    public var frameworkPrefetch: (bytes: Int, files: Int, milliseconds: Double, servicesMilliseconds: Double)? {
+        let ms: (Duration) -> Double = { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
+        return CEFFrameworkPrefetch.last.map { ($0.bytes, $0.files, ms($0.duration), ms($0.services)) }
+    }
+
+    /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
+    public var spareWindowState: String { CEFSpareWindow.shared.state.rawValue }
+
+    /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).
+    public var engineStartMainThreadTime: Duration { MainThreadEngineStart.shared.total }
 
     /// The extensions of `profile`, once Chromium runs (nil before).
     public func extensionStore(for profile: BrowserProfileID = .default) -> BrowserExtensionStore? {
@@ -105,6 +184,13 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); newValue?() } }
     }
 
+    /// Runs when starting CEF fails in this process (process-wide). A failed
+    /// `CefInitialize` has already reset every signal action.
+    public var onStartFailed: (() -> Void)? {
+        get { CEFRuntime.shared.onStartFailed }
+        set { CEFRuntime.shared.onStartFailed = newValue }
+    }
+
     /// How this process started CEF (for `debug.cef`).
     public var startReport: CEFStartReport { CEFRuntime.shared.report }
 
@@ -119,6 +205,13 @@ public final class CEFEngine: BrowserEngine {
     public var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)? {
         get { CEFRuntime.shared.openURLWithoutWindow }
         set { CEFRuntime.shared.openURLWithoutWindow = newValue }
+    }
+
+    /// cmux.json `browser.builtInAdBlocker`: whether the bundled full uBlock
+    /// Origin loads; asked once, when Chromium starts.
+    public var builtInAdBlocker: @MainActor () -> Bool {
+        get { CEFRuntime.shared.builtInAdBlockerSetting }
+        set { CEFRuntime.shared.builtInAdBlockerSetting = newValue }
     }
 
     /// What modified link clicks do (cmux.json `browser.links.*`;

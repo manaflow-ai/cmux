@@ -188,6 +188,8 @@ export function CompareView({
   variant,
   env,
   tune,
+  sourcePath,
+  revisionSha,
   compare,
   room,
   onCompare,
@@ -198,6 +200,10 @@ export function CompareView({
   env: GalleryEnv;
   /** The edited tunables (router.tsx ShellSearch `tune`): every arm runs with them. */
   tune?: string;
+  /** The entry source path, so every compare cell resolves the same real file directly. */
+  sourcePath?: string;
+  /** The checkout head shown by the shell; included in copied comparison provenance. */
+  revisionSha?: string;
   compare: CompareState;
   room: { width: number; height: number };
   /** Writes the compare state into the URL (`replace` for progress the viewer did not click). */
@@ -248,6 +254,7 @@ export function CompareView({
     theme: env.theme,
     locale: env.locale,
     reducedMotion: env.reducedMotion,
+    sha: revisionSha,
   });
   // The cells render at the entry's real size: a component at its pane width, a page at its pane.
   const component = entry.host === "component";
@@ -381,7 +388,7 @@ export function CompareView({
         style={{ gridTemplateColumns: columns }}
       >
         {shown.map((arm) => {
-          const src = `frame.html?${frameQuery({ entry: entry.id, variant, tune }, cellEnv)}&exp=${encodeURIComponent(definition.id)}&arm=${encodeURIComponent(arm)}${baseStep ? `&step=${baseStep}` : ""}`;
+          const src = `frame.html?${frameQuery({ entry: entry.id, variant, tune, source: sourcePath }, cellEnv)}&exp=${encodeURIComponent(definition.id)}&arm=${encodeURIComponent(arm)}${baseStep ? `&step=${baseStep}` : ""}`;
           return (
             <CompareCell
               key={`${arm}-${generation}-${src}`}

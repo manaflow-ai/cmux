@@ -8,9 +8,13 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `agent message release`: the person's decision on a held message.
+    "approve",
+    "decline",
     "collapse",
     "patch",
     "candidates",
+    "catalog",
     "expand",
     "clear",
     "reply",
@@ -28,6 +32,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "restore-progress",
     // `server ensure`: private app contract, the owner's loopback WebSocket.
     "ws-loopback",
+    // `server ensure`: private app contract, replace an unresponsive owner.
+    "replace-unresponsive",
     "confirm-close",
     "complete",
     "clear-name",
@@ -68,6 +74,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "to-right",
     "to-left",
     "include-pinned",
+    // `workspace rename`: hand the name back to the automatic namer.
+    "release-to-auto",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

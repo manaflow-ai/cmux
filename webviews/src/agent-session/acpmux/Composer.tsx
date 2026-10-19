@@ -25,6 +25,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
+import { showsLocationRow } from "./locationRow";
 import { ComposerQueue } from "./ComposerQueue";
 import {
   ArrowUpIcon,
@@ -37,8 +38,10 @@ import {
   PlanIcon,
   SlashIcon,
   StopIcon,
+  type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
 import { Close, FileDoc } from "./conversation/icons";
@@ -48,6 +51,7 @@ import { Dialog } from "../../ui/Dialog";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
+import { cliOnlyCommand } from "./cliOnlyCommands";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import {
   flushPendingDraftWrites,
@@ -63,6 +67,8 @@ import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
+import { useMenuPressGuard } from "./menuPressGuard";
+import { useRowFit } from "./composerRowFit";
 import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
 
@@ -77,6 +83,7 @@ export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
 export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
+  placeholderQueued: "composer.placeholderQueued",
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
@@ -135,7 +142,7 @@ export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean
 
 type Props = {
   snapshot: AcpmuxSnapshot;
-  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
+  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
@@ -155,8 +162,8 @@ type Props = {
   sessionId?: string;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
-  /// A quiet status control for permissions already granted in this chat.
-  permissionStatus?: React.ReactNode;
+  /// Granted folder trust and chat-wide permission state, rendered inside Access.
+  permissionAccess?: ComposerPermissionAccess;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
@@ -208,8 +215,6 @@ type Props = {
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
-  /// The location row heads the card instead of closing it (Start Agent's panel, cx-hkat).
-  contextFirst?: boolean;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
@@ -232,7 +237,7 @@ export function Composer({
   onQueueLost,
   draft,
   leading,
-  permissionStatus,
+  permissionAccess,
   accessory,
   prompt,
   onEdit,
@@ -254,13 +259,14 @@ export function Composer({
   onShellInterrupt,
   onMode,
   onOpenInWindow,
-  contextFirst = false,
   handle,
   sessionId,
   blocked,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
+  // A press outside an open chip menu only closes it (menuPressGuard.ts).
+  useMenuPressGuard();
   // The native action map is replaced on reconnect while the session stays the same. Subscribe
   // so a durable read retries as soon as that map is available again.
   const draftActionsVersion = useDraftActionsVersion();
@@ -278,7 +284,9 @@ export function Composer({
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState(() => readPersistedDraft(sessionId) ?? "");
+  // Seed from the handshake before the editor mounts. The relaunch draft and the local cache can
+  // arrive in the same render; preferring the host value keeps it visible through initialization.
+  const [text, setText] = useState(() => draft ?? readPersistedDraft(sessionId) ?? "");
   const textRef = useRef(text);
   textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
@@ -322,7 +330,16 @@ export function Composer({
   const persistedSession = useRef(sessionId);
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
+  // Once a new chat has shown its location strip, keep its layout slot through the first send.
+  // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
+  const locationSlotSession = useRef<string | undefined>(undefined);
+  const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
+  // The controls row swaps whole units as it narrows (composerRowFit.ts).
+  const bar = useRef<HTMLDivElement>(null);
+  useRowFit(bar);
+  // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
+  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -435,6 +452,7 @@ export function Composer({
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
     if (!draft || field.current?.value()) return;
+    field.current?.reset(draft);
     setText((current) => seededText(current, draft));
     setCaret(draft.length);
     pendingCaret.current = draft.length;
@@ -447,10 +465,14 @@ export function Composer({
     hydratedSession.current = undefined;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
-    setText(restored);
-    setCaret(restored.length);
-    pendingCaret.current = restored.length;
-  }, [sessionId, text]);
+    // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
+    // when the local remount cache is empty; otherwise this effect can clear the host-provided
+    // draft before the editor has initialized.
+    const initial = restored || draft || "";
+    setText(initial);
+    setCaret(initial.length);
+    pendingCaret.current = initial.length;
+  }, [sessionId, text, draft]);
   useEffect(() => {
     let current = true;
     void readDurableDraft(sessionId).then((restored) => {
@@ -503,7 +525,11 @@ export function Composer({
   const planning = plan?.id === currentModeId;
   const planChoice: Choice | undefined =
     plan && onMode
-      ? { id: `plan:${plan.id}`, name: planning ? "Build" : "Plan", icon: planning ? <BuildIcon /> : <PlanIcon /> }
+      ? {
+          id: `plan:${plan.id}`,
+          name: planning ? t("picker.build") : t("picker.plan"),
+          icon: planning ? <BuildIcon /> : <PlanIcon />,
+        }
       : undefined;
   // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
   const recalling = prompts.showing(() => field.current?.agentText(text) ?? text);
@@ -584,6 +610,19 @@ export function Composer({
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
+      return false;
+    }
+    // A Claude command that needs its terminal is not sent: the composer keeps it and says what to use.
+    const cliOnly = attachments.length === 0 ? cliOnlyCommand(prompt, snapshot.summary?.harness) : undefined;
+    if (cliOnly) {
+      const values = { command: cliOnly.name };
+      setAttachError(
+        cliOnly.use === "access"
+          ? t("composer.cliOnly.access", values)
+          : cliOnly.use === "model"
+            ? t("composer.cliOnly.model", values)
+            : t("composer.cliOnly.terminal", values),
+      );
       return false;
     }
     const owned = commands?.find(
@@ -776,7 +815,12 @@ export function Composer({
     }
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
     if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
-      const rows = form.current?.querySelectorAll<HTMLElement>(".acpmux-queued");
+      // The list draws at the top of the form, over the strip (ComposerQueue.tsx).
+      const chat = form.current?.closest(".acpmux-main") ?? form.current;
+      // A long queue's fold ("N more queued") sits under its rows, so ↑ reaches it first.
+      const rows = chat?.querySelectorAll<HTMLElement>(
+        ".acpmux-composer-queue .acpmux-queued, .acpmux-queue-foldbar .acpmux-queue-fold",
+      );
       const last = rows?.[rows.length - 1];
       if (last) {
         event.preventDefault();
@@ -866,6 +910,8 @@ export function Composer({
   // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
   const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
   const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
+  // While a turn runs, what is sent waits behind it, so the empty prompt says so.
+  const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -922,9 +968,29 @@ export function Composer({
     },
   ];
 
-  // The location row: the card's footer (one fill, one edge, a hairline above it), or its header
-  // where `contextFirst` is set (Start Agent).
-  const context = (
+  // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
+  // composer location strip), so the card holds one controls row. Only a new chat has the visible
+  // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
+  // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
+  // composer is bottom-anchored, so removing the slot in the same render would move every control
+  // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
+  // becomes the top strip.
+  const locationVisible = showsLocationRow(snapshot);
+  const locationKey = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  // A gallery or a reopened pane can render an unselected snapshot before its session arrives.
+  // Do not let that transient visible strip reserve space for a different, already-started chat.
+  // A slot is meaningful only after the visible strip was observed for a known session identity.
+  const locationWasVisible =
+    locationSlotWasShown.current && locationKey !== undefined && locationSlotSession.current === locationKey;
+  if (locationVisible && locationKey !== undefined) {
+    locationSlotSession.current = locationKey;
+    locationSlotWasShown.current = true;
+  } else if (!locationWasVisible) {
+    locationSlotSession.current = undefined;
+    locationSlotWasShown.current = false;
+  }
+  const keepLocationSlot = !locationVisible && locationWasVisible && snapshot.queue.length === 0;
+  const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
@@ -934,7 +1000,6 @@ export function Composer({
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
-      started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
       onProject={
         onProject &&
         ((cwd, peer) => {
@@ -945,7 +1010,9 @@ export function Composer({
       localName={localName}
       onNewChat={onNewChat}
     />
-  );
+  ) : keepLocationSlot ? (
+    <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
+  ) : null;
   return (
     <form
       ref={form}
@@ -986,17 +1053,21 @@ export function Composer({
           />,
           form.current.parentElement,
         )}
-      <div className="acpmux-composer-box" data-context-first={contextFirst ? "" : undefined}>
-        <ComposerQueue
-          queue={snapshot.queue}
-          paused={snapshot.summary?.queuePaused === true}
-          t={t}
-          onRemove={onQueueRemove}
-          onChange={onQueueChange}
-          onLost={onQueueLost}
-          onLeave={() => field.current?.focus()}
-        />
-        {contextFirst && context}
+      {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
+      <ComposerQueue
+        // One per chat: a chat's long queue keeps its fold, open or closed, as you switch chats.
+        key={snapshot.summary?.sessionId || sessionId}
+        chat={snapshot.summary?.sessionId || sessionId}
+        queue={snapshot.queue}
+        paused={snapshot.summary?.queuePaused === true}
+        t={t}
+        onRemove={onQueueRemove}
+        onChange={onQueueChange}
+        onLost={onQueueLost}
+        onLeave={() => field.current?.focus()}
+      />
+      {context}
+      <div className="acpmux-composer-box">
         <input
           ref={importInput}
           className="acpmux-import-input"
@@ -1051,7 +1122,7 @@ export function Composer({
             ref={fieldRef}
             className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
             value={text}
-            placeholder={t(COMPOSER_LABELS.placeholder)}
+            placeholder={t(queues ? COMPOSER_LABELS.placeholderQueued : COMPOSER_LABELS.placeholder)}
             attributes={{
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
@@ -1103,7 +1174,7 @@ export function Composer({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
-          <div className="acpmux-composer-bar">
+          <div ref={bar} className="acpmux-composer-bar">
             <input
               ref={chooser}
               className="acpmux-attach-input"
@@ -1191,10 +1262,38 @@ export function Composer({
                 ]}
               />
             )}
-            <Chips snapshot={snapshot} />
-            {permissionStatus}
+            {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
+                compact row): grants live in the permission mode's Access menu, one lock. */}
+            {/* The chips hand up the speed option the bolt before the mic draws (FastToggle.tsx). */}
+            <SpeedToggleHost.Provider value={setSpeed}>
+              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            </SpeedToggleHost.Provider>
             <span className="acpmux-composer-actions">
-              {accessory}
+              {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
+                  when typing during a turn turns Stop into Steer and Send (hq#1957). */}
+              {steerable && (
+                <button
+                  key="steer"
+                  type="button"
+                  className="acpmux-steer"
+                  aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
+                  /* tooltip-allow: the button shows a verb; the tooltip says what it does and its shortcut */
+                  title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                  onClick={() => {
+                    send(false, true);
+                    field.current?.focus();
+                  }}
+                >
+                  {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                </button>
+              )}
+              {speed && <FastToggle speed={speed} />}
+              {/* The mic leaves a narrow row (composerRowFit.ts micHidden). */}
+              {accessory && (
+                <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
+                  {accessory}
+                </span>
+              )}
               {stop ? (
                 <button
                   key="stop"
@@ -1208,51 +1307,33 @@ export function Composer({
                   <StopIcon />
                 </button>
               ) : remote.canSend ? (
-                <>
-                  {steerable && (
-                    <button
-                      key="steer"
-                      type="button"
-                      className="acpmux-steer"
-                      aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
-                      title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
-                      onClick={() => {
-                        send(false, true);
-                        field.current?.focus();
-                      }}
-                    >
-                      {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
-                    </button>
-                  )}
-                  <button
-                    key="send"
-                    ref={sendButton}
-                    type="submit"
-                    disabled={Boolean(blocked) && !shell}
-                    className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
-                    aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
-                    title={
-                      shell
-                        ? t("composer.shellRun")
-                        : blocked?.reason
-                          ? t(blocked.reason)
-                          : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
-                    }
-                  >
-                    <ArrowUpIcon />
-                  </button>
-                </>
+                <button
+                  key="send"
+                  ref={sendButton}
+                  type="submit"
+                  disabled={Boolean(blocked) && !shell}
+                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                  aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                  title={
+                    shell
+                      ? t("composer.shellRun")
+                      : blocked?.reason
+                        ? t(blocked.reason)
+                        : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                  }
+                >
+                  <ArrowUpIcon />
+                </button>
               ) : null}
             </span>
           </div>
         </ChromeArea>
-        {!contextFirst && context}
       </div>
     </form>
   );
 }
 
-/// One attachment above the prompt. An image draws a cropped thumbnail and opens in the chat's image
+/// One attachment above the prompt. An image draws a thumbnail in its own shape and opens in the chat's image
 /// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
 function AttachmentChip({
   attachment,
@@ -1312,7 +1393,10 @@ function AttachmentChip({
     const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
     return menu(
       openImage ? () => openImage(source, attachment.name) : undefined,
-      <div className="acpmux-attachment acpmux-attachment-image" title={attachment.name}>
+      <div
+        className="acpmux-attachment acpmux-attachment-image"
+        /* tooltip-allow: an image thumbnail shows no name */ title={attachment.name}
+      >
         {openImage ? (
           <button
             type="button"
@@ -1341,7 +1425,7 @@ function AttachmentChip({
   }
   return menu(
     undefined,
-    <div className="acpmux-attachment acpmux-attachment-file" title={attachment.name}>
+    <div className="acpmux-attachment acpmux-attachment-file">
       <span>{attachment.name}</span>
       {remove}
     </div>,
@@ -1382,11 +1466,7 @@ function PdfAttachmentChip({
   const deliveryLabel = codex ? `${pageLabel} · ${t(COMPOSER_LABELS.sentAsFileForCodex)}` : pageLabel;
   return (
     <>
-      <div
-        className="acpmux-attachment acpmux-attachment-document"
-        title={attachment.name}
-        data-page-count={attachment.pageCount ?? undefined}
-      >
+      <div className="acpmux-attachment acpmux-attachment-document" data-page-count={attachment.pageCount ?? undefined}>
         <button
           type="button"
           className="acpmux-attachment-document-open"
@@ -1530,8 +1610,18 @@ function SlashMenu({
             /<Highlighted name={match.command.name} ranges={match.ranges} />
           </span>
           {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-          {match.command.source && <span className="acpmux-slash-source">{match.command.source}</span>}
-          <span className="acpmux-slash-description">{match.command.description}</span>
+          {match.command.source && match.command.source !== "agent" && (
+            <span className="acpmux-slash-source">
+              {match.command.source === "skill"
+                ? t("composer.slashSkill")
+                : match.command.source === "prompt"
+                  ? t("composer.slashPrompt")
+                  : "cmux"}
+            </span>
+          )}
+          <span className="acpmux-slash-description">
+            {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
+          </span>
         </div>
       ))}
     </div>

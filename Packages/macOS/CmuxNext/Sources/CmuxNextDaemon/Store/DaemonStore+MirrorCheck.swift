@@ -17,40 +17,52 @@ import Foundation
 extension DaemonStore {
     static let mirrorViolationLimit = 32
 
+    /// The fingerprint walks the whole tree, so it is taken at most once
+    /// per `mirrorCheckInterval` (a drag or status ticks apply batches every
+    /// frame): an allowed writer that ends within the interval of the last
+    /// recording clears it, and the next writer checks nothing. A write
+    /// outside the allowed writers is still found at the next recorded window.
+    static let mirrorCheckInterval: Duration = .seconds(1)
+
     func verifyMirrorUnchanged(before writer: String) {
         #if DEBUG
         guard let recorded = mirrorFingerprint, layoutFingerprint() != recorded else { return }
-        let tabs = workspaces.flatMap(\.screens).flatMap(\.panes).map(\.tabs.count).reduce(0, +)
         reportMirrorViolation("mirror records written outside daemon apply and the intent overlay "
-            + "(found before \(writer); \(workspaces.count) workspaces, \(tabs) tabs now)")
+            + "(found before \(writer); \(workspaces.count) workspaces, \(index.tabsBySurface.count) tabs now)")
         #endif
     }
 
     func recordMirror() {
         #if DEBUG
+        let now = ContinuousClock.now
+        if let last = mirrorFingerprintTakenAt, now - last < Self.mirrorCheckInterval {
+            mirrorFingerprint = nil
+            return
+        }
+        mirrorFingerprintTakenAt = now
         mirrorFingerprint = layoutFingerprint()
         #endif
     }
 
-    /// The tabs of the records, sorted (debug builds; empty otherwise).
-    func debugTabCensus() -> [String] {
+    /// The number of confirmed (not provisional) tabs, from the index
+    /// (debug builds; 0 otherwise).
+    func debugTabCensus() -> Int {
         #if DEBUG
-        guard !intentLog.isEmpty else { return [] }
-        return workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id).sorted()
+        guard !intentLog.isEmpty else { return 0 }
+        return index.tabsByID.count - index.provisionalTabCount
         #else
-        return []
+        return 0
         #endif
     }
 
-    /// Invariant 1 for the overlay: applying the intents kept every tab.
-    func checkOverlayConservation(confirmed: [String]) {
+    /// Invariant 1 for the overlay: applying the intents kept every tab
+    /// (a create intent adds only its provisional tab, which is not counted).
+    func checkOverlayConservation(confirmed: Int) {
         #if DEBUG
         guard !intentLog.isEmpty else { return }
-        // A create intent adds its provisional tab; every other intent keeps the set.
-        let visible = workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id)
-            .filter { !ProvisionalTab.isProvisional($0) }.sorted()
+        let visible = index.tabsByID.count - index.provisionalTabCount
         guard visible != confirmed else { return }
-        reportMirrorViolation("intent overlay changed the tabs: confirmed \(confirmed.count), visible \(visible.count)")
+        reportMirrorViolation("intent overlay changed the tabs: confirmed \(confirmed), visible \(visible)")
         #endif
     }
 
@@ -70,7 +82,7 @@ extension DaemonStore {
     /// A hash of every field an intent writes: the workspace order, names
     /// and groups, screens, panes, each pane's tabs in order with their names
     /// and pins, and workspace and tab group collapse state (no allocation;
-    /// it runs twice per event batch in debug builds).
+    /// at most once per `mirrorCheckInterval`, debug builds only).
     private func layoutFingerprint() -> Int {
         var hasher = Hasher()
         for group in groups {

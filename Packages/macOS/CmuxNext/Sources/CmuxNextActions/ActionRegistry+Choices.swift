@@ -49,13 +49,13 @@ extension ActionRegistry {
         return item
     }
 
-    /// The row a choices submenu always ends with (Move to Group > New Group), run on the same
+    /// The row a choices submenu always ends with, under its own title (Move Workspace to Group >
+    /// Move Workspace to New Group, never confused with a group named "New Group"), run on the same
     /// target; nil when the choices have none or it is not bound and enabled here.
     private func choiceTrailer(for id: ActionID, target: ActionTargetRef?, in context: ActionContext) -> NSMenuItem? {
         guard let trailerID = ContextMenuEssentials.choiceTrailers[id], let descriptor = descriptor(for: trailerID),
               Self.isAvailable(descriptor, in: context), action(for: trailerID)?.isEnabled() == true,
               let item = makeMenuItem(for: trailerID) else { return nil }
-        item.title = SpaceMenuLabels.newGroup
         item.keyEquivalent = ""
         item.keyEquivalentModifierMask = []
         item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [:])

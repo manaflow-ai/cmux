@@ -65,7 +65,8 @@ public struct TabLayoutEngine {
             slots: slots,
             contentWidth: x,
             standardWidth: flexibleWidths.standard,
-            availableWidth: available
+            availableWidth: available,
+            dependsOnSelection: flexibleWidths.dependsOnSelection
         )
     }
 
@@ -74,24 +75,20 @@ public struct TabLayoutEngine {
         available: CGFloat,
         style: TabStripStyle,
         metrics: TabStripMetrics
-    ) -> (widths: [CGFloat], standard: CGFloat) {
+    ) -> (widths: [CGFloat], standard: CGFloat, dependsOnSelection: Bool) {
         let count = tabs.count
-        guard count > 0 else { return ([], 0) }
+        guard count > 0 else { return ([], 0, false) }
         if style == .compact {
-            return (Array(repeating: metrics.compactTabWidth, count: count), metrics.compactTabWidth)
-        }
-        let natural = tabs.compactMap(\.naturalWidth)
-        if natural.count == count {
-            return fittedWidths(natural, selected: tabs.firstIndex(where: \.isSelected), available: available, metrics: metrics)
+            return (Array(repeating: metrics.compactTabWidth, count: count), metrics.compactTabWidth, false)
         }
 
         let ideal = available / CGFloat(count)
         if ideal >= metrics.maxTabWidth {
-            return (Array(repeating: metrics.maxTabWidth, count: count), metrics.maxTabWidth)
+            return (Array(repeating: metrics.maxTabWidth, count: count), metrics.maxTabWidth, false)
         }
         if ideal >= metrics.minActiveTabWidth {
             let widths = distribute(available, count: count)
-            return (widths, widths.last ?? 0)
+            return (widths, widths.last ?? 0, false)
         }
 
         // Too narrow for everyone: the selected tab keeps its minimum and the
@@ -99,7 +96,7 @@ public struct TabLayoutEngine {
         guard let selectedIndex = tabs.firstIndex(where: \.isSelected), count > 1 else {
             let width = max(ideal.rounded(.down), metrics.minInactiveTabWidth)
             let clamped = count == 1 ? max(width, metrics.minActiveTabWidth) : width
-            return (Array(repeating: clamped, count: count), clamped)
+            return (Array(repeating: clamped, count: count), clamped, count > 1)
         }
         let othersAvailable = available - metrics.minActiveTabWidth
         let perOther = othersAvailable / CGFloat(count - 1)
@@ -111,28 +108,7 @@ public struct TabLayoutEngine {
         }
         let standard = others.last ?? metrics.minInactiveTabWidth
         others.insert(metrics.minActiveTabWidth, at: selectedIndex)
-        return (others, standard)
-    }
-
-    /// Tabs fitted to their titles, between the fit minimum and the max
-    /// width. A crowded strip caps every tab at one width, so the widest
-    /// shrink first and all shrink evenly, down to the inactive minimum
-    /// (the selected tab keeps its own), then scrolls.
-    static func fittedWidths(_ natural: [CGFloat], selected: Int?, available: CGFloat,
-                             metrics: TabStripMetrics) -> (widths: [CGFloat], standard: CGFloat) {
-        let fitted = natural.map { min(max($0, metrics.minFitTabWidth), metrics.maxTabWidth) }
-        let widest = fitted.max() ?? 0
-        guard fitted.reduce(0, +) > available else { return (fitted, widest) }
-        let floors = fitted.indices.map { min(fitted[$0], $0 == selected ? metrics.minActiveTabWidth : metrics.minInactiveTabWidth) }
-        func total(_ cap: CGFloat) -> CGFloat { fitted.indices.reduce(0) { $0 + max(floors[$1], min(fitted[$1], cap)) } }
-        var low: CGFloat = 0
-        var high = widest
-        // The cap whose total fills `available` (monotonic; whole points).
-        while high - low > 1 {
-            let mid = ((low + high) / 2).rounded(.down)
-            if total(mid) > available { high = mid } else { low = mid }
-        }
-        return (fitted.indices.map { max(floors[$0], min(fitted[$0], low)) }, low)
+        return (others, standard, true)
     }
 
     /// Splits `total` into `count` whole-point widths. Leftover points go to

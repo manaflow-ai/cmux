@@ -15,7 +15,7 @@ use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
 use crate::compactor::is_marker_limit_error;
-use crate::prompt::{CacheTtl, Mark, is_ttl_refused_error, turn_blocks, turn_layout};
+use crate::prompt::{CacheTtl, input_blocks, input_layout, is_ttl_refused_error};
 use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
@@ -160,8 +160,12 @@ impl Brain {
                         let draft = |d: crate::draft::Draft| {
                             let _ = tx.send(Input::Draft(Box::new(d)));
                         };
+                        // The turn's run record, to the same clients.
+                        let run_update = |u: crate::run::RunUpdate| {
+                            let _ = tx.send(Input::Run(Box::new(u)));
+                        };
                         let outcome =
-                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft);
+                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft, &run_update);
                         // Claude Code placed all four cache breakpoints
                         // itself: the same turn again without the marker
                         // (the refused request did nothing), and later
@@ -224,7 +228,7 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                             }
                             (Some(e), _) if marked && is_marker_limit_error(e) => {
                                 marker_refused.refused();
@@ -250,12 +254,12 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                             }
                             _ => outcome,
                         };
                         crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
-                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft)
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                         })
                     }
                     Engine::Native(native) => {
@@ -331,7 +335,6 @@ impl Brain {
         let (items, rest): (Vec<Queued>, Vec<Queued>) =
             self.queue.drain(..).partition(|q| q.conversation == side);
         self.queue.extend(rest);
-        let view = self.chat.render_view();
         // The messages, their bookkeeping (floors, children) and the pending
         // turn commit together: a crash leaves all of it or none of it, so a
         // restart never logs a message twice and never loses one.
@@ -348,45 +351,23 @@ impl Brain {
         let (cached, plain_preset) = self.session_presets(family);
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
-        // Our one mark: the last whole block of the view (the header while
-        // there is none), held within the API's lookback of the last turn's
-        // mark (optchat_core::mark_piece), which is saved with the messages
-        // so a restart keeps it. A marked turn runs Claude Code without its
-        // own marks (the API takes 4), so each tool step's tail after the
-        // view goes uncached. Measured 2026-10-08 on a 30 KB view: this wins
-        // 11x on a one-request turn and 20% at 12 steps with tiny outputs;
-        // Claude Code's own rolling marks win only past about 400 output
-        // tokens per step at 12 steps (32% at about 1k tokens). Claude Code
+        // Our marks (spec 5a.2): the `<chat>` header, the frozen view's end and
+        // the delta's end (the request's end before the per-turn tail). A marked
+        // turn runs Claude Code without its own marks (the API takes 4), so each
+        // tool step's tail after our input goes uncached. Claude Code
         // reads the setting at process start, so a turn cannot switch after
-        // its first step; 11 of 13 real turns made 1-2 requests, and
-        // tool-heavy work belongs in subagents, which keep Claude Code's
-        // marks (decision 2026-10-08).
+        // its first step; tool-heavy work belongs in subagents, which keep
+        // Claude Code's marks (decision 2026-10-08).
         let mark = cached
             .as_ref()
             .filter(|_| marker)
-            .and_then(|_| {
-                let prev = self
-                    .state
-                    .last_mark
-                    .as_ref()
-                    .and_then(|m| m.prefix_of(&view.text));
-                optchat_core::mark_piece(&view.text, prev)
-            })
-            .map(|piece| Mark { piece, ttl })
+            .map(|_| ttl)
             // A session the pool started for an unmarked turn runs Claude
             // Code with its own marks: ours on top would make 5.
             .filter(|_| self.prewarm_ours != Some(false));
-        let mark_record = mark.map(|m| {
-            crate::state::MarkRecord::of(
-                &optchat_core::block_pieces(&view.text)[..=m.piece].concat(),
-            )
-        });
         let mut answers = self.state.carry_answers.clone();
         add_answers(&mut answers, self.answers_of(&items));
         let done = self.log_items(&items, move |next, done| {
-            if let Some(record) = mark_record {
-                next.last_mark = Some(record);
-            }
             next.carry_answers.clear();
             let first = done.ids.first().copied().unwrap_or(first_id);
             let stamp = done.stamps.first().map(String::as_str).unwrap_or("");
@@ -449,17 +430,33 @@ impl Brain {
             .collect();
         self.describe_images(&images);
         // A resume note carries the cut messages' full text (never logged
-        // again) before the newer messages.
-        let texts: Vec<String> = items
-            .into_iter()
-            .map(|i| match &i.source {
-                Source::Resume { cut, .. } => super::recover::resume_prompt(cut),
-                _ => i.text,
+        // again): it goes in the per-turn tail; every new message is in the
+        // delta as it was logged (spec 5a.3).
+        let resumes: Vec<String> = items
+            .iter()
+            .filter_map(|i| match &i.source {
+                Source::Resume { cut, .. } => Some(super::recover::resume_prompt(cut)),
+                _ => None,
             })
             .collect();
-        // Per-turn state goes after the view, never in the system prompt:
-        // the subagents at work now (the reference client's line), before
-        // the new messages. Never logged.
+        // The turn's first new entry: an item a failed steer logged already
+        // is new too, so it stays in the delta, never in a new view (5a.3).
+        let main = self.state.conversation.clone().unwrap_or_default();
+        let first_new = items
+            .iter()
+            .filter(|q| q.logged)
+            .filter_map(|q| match q.source {
+                Source::Message { seq, .. } => self.chat.logged_id(&format!(
+                    "{}#{seq}",
+                    q.conversation.as_deref().unwrap_or(&main)
+                )),
+                _ => None,
+            })
+            .fold(first_id, u64::min);
+        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // Per-turn state goes after the delta, never in the system prompt and
+        // never before a cache mark: the subagents at work now (the reference
+        // client's line). Never logged.
         let at_work = self.at_work_line();
         // The person's Home workspace as it is now (home_view): after the view, never logged.
         let home = self
@@ -467,13 +464,46 @@ impl Brain {
             .home_view
             .as_ref()
             .and_then(crate::home_view::HomeView::read);
-        let prompt_texts: Vec<String> = at_work
+        let tail: Vec<String> = at_work
             .iter()
             .chain(home.iter())
-            .chain(texts.iter())
+            .chain(resumes.iter())
             .cloned()
             .collect();
+        // Spec 5a: the frozen view and the delta after it (this turn's new
+        // messages last), or a new view: optchat-core `turn_input` decides;
+        // the host only keeps the record. The engine note goes after, so the
+        // input ends with the turn's own messages (the next turn's delta
+        // takes the note with this turn's work, in one block).
+        let frozen = self
+            .state
+            .frozen
+            .as_ref()
+            .and_then(crate::state::FrozenRecord::frozen);
+        let (input, delta_end) = self.chat.turn_input(frozen.as_ref(), first_new);
+        self.state.frozen = Some(crate::state::FrozenRecord::of(&input.frozen));
+        self.save();
         self.note_engine(&engine);
+        let view = optchat_host::RenderedView {
+            marks: optchat_core::cache_marks(&input.view),
+            parts: input.frozen.parts.clone(),
+            text: input.view.clone(),
+        };
+        let view = &view;
+        // The previous request's end (the last cut before this one), when
+        // this turn kept the frozen view: it gets a mark (see input_layout).
+        let prev_end = (!input.rerendered)
+            .then(|| {
+                input
+                    .frozen
+                    .cuts
+                    .iter()
+                    .rev()
+                    .find(|c| **c < delta_end)
+                    .copied()
+            })
+            .flatten()
+            .and_then(|end| crate::prompt::block_ending_at(&input.delta, end));
         let cached = cached.as_deref();
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
@@ -489,19 +519,24 @@ impl Brain {
                 ) {
                     (self.log)(&format!("updating the session's promptCacheTtl: {e}"));
                 }
-                let layout = turn_layout(
+                let layout = input_layout(
                     &self.settings.system_text,
                     &view.text,
-                    &prompt_texts.join("\n\n"),
+                    &input.delta,
+                    prev_end,
+                    &image_blocks,
+                    &tail.join("\n\n"),
                     mark,
-                    true,
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
-            None => (turn_blocks(&view.text, &prompt_texts), None, plain_preset),
+            None => (
+                input_blocks(&view.text, &input.delta, &image_blocks, &tail.join("\n\n")),
+                None,
+                plain_preset,
+            ),
         };
         let image_count = image_blocks.len();
-        let blocks = with_images(blocks, image_blocks);
         if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
@@ -519,13 +554,28 @@ impl Brain {
             serde_json::json!({
                 "kind": "cached",
                 "marker": mark.is_some(),
-                "mark": mark.map(|m| m.piece),
-                "head_mark": true,
                 "ttl": ttl.as_str(),
             })
         } else {
             serde_json::json!({"kind": "blocks"})
         };
+        // The delta by its log range and cuts: the inspector renders it again.
+        layout["delta"] = serde_json::json!({
+            "front": input.frozen.front,
+            "new_from": first_new,
+            "end": delta_end,
+            "unbuilt": input.frozen.unbuilt.iter().map(|p| p.name()).collect::<Vec<_>>(),
+            // The cuts this delta was built with (this request's own end is past it).
+            "cuts": input.frozen.cuts.iter().filter(|c| **c < delta_end).collect::<Vec<_>>(),
+            // The forced block starts this delta was built with.
+            "starts": input.frozen.starts.iter().filter(|s| **s <= first_new).collect::<Vec<_>>(),
+            "bytes": input.delta.iter().map(String::len).sum::<usize>(),
+            "rendered": input.rerendered,
+            "prev_end_block": prev_end,
+        });
+        if !resumes.is_empty() {
+            layout["resumes"] = serde_json::json!(resumes);
+        }
         layout["images"] = serde_json::json!(image_count);
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
@@ -536,7 +586,8 @@ impl Brain {
         self.trace_start(
             &key,
             first,
-            &view,
+            view,
+            &input.delta,
             &texts,
             &done.ids,
             &items_sources,
@@ -554,7 +605,13 @@ impl Brain {
                 effort: engine.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
-                env: Default::default(),
+                // Only the Chief's own turn gets the seal its `chiefs`
+                // tool needs (chief_profile.rs TURN_KEY_ENV).
+                env: [(
+                    crate::chief_profile::TURN_KEY_ENV.to_owned(),
+                    crate::chief_profile::process_turn_seal().to_owned(),
+                )]
+                .into(),
                 fast: self.turn_fast(&engine, family),
             },
             blocks,
@@ -789,6 +846,7 @@ impl Brain {
         key: &str,
         first: u64,
         rendered: &optchat_host::RenderedView,
+        delta: &[String],
         texts: &[String],
         ids: &[u64],
         sources: &[&'static str],
@@ -797,16 +855,16 @@ impl Brain {
     ) {
         let view = rendered.text.as_str();
         self.turn_clock = Some(std::time::Instant::now());
-        // A spawn in this turn gives its subagents this view and the turn's
-        // new messages, one raw line each (the view was rendered before
-        // they were logged).
+        // A spawn in this turn gives its subagents this view and the delta
+        // after it (the turn's new messages included): its lines are
+        // one-message view lines already (`id+1|...`).
         let mut turn_view = view.strip_suffix("</chat>").unwrap_or(view).to_owned();
-        for (id, text) in ids.iter().zip(texts) {
-            let line = optchat_core::view_line(
-                optchat_core::NodeId::new(0, *id),
-                Some(&format!("user: {text}")),
-            );
-            turn_view.push_str(&line);
+        for line in delta
+            .iter()
+            .flat_map(|b| b.lines())
+            .filter(|l| !l.is_empty())
+        {
+            turn_view.push_str(line);
             turn_view.push('\n');
         }
         turn_view.push_str("</chat>");
@@ -1045,6 +1103,18 @@ impl Brain {
             (None, Some(error)) => format!("({failed}: {error})"),
             (None, None) => String::new(),
         };
+        // A Chief that reads every message stays quiet with NO_REPLY (membership).
+        let text = if self.settings.membership.acts_on_its_own()
+            && crate::membership::is_no_reply(&text)
+        {
+            (self.log)(&format!(
+                "turn {key} answered {}: nothing posted",
+                crate::membership::NO_REPLY
+            ));
+            String::new()
+        } else {
+            text
+        };
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
             // The turn that answers both keeps this one's remote origin.
@@ -1102,11 +1172,27 @@ impl Brain {
             .filter(|t| t.key == key)
             .map(|t| t.session.clone())
             .unwrap_or_default();
+        // In a group conversation the reply goes into the thread of the last
+        // message it answers (membership::thread_target); a superseded turn's
+        // messages keep theirs for the turn that answers them.
+        let thread = if superseded {
+            None
+        } else {
+            let thread = answers
+                .last()
+                .and_then(|id| self.reply_threads.get(id))
+                .cloned();
+            for id in &answers {
+                self.reply_threads.remove(id);
+            }
+            thread
+        };
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
                 let text = self.link_subagents(&text);
-                let entry = answer_entry(conversation, key, &text, answers, pending);
+                let mut entry = answer_entry(conversation, key, &text, answers, pending);
+                in_thread(&mut entry, thread);
                 let entry = self.reply_with_previews(entry);
                 self.state.outbox.push(entry);
             }
@@ -1115,6 +1201,7 @@ impl Brain {
                     "turn {key} said nothing; it closes its messages with a done marker"
                 ));
                 let mut entry = answer_entry(conversation, key, "", answers, pending);
+                in_thread(&mut entry, thread);
                 if let cmux_conversation::Op::MessageSend { parts, .. } = &mut entry.op {
                     *parts = vec![cmux_conversation::Part::Work {
                         session,
@@ -1164,6 +1251,25 @@ impl Brain {
     }
 }
 
+/// Puts a reply into the thread `(root, parent)`, when it has one.
+fn in_thread(entry: &mut crate::state::OutboxEntry, thread: Option<(String, String)>) {
+    if let (
+        Some((root, parent)),
+        cmux_conversation::Op::MessageSend {
+            thread_root,
+            reply_to,
+            ..
+        },
+    ) = (thread, &mut entry.op)
+    {
+        *thread_root = Some(root);
+        *reply_to = Some(cmux_conversation::PartRef {
+            message_id: parent,
+            part_index: 0,
+        });
+    }
+}
+
 /// A queued item's source in the trace.
 fn source_name(source: &Source) -> &'static str {
     match source {
@@ -1177,19 +1283,6 @@ fn source_name(source: &Source) -> &'static str {
 
 /// The turn's images go just before its last block (the new messages, which
 /// name them), so the view blocks and their cache marker stay as they were.
-fn with_images(
-    mut blocks: Vec<serde_json::Value>,
-    images: Vec<serde_json::Value>,
-) -> Vec<serde_json::Value> {
-    if images.is_empty() {
-        return blocks;
-    }
-    let tail = blocks.pop();
-    blocks.extend(images);
-    blocks.extend(tail);
-    blocks
-}
-
 /// A queued item's source as the pending turn saves it.
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();

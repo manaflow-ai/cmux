@@ -39,7 +39,7 @@ enum WorkspaceGroupHandlers {
             guard invocation["group"]?.targetValue != nil else { throw ActionFailure.invalidTarget(RefusalStrings.groupRequired) }
             let group = try context.group(ActionInvocation(arguments: invocation.arguments))
             let workspace = try context.workspace(invocation).model
-            let sidebar = try context.sidebar(), ids = [SidebarWorkspaceID(workspace.id)]
+            let sidebar = try WorkspaceVerbHandlers.sidebar(showing: workspace, context), ids = [SidebarWorkspaceID(workspace.id)]
             // The drag's rule (SidebarEdits.canMove): a group holds one machine row's workspaces.
             guard SidebarEdits.canMove(ids, toGroup: sidebarID(group), in: sidebar.model.sections) else {
                 throw ActionFailure(message: RefusalStrings.groupOnAnotherMachine)
@@ -196,7 +196,7 @@ enum WorkspaceGroupHandlers {
         for step in 1...groups.count {
             let index = (start + offset * step + groups.count * 2) % groups.count
             let target = groups[index]
-            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue))?.workspaces.first(where: { $0.rowState != .placeholder }) {
+            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue))?.workspaces.first(where: { !$0.rowState.isPending }) {
                 context.services.windows.show(workspaceID: workspace.id.rawValue, in: window.state)
                 return
             }

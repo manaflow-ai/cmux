@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { vmHealthRepositoryMethods, type VmHealthRepositoryMethods } from "./health/repository";
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import * as Context from "effect/Context";
@@ -204,7 +205,7 @@ export type BillingGrantClaim =
   | { readonly kind: "inserted"; readonly grantId: string }
   | { readonly kind: "already_claimed" };
 
-export type VmRepositoryShape = {
+export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
    * Private-network and tunnel bookkeeping. Optional as a group so test
@@ -805,7 +806,8 @@ export type VmUsageEventInput = {
   readonly metadata?: Record<string, unknown>;
   /**
    * The machine's `createdAt`, supplied by destroy sites so analytics can
-   * report the machine's lifetime. Not persisted: the ledger row already
+   * report the machine's lifetime, and by create-success sites for
+   * `cloud_vm_ready.time_to_ready_ms`. Not persisted: the ledger row already
    * joins to `cloud_vms` by `vmId`.
    */
   readonly vmCreatedAt?: Date | null;
@@ -4378,6 +4380,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
 // functions keep their reviewed complexity fingerprints. The lease methods
 // remain one independently testable cross-instance capability.
 Object.assign(vmRepositoryLiveShape, tunnelEnrollmentRepositoryMethods);
+// The staff health sweep's reads and its own snapshot table.
+Object.assign(vmRepositoryLiveShape, vmHealthRepositoryMethods);
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, vmRepositoryLiveShape);
 

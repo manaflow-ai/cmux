@@ -83,6 +83,8 @@ pub enum Input {
     },
     /// A draft of the running turn's reply (`draft.rs`).
     Draft(Box<crate::draft::Draft>),
+    /// A change of the running turn's run record (`run.rs`).
+    Run(Box<crate::run::RunUpdate>),
     /// A steer's outcome (`steer.rs`): Ok once the harness read it.
     Steered {
         id: u64,
@@ -210,6 +212,8 @@ pub enum EngineRequest {
         effort: Option<String>,
         speed: Option<String>,
         compactor_speed: Option<String>,
+        compactor_harness: Option<String>,
+        compactor_model: Option<String>,
     },
 }
 
@@ -302,6 +306,8 @@ pub struct Settings {
     pub shared_ttl: crate::prompt::SharedTtl,
     /// Reads the person's Home workspace for each turn (`home_view`); None: no block.
     pub home_view: Option<crate::home_view::HomeView>,
+    /// Who this Chief is in the conversations and which messages wake it.
+    pub membership: crate::membership::Membership,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -423,6 +429,15 @@ pub struct Brain {
     steer_seq: u64,
     /// A draft could not be published (logged once).
     draft_failed: bool,
+    /// A run append failed once: later failures are not logged.
+    run_failed: bool,
+    /// A live frame (`chief-live-v1`) failed once: later failures are not logged.
+    live_failed: bool,
+    /// What the owner took of each streamed step (renumbers, restarts after a failure).
+    live_streams: crate::run::LiveStreams,
+    /// The attachments uploaded for the running turn's steps (turn key, step id):
+    /// every later append of the step names them again (a step is replaced whole).
+    run_attachments: HashMap<(String, String), Vec<serde_json::Value>>,
     /// The owner said once that it takes no typing indicator (cloud).
     typing_unsupported: bool,
     after_turn: Option<TurnHook>,
@@ -460,6 +475,8 @@ pub struct Brain {
     settle_clock: Option<Instant>,
     /// Where a turn waiting for the compactor says how far it is.
     settle_status: Option<Arc<crate::settle_status::SettleStatus>>,
+    /// A Chief that is not the default: a compactor fault is also its message.
+    compactor_messages: bool,
     turn_clock: Option<Instant>,
     /// The running turn's view with its new messages, what a `spawn` in it
     /// gives its subagents (no wait for the compactor to summarize the
@@ -490,6 +507,14 @@ pub struct Brain {
     /// Woken conversations not acked yet: the highest woken seq of each
     /// (`mux_ack.rs`).
     mux_pending: HashMap<String, u64>,
+    /// Local side conversations (`membership`), from the last summary seen:
+    /// None when the Chief is not in it (its messages are not read), else
+    /// each participant and whether it is a person.
+    side_member: HashMap<String, Option<HashMap<String, bool>>>,
+    /// The thread a reply to a waking group message goes into, by message
+    /// id: `(thread_root, parent)` (`membership::thread_target`). In memory
+    /// only: after a restart such a reply goes to the top level.
+    reply_threads: HashMap<String, (String, String)>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
 }
@@ -542,6 +567,10 @@ impl Brain {
             steering: Vec::new(),
             steer_seq: 0,
             draft_failed: false,
+            run_failed: false,
+            live_failed: false,
+            live_streams: Default::default(),
+            run_attachments: HashMap::new(),
             typing_unsupported: false,
             marker_refused: crate::prompt::MarkLatch::default(),
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -563,6 +592,7 @@ impl Brain {
             prev_view: None,
             settle_clock: None,
             settle_status: None,
+            compactor_messages: false,
             turn_clock: None,
             turn_view: None,
             turn_engine: None,
@@ -570,6 +600,8 @@ impl Brain {
             describing: HashSet::new(),
             side_handled: HashMap::new(),
             mux_pending: HashMap::new(),
+            side_member: HashMap::new(),
+            reply_threads: HashMap::new(),
             previewer: None,
         };
         // Each cut turn runs again first, on the reference client's note;
@@ -603,6 +635,13 @@ impl Brain {
     /// A turn that waits for the compactor writes how far it is here.
     pub fn with_settle_status(mut self, status: crate::settle_status::SettleStatus) -> Brain {
         self.settle_status = Some(Arc::new(status));
+        self
+    }
+
+    /// A compactor fault is also posted as this Chief's message (a Chief whose
+    /// home the app does not watch for `state/compactor.json`).
+    pub fn with_compactor_messages(mut self, on: bool) -> Brain {
+        self.compactor_messages = on;
         self
     }
 
@@ -719,6 +758,7 @@ impl Brain {
                 let _ = reply.send(blocks);
             }
             Input::Draft(draft) => self.turn_draft(&draft),
+            Input::Run(update) => self.turn_run(*update),
             Input::Steered { id, result } => self.steered(id, result),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
@@ -790,15 +830,15 @@ impl Brain {
         self.post_notices();
     }
 
-    /// cx-1hpt: one failure notice in the conversation at a time, across
-    /// host starts (the state file keeps it); a good probe retracts it.
+    /// cx-oqnw3: a compactor fault is a system notice (the app reads
+    /// `state/compactor.json`), never a Chief message; a good probe removes
+    /// it, and retracts a notice an older build posted as a message (cx-1hpt).
     fn compactor_status(&mut self, status: Result<(), String>) {
+        if let Some(settle) = &self.settle_status {
+            settle.compactor_fault(status.as_ref().err().map(String::as_str));
+        }
         match status {
-            Err(text) => {
-                if self.state.compactor_notice.is_some() {
-                    (self.log)(&text);
-                    return;
-                }
+            Err(text) if self.compactor_messages && self.state.compactor_notice.is_none() => {
                 let key = format!("notice:optchat:compactor:{}", now_ms());
                 self.state.compactor_notice = Some(crate::state::PostedNotice {
                     key: key.clone(),
@@ -807,6 +847,7 @@ impl Brain {
                 self.save();
                 self.notice(key, text);
             }
+            Err(text) => (self.log)(&text),
             Ok(()) => {
                 let Some(posted) = self.state.compactor_notice.take() else {
                     return;

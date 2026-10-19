@@ -4,6 +4,14 @@ import Foundation
 /// language), for the few places a vendored file says something MessagesLab
 /// does not (marked `cmux:` there).
 enum CmuxStrings {
+    /// The message menu's permalink item (tree threads, cx-och3h).
+    static var copyLink: String {
+        String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
+    }
+    /// The placeholder of the thread header's rename field.
+    static var threadTitlePlaceholder: String {
+        String(localized: "home.thread.titlePlaceholder", defaultValue: "Thread Title", table: "CmuxHome", bundle: .module)
+    }
     static var notDelivered: String {
         String(localized: "label.notDelivered", defaultValue: "Not Delivered", table: "CmuxHome", bundle: .module)
     }

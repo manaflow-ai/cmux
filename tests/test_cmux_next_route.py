@@ -94,7 +94,7 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_a_shared_module_selects_its_dependents(self):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"])
-        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests"])
+        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests", "CmuxNextKeepAwakeTests", "CmuxNextWorkspaceNamingTests"])
         self.assertEqual(result["daemon"], "false")
 
     def test_daemon_client_sources_run_the_daemon_tier(self):
@@ -188,15 +188,17 @@ class PullRequestTiers(unittest.TestCase):
     def test_a_ci_only_change_runs_no_mac_tier(self):
         """Workflows, CI scripts, the router and gh-merge-green: actionlint, the CI unit tests and the
         routing replay check them on Linux, and one command reverts them."""
-        for changed in (
-            [".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "tests/test_cmux_next_route.py"],
-            ["scripts/gh-merge-green", "scripts/ci/revert_pr.py", "tests/test_gh_merge_green_revert.py"],
-            ["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"],
-        ):
-            with self.subTest(changed=changed):
-                result = tiers(changed)
-                for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
-                    self.assertEqual(result[tier], "false", tier)
+        result = tiers(["scripts/ci/cmux_next_route.py", "tests/test_cmux_next_route.py"])
+        for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+            self.assertEqual(result[tier], "false", tier)
+
+        result = tiers([".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py"])
+        for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+            self.assertEqual(result[tier], "true", tier)
+
+        result = tiers(["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"])
+        for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+            self.assertEqual(result[tier], "false", tier)
 
     def test_ci_files_a_mac_job_consumes_keep_their_tier(self):
         self.assertEqual(tiers(["scripts/ci/xcode-pins.txt"])["full"], "true")
@@ -243,11 +245,11 @@ class EveryTier(unittest.TestCase):
     def test_an_unknown_diff_runs_every_tier(self):
         self.assert_everything(tiers([]))
 
-    def test_a_vendored_pin_bump_runs_every_tier_and_the_swift_tests(self):
+    def test_a_vendored_pin_bump_marks_every_tier_for_the_batch(self):
         # The GhosttyNextKit binary pin and the CEF pin change code no app diff
         # shows (classic's #19672 passed on macos-26 and crashed on macOS 27).
-        # A pin bump runs every tier, and swift test runs on that pull request
-        # although feat-cmux-next PRs otherwise skip it.
+        # A pin bump marks every tier for the batch integration run. Ordinary
+        # pull requests still keep the Swift suite on the batch cadence.
         for pin in ("Packages/Shared/CmuxGhosttyKit/Package.swift", "scripts/cmux-next/cef-manifest.json"):
             result = tiers([pin])
             self.assert_everything(result)
@@ -257,17 +259,13 @@ class EveryTier(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
         self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
         swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
-        # swift test runs on every app-touching feat-cmux-next PR on the
-        # macOS 27 minis: report-only, except on a pin bump, where it blocks.
+        # Swift runs on the full-ci batch integration PR and base pushes; the
+        # ordinary PR gate stays Linux-only.
         condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
-        self.assertNotIn("github.base_ref == 'feat-cmux-next'", condition)
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
-        report_only = (
-            "github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next'"
-            " && needs.path_route.outputs.vendored_pin != 'true'"
-        )
-        self.assertIn(f"    continue-on-error: ${{{{ {report_only} }}}}\n", swift_test)
-        self.assertIn(f"    name: ${{{{ {report_only} && 'cmux-next swift test (macOS 27, report-only)' || 'cmux-next swift test' }}}}\n", swift_test)
+        self.assertIn("    continue-on-error: false\n", swift_test)
+        self.assertIn("    name: cmux-next swift test\n", swift_test)
 
 
 class PushAttribution(unittest.TestCase):

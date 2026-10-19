@@ -59,7 +59,7 @@ export interface SyncReport {
 type StripeItem = { id: string; quantity?: number; price: { id: string; product: string | { id: string }; lookup_key?: string | null; recurring?: { interval?: string } | null }; current_period_start?: number; current_period_end?: number }
 type StripeSubscription = { id: string; status: string; customer: string | { id: string }; metadata?: Record<string, string>; items: { data: StripeItem[] } }
 
-const stripeFetch = async (key: string, method: "GET" | "POST", path: string, form?: Record<string, string>, idempotencyKey?: string): Promise<any> => {
+export const stripeFetch = async (key: string, method: "GET" | "POST", path: string, form?: Record<string, string>, idempotencyKey?: string): Promise<any> => {
   const headers: Record<string, string> = { authorization: `Bearer ${key}`, "stripe-version": STRIPE_API_VERSION }
   if (form) headers["content-type"] = "application/x-www-form-urlencoded"
   if (idempotencyKey) headers["idempotency-key"] = idempotencyKey
@@ -163,7 +163,10 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
     const identifier = mode === "per_seat" ? `ais:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}:${seats}` : `ai:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}`
     if (sent?.identifier === identifier || (sent === null && level.facts === 0)) return false
     const value = usageMeterValueMicros(mode, level.micros, includedUsd, seats)
-    const timestamp = Math.min(Math.floor(Date.now() / 1000), end - 1)
+    // Deterministic (cx-y79zh.1 e2e finding): the identifier is also the idempotency key, so a retry of the same
+    // level must be the same request. The event is dated at the level's last fact, after the period's previous
+    // event (a seat-only change is then still the latest, for the meter's `last`), and inside the period.
+    const timestamp = Math.min(end - 1, Math.max(start, Math.floor((level.last_at ?? start * 1000) / 1000), sent?.event_ts != null ? sent.event_ts + 1 : start))
     try {
       await stripeFetch(key, "POST", "/v1/billing/meter_events", { event_name: usageMeterEvent(mode), "payload[stripe_customer_id]": idOf(sub.customer), "payload[value]": (value / 1_000_000).toFixed(6), identifier, timestamp: String(timestamp) }, identifier)
     } catch (e) {
@@ -171,7 +174,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       const err = e as { status?: number; stripeMessage?: string }
       if (!(err.status === 400 && /identifier/i.test(err.stripeMessage ?? "") && /(already|duplicate|exists)/i.test(err.stripeMessage ?? ""))) throw e
     }
-    await meter.recordPush(team, sub.id, start, end, identifier, level.micros, { mode, seats, included_usd: includedUsd, sent_micros: value })
+    await meter.recordPush(team, sub.id, start, end, identifier, level.micros, { mode, seats, included_usd: includedUsd, sent_micros: value, event_ts: timestamp })
     return true
   }
 

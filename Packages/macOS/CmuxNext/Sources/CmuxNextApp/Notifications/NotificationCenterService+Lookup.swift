@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextSettings
+import CmuxNextFocus
 
 /// Tab lookups, the dock badge and the pane attention marks.
 extension NotificationCenterService {
@@ -95,6 +96,13 @@ extension NotificationCenterService {
         guard label != dockBadgeLabel else { return }
         dockBadgeLabel = label
         NSApp.dockTile.badgeLabel = label
+    }
+
+    /// Bounces the Dock icon for an alert that arrived while cmux was inactive
+    /// (`notifications.dockBounce`): once, or until the user switches to cmux.
+    func bounceDock(_ mode: DockBounceMode?) {
+        guard let mode, !NSApp.isActive else { return }
+        NSApp.requestUserAttention(mode == .untilActive ? .criticalRequest : .informationalRequest)
     }
 
     /// The handoff driver over the local daemon and this Mac's install

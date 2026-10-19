@@ -12,7 +12,9 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setHeaderState } from "./header/headerState";
+import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
+import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -80,6 +82,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "sidebarPreviewVariant":
+      return configureNativeSidebarPreviewVariant(event.value);
     case "editedFiles":
       // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
       // module loads still sets the value the card then reads.
@@ -100,6 +104,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyCustomization(value);
     case "headerState":
       return setHeaderState(event.value);
+    case "tabRow":
+      return setTabRow(event.value);
     case "floatingState":
       return setFloatingState(event.value);
     case "dictation":

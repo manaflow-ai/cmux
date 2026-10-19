@@ -22,9 +22,7 @@ export function FolderListEditor({ row, value, disabled, labelId }: EditorProps)
     <span className="folder-list" aria-labelledby={labelId}>
       {folders.map((folder, index) => (
         <span key={folder} className="folder-item" data-folder={folder}>
-          <span className="folder-path selectable" title={folder}>
-            {folder}
-          </span>
+          <span className="folder-path selectable">{folder}</span>
           <button
             type="button"
             className="icon-button"

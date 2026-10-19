@@ -15,16 +15,21 @@ nightly chief, so we need to be careful with that one." The shared home let any 
 the one brain (his NIGHTLY sat with a dead Chief after a DEV quit) and let DEV builds read and
 write his Chief. Now:
 
-- Every DEV and staging build has its own Chief home, keyed by bundle id:
-  `~/.cmux/chief/<bundle id>` (plus `.<account>` for an account other than `default`). It never
-  starts, stops or reads another build's brain, acpmux, tools socket or memory; its quit stops only
-  its own Chief.
-- NIGHTLY (`com.cmuxterm.app.nightly` and cmux NEXT's `com.cmuxterm.app.nightly.cmux-next`) keeps
-  the home all builds shared, `~/.cmux/chief/<account>` (`default`), where it is: nothing is moved
-  or copied, so its memory, conversation owner session (the session name is the hash of the path)
-  and backup repository stay the same. Release and RC (no Chief runs there) resolve that path too,
-  so the `cmux chief` CLI in their terminals still reaches NIGHTLY's Chief. If both NIGHTLY
-  identities are installed and running, they share that one Chief.
+- Every build but NIGHTLY has its own Chief home, keyed by bundle id: `~/.cmux/chief/<bundle id>`
+  (plus `.<account>` for an account other than `default`). That covers DEV, staging, cmux NEXT's
+  `com.cmuxterm.app.nightly.cmux-next`, RC and release (hq-6d, 2026-10-14: two NIGHTLY identities
+  must never share one Chief when both run). A build never starts, stops or reads another build's
+  brain, acpmux, tools socket or memory; its quit stops only its own Chief.
+- NIGHTLY (`com.cmuxterm.app.nightly` only) keeps the home all builds shared,
+  `~/.cmux/chief/<account>` (`default`), where it is: nothing is moved or copied, so its memory,
+  conversation owner session (the session name is the hash of the path) and backup repository stay
+  the same. RC and release run no Chief; the `cmux chief` CLI in their terminals resolves their
+  own (empty) home, not NIGHTLY's, and starts a Chief there if asked (intended until the
+  per-build isolation slice that gives RC and release no Chief).
+- cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`) used `default` from 2026-10-12 until this
+  change. Its new home starts empty and does not import `default`; that history stays with
+  NIGHTLY. A build's own home has remote memory backup off unless configured (optchat-chief
+  `backup.rs` `is_dev_build_home`: every `com.cmuxterm.app*` home name but NIGHTLY's bundle id).
 - Every other build starts with an empty home and never imports the old per-tag Chiefs (section 7
   runs only for a shared home). Its remote memory backup stays off unless configured.
 - Builds from before this change still resolve `~/.cmux/chief/default`. They do not corrupt
@@ -37,7 +42,8 @@ write his Chief. Now:
 - The `cmux chief` CLI resolves the home of the app it belongs to: `CMUX_CHIEF_HOME` in the app's
   terminals and in the brain's environment, else the bundle id (`CMUX_BUNDLE_ID`, else the bundle
   around the executable) with the same rule. A CLI outside any app resolves
-  `~/.cmux/chief/<account>`.
+  `~/.cmux/chief/<account>` (until the CLI own-bundle-first slice of per-build isolation).
+  Behavior test: cmux-tui `tests/cli/chief_build_homes.rs`.
 - Tests: `CMUX_NEXT_CHIEF_ROOT` puts the per-build rule under another directory (isolation markers
   ignored), and a DEBUG build may name another bundle id in `CMUX_NEXT_CHIEF_BUILD_ID`.
 

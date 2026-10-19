@@ -1185,6 +1185,24 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+# Per-build isolation (cx-is1kf.4): a shipped build owns these names (its
+# daemon session cmux-app-<name>, its control socket and state). A DEV build
+# with such a tag gets names of its build key instead (CmuxNextCompat
+# BuildIdentity+AppNames.swift), so the socket and markers this script writes
+# for the tag would name no app. Refuse the tag before anything is cleaned or built.
+owned_tag_names=("$TAG")
+if [[ "$BUNDLE_SET" -eq 1 && "$BUNDLE_ID" == com.cmuxterm.app.debug.* ]]; then
+  owned_tag_names+=("${BUNDLE_ID#com.cmuxterm.app.debug.}")
+fi
+for owned_tag_name in "${owned_tag_names[@]}"; do
+  case "$(cmux_attach__slug_raw "$owned_tag_name")" in
+    nightly | rc | staging | cmux-next)
+      echo "error: --tag or --bundle-id '$owned_tag_name' is the name of a shipped cmux build (nightly, rc, staging, cmux-next); pick another tag" >&2
+      exit 1
+      ;;
+  esac
+done
+
 # Release's product is cmux.app, which the tag step stages as the tagged app. It
 # bundles the pinned cmux-tui by default; dogfood the checkout's own instead. Its
 # entitlements need a signing team, and the tagged app is signed ad hoc.
@@ -1672,7 +1690,18 @@ if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
   XCODEBUILD_CLEANED_OUTPUTS=0
 fi
 
-XCODEBUILD_LOCK_DIR="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).locks"
+# One lock dir per user whatever the caller's environment: an ssh session has no
+# TMPDIR and would fall back to /tmp, beside a separate set of slots under the
+# GUI session's TMPDIR. macOS's per-user temp dir is that GUI TMPDIR; the
+# local build guards (cmuxterm-hq) root their two-build gate there too.
+xcodebuild_lock_dir() {
+  local user_temp
+  user_temp="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)"
+  user_temp="${user_temp:-/tmp/}"
+  printf '%s/cmux-xcodebuild-%s.locks\n' "${user_temp%/}" "$(id -u)"
+}
+
+XCODEBUILD_LOCK_DIR="$(xcodebuild_lock_dir)"
 XCODEBUILD_LOCK_CONCURRENCY="${CMUX_XCODEBUILD_LOCK_CONCURRENCY:-5}"
 if ! is_positive_integer "$XCODEBUILD_LOCK_CONCURRENCY"; then
   echo "error: xcodebuild lock concurrency must be a positive integer" >&2
@@ -2137,6 +2166,13 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u CMUX_PANEL_ID
     -u CMUXD_UNIX_PATH
     -u CMUX_TAG
+    # A launch from an acpmux agent inherits its daemon's home and socket: the
+    # build would share that daemon and hand it off as its own outdated one.
+    -u ACPMUX_HOME
+    -u ACPMUX_SOCKET
+    -u ACPMUX_ENV
+    -u ACPMUX_SESSION_ID
+    -u ACPMUX_SESSION_NAME
     -u CMUX_DEBUG_LOG
     -u CMUX_BUNDLE_ID
     -u CMUX_BUNDLED_CLI_PATH
@@ -2221,6 +2257,15 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       CMUX_DEV_AUTH_REPLACE_SESSION=1
     )
   fi
+  # nx-remote GUI jobs (cmuxterm-hq build-host/README.md): the tagged launch below
+  # runs through `env -i`, so pass on the job's markers when the caller has them.
+  # NX_REMOTE=1: the app asks for no notification permission (DesktopNotifier);
+  # ACPMUX_AGENT_LAUNCH=deny: the app's acpmux starts no agent.
+  for NX_PASS_VAR in NX_REMOTE ACPMUX_AGENT_LAUNCH; do
+    if [[ -n "${!NX_PASS_VAR:-}" ]]; then
+      TAG_LAUNCH_ENV+=("$NX_PASS_VAR=${!NX_PASS_VAR}")
+    fi
+  done
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()

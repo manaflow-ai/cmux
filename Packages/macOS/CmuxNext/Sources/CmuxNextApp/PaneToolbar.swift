@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -25,6 +26,11 @@ final class PaneToolbar {
         var kind: Kind?
         var zoomed = false
         var pinned: [String] = []
+        /// The strip selects a tab the store no longer lists (a provisional tab the store's tab
+        /// just replaced): the selection follows on the strip's next apply, so the bar keeps what
+        /// it shows. Hiding "…" for that frame gave its width to the strip, which laid out every
+        /// tab again at once (10 tabs, cx-codh2).
+        var behind = false
     }
 
     let view = PaneToolbarView()
@@ -73,6 +79,7 @@ final class PaneToolbar {
         observation = Task { [weak self, weak pane] in
             for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
                 guard let self, let state else { return }
+                if state.behind { continue }
                 update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned)
             }
         }
@@ -80,8 +87,11 @@ final class PaneToolbar {
 
     private static func state(_ pane: PaneController) -> State {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
-        guard let key = pane.stripModel.selectedID?.rawValue, let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
-            return State(pinned: pinned)
+        guard let key = pane.stripModel.selectedID?.rawValue else { return State(pinned: pinned) }
+        guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
+            // A window's own page or browser tab is never in the store: no "…", not a stale bar.
+            let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
+            return State(pinned: pinned, behind: !local)
         }
         // The pane's own workspace, not a store scan: this runs for every pane.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false

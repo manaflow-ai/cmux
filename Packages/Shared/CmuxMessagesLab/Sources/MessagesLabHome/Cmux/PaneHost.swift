@@ -122,8 +122,9 @@ final class HostView: NSView {
         demo.subviews.first { $0.layer.cornerRadius == 3.375 }?.isHidden = true
         scrollView.attach(demo)
         demo.moveToWindowRecursively()
-        // cmux: one ScaleKeeper serves every Home tab (it was one window's).
-        ScaleKeeper.shared.add([below.root, morphHost.root, composeHost.root, above.root])
+        // cmux: one ScaleKeeper serves every Home tab, each tab's trees at its own view's scale
+        // (MessagesLab 258b385: two views can be at two scales; PaneHost+Scale.swift).
+        ScaleKeeper.shared.register(self)
         ScaleKeeper.shared.start()
         needsLayout = true
     }
@@ -225,19 +226,17 @@ final class HostView: NSView {
         CATransaction.commit()
     }
 
-    /// A backing scale change (the window moved to a display with another scale): ChatController.displayScaleChanged
-    /// calls MessagesWindowView.setRenderScale, which re-rasterizes and, from MessagesLab 82ccac1, re-snaps the rows,
-    /// the typing indicator and its clip and remakes the thread-preview heights at the new scale
-    /// (scripts/cmux-next/home-scale-change.py). Attaching to a window of another scale takes the same path (windowChanged).
+    /// A backing scale change (the window moved to a display with another scale or colour space): the transcript
+    /// follows its own window's display in one display change (ChatController.followDisplay, PaneHost+Scale.swift).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        // This pane's own transcript scale, not only the shared DisplayScale.current: another pane of the window
-        // may have taken the change first (MessagesWindowView.appliedRenderScale, a cmux patch).
-        guard let s = window?.backingScaleFactor, s != DisplayScale.current || (controller?.demo?.appliedRenderScale).map({ $0 != s }) == true
-        else { return }
-        DisplayScale.current = s
-        controller?.displayScaleChanged()
+        controller?.followDisplay(backingChanged: true)
     }
+
+    /// A tab shown again (it or a container was hidden): it may have missed a scale change while hidden. Shown or
+    /// hidden, it changes whether its window hosts a shown Home (HomeKeyState, cx-4o3vq).
+    override func viewDidUnhide() { super.viewDidUnhide(); controller?.followWindowScale(); HomeKeyState.shared.setNeedsApply() }
+    override func viewDidHide() { super.viewDidHide(); HomeKeyState.shared.setNeedsApply() }
 
     // MARK: Events outside the transcript (the header and compose bar)
 
@@ -319,6 +318,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     weak var intents: ChatIntents?
     /// cmux: a click on an app link (`URL.isChiefSubagentLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
+    /// cmux: a click on any other link (`otherTarget`: Shift-Command held); the system opens it unless the host routes it.
+    var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void = { url, _ in NSWorkspace.shared.open(url) }
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
@@ -390,6 +391,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
         self.store = store
         store.responder = nil
+        // Nested threads (host-hooks-b): the daemon's replies have a parent at any depth (conversation-tree-v1).
+        store.setThreadMode(.tree)
         start = CACurrentMediaTime()
         let demo = MessagesWindowView(store: store)
         self.demo = demo
@@ -402,6 +405,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         host.paneHeader.title = store.state.conversation.title
         demo.frame = CGRect(origin: .zero, size: host.bounds.size)
         host.install(demo)
+        if window != nil, !Self.noFocus { HomeKeyState.shared.register(self) }  // the app-wide key palette counts it (cx-4o3vq)
+        // A window on a display of another scale than the one the view was made at (MessagesLab 258b385).
+        followWindowScale()
         host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
@@ -455,21 +461,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
         observers = []
         // The flight recorder follows the pane's window (before the window view exists, too).
         FlightRecorder.shared.attach(self)
-        guard let window, let demo else { return }
+        guard let window, let demo else { if !Self.noFocus { HomeKeyState.shared.setNeedsApply() }; return }  // cx-4o3vq
         let nc = NotificationCenter.default
         if !Self.noFocus {
-            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(false) })
-            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo?.setInactive(true) })
-            demo.setInactive(!window.isKeyWindow)
+            HomeKeyState.shared.register(self)
         } else {
             demo.setInactive(!Self.args.contains("--active"))
         }
-        observers.append(nc.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.windowDidChangeScreen() })
-        if DisplayScale.current != window.backingScaleFactor || demo.appliedRenderScale != window.backingScaleFactor {
-            DisplayScale.current = window.backingScaleFactor
-            displayScaleChanged()
-        }
-        windowDidChangeScreen()
+        observers.append(nc.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.followDisplay() })
+        followDisplay()
     }
 
     static func warmUp() {
@@ -536,21 +536,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         scheduleWake()
     }
 
-    // MARK: Display scale
-
-    func displayScaleChanged() {
-        guard let demo else { return }
-        let s = DisplayScale.current
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        func walk(_ l: CALayer) { if l.delegate is NSView { return }; l.contentsScale = s; l.sublayers?.forEach(walk); l.mask.map(walk) }
-        [host.below.root, host.morphHost.root, host.composeHost.root, host.above.root].forEach(walk)
-        CATransaction.commit()
-        ScaleKeeper.shared.setNeedsApply()
-        demo.setRenderScale(s)
-        demo.moveToWindowRecursively()
-        picker?.rescale()
-        intents?.rowsPlaced()  // the video layers follow the rows' new snap (82ccac1)
-    }
+    // MARK: Display scale: PaneHost+Scale.swift (followWindowScale, ScaleKeeper).
 
     // MARK: Wake-ups (no polling, no display link)
 
@@ -734,66 +720,5 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func windowDidResize() { host.needsLayout = true }
 
-    /// Another display: draw bitmaps in its color space (no conversion at commit).
-    func windowDidChangeScreen() {
-        guard let cs = window?.screen?.colorSpace?.cgColorSpace, cs != DisplayScale.colorSpace, let demo else { return }
-        DisplayScale.colorSpace = cs
-        RowBitmaps.shared.removeAll()
-        // MessagesLab 7518134: the palette glyphs are drawn again in the new colour space now, not
-        // inside the next menu's open on main.
-        MenuGlyphs.removeAll()
-        RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm() }
-        let inactive = Fixture.inactive
-        demo.setInactive(!inactive)
-        demo.setInactive(inactive)
-        demo.compose.rescale()
-    }
-}
-
-/// Keeps every content-less layer of the hosted trees at the window's scale.
-/// Layers the shared code creates without a contentsScale (typing dots, masks)
-/// would otherwise keep Core Animation's default of 1. A layer with contents
-/// is left alone: whoever rasterized it set its scale (and the resolution
-/// audit checks it). NSView-managed layers belong to AppKit. Runs when the
-/// main run loop goes idle; a walk is a few dozen pointer reads.
-final class ScaleKeeper {
-    static let shared = ScaleKeeper()
-    /// cmux: the roots of every hosted Home tab (weak: a closed tab's layers go).
-    private let rootTable = NSHashTable<CALayer>.weakObjects()
-    var roots: [CALayer] { rootTable.allObjects }
-    func add(_ layers: [CALayer]) { layers.forEach { rootTable.add($0) } }
-    private var observer: CFRunLoopObserver?
-    /// cmux: walk only after something could have added layers (an engine
-    /// change, a scroll, a window or display change). Host.swift walked on
-    /// every main run loop pass: 7% of the main thread in the tab-switch
-    /// bench, with Home hidden too.
-    private var dirty = true
-    func setNeedsApply() { dirty = true }
-
-    func start() {
-        guard observer == nil else { return }
-        let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { [weak self] _, _ in
-            guard let self, self.dirty else { return }
-            self.apply()
-        }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
-        observer = o
-        apply()
-    }
-
-    func apply() {
-        dirty = false
-        let s = DisplayScale.current
-        var changed = false
-        func walk(_ l: CALayer) {
-            if l.contentsScale != s, l.contents == nil, !(l.delegate is NSView) {
-                if !changed { CATransaction.begin(); CATransaction.setDisableActions(true); changed = true }
-                l.contentsScale = s
-            }
-            if let m = l.mask { walk(m) }
-            l.sublayers?.forEach(walk)
-        }
-        roots.forEach(walk)
-        if changed { CATransaction.commit() }
-    }
+    // The display change (colour space and scale): PaneHost+Scale.swift (followDisplay).
 }

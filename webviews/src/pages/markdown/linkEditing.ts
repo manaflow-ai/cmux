@@ -8,6 +8,10 @@ import { $prose } from "@milkdown/kit/utils";
 import { findHeading, headingTargets, parseLink, pastedURL, relativeLinkPaths, type ResolvedLink } from "./links";
 import { RAW_NODE, type ReferenceInfo } from "./sourceMap";
 import type { LinkCardInfo, LinkOverlays } from "./overlays";
+import { HoverIntent } from "../../ui/hoverIntent";
+
+/** The caret's card waits a moment (keyboard, not hover): moving through text shows no flash. */
+const CARET_CARD_DELAY_MS = 250;
 
 export type LinkLabel =
   | "followHint"
@@ -117,15 +121,16 @@ export function hoverCardPlugin(host: LinkHost, readOnly: () => boolean, overlay
     () =>
       new Plugin({
         view(view) {
-          let timer: ReturnType<typeof setTimeout> | null = null;
           let current: Element | null = null;
           // What showed the card: the pointer over a link, or the caret inside one.
           let by: "pointer" | "caret" | null = null;
           const render = (anchor: Element | null, info: LinkCardInfo | null) =>
             overlays.setCard(anchor && info ? { anchor, info } : null);
+          // The pointer's card waits the hover delay, then a neighbor link's shows at once
+          // (ui/hoverIntent.ts).
+          const intent = new HoverIntent<Element>({ show: (element) => show(element), hide: () => render(null, null) });
           const hide = () => {
-            if (timer) clearTimeout(timer);
-            timer = null;
+            intent.hover(null);
             current = null;
             by = null;
             render(null, null);
@@ -143,10 +148,9 @@ export function hoverCardPlugin(host: LinkHost, readOnly: () => boolean, overlay
           };
           const schedule = (element: Element, source: "pointer" | "caret") => {
             if (element === current) return;
-            hide();
             current = element;
             by = source;
-            timer = setTimeout(() => show(element), 250);
+            intent.hover(element, source === "caret" ? CARET_CARD_DELAY_MS : undefined);
           };
           const follow = (on: boolean) => view.dom.classList.toggle("md-follow", on);
           const over = (event: MouseEvent) => {
@@ -188,6 +192,7 @@ export function hoverCardPlugin(host: LinkHost, readOnly: () => boolean, overlay
             },
             destroy: () => {
               hide();
+              intent.dispose();
               view.dom.removeEventListener("mousemove", over);
               removeEventListener("keydown", modifier, true);
               removeEventListener("keyup", modifier, true);

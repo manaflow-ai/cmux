@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import Foundation
 import os
 
@@ -68,6 +69,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
+    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`,
+    /// the `agent.suggestedTasks` Debug Settings toggle), read at each daemon start: a toggle applies to the next daemon
+    /// this app starts, never to the one already running.
+    private let offersSessionTools: @Sendable () -> Bool
     /// Called with the daemon socket after each successful find or start, so
     /// the Computer Use helper v2 can register this daemon.
     private let daemonReady: @Sendable (String) async -> Void
@@ -84,6 +89,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     public init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true) {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
+        self.offersSessionTools = { environment?.offersSessionTools ?? false }
         self.daemonReady = { _ in }
         self.startsDaemons = startsDaemons
     }
@@ -92,9 +98,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
+                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.suggestedTasks.value },
                 daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
+        self.offersSessionTools = offersSessionTools
         self.daemonReady = daemonReady ?? { _ in }
         self.startsDaemons = true
     }
@@ -136,6 +144,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw AgentPaneHostError.acpmuxNotFound
         }
         environment.computerUse = computerUse()
+        environment.offersSessionTools = offersSessionTools()
         let daemonSocket = environment.socketPath
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
@@ -150,8 +159,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     /// The pane's endpoint from `_acpmux/status` read on a connection whose server peer is the
     /// acpmux this app runs (cx-fcaq review P3-1): a squatter on the unix socket cannot point the
-    /// pane at another daemon's WebSocket. Another cmux install's daemon (NIGHTLY and Release
-    /// share `~/.acpmux`) is accepted under ``AcpmuxServerPeer``'s rules 1 and 2; it is never
+    /// pane at another daemon's WebSocket. Another cmux install's daemon (NIGHTLY shares
+    /// `~/.acpmux` with older builds) is accepted under ``AcpmuxServerPeer``'s rules 1 and 2; it is never
     /// enrolled, so its allows stay refused. (The pane also checks the port's listener and the
     /// accepted end before its first frame.)
     private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
@@ -169,8 +178,16 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool) async throws -> AcpmuxWebEndpoint {
+        // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
+        await AcpmuxEnvironment.adoptBuildHomes()
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+            // A daemon of another acpmux home answers on this socket: it is another app's or
+            // tag's. Never hand it off, stop it or use it.
+            guard status.serves(home: environment.home) else {
+                logger.error("acpmux socket=\(environment.socketPath, privacy: .public) serves home=\(status.home ?? "", privacy: .public), not this app's home=\(environment.home.path, privacy: .public)")
+                throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)
+            }
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.
             // A reconnect never stops or starts a daemon. It still gives a daemon that restarted
@@ -199,6 +216,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         } catch is AgentPaneDeadlineExceeded {
             logger.error("acpmux status timed out socket=\(environment.socketPath, privacy: .public)")
             throw AgentPaneHostError.timedOut
+        } catch let error as AgentPaneHostError {
+            throw error
         } catch {
             logger.error("acpmux status failed error=\(String(describing: error), privacy: .public)")
             throw AgentPaneHostError.daemonFailed(logPath: environment.logPath)

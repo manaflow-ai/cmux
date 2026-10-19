@@ -282,8 +282,13 @@ fn server_stats_report_lock_writer_and_connection_metrics() {
     let mux = test_mux();
     let unix_client = mux.control_clients.register(ClientTransport::Unix, test_writer());
     let websocket_client = mux.control_clients.register(ClientTransport::WebSocket, test_writer());
-    let identity =
-        handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
+    let identity = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::Identify { machine_metadata: false },
+        &test_writer(),
+    )
+    .unwrap();
     assert!(
         identity["capabilities"].as_array().unwrap().iter().any(|c| c == SERVER_STATS_CAPABILITY)
     );

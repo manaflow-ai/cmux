@@ -54,8 +54,8 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
-        "tabs.tabBar.terminal", "tabs.tabBar.browser", "tabs.tabBar.agent",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",
@@ -89,11 +89,28 @@ extension SettingsSchema {
         "appearance.saturation",
         "appearance.density",
         "appearance.metrics.chromeFontSize",
+        "appearance.interfaceScale",
         "appearance.borders",
         "appearance.sidebarSurface",
+        "appearance.chromeStyle",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
+        "ui.animations.newTab",
+        "ui.animations.newWorkspace",
+        "ui.animations.bounce",
+        "ui.paneAnimations",
+        "appearance.colorTransition.enabled",
+        "appearance.colorTransition.duration",
+        "appearance.colorTransition.curve",
+        "appearance.colorTransition.springResponse",
+        "appearance.colorTransition.springDamping",
+        "appearance.colorTransition.bezierX1",
+        "appearance.colorTransition.bezierY1",
+        "appearance.colorTransition.bezierX2",
+        "appearance.colorTransition.bezierY2",
+        "appearance.colorTransition.colorSpace",
+        "appearance.colorTransition.reduceMotion",
         "layout.panePadding",
         "layout.paneCornerRadius",
         "layout.paneBorder",
@@ -109,6 +126,7 @@ extension SettingsSchema {
         "focusRing.width",
         "focusRing.showWhenSinglePane",
         "appearance.statusIndicator.style",
+        "appearance.statusIndicator.animation",
         "appearance.statusIndicator.size",
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
@@ -123,7 +141,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
-        "sidebar.cards.tips", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
+        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -155,6 +173,9 @@ extension SettingsSchema {
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
+        "labs.classicHome",
+        // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
+        "home.channelsEnabled",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
@@ -166,6 +187,8 @@ extension SettingsSchema {
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
+        // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
+        "freeModel.enabled": .privacy,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agents.chats.enabled": .privacy,
@@ -184,8 +207,13 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Off, Chromium tabs load ads and trackers again.
+        "browser.builtInAdBlocker": .privacy,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
+        "browser.openLinksInCmuxBrowser": .privacy,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
+        // The app that opens your files from a menu: an agent must not pick what runs them.
+        "files.textEditor": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
         "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
@@ -208,10 +236,16 @@ extension SettingsSchema {
         "updates.meteredNetwork": .network,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
+        // What a new chat may do without asking: an agent must not widen its own approvals.
+        "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
         // On, a phone signed in to the same account can open this Mac's terminals and agents.
         "mobile.allowIPhoneConnections": .userOnly,
+        // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
+        "notifications.dockBounce": .userOnly,
+        // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
+        "sessions.keepAwake": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

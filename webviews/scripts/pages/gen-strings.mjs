@@ -179,6 +179,11 @@ export const PAGES = {
     out: "webviews/src/pages/files/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/files/Localizable.xcstrings" }],
   },
+  // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
+  stats: {
+    out: "webviews/src/pages/stats/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/stats/Localizable.xcstrings" }],
+  },
   // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
   coderouter: {
     out: "webviews/src/pages/coderouter/generated/strings.json",
@@ -188,6 +193,33 @@ export const PAGES = {
   "home-channels": {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
+  },
+  // The agent pane's rows the channels Home reuses for agent runs (tool calls, shell blocks,
+  // diffs, Markdown): only their keys, installed as the pane's table (agent-session/acpmux/i18n.ts).
+  "home-channels-pane": {
+    out: "webviews/src/pages/home-channels/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              /^(tools|shell|code|image|media|markdown|duration|chip)\./.test(key) ||
+              [
+                "changes.noLineChanges",
+                "link.openPath",
+                "turn.copy",
+                "turn.copied",
+                "message.label",
+                "message.less",
+                "message.more",
+                "message.noText",
+                "message.self",
+                "message.unknown",
+              ].includes(key),
+          ),
+      },
+    ],
   },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {

@@ -102,6 +102,7 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
+pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
 #[cfg(unix)]
 mod browser_runtime;
 #[path = "server/image_paste.rs"]
@@ -121,11 +122,14 @@ pub use loopback_forward::{
 };
 mod admission;
 #[cfg(unix)]
+mod agent_inventory;
+#[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
-    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost,
-    AgentStartHostSource,
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -146,14 +150,18 @@ pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
 mod browser_profiles;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
+mod cloud_attachments;
 mod cloud_conversations;
 mod conversation_attachments;
+mod conversation_live;
 mod conversation_resource;
+mod conversation_runs;
 mod resource_trust;
 use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
@@ -232,6 +240,7 @@ use responses::{
     send_response,
 };
 use screen_json::screen_json;
+pub(crate) use screen_json::screen_layout_json;
 mod group_outcome_json;
 use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
@@ -246,6 +255,7 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+pub use capabilities::build_capabilities;
 mod daemon_build;
 pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
 mod socket_path;
@@ -261,6 +271,9 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_inspect;
+mod chief_manage;
+mod chief_registry_resource;
+mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
 #[cfg(test)]
@@ -276,6 +289,10 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// `layout-changed` carries the screen's layout fields, its workspace and
+/// the transaction of the request that caused it (events.md
+/// `layout-changed`): a frontend patches that one screen.
+pub const LAYOUT_DELTA_CAPABILITY: &str = "layout-delta-v1";
 /// A docked column marked permanent stays docked on its edge for every
 /// client: `set-column-dock` takes `permanent`, and an undock, another edge,
 /// a replacement or a close or move that would remove it answers
@@ -335,6 +352,10 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+/// Advertises `hosting` on `register-browser-provider`: a `"native"` provider
+/// presents its pages itself, so the daemon never overrides their device
+/// metrics and screencasts them only while a frame viewer is attached.
+pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-native-hosting-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
@@ -415,7 +436,7 @@ pub use frontend_browser_history::{
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
-pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
+pub use split_respawn::{TAB_SPLIT_KEEP_FOCUS_CAPABILITY, TAB_SPLIT_RESPAWN_CAPABILITY};
 pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
 /// Optional `name` on `move-tab-to-new-workspace`: the new workspace takes
 /// it in the same commit (else the default `workspace-N`).
@@ -436,6 +457,9 @@ pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
 /// the session registry, personal groups and order, `list-personal`, and the
 /// `personal-changed` event (plans/cmux-next/data-model.md section 3).
 pub const PROFILES_CAPABILITY: &str = "profiles-v1";
+/// `placement-shift-v1`: an echoing connection gets no `workspace_placement`
+/// restatement on `session.events` (state/placement_shift.rs).
+pub use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
@@ -506,19 +530,8 @@ pub(crate) use protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
 };
 
-/// `machine-usage` result and `machine-usage-changed` payload body: `usage`
-/// is the readout object or null when the daemon has none.
-fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
-    json!({
-        "usage": usage.map(|usage| json!({
-            "vm_id": usage.vm_id,
-            "period_days": usage.period_days,
-            "total_tokens": usage.total_tokens,
-            "api_equivalent_usd": usage.api_equivalent_usd,
-            "as_of": usage.as_of,
-        })),
-    })
-}
+mod wire_values;
+use wire_values::{default_renderer_capability_ttl_ms, json_line_payload_len, machine_usage_json};
 
 #[derive(Deserialize)]
 struct Request {
@@ -642,7 +655,10 @@ impl DetachNotice {
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify,
+    Identify {
+        #[serde(default)]
+        machine_metadata: bool,
+    },
     BrowserHostProvider,
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
@@ -743,6 +759,10 @@ enum Command {
         authentication: String,
         #[serde(default)]
         bearer_token: Option<String>,
+        /// `browser-provider-native-hosting-v1`: `"native"` or `"daemon"`
+        /// (the default when absent).
+        #[serde(default)]
+        hosting: Option<String>,
         targets: Vec<BrowserProviderTargetRequest>,
     },
     /// Return the current provider lease for local automation such as
@@ -1560,6 +1580,9 @@ enum Command {
         ratio: Option<f32>,
         #[serde(default)]
         respawn: Option<SplitRespawnRequest>,
+        /// `tab-split-keep-focus-v1`: the focused pane stays focused.
+        #[serde(default)]
+        keep_focus: bool,
         #[serde(default)]
         transaction: Option<String>,
     },
@@ -1638,6 +1661,9 @@ enum Command {
     ConversationHistory(conversations::HistoryParams),
     ConversationThread(conversations::ThreadParams),
     ConversationLinkResolve(conversations::LinkResolveParams),
+    ConversationInboxOp(conversations::InboxOpParams),
+    /// The Home list rows (`home-inbox-v1`, server/conversations.rs).
+    HomeInbox(conversations::HomeInboxParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -1652,7 +1678,7 @@ enum Command {
     CloudSessionClear,
     CloudSessionStatus,
     /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
-    PageCredential,
+    PageCredential(page_credential::PageCredentialParams),
     /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the
     /// owner's loopback page listener on request.
     WsListen(page_listener::WsListenParams),
@@ -1660,11 +1686,16 @@ enum Command {
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
+    CloudConversationRuns(cloud_conversations::RunsParams),
+    CloudConversationRun(cloud_conversations::RunParams),
+    CloudParticipantAvatarGet(cloud_conversations::AvatarParams),
     CloudConversationOp(cloud_conversations::OpParams),
+    CloudInboxOp(cloud_conversations::InboxOpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
+    CloudConversationLive(cloud_conversations::TargetParams),
     /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
     /// chief token), and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),
@@ -1674,6 +1705,16 @@ enum Command {
     /// server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
+    ConversationAttachmentLink(conversation_attachments::LinkParams),
+    /// Cloud conversations' attachments (`cloud-attachments-v1`, server/cloud_attachments.rs).
+    CloudAttachmentUpload(conversation_attachments::UploadParams),
+    CloudAttachmentRead(conversation_attachments::ReadParams),
+    CloudAttachmentLink(conversation_attachments::LinkParams),
+    ConversationRunAppend(conversation_runs::AppendParams),
+    ConversationRuns(conversation_runs::RunsParams),
+    ConversationRun(conversation_runs::RunParams),
+    ConversationLivePublish(conversation_live::PublishParams),
+    ConversationLive(conversation_live::LiveParams),
     ConversationImport(conversations::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
@@ -1934,6 +1975,11 @@ enum Command {
         /// at commit time (`workspace_not_empty` otherwise).
         #[serde(default)]
         if_empty: bool,
+        /// With `end_terminals`: answer `closed_ids`, the closed groups the
+        /// close stored. Opt-in: older raw decoders refuse an unknown result
+        /// field (Python `unexpected fields`).
+        #[serde(default)]
+        report_closed_ids: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1963,11 +2009,8 @@ enum Command {
         name: String,
     },
     RenameWorkspace {
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        key: Option<String>,
-        name: String,
+        #[serde(flatten)]
+        request: cmd_workspaces::WorkspaceRenameRequest,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2484,13 +2527,9 @@ pub use websocket_listener::{
 };
 
 #[cfg(test)]
-fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    handle_connection_with_permit(mux, stream, Arc::new(RenderService::new()), None);
-}
-
-fn json_line_payload_len(line: &str) -> usize {
-    line.strip_suffix('\n').map_or(line.len(), str::len)
-}
+mod test_dispatch;
+#[cfg(test)]
+use test_dispatch::{handle_connection, handle_message};
 
 mod disconnect;
 pub use disconnect::detach_control_client;
@@ -2500,14 +2539,6 @@ use disconnect::{
     disconnect_client, kick_client, own_view_detach_target, size_state_event_json,
     size_state_for_client,
 };
-
-#[cfg(test)]
-fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
-    match serde_json::from_str::<Request>(message) {
-        Ok(request) => handle_request(mux, client, request, writer),
-        Err(error) => send_bad_request(writer, message, &error),
-    }
-}
 
 mod journal_filter;
 #[cfg(test)]
@@ -2552,293 +2583,38 @@ use resource_connection::{
     handle_resource_connection_message, resource_stream_end, send_resource_stream_item,
 };
 
-/// One frame of a connection. `transport` is the connection's own value
-/// (not a registry lookup), so a remote-entry connection always takes the
-/// remote path, also after its registry record is gone.
-fn handle_connection_frame(
-    mux: &Arc<Mux>,
-    client: u64,
-    transport: ClientTransport,
-    message: &str,
-    writer: &MessageWriter,
-    scheduler: &Arc<ConnectionSurfaceScheduler>,
-) -> bool {
-    // Keep an idle shutdown requester connected until owner cleanup closes
-    // the transport, so lifecycle clients receive authoritative completion.
-    // A pipelined message after the acknowledgement must not reach parsing or
-    // dispatch; returning false makes the connection loop close that client.
-    if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
-        return false;
-    }
-    if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
-        return remote_relay::handle_frame(mux, client, message, writer);
-    }
-    // Before the acknowledgement the handoff can still fail (for example
-    // while `end_terminals` awaits every host) and this daemon keeps
-    // serving. Closing here would drop the requester's pending
-    // `shutdown-daemon` reply along with its connection, so a message that
-    // arrives meanwhile (a subscriber's snapshot refresh) is refused
-    // without being executed and the connection stays open.
-    if mux.daemon_handoff_in_progress() {
-        return pending_handoff::reject_message_during_pending_handoff(message, writer);
-    }
-    if let Some(request) = crate::resource_router::parse_resource_line(message) {
-        // A v2 line the catalog parse refuses may name a routed namespace
-        // operation (page-router-v1): the same JSON parse decides, so every
-        // spelling of the line gets one answer.
-        if request.is_err()
-            && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
-        {
-            return keep_open;
-        }
-        return origin_gate::handle_resource_line(mux, client, message, request, writer);
-    }
-    if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = browser_runtime::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
-        .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
-    {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = scripts::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    let request = match serde_json::from_str::<Request>(message) {
-        Ok(request) => request,
-        Err(error) => return send_bad_request(writer, message, &error),
-    };
-    let mut pending = Some(request);
-    match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
-        Some(keep_open) => keep_open,
-        None => handle_request(mux, client, pending.take().unwrap(), writer),
-    }
-}
+mod connection_frame;
+#[cfg(test)]
+use connection_frame::write_vt_state_command_json;
+use connection_frame::{
+    auth_token, constant_time_eq, handle_connection_frame, handle_request,
+    handle_request_with_cancellation, pairing_request, zeroize_string,
+};
 
-fn handle_request(mux: &Arc<Mux>, client: u64, request: Request, writer: &MessageWriter) -> bool {
-    handle_request_with_cancellation(mux, client, request, writer, None)
-}
-
-fn handle_request_with_cancellation(
-    mux: &Arc<Mux>,
-    client: u64,
-    request: Request,
-    writer: &MessageWriter,
-    cancellation: Option<&ConnectionCancellation>,
-) -> bool {
-    let Request { id, cmd } = request;
-    if let Command::UrlOpen { terminal_id, url } = cmd {
-        return url_open::start(mux, client, id, terminal_id, url, writer);
-    }
-    if let Command::ChiefInspect(params) = cmd {
-        return chief_inspect::start(mux, client, id, params, writer);
-    }
-    if cloud_conversations::is_network(&cmd) {
-        return cloud_conversations::start(mux, client, id, cmd, writer);
-    }
-    if let Some(target) = cloud_conversations::subscribe_target(mux, &cmd) {
-        return cloud_conversations::subscribe_then_announce(mux, client, id, cmd, target, writer);
-    }
-    if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
-        && !mux.server_lifecycle_ready()
-    {
-        return send_request_error(writer, id, "server lifecycle is not ready");
-    }
-    if let Command::VtState { surface } = &cmd {
-        return match send_vt_state_command_response(mux, id.clone(), *surface, writer) {
-            Ok(()) => true,
-            Err(error) => send_request_error(writer, id, &error.to_string()),
-        };
-    }
-
-    let detach_self = match &cmd {
-        Command::DetachClient { client: target, by, surface }
-            if target.whole_client() == Some(client)
-                && own_view_detach_target(mux, target, *surface).is_none() =>
-        {
-            Some(detach_actor(mux, client, by.clone()))
-        }
-        _ => None,
-    };
-    let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
-    let (mut reason, mut retryable, mut details) = (None, None, None);
-    let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
-        Ok(data) => Response {
-            id,
-            ok: true,
-            data: Some(data),
-            error: None,
-            error_code: None,
-            error_delivery: None,
-        },
-        Err(error) => {
-            reason = conversations::error_reason(&error)
-                .or_else(|| cloud_conversations::error_reason(&error));
-            retryable = cloud_conversations::error_retryable(&error);
-            details = renderer_grant::error_details(&error);
-            let error_code = response_error_code(&error);
-            let error_delivery =
-                error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
-            Response {
-                id,
-                ok: false,
-                data: None,
-                error: Some(error.to_string()),
-                error_code,
-                error_delivery,
-            }
-        }
-    };
-    let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
-    let details = details.filter(|_| !mux.is_remote_client(client));
-    let response_ok = response.ok;
-    let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
-    // Flush the successful acknowledgement before making the owning loop
-    // leave, so process teardown cannot race the response writer.
-    if shutdown_daemon && response_ok {
-        if sent {
-            return complete_daemon_shutdown_after_ack(mux, client, writer);
-        } else {
-            mux.cancel_daemon_handoff(client);
-        }
-    }
-    if let Some(by) = detach_self
-        && response_ok
-        && sent
-    {
-        kick_client(mux, client, by);
-        return false;
-    }
-    sent
-}
-
-fn send_vt_state_command_response(
-    mux: &Mux,
-    id: Option<Value>,
-    surface: SurfaceId,
-    writer: &MessageWriter,
-) -> anyhow::Result<()> {
-    // Reserve the entire wire-frame allowance before copying a replay or
-    // starting its base64 encoder. The writer allocates only for actual
-    // output and releases unused logical quota before the response is queued.
-    let mut output = writer.render_service.reserved_control_writer()?;
-    let surface = get_surface(mux, surface)?;
-    require_pty(&surface)?;
-    let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
-        terminal
-            .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-            .map(|replay| (terminal.cols(), terminal.rows(), replay))
-    })??;
-
-    write_vt_state_command_json(
-        &mut output,
-        id.as_ref(),
-        cols,
-        rows,
-        &replay.self_contained_bytes(),
-        &replay.kitty_image_aliases,
-        replay.kitty_state,
-    )?;
-    writer.send_serialized_control(output.finish())?;
-    Ok(())
-}
-
-fn write_vt_state_command_json(
-    output: &mut BudgetedJsonWriter,
-    id: Option<&Value>,
-    cols: u16,
-    rows: u16,
-    replay: &[u8],
-    kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
-    kitty_state: KittyReplayState,
-) -> std::io::Result<()> {
-    output.write_all(b"{")?;
-    if let Some(id) = id {
-        output.write_all(b"\"id\":")?;
-        serde_json::to_writer(&mut *output, id).map_err(json_error_to_io)?;
-        output.write_all(b",")?;
-    }
-    write!(output, "\"ok\":true,\"data\":{{\"cols\":{cols},\"rows\":{rows},\"data\":\"")?;
-    {
-        let mut encoder = base64::write::EncoderWriter::new(
-            &mut *output,
-            &base64::engine::general_purpose::STANDARD,
-        );
-        encoder.write_all(replay)?;
-        encoder.finish()?;
-    }
-    output.write_all(b"\",\"kitty_image_aliases\":")?;
-    write_kitty_image_aliases_json(output, kitty_image_aliases)?;
-    output.write_all(b",\"kitty_graphics_state\":")?;
-    write_kitty_replay_state_json(output, kitty_state)?;
-    output.write_all(b"}}")?;
-    Ok(())
-}
-
-fn auth_token(message: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(message).ok()?;
-    let object = value.as_object()?;
-    if object.len() != 1 {
-        return None;
-    }
-    let auth = object.get("auth")?.as_object()?;
-    if auth.len() != 1 {
-        return None;
-    }
-    auth.get("token")?.as_str().map(str::to_string)
-}
-
-fn pairing_request(message: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<Value>(message) else { return false };
-    let Some(object) = value.as_object() else { return false };
-    if object.len() != 1 {
-        return false;
-    }
-    let Some(pair) = object.get("pair").and_then(Value::as_object) else { return false };
-    pair.len() == 1 && pair.get("request").and_then(Value::as_bool) == Some(true)
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    let mut difference = a.len() ^ b.len();
-    let length = a.len().max(b.len());
-    for index in 0..length {
-        difference |=
-            usize::from(a.get(index).copied().unwrap_or(0) ^ b.get(index).copied().unwrap_or(0));
-    }
-    difference == 0
-}
-
-fn zeroize_string(value: &mut str) {
-    // NUL remains valid UTF-8, so decoded control frames can be cleared in
-    // place immediately after dispatch.
-    value.zeroize();
-}
-
-fn node_json(node: &Node, active_pane: PaneId) -> Value {
+/// One layout node. `split_ids`: the public ids of the splits
+/// (`State::resource_indexes`); a split with one carries it as `split_id`
+/// (`split-client-split-id-v1`).
+fn node_json(
+    node: &Node,
+    active_pane: PaneId,
+    split_ids: &HashMap<SplitId, crate::resource::SplitPublicId>,
+) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => json!({
-            "type": "split",
-            "split": id,
-            "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
-            "ratio": ratio,
-            "a": node_json(a, active_pane),
-            "b": node_json(b, active_pane),
-        }),
+        Node::Split { id, dir, ratio, a, b } => {
+            let mut value = json!({
+                "type": "split",
+                "split": id,
+                "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
+                "ratio": ratio,
+                "a": node_json(a, active_pane, split_ids),
+                "b": node_json(b, active_pane, split_ids),
+            });
+            if let Some(public_id) = split_ids.get(id) {
+                value["split_id"] = json!(public_id);
+            }
+            value
+        }
         Node::Stack { panes, expanded } => json!({
             "type": "stack",
             "panes": panes.as_slice(),
@@ -2872,10 +2648,6 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
             Ok(LayoutSpec::Stack { pane_count: panes.len(), expanded_index })
         }
     }
-}
-
-fn default_renderer_capability_ttl_ms() -> u64 {
-    30_000
 }
 
 mod tree_json;
@@ -2939,849 +2711,8 @@ fn handle_command(
     handle_command_with_cancellation(mux, client, cmd, writer, None)
 }
 
-fn handle_command_with_cancellation(
-    mux: &Arc<Mux>,
-    client: u64,
-    cmd: Command,
-    writer: &MessageWriter,
-    cancellation: Option<&ConnectionCancellation>,
-) -> anyhow::Result<Value> {
-    // Who a durable legacy command acts as (P8): read once per command.
-    let actor = origin_gate::connection_actor(mux, client);
-    if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) {
-        return remote;
-    }
-    match cmd {
-        Command::SubscribeActivity => cmd_subscribe::subscribe_activity(mux, client, writer),
-        cmd @ (Command::UrlOpenSubscribe { .. }
-        | Command::UrlOpenClaim { .. }
-        | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
-        cmd @ (Command::TerminalClipboardSubscribe { .. }
-        | Command::TerminalClipboardReply { .. }) => {
-            clipboard_read::handle(mux, client, cmd, writer)
-        }
-        Command::UrlOpen { .. } => {
-            anyhow::bail!("URL opening requires the asynchronous request path")
-        }
-        Command::ChiefInspect(_) => {
-            anyhow::bail!("chief-inspect requires the asynchronous request path")
-        }
-        Command::PasteImage {
-            surface,
-            terminal_id,
-            lease,
-            upload_id,
-            op,
-            mime,
-            size,
-            offset,
-            data,
-        } => cmd_terminal_io::paste_image(
-            mux,
-            client,
-            surface,
-            terminal_id,
-            lease,
-            upload_id,
-            op,
-            mime,
-            size,
-            offset,
-            data,
-        ),
-        command @ (Command::SetTerminalCommandHistory(_)
-        | Command::ListTerminalCommands(_)
-        | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
-        Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
-        Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify => cmd_server::identify(mux),
-        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
-            cmd_server::shutdown_daemon(
-                mux,
-                client,
-                pid,
-                generation,
-                force,
-                end_terminals,
-                keep_layout,
-            )
-        }
-        Command::Ping => cmd_server::ping(),
-        Command::SetClientInfo {
-            name,
-            kind,
-            capabilities,
-            user_id,
-            display_name,
-            device_kind,
-            device_name,
-            device_id,
-        } => cmd_server::set_client_info(
-            mux,
-            client,
-            name,
-            kind,
-            capabilities,
-            user_id,
-            display_name,
-            device_kind,
-            device_name,
-            device_id,
-        ),
-        Command::ListClients => cmd_server::list_clients(mux, client),
-        Command::MachineUsage => cmd_server::machine_usage(mux),
-        Command::MachineListeningTcp => cmd_server::machine_listening_tcp(),
-        Command::RegisterBrowserProvider {
-            provider_id,
-            endpoint,
-            authentication,
-            bearer_token,
-            targets,
-        } => cmd_browser::register_browser_provider(
-            mux,
-            client,
-            provider_id,
-            endpoint,
-            authentication,
-            bearer_token,
-            targets,
-        ),
-        Command::GetBrowserProvider => cmd_browser::get_browser_provider(mux, client),
-        Command::UnregisterBrowserProvider => cmd_browser::unregister_browser_provider(mux, client),
-        Command::ListTerminals => cmd_terminals::list_terminals(mux),
-        Command::TerminalEvents { after_revision } => {
-            cmd_terminals::terminal_events(mux, after_revision)
-        }
-        Command::SetClientSizing { surface, client: target, enabled, exclusive } => {
-            cmd_sizing::set_client_sizing(mux, client, surface, target, enabled, exclusive)
-        }
-        Command::PairingResponse { request, approve } => {
-            cmd_server::pairing_response(mux, client, request, approve)
-        }
-        Command::DetachClient { client: target, by, surface } => {
-            cmd_attach::detach_client(mux, client, target, by, surface)
-        }
-        Command::SetSizePolicy { surface, workspace, policy } => {
-            cmd_sizing::set_size_policy(mux, client, surface, workspace, policy)
-        }
-        Command::SetSizeCounts { surface, client: target, lease, view, participant, counts } => {
-            cmd_sizing::set_size_counts(
-                mux,
-                client,
-                surface,
-                target,
-                lease,
-                view,
-                participant,
-                counts,
-            )
-        }
-        Command::NoteSizeActivity { surface, view } => {
-            cmd_sizing::note_size_activity(mux, client, surface, view)
-        }
-        Command::ReattachView { surface, counts } => {
-            cmd_attach::reattach_view(mux, client, surface, counts)
-        }
-        Command::GetSizeState { surface } => cmd_sizing::get_size_state(mux, client, surface),
-        Command::ReloadConfig => cmd_server::reload_config(mux),
-        Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
-        Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux),
-        Command::GetFrontendProjection { frontend, scope, subject_key } => {
-            cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
-        }
-        Command::PutFrontendProjection {
-            frontend,
-            scope,
-            subject_key,
-            schema_version,
-            expected_projection_revision,
-            projection,
-            mutation,
-        } => cmd_frontend::put_frontend_projection(
-            mux,
-            client,
-            frontend,
-            scope,
-            subject_key,
-            schema_version,
-            expected_projection_revision,
-            projection,
-            mutation,
-        ),
-        Command::JournalFrontendEvent { event } => {
-            cmd_frontend::journal_frontend_event(mux, client, event)
-        }
-        Command::ExportLayout { screen } => cmd_panes::export_layout(mux, screen),
-        Command::ApplyLayout { workspace, name, layout, cols, rows } => {
-            cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
-        }
-        Command::Send { surface, terminal_id, text, bytes, paste } => {
-            cmd_terminal_io::send(mux, client, writer, surface, terminal_id, text, bytes, paste)
-        }
-        Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
-        Command::ClearHistory { surface, fallback_key } => {
-            cmd_terminal_io::clear_history(mux, surface, fallback_key)
-        }
-        Command::ReadScrollback { surface, start, count } => {
-            cmd_terminal_io::read_scrollback(mux, surface, start, count)
-        }
-        Command::SidebarPlugin { cols, rows, relaunch } => {
-            cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
-        }
-        Command::WaitFor { surface, pattern, timeout_ms } => {
-            cmd_terminal_io::wait_for(mux, cancellation, surface, pattern, timeout_ms)
-        }
-        Command::Run { argv, command, cwd, pane, new_workspace, key, name, cols, rows } => {
-            cmd_terminal_io::run(
-                mux,
-                actor,
-                argv,
-                command,
-                cwd,
-                pane,
-                new_workspace,
-                key,
-                name,
-                cols,
-                rows,
-            )
-        }
-        Command::CreateSurfaceWithReceipt(request) => {
-            cmd_frontend::create_surface_with_receipt_command(mux, client, request)
-        }
-        Command::SendKey { surface, keys } => cmd_terminal_io::send_key(mux, client, surface, keys),
-        Command::Copy { surface, mode } => cmd_terminal_io::copy(mux, surface, mode),
-        Command::Ids { kind } => cmd_frontend::ids(mux, kind),
-        Command::Notify { title, body, level, surface, source } => {
-            cmd_frontend::notify(mux, actor, title, body, level, surface, source)
-        }
-        Command::ListAgents { surface, state } => cmd_frontend::list_agents(mux, surface, state),
-        Command::ReportAgent { surface, state, source, session } => {
-            cmd_frontend::report_agent(mux, surface, state, source, session)
-        }
-        Command::VtState { .. } => unreachable!("vt-state uses its streaming response path"),
-        Command::MintTerminalRenderer { surface, ttl_ms } => {
-            cmd_terminals::mint_terminal_renderer(mux, client, surface, ttl_ms)
-        }
-        Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
-            cmd_terminals::mint_terminal_renderer_by_terminal(mux, client, terminal, ttl_ms)
-        }
-        Command::ResolveTerminal { terminal_id } => {
-            cmd_terminals::resolve_terminal(mux, terminal_id)
-        }
-        Command::CloseTerminal { terminal_id, terminal_incarnation, mutation } => {
-            cmd_terminals::close_terminal(mux, client, terminal_id, terminal_incarnation, mutation)
-        }
-        Command::SetTerminalIdlePolicy { surface, terminal_id, idle_close_seconds } => {
-            cmd_terminals::set_terminal_idle_policy(mux, surface, terminal_id, idle_close_seconds)
-        }
-        Command::SetTerminalKeep { surface, terminal_id, keep } => {
-            cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
-        }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
-            cmd_tabs::new_tab(
-                mux,
-                client,
-                actor,
-                pane,
-                cwd,
-                env,
-                cols,
-                rows,
-                keep,
-                terminal_id,
-                shell_args,
-            )
-        }
-        Command::NewConversationTab(params) => cmd_tabs::new_conversation_tab(mux, client, params),
-        Command::BindConversationTabSession(params) => {
-            cmd_tabs::bind_conversation_tab_session(mux, actor, params)
-        }
-        Command::RestartTab(params) => tab_restart::restart(mux, params),
-        Command::NewFrontendBrowserTab(params) => {
-            cmd_tabs::new_frontend_browser_tab(mux, client, params)
-        }
-        Command::UpdateFrontendBrowserTab(params) => {
-            cmd_tabs::update_frontend_browser_tab(mux, actor, params)
-        }
-        Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
-        Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
-        Command::NewRemoteTerminalTab(p) => remote_terminal_tabs_wire::create(mux, &actor, p),
-        Command::UpdateRemoteTerminalTab(p) => remote_terminal_tabs_wire::update(mux, p),
-        Command::RemoteTerminalSnapshot(p) => remote_terminal_tabs_wire::snapshot(mux, p),
-        Command::NewBrowserTab { url, pane, cols, rows } => {
-            cmd_tabs::new_browser_tab(mux, actor, url, pane, cols, rows)
-        }
-        Command::GetCellPixels => cmd_sizing::get_cell_pixels(mux),
-        Command::SetCellPixels { width_px, height_px } => {
-            cmd_sizing::set_cell_pixels(mux, width_px, height_px)
-        }
-        Command::BrowserFramePresented { surface, frame_seq } => {
-            cmd_browser::browser_frame_presented(mux, client, surface, frame_seq)
-        }
-        cmd @ (Command::BrowserMouse { .. }
-        | Command::BrowserMouseGuarded { .. }
-        | Command::BrowserWheel { .. }
-        | Command::BrowserWheelGuarded { .. }
-        | Command::BrowserKey { .. }
-        | Command::BrowserKeyPress { .. }
-        | Command::BrowserInsertText { .. }) => browser_input::handle(mux, client, cmd),
-        Command::BrowserNavigate { surface, url } => {
-            cmd_browser::browser_navigate(mux, surface, url)
-        }
-        Command::BrowserBack { surface } => cmd_browser::browser_back(mux, surface),
-        Command::BrowserForward { surface } => cmd_browser::browser_forward(mux, surface),
-        Command::BrowserReload { surface } => cmd_browser::browser_reload(mux, surface),
-        Command::BrowserActivate { surface } => cmd_browser::browser_activate(mux, surface),
-        Command::NewWorkspace { name, cols, rows } => {
-            cmd_workspaces::new_workspace(mux, actor, name, cols, rows)
-        }
-        Command::CreateWorkspace { name, key, mutation } => {
-            cmd_workspaces::create_workspace(mux, client, name, key, mutation)
-        }
-        Command::CreateTerminal {
-            workspace,
-            key,
-            argv,
-            shell_args,
-            command,
-            cwd,
-            name,
-            cols,
-            rows,
-            terminal_id,
-            env,
-            keep,
-            detached,
-            mutation,
-        } => cmd_terminals::create_terminal(
-            mux,
-            client,
-            actor,
-            workspace,
-            key,
-            argv,
-            shell_args,
-            command,
-            cwd,
-            name,
-            cols,
-            rows,
-            terminal_id,
-            env,
-            keep,
-            detached,
-            mutation,
-        ),
-        Command::NewScreen(params) => cmd_screens::new_screen(mux, client, params),
-        Command::SetScreenMetadata { screen, color, icon } => {
-            cmd_screens::set_screen_metadata(mux, actor, screen, color, icon)
-        }
-        Command::SetScreenPinned { screen, pinned } => {
-            cmd_screens::set_screen_pinned(mux, actor, screen, pinned)
-        }
-        Command::MoveScreen { screen, index, workspace, new_workspace } => {
-            cmd_screens::move_screen(mux, actor, screen, index, workspace, new_workspace)
-        }
-        Command::CreateScreenGroup { screens, name, color } => {
-            cmd_screens::create_screen_group(mux, actor, screens, name, color)
-        }
-        Command::UpdateScreenGroup { group, name, color, collapsed, icon } => {
-            cmd_screens::update_screen_group(mux, actor, group, name, color, collapsed, icon)
-        }
-        Command::AddScreensToScreenGroup { group, screens, index } => {
-            cmd_screens::add_screens_to_screen_group(mux, actor, group, screens, index)
-        }
-        Command::RemoveScreensFromScreenGroup { screens } => {
-            cmd_screens::remove_screens_from_screen_group(mux, actor, screens)
-        }
-        Command::MoveScreenGroup { group, index, workspace, new_workspace } => {
-            cmd_screens::move_screen_group(mux, actor, group, index, workspace, new_workspace)
-        }
-        Command::UngroupScreenGroup { group } => {
-            cmd_screens::ungroup_screen_group(mux, actor, group)
-        }
-        Command::CloseScreenGroup { group, end_terminals } => {
-            cmd_screens::close_screen_group(mux, actor, group, end_terminals)
-        }
-        Command::ListSavedScreenGroups => cmd_screens::list_saved_screen_groups(mux),
-        Command::SaveScreenGroup { group } => cmd_screens::save_screen_group(mux, actor, group),
-        Command::UnsaveScreenGroup { group } => cmd_screens::unsave_screen_group(mux, group),
-        Command::DeleteSavedScreenGroup { saved } => {
-            cmd_screens::delete_saved_screen_group(mux, saved)
-        }
-        Command::ReopenSavedScreenGroup { saved, workspace } => {
-            cmd_screens::reopen_saved_screen_group(mux, actor, saved, workspace)
-        }
-        command @ Command::NewPane { .. } => cmd_panes::new_pane(mux, client, actor, command),
-        Command::NewPaneRight(params) => cmd_panes::new_pane_right(mux, client, params),
-        Command::Split(params) => cmd_panes::split(mux, client, params),
-        Command::SetRatio { pane, dir, ratio } => {
-            cmd_panes::set_ratio(mux, actor, pane, dir, ratio)
-        }
-        Command::SetSplitRatio { split, ratio, transaction } => {
-            cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
-        }
-        Command::SetViewportPaneWidth { pane, width, transaction } => {
-            cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
-        }
-        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, transaction } => {
-            cmd_panes::set_column_dock(
-                mux,
-                client,
-                actor,
-                pane,
-                dock,
-                edge,
-                mode,
-                role,
-                permanent,
-                transaction,
-            )
-        }
-        Command::UndoLayout { pane, revision, confirm_close } => {
-            cmd_panes::undo_layout(mux, actor, pane, revision, confirm_close)
-        }
-        Command::PaneNeighbor { pane, dir } => cmd_panes::pane_neighbor(mux, pane, dir),
-        Command::FocusDirection { pane, dir } => cmd_panes::focus_direction(mux, actor, pane, dir),
-        Command::SwapPane { pane, dir, target } => {
-            cmd_panes::swap_pane(mux, actor, pane, dir, target)
-        }
-        Command::ZoomPane { pane, mode } => cmd_panes::zoom_pane(mux, actor, pane, mode),
-        Command::ProcessInfo { surface } => cmd_terminals::process_info(mux, surface),
-        Command::TerminalResources { surfaces } => cmd_terminals::terminal_resources(mux, surfaces),
-        Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
-            cmd_terminals::move_terminal(
-                mux,
-                client,
-                terminal_id,
-                workspace_key,
-                terminal_incarnation,
-                mutation,
-            )
-        }
-        Command::MoveTabToWorkspace { surface, workspace, transaction } => {
-            cmd_tabs::move_tab_to_workspace(mux, actor, surface, workspace, transaction)
-        }
-        Command::MoveTabToSplit { surface, pane, edge, ratio, respawn, transaction } => {
-            cmd_tabs::move_tab_to_split(
-                mux,
-                client,
-                surface,
-                pane,
-                edge,
-                ratio,
-                respawn,
-                transaction,
-            )
-        }
-        Command::MoveTabToColumn(params) => cmd_tabs::move_tab_to_column(mux, client, params),
-        Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
-        Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
-        Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
-            cmd_tabs::move_tab_to_new_workspace(
-                mux,
-                actor,
-                surface,
-                group,
-                index,
-                name,
-                transaction,
-            )
-        }
-        Command::MoveTab { surface, pane, index, transaction } => {
-            cmd_tabs::move_tab(mux, actor, surface, pane, index, transaction)
-        }
-        Command::ListTabGroups => cmd_tabs::list_tab_groups(mux),
-        Command::CreateTabGroup { surfaces, name, color, group, transaction } => {
-            cmd_tabs::create_tab_group(mux, actor, surfaces, name, color, group, transaction)
-        }
-        Command::UpdateTabGroup { group, name, color, collapsed, icon } => {
-            cmd_tabs::update_tab_group(mux, actor, group, name, color, collapsed, icon)
-        }
-        Command::AddTabsToTabGroup { group, surfaces, transaction } => {
-            cmd_tabs::add_tabs_to_tab_group(mux, actor, group, surfaces, transaction)
-        }
-        Command::RemoveTabsFromTabGroup { surfaces, transaction } => {
-            cmd_tabs::remove_tabs_from_tab_group(mux, actor, surfaces, transaction)
-        }
-        Command::MoveTabGroup { group, pane, index, transaction } => {
-            cmd_tabs::move_tab_group(mux, actor, group, pane, index, transaction)
-        }
-        Command::MoveTabGroupToSplit { group, pane, edge, ratio, transaction } => {
-            cmd_tabs::move_tab_group_to_split(mux, actor, group, pane, edge, ratio, transaction)
-        }
-        Command::MoveTabGroupToColumn { group, pane, screen, after_column, width, transaction } => {
-            cmd_tabs::move_tab_group_to_column(
-                mux,
-                actor,
-                group,
-                pane,
-                screen,
-                after_column,
-                width,
-                transaction,
-            )
-        }
-        Command::MoveTabGroupToNewWorkspace { group, workspace_group, index, transaction } => {
-            cmd_tabs::move_tab_group_to_new_workspace(
-                mux,
-                actor,
-                group,
-                workspace_group,
-                index,
-                transaction,
-            )
-        }
-        Command::UngroupTabGroup { group } => cmd_tabs::ungroup_tab_group(mux, actor, group),
-        Command::CloseTabGroup { group, end_terminals } => {
-            cmd_tabs::close_tab_group(mux, actor, group, end_terminals)
-        }
-        Command::ListSavedTabGroups => cmd_tabs::list_saved_tab_groups(mux),
-        Command::SaveTabGroup { group } => cmd_tabs::save_tab_group(mux, actor, group),
-        Command::UnsaveTabGroup { group } => cmd_tabs::unsave_tab_group(mux, actor, group),
-        Command::DeleteSavedTabGroup { saved } => {
-            cmd_tabs::delete_saved_tab_group(mux, actor, saved)
-        }
-        Command::ReopenSavedTabGroup { saved, pane, transaction } => {
-            cmd_tabs::reopen_saved_tab_group(mux, actor, saved, pane, transaction)
-        }
-        Command::AckTabNotifications { surface } => cmd_tabs::ack_tab_notifications(mux, surface),
-        Command::ListNotifications { limit } => cmd_frontend::list_notifications(mux, limit),
-        Command::SetTabPinned { surface, pinned } => {
-            cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)
-        }
-        Command::MoveWorkspace { workspace, key, index, mutation } => {
-            cmd_workspaces::move_workspace(mux, client, workspace, key, index, mutation)
-        }
-        Command::SetWorkspaceMetadata {
-            workspace,
-            key,
-            color,
-            icon,
-            title,
-            pinned,
-            marked_unread,
-            mutation,
-        } => cmd_workspaces::set_workspace_metadata(
-            mux,
-            client,
-            workspace,
-            key,
-            color,
-            icon,
-            title,
-            pinned,
-            marked_unread,
-            mutation,
-        ),
-        Command::ListPersonal => cmd_profiles::list_personal(mux),
-        Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
-        Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
-        Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
-        Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, client, params),
-        Command::ListBookmarks(params) => bookmarks::list(mux, params),
-        Command::CreateBookmark(params) => bookmarks::create(mux, &actor, params),
-        Command::UpdateBookmark(params) => bookmarks::update(mux, &actor, params),
-        Command::MoveBookmark(params) => bookmarks::move_to(mux, &actor, params),
-        Command::DeleteBookmark(params) => bookmarks::delete(mux, &actor, params),
-        Command::ImportBookmarks(params) => bookmarks::import(mux, &actor, params),
-        cmd @ (Command::FeedLocalList(_)
-        | Command::FeedLocalRead(_)
-        | Command::FeedLocalHandoffBegin(_)
-        | Command::FeedLocalHandoffAbort(_)
-        | Command::FeedLocalHandoffDone(_)) => feed_local::dispatch(mux, &actor, cmd),
-        Command::PutBlob(params) => icon_assets::put(mux, params),
-        Command::GetBlob(params) => icon_assets::get(mux, params),
-        Command::ConversationList => conversations::list(mux, client),
-        Command::ConversationCreate(params) => conversations::create(mux, client, params),
-        Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
-        Command::ConversationHistory(params) => conversations::history(mux, client, params),
-        Command::ConversationThread(params) => conversations::thread(mux, client, params),
-        Command::ConversationLinkResolve(params) => {
-            conversations::link_resolve(mux, client, params)
-        }
-        Command::ConversationSearch(params) => conversations::search(mux, client, params),
-        Command::HistorySearch(params) => history_search::search(mux, client, params),
-        Command::ConversationOp(params) => conversations::op(mux, client, params),
-        Command::ConversationTyping(params) => conversations::typing(mux, client, params),
-        Command::ConversationDraft(params) => conversations::draft(mux, client, params),
-        Command::ConversationBind(params) => conversations::bind(mux, client, params),
-        Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
-        Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
-        Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
-        Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
-        Command::PageCredential => page_credential::page_credential(mux, client),
-        Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
-        Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
-        Command::CloudConversationSnapshot(params) => {
-            cloud_conversations::snapshot(mux, client, params)
-        }
-        Command::CloudConversationHistory(params) => {
-            cloud_conversations::history(mux, client, params)
-        }
-        Command::CloudConversationThread(params) => {
-            cloud_conversations::thread(mux, client, params)
-        }
-        Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
-        Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
-        Command::CloudMuxSubscribe(_) => cloud_conversations::mux_subscribe(mux, client),
-        Command::CloudMuxUnsubscribe(_) => cloud_conversations::mux_unsubscribe(mux, client),
-        Command::CloudMuxAck(params) => cloud_conversations::mux_ack(mux, client, params),
-        Command::CloudInboxUnsubscribe => cloud_conversations::unsubscribe(mux, client, None),
-        Command::CloudConversationSubscribe(params) => {
-            cloud_conversations::subscribe(mux, client, Some(params))
-        }
-        Command::CloudConversationUnsubscribe(params) => {
-            cloud_conversations::unsubscribe(mux, client, Some(params))
-        }
-        Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
-        Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
-        Command::ConversationImport(params) => conversations::import(mux, client, params),
-        Command::CreateProfile {
-            name,
-            profile,
-            color,
-            icon,
-            theme,
-            index,
-            browser_profile_id,
-            default_session_id,
-            defaults,
-            follows,
-        } => cmd_profiles::create_profile(
-            mux,
-            name,
-            profile,
-            color,
-            icon,
-            theme,
-            index,
-            browser_profile_id,
-            default_session_id,
-            defaults,
-            follows,
-        ),
-        Command::UpdateProfile {
-            profile,
-            name,
-            color,
-            icon,
-            theme,
-            browser_profile_id,
-            default_session_id,
-            defaults,
-        } => cmd_profiles::update_profile(
-            mux,
-            profile,
-            name,
-            color,
-            icon,
-            theme,
-            browser_profile_id,
-            default_session_id,
-            defaults,
-        ),
-        Command::MoveProfile { profile, index } => cmd_profiles::move_profile(mux, profile, index),
-        Command::DeleteProfile { profile, move_to } => {
-            cmd_profiles::delete_profile(mux, client, profile, move_to)
-        }
-        Command::SetProfileFollows { profile, session_ids } => {
-            cmd_profiles::set_profile_follows(mux, profile, session_ids)
-        }
-        Command::PinWorkspace { session_id, workspace_key, profile } => {
-            cmd_workspaces::pin_workspace(mux, session_id, workspace_key, profile)
-        }
-        Command::UnpinWorkspace { session_id, workspace_key } => {
-            cmd_workspaces::unpin_workspace(mux, session_id, workspace_key)
-        }
-        Command::PutSession {
-            session_id,
-            machine_name,
-            session_name,
-            transport,
-            capabilities,
-            follow_with,
-        } => cmd_profiles::put_session(
-            mux,
-            session_id,
-            machine_name,
-            session_name,
-            transport,
-            capabilities,
-            follow_with,
-        ),
-        Command::ForgetSession { session_id, force } => {
-            cmd_profiles::forget_session(mux, session_id, force)
-        }
-        Command::SetSessionIcon(params) => personal::set_session_icon(mux, params),
-        Command::ImportSessionOrganization { session_id, groups, workspaces } => {
-            cmd_profiles::import_session_organization(mux, session_id, groups, workspaces)
-        }
-        Command::CreatePersonalGroup { name, group, profile, color, collapsed, index } => {
-            cmd_profiles::create_personal_group(mux, name, group, profile, color, collapsed, index)
-        }
-        Command::UpdatePersonalGroup { group, name, color, collapsed, profile } => {
-            cmd_profiles::update_personal_group(mux, group, name, color, collapsed, profile)
-        }
-        Command::DeletePersonalGroup { group } => {
-            cmd_profiles::delete_personal_group(mux, client, group)
-        }
-        Command::MovePersonalGroup { group, index } => {
-            cmd_profiles::move_personal_group(mux, group, index)
-        }
-        command @ Command::SetPersonalWorkspace { .. } => {
-            cmd_profiles::set_personal_workspace(mux, command)
-        }
-        Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
-            cmd_profiles::set_personal_terminal(mux, session_id, terminal_key, theme)
-        }
-        Command::ListWorkspaceGroups => cmd_workspaces::list_workspace_groups(mux),
-        Command::CreateWorkspaceGroup { name, group, color, collapsed, index } => {
-            cmd_workspaces::create_workspace_group(mux, name, group, color, collapsed, index)
-        }
-        Command::UpdateWorkspaceGroup { group, name, color, collapsed } => {
-            cmd_workspaces::update_workspace_group(mux, group, name, color, collapsed)
-        }
-        Command::DeleteWorkspaceGroup { group } => {
-            cmd_workspaces::delete_workspace_group(mux, group)
-        }
-        Command::MoveWorkspaceGroup { group, index } => {
-            cmd_workspaces::move_workspace_group(mux, group, index)
-        }
-        Command::MoveWorkspaceToGroup { workspace, key, group, index, mutation } => {
-            cmd_workspaces::move_workspace_to_group(
-                mux, client, workspace, key, group, index, mutation,
-            )
-        }
-        Command::SetDefaultColors {
-            fg,
-            bg,
-            cursor,
-            selection_bg,
-            selection_fg,
-            cursor_style,
-            cursor_blink,
-            palette,
-            complete,
-        } => cmd_terminal_io::set_default_colors(
-            mux,
-            fg,
-            bg,
-            cursor,
-            selection_bg,
-            selection_fg,
-            cursor_style,
-            cursor_blink,
-            palette,
-            complete,
-        ),
-        Command::CloseSurface { surface } => cmd_tabs::close_surface(mux, actor, surface),
-        Command::CloseTabs { surfaces, end_terminals, transaction, reason, mutation } => {
-            cmd_tabs::close_tabs(
-                mux,
-                client,
-                surfaces,
-                end_terminals,
-                transaction,
-                reason,
-                mutation,
-            )
-        }
-        Command::ClosePane { pane, end_terminals } => {
-            cmd_panes::close_pane(mux, actor, pane, end_terminals)
-        }
-        Command::CloseScreen { screen, end_terminals } => {
-            cmd_screens::close_screen(mux, actor, screen, end_terminals)
-        }
-        Command::CloseWorkspace { workspace, key, end_terminals, reason, if_empty, mutation } => {
-            let ending = cmd_workspaces::Ending { terminals: end_terminals, reason, if_empty };
-            cmd_workspaces::close_workspace(mux, client, workspace, key, ending, mutation)
-        }
-        Command::MarkWorkspacesProviderManaged { authority } => {
-            cmd_workspaces::mark_workspaces_provider_managed(mux, authority)
-        }
-        Command::CloseProviderManagedWorkspace { workspace, key, authority } => {
-            cmd_workspaces::close_provider_managed_workspace(mux, actor, workspace, key, authority)
-        }
-        Command::RenamePane { pane, name } => cmd_panes::rename_pane(mux, actor, pane, name),
-        Command::RenameSurface { surface, name } => {
-            cmd_tabs::rename_surface(mux, actor, surface, name)
-        }
-        Command::RenameScreen { screen, name } => {
-            cmd_screens::rename_screen(mux, actor, screen, name)
-        }
-        Command::RenameWorkspace { workspace, key, name, mutation } => {
-            cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
-        }
-        Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
-            cmd_workspaces::rename_provider_managed_workspace(
-                mux, actor, workspace, key, name, authority,
-            )
-        }
-        Command::ResizeSurface { surface, cols, rows } => {
-            cmd_sizing::resize_surface(mux, client, surface, cols, rows)
-        }
-        Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
-            cmd_sizing::resize_attached_view(
-                mux, client, surface, lease, view, identity, cols, rows,
-            )
-        }
-        Command::ReleaseSurfaceSize { surface } => {
-            cmd_sizing::release_surface_size(mux, client, surface)
-        }
-        Command::ReleaseAttachedViewSize { surface, lease, view } => {
-            cmd_sizing::release_attached_view_size(mux, client, surface, lease, view)
-        }
-        Command::DetachAttachedView { surface, lease, view } => {
-            cmd_attach::detach_attached_view(mux, client, surface, lease, view)
-        }
-        Command::FocusPane { pane } => cmd_panes::focus_pane(mux, actor, pane),
-        Command::SelectTab { pane, index, delta } => {
-            cmd_tabs::select_tab(mux, actor, pane, index, delta)
-        }
-        Command::SelectScreen { index, delta } => {
-            cmd_screens::select_screen(mux, actor, index, delta)
-        }
-        Command::SelectWorkspace { index, delta } => {
-            cmd_workspaces::select_workspace(mux, actor, index, delta)
-        }
-        Command::ReportFocus { client_id, pane, tab } => {
-            cmd_server::report_focus(mux, client_id, pane, tab)
-        }
-        Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
-        Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
-        Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
-        Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
-        Command::ScrollSurface { surface, delta } => {
-            cmd_terminal_io::scroll_surface(mux, surface, delta)
-        }
-        Command::Subscribe { tree_events, surface } => {
-            cmd_subscribe::subscribe_command(mux, client, writer, tree_events, surface)
-        }
-        Command::AttachSurface {
-            surface: surface_id,
-            mode,
-            cols,
-            rows,
-            expected_generation,
-            expected_terminal_id,
-            snapshot,
-        } => cmd_attach::attach_surface(
-            mux,
-            client,
-            writer,
-            surface_id,
-            mode,
-            cols,
-            rows,
-            expected_generation,
-            expected_terminal_id,
-            snapshot,
-        ),
-    }
-}
+mod command_dispatch;
+use command_dispatch::handle_command_with_cancellation;
 
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
@@ -3807,6 +2738,10 @@ mod loopback_forward_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_inventory_tests.rs"]
+mod agent_inventory_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]

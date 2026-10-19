@@ -96,15 +96,15 @@ public final class BrowserMediaRowView: NSView {
         case .previousTrack: (.mediaPrevious, Strings.mediaPrevious)
         case .nextTrack: (.mediaNext, Strings.mediaNext)
         case .playPause, .play, .pause: (.mediaPlay, Strings.mediaPlay)
-        case .toggleMute, .muteTab: (.mediaAudio, Strings.mediaMute)
+        case .toggleMute, .muteTab, .seek: (.mediaAudio, Strings.mediaMute)
         }
         let view = ChromeIconButton(icon: icon, label: title, action: #selector(pressed(_:)), target: self, toolbar: true)
         view.tag = command == .previousTrack ? 0 : 1
         return view
     }
 
-    private func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
+    private func label(_ text: String, font: NSFont, color: NSColor) -> ChromeLabel {
+        let field = ChromeLabel(labelWithString: text)
         field.font = font
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail

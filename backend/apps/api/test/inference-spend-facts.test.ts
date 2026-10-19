@@ -393,6 +393,24 @@ describe("team included mode per team or per seat (cx-y79zh.1)", () => {
   })
 })
 
+describe("a retried level is the same request (cx-y79zh.1 e2e finding)", () => {
+  it("after a failed send, the next run sends the identical meter event, so the idempotency key matches", async () => {
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    stripe.addSub("sub_retry1", "cus_retry1", { plan: "pro", stackUserId: "usage-retry-person" }, "cmux-pro-monthly-50")
+    fakeBoundaries(stripe, 0)
+    const team = personalTeamIdFor(userIdFor(testEnv.STACK_PROJECT_ID, "usage-retry-person"))
+    await spendOn(team, 1.25)
+    stripe.control.failMeterEvents = 1
+    expect((await sync()).body).toMatchObject({ failed: 1, pushed: 0 })
+    // Time passes between runs; the retry must not change the request (the timestamp is the level's last fact).
+    await new Promise((r) => setTimeout(r, 1100))
+    expect((await sync()).body).toMatchObject({ failed: 0, pushed: 1 })
+    expect(stripe.attempts).toHaveLength(2)
+    expect(stripe.attempts[1]).toEqual(stripe.attempts[0])
+    expect(stripe.events).toEqual([expect.objectContaining({ "payload[value]": "1.250000" })])
+  })
+})
+
 describe("the included-amount stop of a per-seat team (cx-y79zh.1)", () => {
   it("a per-seat team that is not billable stops at the amount x its last billable seats, and a lapsed subscription's seats stop counting", async () => {
     // Go (5 USD): 3 seats stay under the test pool's team usage cap (25 USD).

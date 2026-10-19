@@ -64,6 +64,7 @@ impl Mux {
                 provider_id: "test-provider".to_string(),
                 endpoint: "ws://127.0.0.1:9/devtools/browser/test".to_string(),
                 authentication: crate::browser_provider::BrowserProviderAuthentication::None,
+                hosting: Default::default(),
                 targets: Default::default(),
             },
         )
@@ -99,11 +100,15 @@ impl Mux {
         let mut runtime = self.browser_runtime.lock().unwrap();
         if let Some(existing) = runtime.as_ref().filter(|existing| {
             !existing.is_closed()
-                && existing.matches_provider(&lease.endpoint, &lease.authentication)
+                && existing.matches_provider(&lease.endpoint, &lease.authentication, lease.hosting)
         }) {
             return Ok(existing.clone());
         }
-        let created = BrowserRuntime::connect_provider(&lease.endpoint, &lease.authentication)?;
+        let created = BrowserRuntime::connect_provider(
+            &lease.endpoint,
+            &lease.authentication,
+            lease.hosting,
+        )?;
         *runtime = Some(created.clone());
         Ok(created)
     }

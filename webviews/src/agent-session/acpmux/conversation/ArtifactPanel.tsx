@@ -86,9 +86,7 @@ export function ArtifactPanel({
       }}
     >
       <div className="acpmux-artifact-bar">
-        <span className="acpmux-artifact-title" title={title === language ? title : `${title} (${language})`}>
-          {title}
-        </span>
+        <span className="acpmux-artifact-title">{title}</span>
         {list.length > 1 && (
           <span className="acpmux-artifact-versions">
             <button
@@ -101,12 +99,7 @@ export function ArtifactPanel({
             >
               <ChevronLeft size={14} />
             </button>
-            <span
-              className="acpmux-artifact-version"
-              title={t("artifact.versionCount", { index: index + 1, total: list.length })}
-            >
-              {`${index + 1}/${list.length}`}
-            </span>
+            <span className="acpmux-artifact-version">{`${index + 1}/${list.length}`}</span>
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"

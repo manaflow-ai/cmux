@@ -6,10 +6,26 @@ use super::*;
 use serde_json::{Value, json};
 use std::os::fd::FromRawFd;
 
+#[path = "chief_adopt.rs"]
+mod adopt;
 #[path = "chief_autostart.rs"]
 mod autostart;
+#[cfg(unix)]
+#[path = "chief_brains.rs"]
+mod brains;
+#[path = "chief_build_homes.rs"]
+mod build_homes;
+#[cfg(unix)]
+#[path = "chief_chat_kind.rs"]
+mod chat_kind;
 #[path = "conversation_link_preview.rs"]
 mod link_preview;
+#[path = "participant_avatars.rs"]
+mod participant_avatars;
+#[path = "chief_registry.rs"]
+mod registry;
+#[path = "chief_registry_errors.rs"]
+mod registry_errors;
 
 /// A JSON-lines client of the daemon; events read while waiting for an
 /// answer are kept in `events`.
@@ -148,13 +164,38 @@ fn fake_brain_saying(
 }
 
 fn chief_cli(server: &HeadlessServer, args: &[&str], stdin: &str) -> Output {
-    let mut child = Command::new(bin())
+    chief_cli_as(server, args, stdin, &[])
+}
+
+/// `cmux chief ARGS` as a person (no agent caller marker in its env) plus
+/// `env`, so a test names the agent marker it means.
+fn chief_cli_as(
+    server: &HeadlessServer,
+    args: &[&str],
+    stdin: &str,
+    env: &[(&str, &str)],
+) -> Output {
+    let mut command = Command::new(bin());
+    command
         .arg("--socket")
         .arg(&server.socket)
         .arg("chief")
         .args(args)
         .env("LC_ALL", "C")
-        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_SOCKET");
+    for key in [
+        "ACPMUX_ENV",
+        "ACPMUX_SESSION_ID",
+        "ACPMUX_SESSION_NAME",
+        "CMUX_CHIEF_OWNER_SOCKET",
+        "CMUX_AGENT_PRINCIPAL",
+        "CMUX_AGENT_CLASS",
+        "CMUX_AGENT_HARNESS",
+    ] {
+        command.env_remove(key);
+    }
+    command.envs(env.iter().copied());
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

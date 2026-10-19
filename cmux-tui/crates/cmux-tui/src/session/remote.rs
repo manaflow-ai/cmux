@@ -1575,6 +1575,7 @@ mod requests;
 #[cfg(test)]
 #[path = "remote_shutdown_tests.rs"]
 mod shutdown_tests;
+pub(crate) mod sidebar_doc;
 mod surfaces;
 mod tab_updates;
 
@@ -1623,6 +1624,8 @@ pub struct RemoteSession {
     size_states: Mutex<HashMap<SurfaceId, super::SurfaceSizeState>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
+    /// The daemon's sidebar document (`sidebar-doc-v1`), as a read model.
+    sidebar_doc: sidebar_doc::RemoteSidebarDoc,
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -2027,6 +2030,7 @@ impl RemoteSession {
         let retired_surface_ids = self.retired_surfaces.lock().unwrap().clone();
         let mut tree = tree;
         tree.retain_not_retired(&retired_surface_ids);
+        self.order_tree_by_sidebar_doc(&mut tree);
         let live_surface_ids = tree
             .workspaces()
             .iter()
@@ -2465,6 +2469,7 @@ fn test_session_with_writer(
         size_states: Mutex::new(HashMap::new()),
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
+        sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
     })
 }
 

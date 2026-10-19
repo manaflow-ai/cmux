@@ -25,8 +25,8 @@ import os
 /// - Geometry follows the latest active client (`TerminalAttachMachine`):
 ///   a visible view claims on each settled resize and, after another client
 ///   sized the terminal, on its next key press or focus.
-/// - Grid reports go through `ResizeCoordinator` and reach the daemon only
-///   after the view stops resizing.
+/// - Grid reports go through `ResizeCoordinator` and reach the daemon the
+///   next frame, one grid in flight per terminal (a drag reflows live).
 /// - A dropped stream or failed attach leaves the view disconnected (last
 ///   screen and a status label). A visible view re-attaches by itself after
 ///   a capped backoff (500 ms doubling to 30 s, about a minute in all,
@@ -102,6 +102,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         },
                              onCancel: { driver.cancelSteps() })
         driver.start()
+        #if DEBUG
+        // The view of a traced new terminal's tab: its session is matched by this IO.
+        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.watch(io: ObjectIdentifier(self), surface: surface) }
+        #endif
     }
 
     deinit {
@@ -146,6 +150,16 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// Called by `ResizeCoordinator` once the size settled.
     @MainActor func applySettled(_ size: CellSize) {
         driver.resize(size)
+    }
+
+    @MainActor var awaitsEcho: Bool { !driver.machine.echoesDue.isEmpty }
+
+    /// A visible live view holds geometry until another client's grid is
+    /// announced, and a resize it reports claims it back
+    /// (`TerminalAttachMachine`), so the daemon applies and announces it.
+    @MainActor func appliesViewGrid(reporting: Bool) -> Bool {
+        let machine = driver.machine
+        return machine.liveLink != nil && machine.visible && (reporting || machine.claimed)
     }
 
     /// Hidden views release canonical geometry so another client (or the
@@ -259,3 +273,5 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         ))
     }
 }
+
+extension DaemonTerminalIO: ResizeTarget {}

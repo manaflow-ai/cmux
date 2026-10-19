@@ -27,7 +27,13 @@ public final class MessagesLabHomeView: NSView {
         wantsLayer = true
         addSubview(controller.host)
         projection.start()
+        // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
+        // already running (MessagesLabHomeView+Motion.swift).
+        motionObservers = observeReduceMotion()
     }
+
+    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
+    private var motionObservers: [any NSObjectProtocol] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -134,6 +140,13 @@ public final class MessagesLabHomeView: NSView {
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
         set { controller.onAppLink = newValue }
+    }
+
+    /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
+    /// Defaults to the system; the host routes it (cmux: its link setting).
+    public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
+        get { controller.onOpenLink }
+        set { controller.onOpenLink = newValue }
     }
 
     /// A click (or Space/Return with the keyboard) on the header's name
@@ -283,6 +296,7 @@ public final class MessagesLabHomeView: NSView {
             out["receiptHeight"] = Double(row.spec.height)
             break
         }
+        out.merge(debugScaleGeometry()) { $1 }  // the per-view render scale (MessagesLabHomeView+ScaleDebug.swift)
         return out
     }
 
@@ -315,7 +329,7 @@ public final class MessagesLabHomeView: NSView {
                 kind = { if case .text = p.part { return "text" }; return "part" }()
                 outgoing = p.outgoing
                 rect = RowDraw.bodyRect(spec)
-                drawn = RowDraw.balloon(rect, row: p)
+                drawn = RowDraw.balloon(rect, row: p, scale: demo.renderScale)  // this pane's own scale (258b385)
             case .threadPreview(let pv):
                 kind = "preview"; outgoing = pv.outgoing
                 rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect

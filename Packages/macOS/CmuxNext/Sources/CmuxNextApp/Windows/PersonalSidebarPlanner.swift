@@ -104,6 +104,7 @@ struct PersonalSidebarPlanner {
         switch node {
         case let .workspace(workspace): .workspace(row: personalRow(workspace.id))
         case let .group(group): .group(WorkspaceGroupID(rawValue: group.id.rawValue))
+        case .item: .workspace(row: nil) // a document item; this path runs without the document
         }
     }
 

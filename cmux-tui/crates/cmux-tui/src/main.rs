@@ -18,6 +18,8 @@ mod app;
 #[cfg(unix)]
 mod app_identity;
 mod browser_input;
+#[cfg(unix)]
+mod build_adopt;
 mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;
@@ -32,6 +34,8 @@ mod codex_wrapper;
 mod config;
 mod daemon_build;
 mod headless;
+#[cfg(unix)]
+mod host_orphan_policy;
 mod local_actor;
 mod page_listener;
 mod private_mode;
@@ -2130,6 +2134,9 @@ fn run_server(
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();
+    // Windows hosts get no orphan grace (no app bundles there to classify).
+    #[cfg(unix)]
+    host_orphan_policy::install();
     owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
@@ -2471,7 +2478,7 @@ fn run_server(
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
-    mux.set_acpmux_starter(acp::daemon_acpmux_starter());
+    acp::install_daemon_acpmux(&mux, &socket_path);
     #[cfg(unix)]
     mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
@@ -2824,6 +2831,7 @@ fn start_detached_owner_session(
         terminal_reap_grace: args.terminal_reap_grace,
         install_key: None,
         chief_tools_socket: None,
+        chief_brains: None,
         websocket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;

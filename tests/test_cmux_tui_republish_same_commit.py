@@ -59,18 +59,50 @@ else:
 
 # Write-once like scripts/ci/upload-r2-object.py: identical bytes pass, other
 # bytes are an immutable conflict.
+# The other run finishes its publication while this one waits: each sleep
+# copies FAKE_RACE_DIR into the fake R2 (never over an existing object).
+FAKE_SLEEP = r'''#!/usr/bin/env python3
+import os, shutil, sys
+with open(os.environ["FAKE_SLEEP_LOG"], "a") as log:
+    log.write(" ".join(sys.argv[1:]) + "\n")
+race = os.environ.get("FAKE_RACE_DIR")
+if race and os.environ.get("FAKE_RACE_FINISHES") == "1":
+    for root, _, files in os.walk(race):
+        for name in files:
+            src = os.path.join(root, name)
+            dest = os.path.join(os.environ["FAKE_R2"], os.path.relpath(src, race))
+            if not os.path.exists(dest):
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                shutil.copyfile(src, dest)
+'''
+
 FAKE_UPLOADER = r'''#!/usr/bin/env python3
 import argparse, os, shutil, sys
 p = argparse.ArgumentParser()
 p.add_argument("--write-once", action="store_true")
 p.add_argument("--file"); p.add_argument("--endpoint-url"); p.add_argument("--bucket")
 p.add_argument("--key"); p.add_argument("--cache-control")
+p.add_argument("--conflict-exit-code", type=int)
 a = p.parse_args()
 dest = os.path.join(os.environ["FAKE_R2"], a.key)
 body = open(a.file, "rb").read()
+# Another run is mid-publication: before this upload lands, it writes the
+# objects named in FAKE_RACE (relative keys) from FAKE_OTHER_RUN.
+race = os.environ.get("FAKE_RACE_DIR")
+if race and os.path.exists(os.path.join(race, a.key)) and not os.path.exists(dest):
+    for root, _, files in os.walk(race):
+        for name in files:
+            src = os.path.join(root, name)
+            rel = os.path.relpath(src, race)
+            if rel == a.key or rel in os.environ.get("FAKE_RACE_FIRST", "").split(","):
+                os.makedirs(os.path.dirname(os.path.join(os.environ["FAKE_R2"], rel)), exist_ok=True)
+                shutil.copyfile(src, os.path.join(os.environ["FAKE_R2"], rel))
 if a.write_once and os.path.exists(dest):
     if open(dest, "rb").read() == body:
         sys.exit(0)
+    if a.conflict_exit_code is not None:
+        print(f"another publisher wrote {a.key} first", file=sys.stderr)
+        sys.exit(a.conflict_exit_code)
     print(f"::error title=immutable-r2-conflict::{a.key} already exists with other bytes")
     sys.exit(1)
 os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -109,6 +141,7 @@ class Sandbox:
         subprocess.run([*git, "commit", "-qm", "c"], check=True)
         self.sha = subprocess.check_output(["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True).strip()
         self._exe(self.bin / "curl", FAKE_CURL)
+        self._exe(self.bin / "sleep", FAKE_SLEEP)
         self._exe(self.repo / "scripts/ci/upload-r2-object.py", FAKE_UPLOADER)
         shutil.copy(ROOT / "scripts/ci/publish-cmux-tui-tree.py", self.repo / "scripts/ci/publish-cmux-tui-tree.py")
         self._exe(self.repo / "scripts/cmux-next/pin-cmux-tui.sh", '#!/bin/sh\necho "$FAKE_TREE_KEY"\n')
@@ -132,6 +165,7 @@ class Sandbox:
             "GITHUB_SERVER_URL": "https://github.com",
             "GITHUB_REPOSITORY": "manaflow-ai/cmux",
             "R2_ENDPOINT": "https://r2.invalid",
+            "FAKE_SLEEP_LOG": str(self.root / "sleep.log"),
             **env,
         }
         return subprocess.run(["bash", "-e", "-c", script], cwd=self.repo, env=full, text=True, capture_output=True)
@@ -241,6 +275,330 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         # Provenance names the run that built them (bundle-cmux-tui.sh stamps it).
         self.assertEqual(json.loads((published / "source.json").read_text())["run"], "1")
 
+    def publish_tree_with_acpmux(self) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
+        """The commit's earlier publication attests acpmux for the four Unix targets."""
+        self.box.build("1")
+        self.assertEqual(self.box.run(self.upload).returncode, 0)
+        list_names = lambda flag: subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), flag], text=True).split()
+        names, acpmux = list_names("--list-companions"), list_names("--list-acpmux-companions")
+        commit = self.box.r2 / "cmux-tui" / self.box.sha
+        for n in names + acpmux:
+            (commit / n).write_text(f"{n} build 1\n")
+        (commit / "manifest.json").write_text(json.dumps({
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/1",
+            "binaries": {n: sha256(commit / n) for n in names + acpmux},
+        }))
+        tree = self.box.repo / "assets" / "tree"
+        tree.mkdir(parents=True, exist_ok=True)
+        for n in names:
+            (tree / n).write_text(f"{n} build 2\n")
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        result = self.box.run(script, KEY_V2="a" * 40, LEGACY_KEY="")
+        return result, commit, self.box.r2 / "cmux-tui" / "tree" / ("a" * 40), acpmux
+
+    def test_a_new_tree_carries_the_commit_acpmux_in_completion_json(self) -> None:
+        # hq-1f: acpmux for x86_64/aarch64 musl and aarch64/x86_64 darwin.
+        result, commit, published, acpmux = self.publish_tree_with_acpmux()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(acpmux), 4)
+        gate = json.loads((published / "completion.json").read_text())["binaries"]
+        for n in acpmux:
+            self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)
+            self.assertEqual(gate[n], sha256(commit / n), n)
+            self.assertEqual((published / f"{n}.sha256").read_text(), f"{sha256(commit / n)}  {n}\n")
+
+    def test_a_tree_published_before_acpmux_is_republished_without_a_conflict(self) -> None:
+        # The tree's completion.json predates acpmux: it stays byte for byte.
+        result, commit, published, acpmux = self.publish_tree_with_acpmux()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        first = (published / "completion.json").read_bytes()
+        gate = json.loads(first)["binaries"]
+        for n in acpmux:
+            (published / n).unlink()
+            (published / f"{n}.sha256").unlink()
+            del gate[n]
+        older = json.loads(first)
+        older["binaries"] = gate
+        (published / "completion.json").write_text(json.dumps(older, indent=2, sort_keys=True) + "\n")
+        before = (published / "completion.json").read_bytes()
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        again = self.box.run(script, KEY_V2="a" * 40, LEGACY_KEY="", GITHUB_RUN_ID="3")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn("immutable-r2-conflict", again.stdout + again.stderr)
+        self.assertEqual((published / "completion.json").read_bytes(), before)
+        for n in acpmux:
+            self.assertFalse((published / n).exists(), n)
+
+
+
+class TwoRunsOfOneCommitAtOnce(unittest.TestCase):
+    """cx-a1q4d: a lane commit's side-branch run and its fast-forwarded
+    feat-cmux-next run build the same commit and publish it at the same time.
+    The run that loses a write-once race waits for the other run's
+    publication and keeps it: it never fails and never overwrites."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.box = Sandbox(Path(self.tmp.name))
+        self.upload = step_script("publish", "Upload to R2")
+        self.other = Path(self.tmp.name) / "other-run"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def published(self) -> dict[str, bytes]:
+        return {str(p.relative_to(self.box.r2)): p.read_bytes() for p in self.box.r2.rglob("*") if p.is_file()}
+
+    def other_run_publication(self) -> dict[str, bytes]:
+        """The other run's complete publication of the commit, moved aside."""
+        self.box.build("1")
+        self.assertEqual(self.box.run(self.upload).returncode, 0)
+        shutil.move(str(self.box.r2), str(self.other))
+        self.box.r2.mkdir()
+        return {str(p.relative_to(self.other)): p.read_bytes() for p in self.other.rglob("*") if p.is_file()}
+
+    def test_the_loser_of_a_commit_prefix_race_keeps_the_other_publication(self) -> None:
+        other = self.other_run_publication()
+        self.box.build("2")
+        first = sorted(k for k in other if k.startswith(f"cmux-tui/{self.box.sha}/"))[0]
+        result = self.box.run(self.upload, FAKE_RACE_DIR=str(self.other), FAKE_RACE_FINISHES="1",
+                              FAKE_RACE_FIRST=first)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("immutable-r2-conflict", result.stdout + result.stderr)
+        self.assertEqual(self.published(), other)
+        for path in (self.box.repo / "assets").rglob("*"):
+            if path.is_file():
+                key = f"{path.parent.name}/{self.box.sha}/{path.name}"
+                self.assertEqual(path.read_bytes(), other[key], key)
+
+    def test_an_other_publication_that_never_completes_fails_after_a_bounded_wait(self) -> None:
+        other = self.other_run_publication()
+        self.box.build("2")
+        first = sorted(k for k in other if k.startswith(f"cmux-tui/{self.box.sha}/"))[0]
+        result = self.box.run(self.upload, FAKE_RACE_DIR=str(self.other), FAKE_RACE_FIRST=first,
+                              CMUX_R2_ADOPT_WAIT_SECONDS="30")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("immutable-r2-conflict", result.stdout + result.stderr)
+        # Nothing of this run's build replaced the other run's object.
+        self.assertEqual(self.published()[first], other[first])
+        self.assertEqual(len((self.box.root / "sleep.log").read_text().splitlines()), 2)
+
+    def test_the_loser_of_a_tree_race_keeps_the_other_tree(self) -> None:
+        names = subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), "--list-companions"], text=True
+        ).split()
+        commit = self.box.r2 / "cmux-tui" / self.box.sha
+        commit.mkdir(parents=True)
+        for n in names:
+            (commit / n).write_text(f"{n} build 1\n")
+        (commit / "manifest.json").write_text(json.dumps({
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/1",
+            "binaries": {n: sha256(commit / n) for n in names},
+        }))
+        tree = self.box.repo / "assets" / "tree"
+        tree.mkdir(parents=True)
+        for n in names:
+            (tree / n).write_text(f"{n} build 2\n")
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        key = "a" * 40
+        # The other run (the side branch's) publishes the tree first.
+        self.assertEqual(self.box.run(script, KEY_V2=key, LEGACY_KEY="",
+                                      GITHUB_REF="refs/heads/lane-branch").returncode, 0)
+        prefix = f"cmux-tui/tree/{key}"
+        other = {k: v for k, v in self.published().items() if k.startswith(prefix + "/")}
+        shutil.rmtree(self.box.r2 / prefix)
+        (self.other / prefix).parent.mkdir(parents=True)
+        for rel, body in other.items():
+            dest = self.other / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(body)
+        # This feat-cmux-next run read no source.json, then the other run
+        # wrote its own just before this run's write.
+        result = self.box.run(script, KEY_V2=key, LEGACY_KEY="", GITHUB_REF="refs/heads/feat-cmux-next",
+                              FAKE_RACE_DIR=str(self.other), FAKE_RACE_FINISHES="1",
+                              FAKE_RACE_FIRST=f"{prefix}/source.json")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("immutable-r2-conflict", result.stdout + result.stderr)
+        mine = {k: v for k, v in self.published().items() if k.startswith(prefix + "/")}
+        self.assertEqual(mine, other)
+        self.assertEqual(json.loads(mine[f"{prefix}/source.json"])["ref"], "refs/heads/lane-branch")
+
+    def test_a_conflict_after_source_json_stays_a_hard_failure(self) -> None:
+        # Only source.json is a race between two publishers; another object of
+        # the tree with other bytes is damage, and waiting would hide it.
+        names = subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), "--list-companions"], text=True
+        ).split()
+        commit = self.box.r2 / "cmux-tui" / self.box.sha
+        commit.mkdir(parents=True)
+        for n in names:
+            (commit / n).write_text(f"{n} build 1\n")
+        (commit / "manifest.json").write_text(json.dumps({
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/1",
+            "binaries": {n: sha256(commit / n) for n in names},
+        }))
+        tree = self.box.repo / "assets" / "tree"
+        tree.mkdir(parents=True)
+        key = "a" * 40
+        damaged = self.box.r2 / "cmux-tui" / "tree" / key / names[0]
+        damaged.parent.mkdir(parents=True)
+        damaged.write_text("other bytes\n")
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        result = self.box.run(script, KEY_V2=key, LEGACY_KEY="")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("immutable-r2-conflict", result.stdout + result.stderr)
+        self.assertFalse((self.box.root / "sleep.log").exists())
+        self.assertEqual(damaged.read_text(), "other bytes\n")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# `git fetch origin <sha>` in the PR step: the sandbox has no remote, and the
+# commits are local already. Every other git command runs as is.
+FAKE_GIT = r'''#!/bin/sh
+if [ "$1" = fetch ]; then exit 0; fi
+exec "$REAL_GIT" "$@"
+'''
+
+
+class PullRequestTreeCarriesAcpmux(unittest.TestCase):
+    """hq-1f: a same-repository pull request publishes the tree that its
+    same-tree checks wait for. completion.json is write-once, so a tree a PR
+    publishes first must list acpmux itself: a later push never adds it."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.repo, self.r2, self.bin = root / "repo", root / "r2", root / "bin"
+        for d in (self.repo, self.r2, self.bin):
+            d.mkdir()
+        for d in ("cmux-tui", "ghostty", "ghostty-next"):
+            (self.repo / d).mkdir()
+            (self.repo / d / "README").write_text(d)
+        for path, body in {
+            "scripts/ci/upload-r2-object.py": FAKE_UPLOADER,
+            "scripts/ci/cmux_tui_tree_key.py": '#!/usr/bin/env python3\nimport os\nprint(os.environ["FAKE_TREE_KEY"])\n',
+        }.items():
+            Sandbox._exe(self.repo / path, body)
+        shutil.copy(ROOT / "scripts/ci/publish-cmux-tui-tree.py", self.repo / "scripts/ci/publish-cmux-tui-tree.py")
+        git = ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        subprocess.run([*git, "add", "."], check=True)
+        subprocess.run([*git, "commit", "-qm", "c"], check=True)
+        self.sha = subprocess.check_output(["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True).strip()
+        Sandbox._exe(self.bin / "curl", FAKE_CURL)
+        Sandbox._exe(self.bin / "git", FAKE_GIT)
+        self.names = subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), "--list-companions"], text=True).split()
+        self.acpmux = [f"cmux-tui-acpmux-{t}" for t in (
+            "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin", "x86_64-apple-darwin")]
+        self.tree = self.r2 / "cmux-tui" / "tree" / ("a" * 40)
+        self.windows = ["cmux-tui-x86_64-pc-windows-gnu.exe", "cmux-tui-host-x86_64-pc-windows-gnu.exe",
+                        "cmux-tui-acpmux-x86_64-pc-windows-gnu.exe"]
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def run_step(self, *without: str) -> subprocess.CompletedProcess[str]:
+        """The PR tree step on this run's downloaded build (every artifact)."""
+        assets = self.repo / "assets" / "tree"
+        shutil.rmtree(assets, ignore_errors=True)
+        assets.mkdir(parents=True)
+        for n in self.names + self.acpmux:
+            if n not in without:
+                (assets / n).write_text(f"{n} pr build\n")
+        windows = self.repo / "assets" / "windows"
+        shutil.rmtree(windows, ignore_errors=True)
+        windows.mkdir(parents=True)
+        for n in self.windows:
+            if n not in without:
+                (windows / n).write_text(f"{n} pr build\n")
+        env = {
+            "PATH": f"{self.bin}:{os.environ['PATH']}",
+            "HOME": self.tmp.name,
+            "REAL_GIT": shutil.which("git", path=os.environ["PATH"]) or "git",
+            "FAKE_R2": str(self.r2),
+            "FAKE_TREE_KEY": "a" * 40,
+            "KEY": "a" * 40,
+            "SOURCE_COMMIT": self.sha,
+            "BASE_COMMIT": self.sha,
+            "RUNNER_TEMP": self.tmp.name,
+            "GITHUB_RUN_ID": "7",
+            "GITHUB_SERVER_URL": "https://github.com",
+            "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+            "R2_ENDPOINT": "https://r2.invalid",
+        }
+        script = step_script("publish-pr-tree", "Publish the PR tree with the trusted helper")
+        return subprocess.run(["bash", "-e", "-c", script], cwd=self.repo, env=env, text=True, capture_output=True)
+
+    def test_the_pr_tree_lists_the_four_acpmux_in_completion_json(self) -> None:
+        result = self.run_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        gate = json.loads((self.tree / "completion.json").read_text())["binaries"]
+        for n in self.acpmux:
+            self.assertEqual((self.tree / n).read_text(), f"{n} pr build\n", n)
+            self.assertEqual(gate[n], sha256(self.tree / n), n)
+            self.assertEqual((self.tree / f"{n}.sha256").read_text(), f"{sha256(self.tree / n)}  {n}\n")
+
+    def test_the_pr_workflow_downloads_the_macos_x86_64_build(self) -> None:
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        names = [s.get("with", {}).get("name") for s in doc["jobs"]["publish-pr-tree"]["steps"]]
+        self.assertIn("cmux-tui-x86_64-apple-darwin", names)
+
+    def test_a_pr_tree_published_before_acpmux_keeps_its_completion(self) -> None:
+        # The first publication had no acpmux: a rerun writes the same bytes.
+        result = self.run_step(*self.acpmux)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        before = (self.tree / "completion.json").read_bytes()
+        self.assertFalse(set(self.acpmux) & set(json.loads(before)["binaries"]))
+        commit = self.r2 / "cmux-tui" / self.sha
+        commit.mkdir(parents=True)
+        for n in self.names:
+            shutil.copy(self.tree / n, commit / n)
+        (commit / "manifest.json").write_text(json.dumps({"commit": self.sha, "binaries": {}}))
+        again = self.run_step()
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertEqual((self.tree / "completion.json").read_bytes(), before)
+        for n in self.acpmux:
+            self.assertFalse((self.tree / n).exists(), n)
+
+    def test_the_pr_tree_publishes_windows_with_its_completion(self) -> None:
+        # Chief 2026-10-17: a push run of the same key builds nothing, so a PR
+        # tree must carry the Windows daemon, host and acpmux on first write.
+        result = self.run_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        windows = json.loads((self.tree / "completion-windows.json").read_text())
+        self.assertEqual(windows["sourceCommit"], self.sha)
+        for n in self.windows:
+            self.assertEqual((self.tree / n).read_text(), f"{n} pr build\n", n)
+            self.assertEqual(windows["binaries"][n], sha256(self.tree / n), n)
+            self.assertEqual((self.tree / f"{n}.sha256").read_text(), f"{sha256(self.tree / n)}  {n}\n")
+        self.assertFalse(set(self.windows) & set(json.loads((self.tree / "completion.json").read_text())["binaries"]))
+
+    def test_the_pr_workflow_builds_and_downloads_windows_acpmux(self) -> None:
+        doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        names = [s.get("with", {}).get("name") for s in doc["jobs"]["publish-pr-tree"]["steps"]]
+        self.assertIn("cmux-tui-x86_64-pc-windows-gnu", names)
+        self.assertIn("cmux-tui-acpmux-x86_64-pc-windows-gnu", names)
+        self.assertIs(doc["jobs"]["build"]["with"]["windows_acpmux"], True)
+
+    def test_a_pr_tree_without_a_windows_build_has_no_windows_files(self) -> None:
+        result = self.run_step(*self.windows)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.tree / "completion-windows.json").exists())
+        self.assertIn("PR tree without Windows", result.stdout)
+
+    def test_an_existing_windows_completion_is_kept(self) -> None:
+        self.tree.mkdir(parents=True)
+        existing = json.dumps({"key": "a" * 40, "sourceCommit": "c" * 40, "binaries": {}})
+        (self.tree / "completion-windows.json").write_text(existing)
+        result = self.run_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.tree / "completion-windows.json").read_text(), existing)
+        self.assertFalse((self.tree / self.windows[0]).exists())

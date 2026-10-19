@@ -20,6 +20,8 @@ struct WorkspaceHoverCardContent: Equatable {
         var since: Date?
         /// How many lines the text may wrap to (a task or a waiting reason reads in full).
         var lines: Int = 1
+        /// The field it shows (`SidebarCardFacts.Fact.kind`), for a custom card.
+        var kind = "status"
     }
 
     var title: String
@@ -41,25 +43,32 @@ struct WorkspaceHoverCardContent: Equatable {
         let remote = machine.flatMap { $0.kind == .local ? nil : $0 }
         var facts: [Fact] = []
         let detail = workspace.detail
-        if let reason = detail.needsInput { facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3)) }
-        if let agent = workspace.agentName {
-            facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · ")))
+        if let reason = detail.needsInput { facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput")) }
+        // The unread notification's text, which a compact row no longer draws by default; without
+        // one, how many items are unread (rows draw no count, `SidebarRowBadgeStyle`).
+        if let text = workspace.notificationText, !text.isEmpty {
+            facts.append(Fact(icon: .notification, text: text, lines: 2, kind: "notification"))
+        } else if case let .count(n) = workspace.unread, n > 0 {
+            facts.append(Fact(icon: .notification, text: Strings.unreadCount(n), kind: "unread"))
         }
-        if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3)) }
+        if let agent = workspace.agentName {
+            facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · "), kind: "agent"))
+        }
+        if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }
         // The agent chat's last reply line, when no task says more.
         if detail.task == nil, let message = workspace.lastMessage, !message.isEmpty {
-            facts.append(Fact(icon: .agentChatList, text: message, lines: 2))
+            facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: "lastReply"))
         }
         for presence in workspace.presence.prefix(2) {
-            facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence)))
+            facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence), kind: "presence"))
         }
-        if let command = detail.command { facts.append(Fact(icon: .terminal, text: command, since: detail.commandSince)) }
-        if let folder = workspace.directory.flatMap({ $0.isEmpty ? nil : folderName($0) }) { facts.append(Fact(icon: .folder, text: folder)) }
-        if let branch = workspace.branch, !branch.isEmpty { facts.append(Fact(icon: .gitBranch, text: branch)) }
-        if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr)) }
+        if let command = detail.command { facts.append(Fact(icon: .terminal, text: command, since: detail.commandSince, kind: "command")) }
+        if let folder = workspace.directory.flatMap({ $0.isEmpty ? nil : folderName($0) }) { facts.append(Fact(icon: .folder, text: folder, kind: "folder")) }
+        if let branch = workspace.branch, !branch.isEmpty { facts.append(Fact(icon: .gitBranch, text: branch, kind: "branch")) }
+        if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr, kind: "pullRequest")) }
         if let remote {
             let own = ownIcon(remote.icon)
-            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image))
+            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine"))
         }
         // As many entries as the row shows, then how many more (the daemon keeps up to 64).
         let entries = workspace.reported?.entries ?? []
@@ -67,12 +76,19 @@ struct WorkspaceHoverCardContent: Equatable {
             facts.append(Fact(icon: .listBulletItem, text: entry.displayText, mark: entry.icon, image: entry.image))
         }
         if entries.count > SidebarWorkspaceStatus.visibleEntryLimit {
-            facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(entries.count - SidebarWorkspaceStatus.visibleEntryLimit)))
+            facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(entries.count - SidebarWorkspaceStatus.visibleEntryLimit), kind: "more"))
         }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
             age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts,
             activity: workspace.activity, activityStyle: workspace.activityStyle, activitySince: detail.activitySince)
+    }
+
+    /// The card's fields for the user's card (`ctx.card`).
+    var cardFacts: SidebarCardFacts {
+        SidebarCardFacts(
+            title: title, status: Strings.activity(activity), statusSinceMs: activitySince.map { $0.timeIntervalSince1970 * 1000 },
+            age: age, facts: facts.map { .init(kind: $0.kind, text: $0.text, sinceMs: $0.since.map { $0.timeIntervalSince1970 * 1000 }) })
     }
 
     /// The icon of what an agent is doing (`SidebarPresence.Activity`).

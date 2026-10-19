@@ -84,7 +84,7 @@ first everywhere). Use the token, never a number: `z-index: var(--layer-dropdown
 | `--layer-base`     | 0          | normal flow                                                                                                  |
 | `--layer-raised`   | 1          | a part lifted above its siblings inside one component (a hover card edge, a selected row's outline)          |
 | `--layer-sticky`   | 10         | sticky headers, docked bars inside a scroller                                                                |
-| `--layer-overlay`  | 30         | scrims and dimming layers                                                                                    |
+| `--layer-overlay`  | 30         | scrims and dimming layers; a field's suggestions (New Tab), so the menus its composer opens cover them       |
 | `--layer-modal`    | 40         | dialogs and sheets                                                                                           |
 | `--layer-dropdown` | 50         | menus, popovers, pickers, comboboxes (the shared positioner); above modals so a picker inside a dialog shows |
 | `--layer-toast`    | 900        | transient notices                                                                                            |
@@ -113,19 +113,26 @@ Rules:
 
 ## Type scale
 
-One set of font sizes for every page and the agent pane, defined in `pages/shared/desktop.css` (loaded
-first everywhere). Use the token, never a size: `font-size: var(--text-body)` (and
-`line-height: var(--text-body--line-height)`) in CSS, `text-body` in Tailwind (sets both).
+One set of font sizes and two weights for every page, the agent pane and the native app. The source is
+`schemas/type-scale/type-scale.json`; `scripts/cmux-next/gen-type-scale.py` writes it into
+`pages/shared/desktop.css` (loaded first everywhere) and the app's `TypeScale` (CmuxNextDesign). Use the
+token, never a size or weight: `font-size: var(--text-body)` (and `line-height: var(--text-body--line-height)`)
+and `font-weight: var(--weight-emphasis)` in CSS, `text-body` in Tailwind (sets both).
 
-| token            | size                               | line height        | for                                                                                              |
-| ---------------- | ---------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------ |
-| `--text-caption` | 11px                               | 14px               | keyboard shortcuts, group labels, badges, tiny counters, tooltips (NSFont.toolTipsFont is 11 pt) |
-| `--text-detail`  | 12px                               | 16px               | descriptions, secondary lines, metadata, section headers                                         |
-| `--text-body`    | 13px                               | 18px               | chrome text: labels, settings rows, page text (macOS system font)                                |
-| `--text-control` | 13px                               | 18px               | menu and picker rows, menu search fields, composer controls                                      |
-| `--text-title`   | 15px                               | 20px               | card and panel titles, glyph buttons                                                             |
-| `--text-heading` | 17px                               | 22px               | page headings                                                                                    |
-| `--text-content` | the user's `--cv-font-size` (14px) | `--cv-line-height` | reading content: transcript, markdown, composer prompt                                           |
+| token            | size                               | line height        | for                                                                      |
+| ---------------- | ---------------------------------- | ------------------ | ------------------------------------------------------------------------ |
+| `--text-caption` | 11px                               | 14px               | keyboard shortcuts, group labels, badges, counters, tooltips             |
+| `--text-detail`  | 12px                               | 16px               | descriptions, secondary lines, metadata, section headers, footer rows    |
+| `--text-body`    | 13px                               | 18px               | chrome text: labels, rows, menus, controls, settings (macOS system font) |
+| `--text-control` | the body step                      | the body step's    | menu and picker rows, composer controls (`NSFont.menuFont` is 13)        |
+| `--text-title`   | 15px                               | 20px               | card and panel titles, search fields, glyph buttons                      |
+| `--text-heading` | 20px                               | 26px               | page headings                                                            |
+| `--text-content` | the user's `--cv-font-size` (14px) | `--cv-line-height` | reading content: transcript, markdown, composer prompt                   |
+
+| token               | weight | for                                                     |
+| ------------------- | ------ | ------------------------------------------------------- |
+| `--weight-regular`  | 400    | everything by default                                   |
+| `--weight-emphasis` | 600    | titles, headings, selected or unread rows, group labels |
 
 Rules:
 
@@ -141,3 +148,6 @@ Rules:
   (`font-size: 12px`, a `font:` shorthand with a size, `fontSize: 12`, Tailwind `text-[12px]`); the old
   ones sit in `scripts/cmux-next/type-scale-baseline.tsv`, which may only go down. Each component moves
   to the tokens in its UI-tournament round.
+- The app's Swift has the same ratchet: `scripts/cmux-next/check-swift-type-scale.py` (cmux-next checks)
+  fails on a new literal font size or a weight other than `TypeScale.regular` and `TypeScale.emphasis`.
+  `scripts/cmux-next/type-inventory.py` prints each surface's sizes and weights, native and web.

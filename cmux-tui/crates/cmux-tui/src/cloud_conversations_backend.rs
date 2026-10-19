@@ -6,16 +6,15 @@
 //!
 //! The bearer token is only ever placed in the `authorization` header (HTTP
 //! calls and the socket upgrade; Workers invocation logs record every header
-//! but Authorization, cx-dgsp); errors never include it. Only a Worker that
-//! does not yet read Authorization on the upgrade (its 401 lacks
-//! `x-cmux-wire-auth`) gets the legacy `bearer.<token>` subprotocol, once.
+//! but Authorization, cx-dgsp); errors never include it. The legacy
+//! `bearer.<token>` subprotocol is retired: a 401 on the upgrade is final.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use cmux_tui_core::Mux;
 use cmux_tui_core::cloud_conversations::{
-    CloudBackend, CloudWire, ConnectError, HttpReply, TransportError, WireRecv,
+    CloudBackend, CloudWire, ConnectError, HttpReply, RangeReply, TransportError, WireRecv,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -32,19 +31,16 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// A Home read returns at most 200 messages of at most 64 KiB text each.
 const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 const CLIENT_VERSION_HEADER: &str = "x-cmux-client-version";
-/// A Worker that reads the upgrade's Authorization header names it on every wire 401.
-const WIRE_AUTH_HEADER: &str = "x-cmux-wire-auth";
-
-/// How the upgrade carries the token.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WireAuth {
-    Header,
-    LegacySubprotocol,
-}
-
+/// An attachment upload (up to 100 MB) may take longer than a JSON call.
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// One ranged attachment read (at most 4 MiB).
+const RANGE_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) struct RemoteCloudBackend {
     runtime: tokio::runtime::Runtime,
     http: reqwest::Client,
+    /// Attachment slot and signed URLs: never follows a redirect (the URL
+    /// the daemon checked is the one it talks to).
+    files: reqwest::Client,
 }
 
 impl RemoteCloudBackend {
@@ -62,7 +58,12 @@ impl RemoteCloudBackend {
             .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        Ok(Self { runtime, http })
+        let files = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
+            .build()?;
+        Ok(Self { runtime, http, files })
     }
 }
 
@@ -97,34 +98,113 @@ impl CloudBackend for RemoteCloudBackend {
         })
     }
 
+    fn get(
+        &self,
+        url: &str,
+        bearer: &str,
+        client_version: Option<&str>,
+    ) -> Result<HttpReply, TransportError> {
+        let mut request = self
+            .http
+            .get(url)
+            .bearer_auth(bearer)
+            .header(reqwest::header::ACCEPT, "application/json");
+        if let Some(version) = client_version {
+            request = request.header(CLIENT_VERSION_HEADER, version);
+        }
+        self.runtime.block_on(async move {
+            let response = request.send().await.map_err(|error| transport(&error))?;
+            let status = response.status().as_u16();
+            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
+            if bytes.len() > MAX_BODY_BYTES {
+                return Err(TransportError(format!(
+                    "reply of {} bytes exceeds the limit",
+                    bytes.len()
+                )));
+            }
+            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
+        })
+    }
+
+    fn put(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+    ) -> Result<HttpReply, TransportError> {
+        let mut request = self.files.put(url).timeout(UPLOAD_TIMEOUT).body(body);
+        for (name, value) in headers {
+            request = request.header(name.as_str(), value.as_str());
+        }
+        self.runtime.block_on(async move {
+            let response = request.send().await.map_err(|error| transport(&error))?;
+            let status = response.status().as_u16();
+            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
+            if bytes.len() > MAX_BODY_BYTES {
+                return Err(TransportError(format!(
+                    "reply of {} bytes exceeds the limit",
+                    bytes.len()
+                )));
+            }
+            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
+        })
+    }
+
+    fn get_range(&self, url: &str, offset: u64, length: u64) -> Result<RangeReply, TransportError> {
+        let last = offset + length.max(1) - 1;
+        let request = self
+            .files
+            .get(url)
+            .timeout(RANGE_TIMEOUT)
+            .header(reqwest::header::RANGE, format!("bytes={offset}-{last}"));
+        self.runtime.block_on(async move {
+            let response = request.send().await.map_err(|error| transport(&error))?;
+            let status = response.status().as_u16();
+            let header = |name: reqwest::header::HeaderName| {
+                response
+                    .headers()
+                    .get(name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string)
+            };
+            let content_type = header(reqwest::header::CONTENT_TYPE);
+            // `bytes a-b/total` on a 206; the whole length on a 200.
+            let total = match header(reqwest::header::CONTENT_RANGE) {
+                Some(range) => range.rsplit('/').next().and_then(|total| total.trim().parse().ok()),
+                None if status == 200 => response.content_length(),
+                None => None,
+            };
+            // A server that ignores the range answers 200 with everything: only
+            // a read from the start can use it, and only its first `length` bytes.
+            if status == 200 && offset > 0 {
+                return Err(TransportError("the attachment server ignored the byte range".into()));
+            }
+            let limit = usize::try_from(length).unwrap_or(usize::MAX);
+            let mut response = response;
+            let mut body = Vec::with_capacity(limit.min(1 << 20));
+            while body.len() < limit {
+                match response.chunk().await.map_err(|error| transport(&error))? {
+                    Some(chunk) => {
+                        body.extend_from_slice(&chunk[..chunk.len().min(limit - body.len())]);
+                    }
+                    None => break,
+                }
+            }
+            Ok(RangeReply { status, content_type, total, body })
+        })
+    }
+
     fn connect(
         &self,
         url: &str,
         bearer: &str,
         client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError> {
-        match self.handshake(url, bearer, client_version, WireAuth::Header) {
-            // A Worker from before cx-dgsp ignores Authorization on the upgrade.
-            Err(Refusal::Legacy) => {
-                self.handshake(url, bearer, client_version, WireAuth::LegacySubprotocol)
-            }
-            other => other,
-        }
-        .map_err(|refusal| match refusal {
-            Refusal::Legacy => ConnectError::Unauthenticated,
-            Refusal::Error(error) => error,
-        })
-        .map(|stream| {
+        self.handshake(url, bearer, client_version).map(|stream| {
             Box::new(RemoteWire { handle: self.runtime.handle().clone(), stream })
                 as Box<dyn CloudWire>
         })
     }
-}
-
-enum Refusal {
-    /// 401 without `x-cmux-wire-auth`: the Worker reads only the legacy subprotocol.
-    Legacy,
-    Error(ConnectError),
 }
 
 impl RemoteCloudBackend {
@@ -133,26 +213,18 @@ impl RemoteCloudBackend {
         url: &str,
         bearer: &str,
         client_version: Option<&str>,
-        auth: WireAuth,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Refusal> {
-        let unavailable = |detail: String| Refusal::Error(ConnectError::Unavailable(detail));
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, ConnectError> {
+        let unavailable = ConnectError::Unavailable;
         let mut request = url
             .into_client_request()
             .map_err(|error| unavailable(format!("bad stream URL: {error}")))?;
         let invalid = || unavailable("the token is not a valid header value".into());
-        let protocols = match auth {
-            WireAuth::Header => {
-                let authorization =
-                    HeaderValue::from_str(&format!("Bearer {bearer}")).map_err(|_| invalid())?;
-                request.headers_mut().insert("authorization", authorization);
-                HeaderValue::from_static("cmux.wire.v1")
-            }
-            WireAuth::LegacySubprotocol => {
-                HeaderValue::from_str(&format!("cmux.wire.v1, bearer.{bearer}"))
-                    .map_err(|_| invalid())?
-            }
-        };
-        request.headers_mut().insert("sec-websocket-protocol", protocols);
+        let authorization =
+            HeaderValue::from_str(&format!("Bearer {bearer}")).map_err(|_| invalid())?;
+        request.headers_mut().insert("authorization", authorization);
+        request
+            .headers_mut()
+            .insert("sec-websocket-protocol", HeaderValue::from_static("cmux.wire.v1"));
         if let Some(version) =
             client_version.and_then(|version| HeaderValue::from_str(version).ok())
         {
@@ -164,13 +236,8 @@ impl RemoteCloudBackend {
         match handshake {
             Err(_) => Err(unavailable("handshake timed out".into())),
             Ok(Err(WsError::Http(response))) => Err(match response.status().as_u16() {
-                401 if auth == WireAuth::Header
-                    && !response.headers().contains_key(WIRE_AUTH_HEADER) =>
-                {
-                    Refusal::Legacy
-                }
-                401 => Refusal::Error(ConnectError::Unauthenticated),
-                403 | 404 => Refusal::Error(ConnectError::Forbidden),
+                401 => ConnectError::Unauthenticated,
+                403 | 404 => ConnectError::Forbidden,
                 status => unavailable(format!("handshake answered HTTP {status}")),
             }),
             Ok(Err(error)) => Err(unavailable(error.to_string())),
@@ -410,17 +477,18 @@ mod tests {
         }
     }
 
-    /// A Worker from before cx-dgsp answers 401 without `x-cmux-wire-auth`: the
-    /// client retries once with the legacy subprotocol, and a refusal there is final.
+    /// Any 401, with or without `x-cmux-wire-auth`, is final: the client never
+    /// retries with the token in a subprotocol, which Workers invocation logs
+    /// record (cx-dgsp; the legacy `bearer.` retry is retired).
     #[test]
-    fn a_worker_without_header_auth_gets_the_legacy_subprotocol_once() {
+    fn a_401_without_header_auth_is_final_and_sends_no_token_subprotocol() {
         let backend = RemoteCloudBackend::new().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (seen_tx, seen) = mpsc::channel();
         std::thread::spawn(move || {
             for _ in 0..2 {
-                let (mut socket, _) = listener.accept().unwrap();
+                let Ok((mut socket, _)) = listener.accept() else { return };
                 let mut buffer = [0u8; 4096];
                 let read = socket.read(&mut buffer).unwrap();
                 seen_tx
@@ -438,8 +506,9 @@ mod tests {
         let first = seen.recv().unwrap();
         assert!(first.contains("authorization: bearer tok.en"), "{first}");
         assert!(first.contains("sec-websocket-protocol: cmux.wire.v1\r\n"), "{first}");
-        let second = seen.recv().unwrap();
-        assert!(second.contains("sec-websocket-protocol: cmux.wire.v1, bearer.tok.en"), "{second}");
-        assert!(!second.contains("authorization:"), "{second}");
+        assert!(
+            seen.recv_timeout(Duration::from_millis(500)).is_err(),
+            "the client must not retry"
+        );
     }
 }

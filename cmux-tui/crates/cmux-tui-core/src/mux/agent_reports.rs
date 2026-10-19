@@ -407,7 +407,12 @@ impl Mux {
             agent: record.agent,
             updated_at_ms: record.updated_at_ms,
             since_ms: record.since_ms,
+            last_prompt: None,
         };
+        if matches!(agent.state, AgentState::Done) {
+            self.forget_agent_prompt(&agent.terminal_id);
+        }
+        let agent = AgentRecord { last_prompt: self.agent_prompt(&agent.terminal_id), ..agent };
         if !commit.replayed {
             self.publish_resource_event();
             self.emit(MuxEvent::AgentChanged {
@@ -418,6 +423,7 @@ impl Mux {
                 agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
                 since_ms: agent.since_ms,
+                last_prompt: agent.last_prompt.clone(),
             });
             if matches!(agent.state, AgentState::Idle | AgentState::Done) {
                 self.clear_agent_presence(&agent.terminal_id, agent.surface);
@@ -444,6 +450,7 @@ impl Mux {
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
         let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let prompts = self.agent_prompts.lock().unwrap().prompts.clone();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {
             state_snapshot
@@ -468,6 +475,7 @@ impl Mux {
                     })?;
                 // The roster's own clock, so `since_ms <= updated_at_ms` holds.
                 let since_ms = entry.since_ms();
+                let last_prompt = prompts.get(&terminal_id).cloned();
                 Some(AgentRecord {
                     surface: representative,
                     terminal_id,
@@ -477,6 +485,7 @@ impl Mux {
                     agent: entry.agent,
                     updated_at_ms: entry.updated_at_ms,
                     since_ms,
+                    last_prompt,
                 })
             })
             .collect::<Vec<_>>();

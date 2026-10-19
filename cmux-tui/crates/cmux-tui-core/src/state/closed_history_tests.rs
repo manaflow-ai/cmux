@@ -97,6 +97,40 @@ fn a_partial_reopen_restores_the_chosen_members_and_keeps_the_rest() {
     assert_eq!(rest["tab_ids"].as_array().unwrap().len(), 2);
     assert_eq!(rest["remaining"], 0);
     assert_eq!(pane_tab_ids(&mux, tabs[0]).len(), 4);
+    // The first reopen formed the closed group again; the rest join it.
+    let groups = read(&mux, "tab_group.list", json!({}));
+    assert_eq!(groups.as_array().map(Vec::len), Some(1), "{groups}");
+    assert_eq!(groups[0]["id"], group["id"]);
+    assert_eq!(groups[0]["tab_ids"].as_array().map(Vec::len), Some(3), "{groups}");
+}
+
+/// A saved group that closes reopens still linked to its saved record, and
+/// in its own order.
+#[test]
+fn a_closed_saved_group_reopens_linked_and_in_order() {
+    let mux = Mux::new_for_test("closed-v2-saved", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 4);
+    let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+    let group =
+        mutate(&mux, "tab_group.create", json!({"tabs": [ids[1], ids[2], ids[3]]}), "group");
+    let saved = mutate(&mux, "saved_tab_group.save", json!({"tab_group": group["id"]}), "save");
+    let saved_id = saved["id"].as_str().expect("the saved group has an id").to_string();
+    mutate(&mux, "tab_group.close", json!({"tab_group": group["id"]}), "group-close");
+    let id = read(&mux, "closed.list", json!({}))[0]["id"].clone();
+
+    // The last tab first, then the rest: the group keeps its strip order.
+    let last = mutate(&mux, "closed.reopen", json!({"closed": id, "members": [2]}), "last");
+    // The saved group still names every closed tab, not just the one back.
+    let saved_groups = read(&mux, "saved_tab_group.list", json!({}));
+    assert_eq!(saved_groups[0]["members"].as_array().map(Vec::len), Some(3), "{saved_groups}");
+    let rest = mutate(&mux, "closed.reopen", json!({"closed": id}), "rest");
+    let order =
+        [rest["tab_ids"][0].clone(), rest["tab_ids"][1].clone(), last["tab_ids"][0].clone()];
+    let groups = read(&mux, "tab_group.list", json!({}));
+    assert_eq!(groups.as_array().map(Vec::len), Some(1), "{groups}");
+    assert_eq!(groups[0]["id"], group["id"]);
+    assert_eq!(groups[0]["saved_tab_group_id"], saved_id.as_str(), "{groups}");
+    assert_eq!(groups[0]["tab_ids"], json!(order), "{groups}");
 }
 
 /// Reopen Closed without an id (Cmd-Shift-T): the newest group of the
@@ -404,4 +438,125 @@ fn a_reopen_that_reattaches_at_the_pane_end_emits_tab_added() {
     assert_eq!(added.pane, Some(pane));
     assert_eq!(added.index, Some(2));
     assert_eq!(added.entity["surface"], surface);
+}
+
+/// A close whose archive pushes an older archive's screen past the byte
+/// budget publishes that older group again, marked `scrollback_not_kept`,
+/// so a client that follows the change stream shows the note (cx-gzh.4.4).
+#[test]
+fn an_evicted_archive_screen_republishes_its_closed_group() {
+    use crate::workspace_registry::terminal_archive_store::ArchiveRow;
+
+    let mux = Mux::new_for_test("closed-v2-archive-budget", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 3);
+    let terminal = |surface| mux.surface(surface).unwrap().terminal_public_id().cloned().unwrap();
+    let (old, new) = (terminal(tabs[1]), terminal(tabs[2]));
+    assert!(mux.close_surface(tabs[1]).unwrap());
+    assert!(mux.close_surface(tabs[2]).unwrap());
+    let closed = read(&mux, "closed.list", json!({}));
+    let old_group = closed[1]["id"].as_str().unwrap().to_string();
+
+    // Noise does not compress: one gzip screen fits the budget, two do not.
+    let mut seed = 7_u32;
+    let screen = (0..4096)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            seed.to_be_bytes()[0]
+        })
+        .collect::<Vec<_>>();
+    let store = |terminal_id: &str| {
+        let row = ArchiveRow {
+            terminal_id,
+            generation: "g1",
+            program: None,
+            cols: 80,
+            rows: 24,
+            screen: Some(&screen),
+        };
+        mux.put_terminal_archive_rows(&[row], 6 * 1024);
+    };
+    store(old.as_str());
+    let before = super::tests::revision(&mux);
+    store(new.as_str());
+
+    let changes = super::tests::changes_after(&mux, before);
+    let upsert = changes
+        .iter()
+        .find(|change| {
+            change["kind"] == "state_upsert"
+                && change["resource"] == "closed"
+                && change["id"] == old_group.as_str()
+        })
+        .unwrap_or_else(|| panic!("the older group is published again: {changes:?}"));
+    assert_eq!(
+        upsert["value"]["members"][0]["screens"][0]["tabs"][0]["scrollback_not_kept"],
+        json!(true),
+        "{upsert}"
+    );
+    let listed = read(&mux, "closed.list", json!({}));
+    assert_eq!(
+        listed[1]["members"][0]["screens"][0]["tabs"][0]["scrollback_not_kept"],
+        json!(true)
+    );
+}
+
+/// A workspace named `name`, created with its own key (two may share a name).
+fn named_workspace(mux: &Arc<Mux>, name: &str, key: &str) -> String {
+    let created =
+        mutate(mux, "workspace.create", json!({"name": name, "initial_content": "empty"}), key);
+    created["workspace_id"].as_str().unwrap().to_string()
+}
+
+/// `workspace.close` answers `closed_ids`, the closed groups it stored, so an
+/// Undo (GPUI's bulk close) reopens exactly what that close stored, even when
+/// the closed workspaces share a name.
+#[test]
+fn a_workspace_close_names_the_groups_it_stored_and_reopens_exactly_them() {
+    let mux = Mux::new_for_test("closed-ids-workspace", SurfaceOptions::default());
+    terminal_tabs(&mux, 1);
+    let first = named_workspace(&mux, "same", "create-same-1");
+    let second = named_workspace(&mux, "same", "create-same-2");
+    let third = named_workspace(&mux, "other", "create-other");
+    let ids = |mux: &Arc<Mux>| {
+        read(mux, "closed.list", json!({}))
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].clone())
+            .collect::<Vec<_>>()
+    };
+
+    let report = |workspace: &str| json!({"workspace": workspace, "report_closed_ids": true});
+    let closed_first = mutate(&mux, "workspace.close", report(&first), "close-1");
+    let closed_second = mutate(&mux, "workspace.close", report(&second), "close-2");
+    // closed.list is newest first.
+    let listed = ids(&mux);
+    assert_eq!(listed.len(), 2, "{listed:?}");
+    assert_eq!(closed_first["closed_ids"], json!([listed[1]]), "{closed_first}");
+    assert_eq!(closed_second["closed_ids"], json!([listed[0]]), "{closed_second}");
+
+    let closed_third = mutate(&mux, "workspace.close", report(&third), "close-3");
+    let items = read(&mux, "closed.list", json!({}));
+    assert_eq!(items.as_array().unwrap().len(), 3, "{items}");
+    assert_eq!(closed_third["closed_ids"], json!([items[0]["id"]]), "{closed_third}");
+    assert_eq!(items[0]["members"][0]["kind"], "workspace");
+
+    for (index, closed) in [&closed_first, &closed_second].into_iter().enumerate() {
+        let id = closed["closed_ids"][0].clone();
+        let reopened =
+            mutate(&mux, "closed.reopen", json!({"closed": id}), &format!("reopen-{index}"));
+        assert_eq!(reopened["closed_id"], id, "{reopened}");
+        assert_eq!(reopened["workspace_ids"].as_array().map(Vec::len), Some(1), "{reopened}");
+    }
+    assert_eq!(ids(&mux), vec![closed_third["closed_ids"][0].clone()], "only the third stays");
+    let names = mux.with_state(|state| {
+        state.workspaces.iter().map(|workspace| workspace.name.clone()).collect::<Vec<_>>()
+    });
+    assert_eq!(names.iter().filter(|name| *name == "same").count(), 2, "{names:?}");
+    assert!(!names.iter().any(|name| name == "other"), "{names:?}");
+
+    // Without the flag the value stays empty (older SDKs decode it strictly).
+    let plain = named_workspace(&mux, "plain", "create-plain");
+    let closed_plain = mutate(&mux, "workspace.close", json!({"workspace": plain}), "close-4");
+    assert_eq!(closed_plain, json!({}), "{closed_plain}");
 }

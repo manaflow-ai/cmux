@@ -17,18 +17,20 @@ final class SidebarNoticeCardView: NSView {
     var onAction: ((String, String) -> Void)?
     var onDismiss: ((String) -> Void)?
     private(set) var notice: SidebarNoticeCard?
-    private let eyebrowLabel = NSTextField(labelWithString: "")
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let shortcutLabel = NSTextField(labelWithString: "")
+    private let eyebrowLabel = ChromeLabel(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
+    private let shortcutLabel = ChromeLabel(labelWithString: "")
     /// List lines under the detail (a changelog), one label each.
-    private var lineLabels: [NSTextField] = []
+    private var lineLabels: [ChromeLabel] = []
     private let icon = NSImageView()
     private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
+    /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
+    let dismissButton = SidebarCardTextButton()
     /// The card's surface: the composer's, opaque under Reduce Transparency.
     let surface: CardSurfaceView
     /// The lines and buttons, flipped, over the surface.
@@ -49,7 +51,7 @@ final class SidebarNoticeCardView: NSView {
         }
         detailLabel.maximumNumberOfLines = 2
         detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.cell?.truncatesLastVisibleLine = true
+        detailLabel.truncatesLastVisibleLine = true
         detailLabel.isSelectable = false
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
@@ -60,7 +62,8 @@ final class SidebarNoticeCardView: NSView {
         content.layer?.addSublayer(bar)
         closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
-        [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton].forEach(content.addSubview)
+        dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
+        [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton, dismissButton].forEach(content.addSubview)
         setAccessibilityElement(false)
         isHidden = true
     }
@@ -68,7 +71,7 @@ final class SidebarNoticeCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
     /// Shows `notice`, or hides the view for nil.
@@ -94,7 +97,7 @@ final class SidebarNoticeCardView: NSView {
         if previous?.lines != notice.lines {
             lineLabels.forEach { $0.removeFromSuperview() }
             lineLabels = notice.lines.prefix(Self.maxLines).map { line in
-                let label = NSTextField(labelWithString: "• " + line)
+                let label = ChromeLabel(labelWithString: "• " + line)
                 label.lineBreakMode = .byTruncatingTail
                 label.maximumNumberOfLines = 1
                 label.themedToolTip = line
@@ -107,8 +110,10 @@ final class SidebarNoticeCardView: NSView {
         let spins = notice.progress == .indeterminate
         icon.isHidden = notice.symbol == nil || spins
         spinner.spin(spins)
-        closeButton.isHidden = notice.dismissLabel == nil
+        closeButton.isHidden = notice.dismissLabel == nil || notice.dismissTitle != nil
         closeButton.label = notice.dismissLabel ?? ""
+        dismissButton.isHidden = notice.dismissTitle == nil
+        dismissButton.configure(title: notice.dismissTitle ?? "", help: notice.dismissLabel)
         if previous?.actions != notice.actions { rebuildButtons(notice.actions) }
         let help = [notice.title, notice.detail].compactMap { $0 }.joined(separator: ". ")
         for (button, action) in zip(actionButtons, notice.actions) {
@@ -232,7 +237,12 @@ final class SidebarNoticeCardView: NSView {
         detailLabel.font = Typography.caption
         shortcutLabel.font = Typography.caption
         closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: pad / 2, width: close, height: close)
-        let width = max(0, b.width - 2 * pad), closeRoom = closeButton.isHidden ? 0 : close
+        let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
+        let titleY = pad + (eyebrowLabel.isHidden ? 0 : line.caption)
+        dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: titleY + (line.body - dismissHeight) / 2,
+                                     width: dismissWidth, height: dismissHeight)
+        let width = max(0, b.width - 2 * pad)
+        let closeRoom = !dismissButton.isHidden ? dismissWidth + Metrics.space1 : closeButton.isHidden ? 0 : close
         var y = pad
         if !eyebrowLabel.isHidden {
             eyebrowLabel.frame = NSRect(x: pad, y: y, width: max(0, width - closeRoom), height: line.caption)
@@ -242,7 +252,7 @@ final class SidebarNoticeCardView: NSView {
         let glyphSide = line.body, textX = pad + (showsGlyph ? glyphSide + Metrics.space2 : 0)
         icon.frame = NSRect(x: pad, y: y, width: glyphSide, height: glyphSide)
         spinner.frame = icon.frame
-        let titleWidth = max(0, b.width - pad - textX - (eyebrowLabel.isHidden ? closeRoom : 0))
+        let titleWidth = max(0, b.width - pad - textX - (eyebrowLabel.isHidden || !dismissButton.isHidden ? closeRoom : 0))
         titleLabel.frame = NSRect(x: textX, y: y, width: titleWidth, height: line.body)
         y += line.body
         let textWidth = max(0, b.width - pad - textX)
@@ -336,5 +346,5 @@ private final class SidebarNoticeCardContent: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 }

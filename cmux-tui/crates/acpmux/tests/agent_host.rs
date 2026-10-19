@@ -4,6 +4,11 @@
 //! it logged without losing or repeating one.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::agent_host::link::{self, Connect, HostLauncher, Link};
 use acpmux::agent_host::{
     self, ControllerFrame, Entry, HostFrame, HostRecord, Liveness, SpawnSpec, TapDir,
@@ -24,7 +29,7 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 fn launcher() -> HostLauncher {
-    HostLauncher { exe: env!("CARGO_BIN_EXE_acpmux").into(), prefix: Vec::new() }
+    HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() }
 }
 
 fn spec(dir: &Path, session: &str) -> SpawnSpec {
@@ -33,7 +38,8 @@ fn spec(dir: &Path, session: &str) -> SpawnSpec {
         session_id: session.into(),
         program: "python3".into(),
         args: vec![FAKE.into()],
-        env: std::env::vars().collect(),
+        // The stand-in's environment: never the host's (its PATH has real agents).
+        env: daemon_env::vars(dir, daemon_env::Agents::StandIn, &[]),
         cwd: dir.to_path_buf(),
         translator: None,
         codex_bridge: false,

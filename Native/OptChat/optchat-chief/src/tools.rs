@@ -89,6 +89,16 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("spawn", tasks) if !tasks.is_empty() && tasks[0] != "--cwd" => {
             Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
         }
+        ("profile", []) => Call::parse("profile", &serde_json::json!({})),
+        ("profile", [args]) => match serde_json::from_str::<Value>(args) {
+            Ok(v @ Value::Object(_)) => Call::parse("profile", &v),
+            _ => return Ok(Command::Usage(usage(tool))),
+        },
+        ("chiefs", []) => Call::parse("chiefs", &serde_json::json!({"action": "list"})),
+        ("chiefs", [args]) => match serde_json::from_str::<Value>(args) {
+            Ok(v @ Value::Object(_)) => Call::parse("chiefs", &v),
+            _ => return Ok(Command::Usage(usage(tool))),
+        },
         ("tell", [id, message @ ..]) if !message.is_empty() => Call::parse(
             "tell",
             &serde_json::json!({"id": id, "message": message.join(" ")}),
@@ -106,6 +116,9 @@ pub fn usage(tool: &str) -> String {
             "zoom" => "ID N | SUBAGENT [AT]",
             "date" => "ID",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
+            "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
+            "chiefs" =>
+                "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             _ => "ID \"message\"",
         }
     )
@@ -145,6 +158,16 @@ pub enum Call {
     Tell {
         id: String,
         message: String,
+    },
+    /// `profile` (chief_profile.rs): read or change the Chief's own record.
+    Profile {
+        args: Value,
+    },
+    /// `chiefs` (chief_profile.rs): see, make and edit other Chiefs. Only a
+    /// caller with this host's turn key (`turn_key`) gets an answer.
+    Chiefs {
+        args: Value,
+        turn_key: Option<String>,
     },
 }
 
@@ -226,6 +249,27 @@ impl Call {
                     message: text("message")?,
                 })
             }
+            "profile" => {
+                let mut args = args.as_object().cloned().unwrap_or_default();
+                // The socket request's own keys are not the tool's arguments.
+                args.remove("tool");
+                args.remove("from");
+                Ok(Call::Profile {
+                    args: Value::Object(args),
+                })
+            }
+            "chiefs" => {
+                let mut args = args.as_object().cloned().unwrap_or_default();
+                args.remove("tool");
+                args.remove("from");
+                let turn_key = args
+                    .remove("turn_key")
+                    .and_then(|v| v.as_str().map(str::to_owned));
+                Ok(Call::Chiefs {
+                    args: Value::Object(args),
+                    turn_key,
+                })
+            }
             other => Err(format!("unknown tool {other}")),
         }
     }
@@ -235,8 +279,13 @@ impl Call {
         match self {
             Call::Zoom { id, n } => memory.zoom(id, n),
             Call::Date { id } => memory.date(id),
-            Call::Spawn { .. } | Call::Tell { .. } | Call::ZoomAgent { .. } => {
-                "spawn, tell and a subagent's zoom are served by the Chief host".to_owned()
+            Call::Spawn { .. }
+            | Call::Tell { .. }
+            | Call::ZoomAgent { .. }
+            | Call::Profile { .. }
+            | Call::Chiefs { .. } => {
+                "spawn, tell, profile, chiefs and a subagent's zoom are served by the Chief host"
+                    .to_owned()
             }
         }
     }
@@ -257,6 +306,25 @@ impl Call {
                 v
             }
             Call::Tell { id, message } => json!({"tool": "tell", "id": id, "message": message}),
+            Call::Profile { args } => {
+                let mut v = args.clone();
+                if !v.is_object() {
+                    v = json!({});
+                }
+                v["tool"] = json!("profile");
+                v
+            }
+            Call::Chiefs { args, turn_key } => {
+                let mut v = args.clone();
+                if !v.is_object() {
+                    v = json!({});
+                }
+                v["tool"] = json!("chiefs");
+                if let Some(key) = turn_key {
+                    v["turn_key"] = json!(key);
+                }
+                v
+            }
         }
     }
 }
@@ -294,6 +362,9 @@ pub struct Served {
     /// The memory inspector's read-only API (`inspect` tool): a remote
     /// owner reaches it through the brain's daemon (`chief.inspect`).
     pub inspector: Option<Arc<crate::inspect::Inspector>>,
+    /// This Chief's record and grant (chief_profile.rs); None: every tool,
+    /// no `profile` (no registry, as before Chiefs had records).
+    pub chief: Option<Arc<crate::chief_profile::ChiefTools>>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -315,6 +386,7 @@ pub fn serve_with(
             orchestrator: None,
             control,
             inspector: None,
+            chief: None,
         },
     )
 }
@@ -389,6 +461,8 @@ fn connection(conn: UnixStream, served: &Served) {
                                 effort: field("effort"),
                                 speed: field("speed"),
                                 compactor_speed: field("compactor_speed"),
+                                compactor_harness: field("compactor_harness"),
+                                compactor_model: field("compactor_model"),
                             }))
                         }
                         _ => None,
@@ -428,6 +502,17 @@ fn connection(conn: UnixStream, served: &Served) {
                     }
                     continue;
                 }
+                // The model tools the `mcp` server may list (its tools/list).
+                if tool == "grant" {
+                    let value = served
+                        .chief
+                        .as_ref()
+                        .map_or_else(|| "spawn,tell".to_owned(), |c| c.mcp_value());
+                    if writeln!(out, "{}", json!({"text": value})).is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 if tool == "browse" {
                     let answer = json!({"text": memory.browse()});
                     if writeln!(out, "{answer}").is_err() {
@@ -438,10 +523,38 @@ fn connection(conn: UnixStream, served: &Served) {
                 // A subagent's tools (its MCP server or launcher) say so:
                 // section 9 gives subagents zoom and date, not spawn.
                 let subagent = req.get("from").and_then(Value::as_str) == Some("subagent");
+                let grant = served.chief.as_ref().map(|c| c.grant());
+                let grant = grant.as_ref();
                 let answer = match Call::parse(tool, &req) {
-                    Ok(Call::Spawn { .. } | Call::Tell { .. }) if subagent => {
-                        Err("subagents have no spawn or tell".to_owned())
+                    Ok(
+                        Call::Spawn { .. }
+                        | Call::Tell { .. }
+                        | Call::Profile { .. }
+                        | Call::Chiefs { .. },
+                    ) if subagent => {
+                        Err("subagents have no spawn, tell, profile or chiefs".to_owned())
                     }
+                    // `chiefs` only for this host's own turn: the turn key the
+                    // host gave its turn sessions alone (rule C: a subagent,
+                    // or any process without it, gets nothing).
+                    Ok(Call::Chiefs { args, turn_key }) => match &served.chief {
+                        Some(chief) if chief.is_turn(turn_key.as_deref()) => {
+                            chief.chiefs_call(&args)
+                        }
+                        Some(_) => Err(NOT_THE_TURN.to_owned()),
+                        None => Err(crate::chief_profile::Grant::refusal("chiefs")),
+                    },
+                    // The person's grant (chief_profile.rs), by the tool's name.
+                    Ok(Call::Spawn { .. }) if grant.is_some_and(|g| !g.allows("spawn")) => {
+                        Err(crate::chief_profile::Grant::refusal("spawn"))
+                    }
+                    Ok(Call::Tell { .. }) if grant.is_some_and(|g| !g.allows("tell")) => {
+                        Err(crate::chief_profile::Grant::refusal("tell"))
+                    }
+                    Ok(Call::Profile { args }) => match &served.chief {
+                        Some(chief) => chief.profile_call(&args),
+                        None => Err(crate::chief_profile::Grant::refusal("profile")),
+                    },
                     Ok(Call::Spawn { tasks, cwd, effort }) => match &served.orchestrator {
                         Some(o) => o.spawn_with_effort(tasks, cwd, effort),
                         None => Err("this Chief host runs no subagents".to_owned()),
@@ -472,6 +585,26 @@ fn connection(conn: UnixStream, served: &Served) {
     }
 }
 
+/// The answer to a `chiefs` call without this host's turn key.
+pub const NOT_THE_TURN: &str = "chiefs: only this Chief's own turn may use it";
+
+/// `call` with this process's turn key ([`crate::chief_profile::TURN_KEY_ENV`],
+/// which only the host's own turn sessions have) when it is a `chiefs` call.
+pub fn with_turn_key(call: Call) -> Call {
+    match call {
+        Call::Chiefs {
+            args,
+            turn_key: None,
+        } => Call::Chiefs {
+            args,
+            turn_key: std::env::var(crate::chief_profile::TURN_KEY_ENV)
+                .ok()
+                .filter(|k| !k.is_empty()),
+        },
+        other => other,
+    }
+}
+
 /// Asks the host on `path`; Err when it does not answer.
 pub fn ask(path: &Path, call: Call) -> Result<String, String> {
     ask_json(path, &call.to_json())
@@ -484,6 +617,11 @@ pub fn ask_as(path: &Path, call: Call, subagent: bool) -> Result<String, String>
         request["from"] = json!("subagent");
     }
     ask_json(path, &request)
+}
+
+/// The model tools the live host grants (`spawn,tell,profile`, `none`).
+pub fn ask_grant(path: &Path) -> Result<String, String> {
+    ask_json(path, &json!({"tool": "grant"}))
 }
 
 /// Shows (None) or sets (`Some((key, value))`) the live host's settings.

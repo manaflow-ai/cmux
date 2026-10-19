@@ -1,4 +1,5 @@
-//! Wire tests for `move-tab-to-split` `respawn` (`tab-split-respawn-v1`).
+//! Wire tests for `move-tab-to-split` `respawn` (`tab-split-respawn-v1`) and
+//! `keep_focus` (`tab-split-keep-focus-v1`).
 //!
 //! A pane's only tab dropped on its own pane's edge splits the pane: the tab
 //! moves into the new pane and a fresh tab of the requested kind stays in
@@ -187,4 +188,74 @@ fn a_column_respawn_is_only_for_a_panes_only_tab() {
     }));
     assert_eq!(response["ok"], false, "{response}");
     assert_eq!(wire.tabs(pane), vec![first, second]);
+}
+
+/// `keep_focus` (cx-3hw0i): an app opens an agent's pane beside the chat the
+/// user types in; the split must leave the chat's pane focused (active pane,
+/// most recent focus), where a plain drop focuses the new pane.
+#[test]
+fn a_keep_focus_split_leaves_the_focused_pane_focused() {
+    assert!(advertised_capabilities(false).contains(&TAB_SPLIT_KEEP_FOCUS_CAPABILITY));
+    let mut wire = Wire::new();
+    let chat = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let pane = wire.mux.with_state(|state| state.pane_of(chat).unwrap());
+    let focus = |wire: &Wire| {
+        wire.mux.with_state(|state| {
+            let recent = state.panes.iter().max_by_key(|(_, p)| p.focused_at).map(|(id, _)| *id);
+            (state.active_pane(), recent)
+        })
+    };
+    let agent = wire.mux.new_tab(Some(pane), None, None).unwrap().id;
+    let before = focus(&wire);
+    assert_eq!(before.0, Some(pane));
+
+    let response = wire.send(json!({
+        "cmd": "move-tab-to-split", "surface": agent, "pane": pane, "edge": "right",
+        "keep_focus": true, "transaction": "agent-pane-1",
+    }));
+    assert_eq!(response["ok"], true, "{response}");
+    let agent_pane: PaneId = serde_json::from_value(response["data"]["pane"].clone()).unwrap();
+    assert_eq!(wire.tabs(agent_pane), vec![agent]);
+    assert_eq!(wire.tabs(pane), vec![chat]);
+    assert_eq!(focus(&wire), before, "the chat's pane keeps focus");
+
+    // A second one stacks under the first, still without focus.
+    let second = wire.mux.new_tab(Some(pane), None, None).unwrap().id;
+    let before = focus(&wire);
+    let response = wire.send(json!({
+        "cmd": "move-tab-to-split", "surface": second, "pane": agent_pane, "edge": "bottom",
+        "keep_focus": true,
+    }));
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(focus(&wire), before, "a split of another pane keeps focus too");
+
+    // A new column (the split had no room) keeps focus too.
+    let column = wire.mux.new_tab(Some(pane), None, None).unwrap().id;
+    let before = focus(&wire);
+    let response = wire.send(json!({
+        "cmd": "move-tab-to-column", "surface": column, "pane": pane, "keep_focus": true,
+    }));
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(focus(&wire), before, "a column move keeps focus too");
+    let new_pane: PaneId = serde_json::from_value(response["data"]["pane"].clone()).unwrap();
+    let active_at = wire.mux.with_state(|state| state.panes[&new_pane].active_at);
+    assert_eq!(active_at, 0, "the new pane is the least recent one");
+
+    // keep_focus with respawn is a bad request and changes nothing.
+    let lone = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let lone_pane = wire.mux.with_state(|state| state.pane_of(lone).unwrap());
+    let refused = wire.send(json!({
+        "cmd": "move-tab-to-split", "surface": lone, "pane": lone_pane, "edge": "right",
+        "keep_focus": true, "respawn": {"kind": "terminal"},
+    }));
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(wire.tabs(lone_pane), vec![lone]);
+
+    // Without the flag the drop focuses the new pane, as before.
+    let third = wire.mux.new_tab(Some(pane), None, None).unwrap().id;
+    let response = wire
+        .send(json!({"cmd": "move-tab-to-split", "surface": third, "pane": pane, "edge": "left"}));
+    assert_eq!(response["ok"], true, "{response}");
+    let dropped: PaneId = serde_json::from_value(response["data"]["pane"].clone()).unwrap();
+    assert_eq!(focus(&wire), (Some(dropped), Some(dropped)));
 }

@@ -15,6 +15,13 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+/// A peer watch includes the hub's remote sessions as well as its local ones.
+/// A bidirectional pair must not import those already-mirrored rows, or each
+/// reconnect/update would prefix the name with another peer hop.
+fn is_mirrored_session(summary: &Value) -> bool {
+    summary.get("peer").and_then(Value::as_str).is_some()
+}
+
 /// What the hub receives from a peer, tagged with the peer's name and
 /// generation so notices from a replaced or removed peer can be dropped.
 #[derive(Debug)]
@@ -56,6 +63,10 @@ pub struct Peer {
     /// The origin the peer serves this daemon as (its initialize reply):
     /// `peer` when it accepted the peer token, `remote` (Web) otherwise.
     served_as: StdMutex<Option<String>>,
+    /// The daemon run the peer named in its initialize reply
+    /// (`personInstance`): the only run its pending prompts may carry
+    /// (`hub/person.rs` (c)). A claim, not a proof.
+    person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
@@ -95,6 +106,7 @@ impl Peer {
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
             served_as: StdMutex::new(None),
+            person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
@@ -190,6 +202,11 @@ impl Peer {
 
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone())
+    }
+
+    /// The daemon run the peer named at its last handshake.
+    pub fn person_instance(&self) -> Option<String> {
+        self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn supports_trust_gate(&self) -> bool {
@@ -368,14 +385,24 @@ impl Peer {
             *me.remote_version.lock().unwrap() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
+            *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
+                .pointer("/_meta/acpmux/personInstance")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let advertised =
                 init.pointer("/_meta/acpmux/features").and_then(Value::as_array).is_some_and(
                     |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
                 ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
             me.trust_gate.store(advertised, Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-            let sessions =
-                watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+            let sessions = watch
+                .get("sessions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|session| !is_mirrored_session(session))
+                .cloned()
+                .collect();
             let _ = me
                 .notices
                 .send((me.name.clone(), me.generation, PeerNotice::Sessions(sessions)))
@@ -413,8 +440,17 @@ impl Peer {
                         Message::Notification { method: m, params } => {
                             let p = params.unwrap_or(Value::Null);
                             let notice = if m == method::MUX_SESSION_CHANGED {
+                                let session = p.get("session").cloned().unwrap_or(Value::Null);
+                                // Remote session_changed notifications carry the
+                                // peer name at the top level; older summaries
+                                // also carry it inside `session`.
+                                if p.get("peer").and_then(Value::as_str).is_some()
+                                    || is_mirrored_session(&session)
+                                {
+                                    continue;
+                                }
                                 PeerNotice::SessionChanged {
-                                    session: p.get("session").cloned().unwrap_or(Value::Null),
+                                    session,
                                     kind: p.get("kind").and_then(Value::as_str).unwrap_or("").to_owned(),
                                     seq: p.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 }

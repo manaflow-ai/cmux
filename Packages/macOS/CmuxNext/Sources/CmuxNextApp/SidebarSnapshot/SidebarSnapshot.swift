@@ -65,7 +65,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
 
     /// Captures what the sidebar shows now. Placeholder rows are not saved.
     init(sections: [SidebarSection], profiles: [SidebarProfile], activeProfileID: ProfileKey?) {
-        self.sections = sections.map { section in
+        self.sections = sections.filter { !$0.isDocSection }.map { section in // document sections come back with the document
             Section(machineID: section.machine?.id.rawValue, machineName: section.machine?.name,
                     machineKind: section.machine.map { Self.kindName($0.kind) }, isCollapsed: section.isCollapsed,
                     nodes: section.nodes.compactMap(Self.node))
@@ -100,12 +100,14 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
     private static func node(_ node: SidebarNode) -> Node? {
         switch node {
         case let .workspace(ws):
-            guard ws.rowState != .placeholder else { return nil }
+            guard !ws.rowState.isPending else { return nil }
             return Node(workspace: workspace(ws), group: nil)
         case let .group(group):
-            let rows = group.workspaces.filter { $0.rowState != .placeholder }.map(workspace)
+            let rows = group.workspaces.filter { !$0.rowState.isPending }.map(workspace)
             return Node(workspace: nil, group: Group(id: group.id.rawValue, name: group.name, color: group.color.rawValue,
                                                      isCollapsed: group.isCollapsed, isPinned: group.isPinned, workspaces: rows))
+        case .item:
+            return nil // a document item: the document keeps it
         }
     }
 

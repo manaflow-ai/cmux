@@ -2,6 +2,8 @@
 //! record, the journal roster host, and the pure helpers that map agent hook
 //! journal entries to states, notifications and published session ids.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use super::NotificationLevel;
@@ -168,6 +170,8 @@ pub struct AgentRecord {
     /// When the terminal's agent entered `state` (Unix ms). A report that
     /// keeps the state keeps it; it restarts at a daemon restart.
     pub since_ms: u64,
+    /// The agent's last prompt, memory only (`agent_prompts.rs`).
+    pub last_prompt: Option<Arc<str>>,
 }
 
 /// Longest hook session id published for resume. Claude session ids are

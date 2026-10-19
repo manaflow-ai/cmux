@@ -204,6 +204,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "agent": record.agent,
         "updated_at_ms": record.updated_at_ms,
         "since_ms": record.since_ms,
+        "last_prompt": record.last_prompt.as_deref(),
     })
 }
 

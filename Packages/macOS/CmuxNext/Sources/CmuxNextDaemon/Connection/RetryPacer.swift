@@ -10,15 +10,22 @@ import CmuxNextCompat
 /// `timedRetries` failures no timer is armed at all and the loop waits for a
 /// ``RetryWake`` event (the daemon socket changed, the network returned, the
 /// app became active). So a dead peer costs a bounded number of attempts,
-/// never a periodic wakeup.
+/// never a periodic wakeup. A daemon that is relaunched and dies on connect
+/// makes a new socket each time; after `socketRetries` such failed attempts
+/// (until a connection stays healthy) a socket change no longer wakes the
+/// loop, only an explicit event does, one attempt each.
 public struct RetryPolicy: Sendable {
     public var backoff: Backoff
     /// Failures after which retries wait for an event only.
     public var timedRetries: Int
+    /// Failed attempts woken by a socket change after which socket changes
+    /// stop waking the loop (a crash loop, cx-6so.7).
+    public var socketRetries: Int
 
-    public init(initial: Duration, maximum: Duration, timedRetries: Int) {
+    public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3) {
         backoff = Backoff(initial: initial, maximum: maximum)
         self.timedRetries = timedRetries
+        self.socketRetries = socketRetries
     }
 
     /// Daemon reconnect: 50 ms growing to 30 s, 10 timed attempts (~80 s).
@@ -35,6 +42,9 @@ public struct RetryPacer: Sendable {
     public let policy: RetryPolicy
     private var backoff: Backoff
     public private(set) var failures = 0
+    /// Failed attempts since the last reset that a socket change woke.
+    public private(set) var socketFailures = 0
+    private var wokeBySocket = false
 
     public init(_ policy: RetryPolicy) {
         self.policy = policy
@@ -44,8 +54,13 @@ public struct RetryPacer: Sendable {
     /// The timed-retry budget is spent: wait for an event only.
     public var isExhausted: Bool { failures >= policy.timedRetries }
 
+    /// A socket change may wake the next wait: false in a crash loop.
+    public var wakesOnSocket: Bool { socketFailures < policy.socketRetries }
+
     public mutating func reset() {
         failures = 0
+        socketFailures = 0
+        wokeBySocket = false
         backoff.reset()
     }
 
@@ -53,7 +68,14 @@ public struct RetryPacer: Sendable {
     /// or nil when the budget is spent (wait for an event only).
     public mutating func failed() -> Duration? {
         failures += 1
+        if wokeBySocket { socketFailures += 1 }
+        wokeBySocket = false
         return failures > policy.timedRetries ? nil : backoff.next()
+    }
+
+    /// Notes what woke the wait before the next attempt.
+    public mutating func woke(_ cause: RetryWake.Cause) {
+        wokeBySocket = cause == .socket
     }
 }
 
@@ -65,7 +87,10 @@ public struct RetryPacer: Sendable {
 /// recreates the socket) never wake it again.
 public final class RetryWake: Sendable {
     public enum Cause: Sendable, Equatable {
+        /// ``fire()``: an explicit event (app activation, network, a reconnect action).
         case event
+        /// The watched socket changed (``watch(file:companions:)``).
+        case socket
         case timer
         case cancelled
     }
@@ -81,11 +106,16 @@ public final class RetryWake: Sendable {
     }
 
     private struct State {
-        var latched = false
+        /// An event that came with no waiter (`.event` wins over `.socket`).
+        var latched: Cause?
         var waiter: CheckedContinuation<Cause, Never>?
+        /// The waiter wakes on a socket change too.
+        var waiterTakesSocket = true
         var timer: DemandTimer?
         var file: String?
-        var baseline: Identity?
+        /// Files beside `file` that wake too (a daemon's ready marker).
+        var companions: [String] = []
+        var baseline: [Identity?] = []
         var source: (any DispatchSourceFileSystemObject)?
     }
 
@@ -104,15 +134,20 @@ public final class RetryWake: Sendable {
     }
 
     /// Watches `path`'s directory; a change of `path` itself (created,
-    /// removed, replaced) fires. Replaces an earlier watch of another file.
-    public func watch(file path: String) {
+    /// removed, replaced) fires, and so does a change of any of `companions`
+    /// (files in the same directory, such as the daemon's ready marker
+    /// `<socket>.websocket.json`, written once its restore is done: a restore
+    /// that ends behind the same socket then wakes too). Replaces an earlier
+    /// watch of other files.
+    public func watch(file path: String, companions: [String] = []) {
         let directory = (path as NSString).deletingLastPathComponent
         let changed = state.withLock { state -> Bool in
-            guard state.file != path else { return false }
+            guard state.file != path || state.companions != companions else { return false }
             state.source?.cancel()
             state.source = nil
             state.file = path
-            state.baseline = Self.identity(of: path)
+            state.companions = companions
+            state.baseline = Self.identities(of: [path] + companions)
             return true
         }
         guard changed else { return }
@@ -134,23 +169,25 @@ public final class RetryWake: Sendable {
     /// event: call after a failed attempt, so only later changes wake.
     public func rebaseline() {
         state.withLock { state in
-            state.latched = false
-            state.baseline = state.file.flatMap(Self.identity(of:))
+            state.latched = nil
+            state.baseline = state.file.map { Self.identities(of: [$0] + state.companions) } ?? []
         }
     }
 
     /// Waits for an event, or for `delay` when given. A pending event
-    /// returns at once.
-    public func awaitWake(delay: Duration?, clock: any Clock<Duration>) async -> Cause {
+    /// returns at once. `socket` false: a socket change does not wake this
+    /// wait and a pending one is dropped (a crash loop, ``RetryPacer``).
+    public func awaitWake(delay: Duration?, clock: any Clock<Duration>, socket: Bool = true) async -> Cause {
         await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Cause, Never>) in
                 let immediate = state.withLock { state -> Cause? in
                     if Task.isCancelled { return .cancelled }
-                    if state.latched {
-                        state.latched = false
-                        return .event
+                    if let latched = state.latched {
+                        state.latched = nil
+                        if latched == .event || socket { return latched }
                     }
                     state.waiter = continuation
+                    state.waiterTakesSocket = socket
                     state.timer?.cancel()
                     state.timer = nil
                     if let delay {
@@ -168,30 +205,35 @@ public final class RetryWake: Sendable {
     }
 
     private func resume(_ cause: Cause, latchIfIdle: Bool) {
-        let waiter = state.withLock { state -> CheckedContinuation<Cause, Never>? in
+        // A socket change that the waiting loop ignores (a crash loop) is dropped.
+        let (waiter, ignored) = state.withLock { state -> (CheckedContinuation<Cause, Never>?, Bool) in
+            if cause == .socket, state.waiter != nil, !state.waiterTakesSocket { return (nil, true) }
             state.timer?.cancel()
             state.timer = nil
             guard let waiter = state.waiter else {
-                if latchIfIdle { state.latched = true }
-                return nil
+                if latchIfIdle, state.latched != .event { state.latched = cause }
+                return (nil, false)
             }
             state.waiter = nil
-            return waiter
+            return (waiter, false)
         }
-        if cause == .event { ledger.record(owner, reason: "event") }
+        if ignored { return }
+        if cause == .event || cause == .socket { ledger.record(owner, reason: "event") }
         waiter?.resume(returning: cause)
     }
 
     private func directoryChanged() {
         let changed = state.withLock { state -> Bool in
             guard let file = state.file else { return false }
-            let now = Self.identity(of: file)
+            let now = Self.identities(of: [file] + state.companions)
             guard now != state.baseline else { return false }
             state.baseline = now
             return true
         }
-        if changed { fire() }
+        if changed { resume(.socket, latchIfIdle: true) }
     }
+
+    private static func identities(of paths: [String]) -> [Identity?] { paths.map(identity(of:)) }
 
     private static func identity(of path: String) -> Identity? {
         var info = stat()
@@ -203,10 +245,13 @@ public final class RetryWake: Sendable {
 extension RetryPacer {
     /// After a failure: rebaselines `wake`, then waits for the backoff
     /// spacing (cut short by an event) or, once the budget is spent, for an
-    /// event only. Returns false when cancelled.
+    /// event only; in a crash loop a socket change no longer counts.
+    /// Returns false when cancelled.
     public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>) async -> Bool {
         wake.rebaseline()
         let delay = failed()
-        return await wake.awaitWake(delay: delay, clock: clock) != .cancelled
+        let cause = await wake.awaitWake(delay: delay, clock: clock, socket: wakesOnSocket)
+        woke(cause)
+        return cause != .cancelled
     }
 }

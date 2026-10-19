@@ -20,6 +20,11 @@ impl Translator {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
         let mut out = Vec::new();
+        // A local slash command answers with a synthetic assistant line, or
+        // `/clear` with its reset, before its result (Claude Code 2.1.299).
+        if kind == "assistant" || (kind == "system" && sub == "conversation_reset") {
+            self.turn_output.store(true, Ordering::SeqCst);
+        }
         match kind {
             "system" if sub == "init" => {
                 if let Some(s) = line.get("session_id").and_then(Value::as_str) {
@@ -52,8 +57,27 @@ impl Translator {
                         }),
                     ));
                 }
-                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
+                out.push(upd(json!({"sessionUpdate": "session_info_update", "title": Value::Null, "_meta": {"claude": {"tools": line.get("tools"), "mcp_servers": line.get("mcp_servers"), "plugins": line.get("plugins"), "skills": line.get("skills"), "model": line.get("model"), "version": line.get("claude_code_version")}}})));
                 out.push(upd(json!({"sessionUpdate": "config_option_update", "configOptions": self.config_options_value().await})));
+                // Claude Code names its skills only here (every turn): their
+                // commands are sent again, tagged, when that changes the list.
+                if let Some(skills) = line.get("skills").and_then(Value::as_array) {
+                    *self.skills.lock().await =
+                        skills.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+                    if let Some(u) = self.commands_update(false).await {
+                        out.push(upd(u));
+                    }
+                }
+            }
+            // Claude Code's whole command list after a change mid-session
+            // (skills found in a subdirectory, a reload): it replaces ours.
+            "system" if sub == "commands_changed" => {
+                if let Some(cmds) = line.get("commands").and_then(Value::as_array) {
+                    *self.slash_commands.lock().await = cmds.clone();
+                    if let Some(u) = self.commands_update(false).await {
+                        out.push(upd(u));
+                    }
+                }
             }
             "stream_event" => {
                 let ev = line.get("event").cloned().unwrap_or(Value::Null);
@@ -127,10 +151,10 @@ impl Translator {
                         let input = c.get("input").cloned().unwrap_or(Value::Null);
                         // A subagent comes before its Agent tool call, so a client
                         // that draws subagents can leave the call out.
-                        if let ("Task" | "Agent", Some(id)) =
+                        if let ("Task" | "Agent" | "Workflow", Some(id)) =
                             (name, c.get("id").and_then(Value::as_str))
                         {
-                            out.push(upd(self.spawn_subagent(id, &input).await));
+                            out.push(upd(self.spawn_subagent(id, name, &input).await));
                         }
                         // The todo list is the turn's ACP plan (cx-ncc.80): clients
                         // draw it as a checklist.
@@ -152,6 +176,10 @@ impl Translator {
                                 task: None,
                                 background: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
+                                launched: input.get("run_in_background")
+                                    == Some(&Value::Bool(true)),
+                                announced: false,
+                                output: None,
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
@@ -182,6 +210,8 @@ impl Translator {
                 let mut prompt = self.prompt_echo.lock().await;
                 if !uuid.is_empty() && prompt.as_deref() == Some(uuid) {
                     *prompt = None;
+                    // What follows is this prompt's output, not a stopped turn's tail.
+                    self.turn_output.store(false, Ordering::SeqCst);
                     return out;
                 }
                 drop(prompt);
@@ -245,6 +275,9 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
+                        if let Some(update) = self.workflow_launched(tool, is_err, line).await {
+                            out.push(upd(update));
+                        }
                         // A background subagent's result is only its launch.
                         if self.background_subagents.lock().await.contains(tool) {
                             continue;
@@ -270,6 +303,11 @@ impl Translator {
                         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                         let acp_id = Value::from(1_000_000 + n);
                         self.control_out.lock().await.insert(rid.clone(), acp_id.clone());
+                        self.inputs.lock().await.insert(rid.clone(), input.clone());
+                        // "Allow for this session" is offered only with a
+                        // rule Claude can keep (with #20407): without one it
+                        // would be Allow once under another name.
+                        let lasting = req.get("permission_suggestions").and_then(session_rules);
                         let interactive = req
                             .get("requires_user_interaction")
                             .and_then(Value::as_bool)
@@ -277,7 +315,8 @@ impl Translator {
                         let mut options = vec![
                             json!({"optionId": "allow_once", "name": if interactive { "Answer" } else { "Allow" }, "kind": "allow_once"}),
                         ];
-                        if !interactive {
+                        if !interactive && let Some(rules) = lasting {
+                            self.suggestions.lock().await.insert(rid.clone(), rules);
                             options.push(json!({"optionId": "allow_always", "name": "Allow for this session", "kind": "allow_always"}));
                         }
                         options.push(json!({"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}));
@@ -345,9 +384,10 @@ impl Translator {
                         "authMethods": [],
                         "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
                     })));
-                    if let Some(cmds) = inner.get("commands").and_then(Value::as_array) {
-                        let list: Vec<Value> = cmds.iter().map(|c| json!({"name": c.get("name"), "description": c.get("description")})).collect();
-                        out.push(upd(json!({"sessionUpdate": "available_commands_update", "availableCommands": list})));
+                    if inner.get("commands").is_some_and(Value::is_array)
+                        && let Some(u) = self.commands_update(true).await
+                    {
+                        out.push(upd(u));
                     }
                 } else if let Some(acp) = rid.strip_prefix("ctl-") {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
@@ -377,6 +417,12 @@ impl Translator {
                             ),
                         ));
                     }
+                } else if let Some(acp) = rid.strip_prefix("stop-") {
+                    // A stop_task's answer (`subagent_stop`, `STOP_TASK`); the
+                    // task's end is its own event.
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    self.pending.lock().await.remove(&id.to_string());
+                    out.push(super::workflows::stop_reply(acp, ok, &resp));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
@@ -387,9 +433,11 @@ impl Translator {
                 // A resumed process emits one empty result (num_turns 0, no
                 // API time) right after its system/init, before the real
                 // turn. That is startup noise, not the end of our prompt; a
-                // failed result is never noise.
+                // failed result is never noise. A local slash command's result
+                // looks the same but follows its output, and ends the prompt.
                 let startup_noise = sub == "success"
                     && !is_error
+                    && !self.turn_output.load(Ordering::SeqCst)
                     && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)
                     && !self.cancelled.load(Ordering::SeqCst);
@@ -406,6 +454,24 @@ impl Translator {
                             json!({"sessionUpdate": "usage_update", "used": used, "size": window}),
                         ));
                     }
+                }
+                // The result of a turn acpmux already ended (a Stop Claude Code
+                // answered late): it ends only the abandoned prompts. It comes
+                // before Claude Code read the next prompt, or after its echo but
+                // before any of its output (cx-he737). A result after the next
+                // prompt's own output is that prompt's: the stopped turn never
+                // had one, and it ends them all.
+                let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
+                let next_unread = self.prompt_echo.lock().await.is_some();
+                if !abandoned.is_empty()
+                    && (next_unread || !self.turn_output.load(Ordering::SeqCst))
+                {
+                    for k in abandoned {
+                        self.pending.lock().await.remove(&k);
+                        let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                        out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
+                    }
+                    return out;
                 }
                 // A steered line Claude Code has not read yet: it runs it as
                 // one more turn of this prompt, whose result ends it (when
@@ -487,8 +553,11 @@ impl Translator {
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
             }
             "system" if sub.starts_with("task_") => {
-                if let Some(ended) = self.background_shell_task(sub, line, &sid).await {
-                    out.push(ended);
+                if let Some(update) = self.background_shell_task(sub, line, &sid).await {
+                    out.push(update);
+                }
+                if let Some(progress) = self.subagent_progress(sub, line).await {
+                    out.push(upd(progress));
                 }
                 if let Some(ended) = self.subagent_task(sub, line).await {
                     out.push(upd(ended));
@@ -514,11 +583,14 @@ impl Translator {
 
     /// Claude's task events for a shell (cx-ncc.84): a `local_bash`
     /// task_started names its task and says whether it runs in the background,
-    /// a task_updated may move it there, and a background one's
-    /// `task_notification` returns a `background_task_update`
-    /// saying how it ended (`completed`, `failed` or `stopped`), with Claude's
-    /// reason or summary when it gave one. The update goes to the session the
-    /// shell's Bash call ran in, a subagent's too.
+    /// a task_updated may move it there (either way a `running`
+    /// `background_task_update` goes out once), and a background one's
+    /// `task_notification`, or a task_updated whose patch says it was stopped
+    /// (Claude Code may send no notification after `stop_task`), returns a
+    /// `background_task_update` saying how it ended (`completed`, `failed`
+    /// or `stopped`), with Claude's reason or summary when it gave one. The
+    /// update goes to the session the shell's Bash call ran in, a
+    /// subagent's too. A shell ends once: a later end finds no shell.
     async fn background_shell_task(&self, sub: &str, line: &Value, sid: &str) -> Option<Message> {
         let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
         let task = text("task_id");
@@ -532,29 +604,44 @@ impl Translator {
             }
         };
         let backgrounded = |at: Option<&Value>| at == Some(&Value::Bool(true));
+        // How it ended: a notification's status, or a task_updated patch's.
+        let status = match sub {
+            "task_updated" => line.pointer("/patch/status").and_then(Value::as_str),
+            _ => text("status"),
+        };
         match sub {
             "task_started" if text("task_type") == Some("local_bash") => {
-                let shell = shells.entry(tool).or_insert_with(|| BackgroundShell {
+                let shell = shells.entry(tool.clone()).or_insert_with(|| BackgroundShell {
                     sid: sid.to_owned(),
                     command: text("description").unwrap_or("").to_owned(),
                     task: None,
                     background: false,
+                    launched: backgrounded(line.get("is_backgrounded")),
+                    announced: false,
+                    output: None,
                 });
                 shell.task = task.map(str::to_owned).or(shell.task.take());
+                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
                 shell.background |= backgrounded(line.get("is_backgrounded"));
-                return None;
+                return running(&tool, shell);
             }
             "task_updated" => {
-                if let Some(shell) = shells.get_mut(&tool) {
-                    shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
+                let shell = shells.get_mut(&tool)?;
+                shell.background |= backgrounded(line.pointer("/patch/is_backgrounded"));
+                shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
+                // Claude Code may send no notification after `stop_task`: a
+                // stopped task ends here. A completed or failed one waits
+                // for its notification, which carries the summary.
+                if !matches!(status, Some("stopped" | "killed")) {
+                    return running(&tool, shell);
                 }
-                return None;
             }
             "task_notification" => {}
             _ => return None,
         }
-        let shell = shells.remove(&tool).filter(|s| s.background)?;
-        let state = match text("status") {
+        let mut shell = shells.remove(&tool).filter(|s| s.background)?;
+        shell.output = text("output_file").map(str::to_owned).or(shell.output.take());
+        let state = match status {
             Some("failed") => "failed",
             Some("killed" | "stopped") => "stopped",
             _ => "completed",
@@ -572,7 +659,9 @@ impl Translator {
     }
 
     /// The background shells still running when Claude's stdout closed: they
-    /// ended with its process, so each is reported `stopped`.
+    /// ended with its process, so each is reported `stopped`, marked
+    /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
+    /// lists it `lost`); the update itself is what clients show.
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
@@ -580,7 +669,12 @@ impl Translator {
         shells
             .into_iter()
             .map(|(tool, shell)| {
-                shell_update(&shell, background_task_update(&tool, &shell, "stopped"))
+                let update = background_task_update(&tool, &shell, "stopped");
+                Message::notification(
+                    method::SESSION_UPDATE,
+                    json!({"sessionId": shell.sid, "update": update,
+                           "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
+                )
             })
             .collect()
     }
@@ -614,6 +708,7 @@ impl Translator {
             return None;
         }
         self.subagent_tasks.lock().await.remove(task);
+        self.workflows.lock().await.remove(&tool);
         let child = self.subagents.lock().await.remove(&tool)?;
         let state = match line.get("status").and_then(Value::as_str) {
             Some("failed") => "failed",
@@ -627,16 +722,24 @@ impl Translator {
         }))
     }
 
-    /// Records a new Agent tool call as a subagent session and returns its
-    /// `subagent_spawned` update. Claude's short `description` names it.
-    async fn spawn_subagent(&self, tool_use_id: &str, input: &Value) -> Value {
+    /// Records a new Agent or Workflow tool call as a subagent session and
+    /// returns its `subagent_spawned` update. Claude's short `description`
+    /// names an agent; a workflow, which always runs in the background, is
+    /// named by its saved name until its launch names the run.
+    async fn spawn_subagent(&self, tool_use_id: &str, tool: &str, input: &Value) -> Value {
         let child = format!("{}/{tool_use_id}", self.acp_session_id);
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
-        if input.get("run_in_background") == Some(&Value::Bool(true)) {
+        let workflow = tool == "Workflow";
+        if workflow {
+            self.workflows.lock().await.insert(tool_use_id.to_owned(), None);
+        }
+        if workflow || input.get("run_in_background") == Some(&Value::Bool(true)) {
             self.background_subagents.lock().await.insert(tool_use_id.to_owned());
         }
         let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
-        let task = s("description").or(s("name")).or(s("subagent_type")).unwrap_or("Agent");
+        let task = s("description").or(s("name")).or(s("subagent_type"));
+        let task = task.unwrap_or(if workflow { "Workflow" } else { "Agent" });
+        let kind = if workflow { Some(&json!("workflow")) } else { input.get("subagent_type") };
         json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,
@@ -644,7 +747,7 @@ impl Translator {
             "task": task,
             "prompt": input.get("prompt"),
             "capabilities": {},
-            "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
+            "_meta": {"claude": {"subagentType": kind, "toolUseId": tool_use_id}}
         })
     }
 }
@@ -691,7 +794,29 @@ fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> V
     })
 }
 
-/// `update` as a session update in the shell's session.
+/// The `running` update of a shell Claude runs in the background now, once
+/// per shell, with its `origin` (`background` when it started there,
+/// `auto_backgrounded` when it moved there): the hub lists it as a process
+/// (`hub/processes.rs`) and keeps a chat with one alive (`hub/idle.rs`).
+/// Clients note only how a shell ended.
+fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
+    if !shell.background || shell.announced {
+        return None;
+    }
+    shell.announced = true;
+    let mut update = background_task_update(tool, shell, "running");
+    update["origin"] = json!(if shell.launched { "background" } else { "auto_backgrounded" });
+    Some(shell_update(shell, update))
+}
+
+/// `update` as a session update in the shell's session, with its output
+/// file once Claude named it as `_meta.acpmux.outputFile`, which the hub
+/// takes off before the update is logged (`hub/processes.rs`): the path
+/// stays in the registry.
 fn shell_update(shell: &BackgroundShell, update: Value) -> Message {
-    Message::notification(method::SESSION_UPDATE, json!({"sessionId": shell.sid, "update": update}))
+    let mut params = json!({"sessionId": shell.sid, "update": update});
+    if let Some(output) = &shell.output {
+        params["_meta"] = json!({"acpmux": {"outputFile": output}});
+    }
+    Message::notification(method::SESSION_UPDATE, params)
 }

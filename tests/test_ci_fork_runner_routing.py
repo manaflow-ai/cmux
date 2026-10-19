@@ -32,6 +32,9 @@ MACOS_15_FORK_JOBS = {
     ("plain-paste-worker.yml", "macos-15"),
     # Seeds the macOS 15 pool's SwiftPM manifest cache, keyed on its Xcode.
     ("seed-swiftpm-manifests.yml", "seed"),
+    # Launches the published cmux NEXT DMG on macOS 15 (the macOS 14 floor's
+    # oldest hosted major); on macos-26 it would prove nothing.
+    ("nightly.yml", "nightly-next-macos15-launch"),
 }
 # A matrix job may instead pick a hosted label per row, e.g. to spread
 # app-host shards over macos-15 and macos-26. Accepted only when every
@@ -167,8 +170,9 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # `vars.X`; _refs normalizes the index form before matching.
 # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER name owned side labels outright
 # (runner_label_policy.side_lane_reason), and CI_AWS_SIDE_RUNNER the owned AWS
-# pool (aws_side_reason), so every read of them is gated too.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER)"
+# pool (aws_side_reason), so every read of them is gated too. CI_FAST_LANE_RUNNER
+# names the fast tier's own owned label, so it is gated as well.
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )

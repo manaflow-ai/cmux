@@ -67,6 +67,7 @@ pub(crate) const WORKSPACE_CREATE: &str = "workspace.create";
 pub(crate) const WORKSPACE_RENAME: &str = "workspace.rename";
 pub(crate) const WORKSPACE_UPDATE: &str = "workspace.update";
 pub(crate) const WORKSPACE_AGENT_FOLDER_SET: &str = "workspace.agent_folder.set";
+pub(crate) const WORKSPACE_OPEN_URL: &str = "workspace.open_url";
 pub(crate) const WORKSPACE_ENSURE_HOME: &str = "workspace.ensure_home";
 pub(crate) const WORKSPACE_MOVE: &str = "workspace.move";
 pub(crate) const WORKSPACE_FOCUS: &str = "workspace.focus";

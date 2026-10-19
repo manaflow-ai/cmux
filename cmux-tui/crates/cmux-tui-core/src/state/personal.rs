@@ -137,6 +137,25 @@ pub(crate) fn all_rooms(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Val
         .collect())
 }
 
+/// A placement snapshot as its `workspace_placement` change.
+pub(crate) fn placement_change(placement: Value) -> Value {
+    let id = personal::placement_id(
+        placement["workspace"]["session_id"].as_str().unwrap_or_default(),
+        placement["workspace"]["workspace_ref"].as_str().unwrap_or_default(),
+    );
+    state_upsert("workspace_placement", &id, placement)
+}
+
+/// The ordinal of a personal row in the personal order.
+pub(crate) fn row_index(
+    transaction: &Transaction<'_>,
+    session: &str,
+    key: &str,
+) -> anyhow::Result<Option<usize>> {
+    Ok(crate::workspace_registry::personal_store::read_workspace(transaction, session, key)?
+        .map(|row| row.index))
+}
+
 pub(crate) fn all_placements(transaction: &Transaction<'_>) -> anyhow::Result<Vec<Value>> {
     Ok(personal::placement_snapshots(transaction)?
         .into_iter()
@@ -329,6 +348,7 @@ fn apply_personal_change(
             {
                 return Err(state_not_found("workspace_group", group));
             }
+            let before = row_index(tx, session, key)?;
             personal::place_workspace(
                 tx,
                 session,
@@ -336,7 +356,19 @@ fn apply_personal_change(
                 PersonalWorkspaceUpdate { index, group, ..PersonalWorkspaceUpdate::default() },
             )?;
             let value = personal::placement_snapshot(tx, session, key)?;
-            Ok(StateChanges::new(value, all_placements(tx)?))
+            // The moved row changed. The rows between its old and new
+            // index (every row after a new one) only moved by one: they are
+            // a placement shift, restated only for connections without
+            // `sidebar-doc-v1` (state/placement_shift.rs).
+            let after = row_index(tx, session, key)?.unwrap_or(0);
+            match before {
+                Some(before) if before != after => {
+                    super::placement_shift::queue(tx, before.min(after), Some(before.max(after)))?;
+                }
+                Some(_) => {}
+                None => super::placement_shift::queue(tx, after.saturating_add(1), None)?,
+            }
+            Ok(StateChanges::new(value.clone(), vec![placement_change(value)]))
         }
         PersonalChange::RoomCreate { name, color, icon, theme, index } => {
             let room = personal::create_room(

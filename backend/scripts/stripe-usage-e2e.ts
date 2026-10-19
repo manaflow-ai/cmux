@@ -59,8 +59,16 @@ const meterId = async (event: string): Promise<string> => {
   if (!m) throw new Error(`no test meter ${event} (run stripe-usage-catalog.ts --set=e2e)`)
   return m.id
 }
+/** The first active monthly licensed (plan) price whose lookup key starts with `prefix` (the search API has no prefix match on lookup keys). */
 const planPrice = async (prefix: string) => {
-  const found = (await stripe("GET", `/v1/prices/search?query=${encodeURIComponent(`active:'true' AND lookup_key~'${prefix}'`)}&limit=10`)).data.filter((p: any) => p.recurring?.interval === "month" && p.recurring?.usage_type !== "metered")
+  const found: any[] = []
+  let after: string | undefined
+  for (let page = 0; page < 10 && found.length === 0; page++) {
+    const list = await stripe("GET", `/v1/prices?active=true&type=recurring&limit=100${after ? `&starting_after=${after}` : ""}`)
+    found.push(...list.data.filter((p: any) => typeof p.lookup_key === "string" && p.lookup_key.startsWith(prefix) && p.recurring?.interval === "month" && p.recurring?.usage_type !== "metered"))
+    if (!list.has_more) break
+    after = list.data.at(-1).id
+  }
   if (!found[0]) throw new Error(`no monthly test plan price with lookup key ${prefix}*`)
   return found[0]
 }
@@ -89,7 +97,18 @@ const settledSummary = async (side: Side, usd: number) => {
   }
   return { seconds: null, value: null }
 }
+/**
+ * A test clock stays at its frozen time, and the payment service refuses a meter event dated more than a few
+ * minutes after the customer's clock time. The sync dates events at real time (live mode has no clock), so
+ * before a sync in the running period the clock moves up to real time (never back, never past the period).
+ */
+const catchUp = async () => {
+  const c = await stripe("GET", `/v1/test_helpers/test_clocks/${st.clock}`)
+  const now = Math.floor(Date.now() / 1000)
+  if (c.frozen_time < now - 60 && now < Math.min(st.team.end, st.seat.end) - 900) await advance(st.clock, now)
+}
 const syncAndLevel = async (label: string) => {
+  await catchUp()
   for (const side of SIDES) {
     log(`${label}-${side}`, await sync(side))
     st[side].level = await levelNow(side)

@@ -52,6 +52,8 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# `cmux settings list|schema|validate`: the settings schema and owner state.
+cmux-config.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
 cmux-tui-cdp.workspace = true
@@ -69,6 +71,8 @@ unicode-width.workspace = true
 unicode-segmentation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
+regex.workspace = true
 toml.workspace = true
 base64.workspace = true
 getrandom.workspace = true
@@ -90,6 +94,9 @@ cmux-host.workspace = true
 acpmux = { path = "../acpmux" }
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
 plist = "1.10"
+# The build identity (daemon skew, SSH re-bootstrap). Only this crate reads
+# it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
+cmux-build-identity.workspace = true
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
@@ -108,6 +115,9 @@ async-trait.workspace = true
 # sockets to the cmux Cloud API. Both are already in the graph via acpmux.
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+# cmux NEXT's Chief home adoption copies live SQLite databases with
+# `VACUUM INTO` (build_adopt/copy.rs); already in the graph via cmux-tui-core.
+rusqlite.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true

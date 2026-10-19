@@ -16,7 +16,7 @@ struct SidebarMinimalModeTests {
     private static let group = GroupID("grp-new")
 
     /// A sidebar under its own settings: a quiet workspace, and a New Group holding one that
-    /// reports a status entry.
+    /// reports two status entries (a block: one entry would sit on the name's line).
     private static func sidebar() -> (SidebarView, DesignSettings, quiet: WorkspaceID, reported: WorkspaceID) {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [
@@ -25,8 +25,9 @@ struct SidebarMinimalModeTests {
         ]))
         var mirror = SessionStateMirror()
         mirror.workspaceStatus[reported] = WorkspaceStatus(
-            workspaceID: reported, entries: [WorkspaceStatus.Entry(key: "build", text: "Building", icon: "hammer", color: "#ff8800")])
-        store.session.apply(.snapshot(mirror), to: store.workspaces)
+            workspaceID: reported, entries: [WorkspaceStatus.Entry(key: "build", text: "Building", icon: "hammer", color: "#ff8800"),
+                                         WorkspaceStatus.Entry(key: "tests", text: "412 passed")])
+        store.session.apply(.snapshot(mirror), in: store)
         let mapped = SidebarMapping.shared.sections(store.sidebarSections,
                                                     machine: SidebarMachine(id: .local, name: "This Mac", kind: .local))
         let section = mapped[0]

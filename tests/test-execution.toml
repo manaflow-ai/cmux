@@ -165,6 +165,10 @@ path = "tests/test_strings_output_encoding.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_symbol_map.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_release_profile.py"
 lane = "linux-guard"
 
@@ -486,6 +490,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_reel.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_tour.py"
 lane = "linux-guard"
 
 [[test]]
@@ -821,6 +833,10 @@ path = "tests/test_triage_rules.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tui_focused_filter_guard.py"
 lane = "linux-guard"
 
@@ -1069,6 +1085,10 @@ path = "tests/test_cmux_next_checks_workflow.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_release_build_retention.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_route.py"
 lane = "linux-guard"
 
@@ -1245,6 +1265,10 @@ path = "tests/test_ci_frame_pacing_app_rpc.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_frame_pacing_golden.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_republish_delta_guard.py"
 lane = "linux-guard"
 
@@ -1290,4 +1314,76 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_defaults_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_signed_unnotarized_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_daily_tree_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_lane_daemon_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_superseded_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_media_tour_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_prune_media_derived_data.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_feat_publish_order.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_intent_familiar_warning.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_launch_budget_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_notices_submodule.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_daily_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_swiftpm_build_metrics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_state.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_trusted_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_unsigned_resume.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_admit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_shadow_workflow.py"
 lane = "linux-guard"

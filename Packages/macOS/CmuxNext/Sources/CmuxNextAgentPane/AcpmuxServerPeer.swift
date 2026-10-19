@@ -14,8 +14,8 @@ import CmuxNextWakeups
 /// - when this app is Team-signed (Release, NIGHTLY, RC), the peer's code, named by its audit
 ///   token (`LOCAL_PEERTOKEN`, not its pid), is Apple-anchored and signed by the same team.
 ///
-/// Another install of cmux (lead decision 2026-10-10): NIGHTLY and Release share `~/.acpmux`, so
-/// the daemon there may be the other app's. A Team-signed build accepts such a daemon only when
+/// Another install of cmux (lead decision 2026-10-10): NIGHTLY shares `~/.acpmux` with older builds and
+/// other copies of NIGHTLY (per-build homes since cx-is1kf.3), so the daemon there may be another app's. A Team-signed build accepts such a daemon only when
 /// all of these hold, and in DEV (ad hoc) the path check alone decides:
 /// 1. the peer's code satisfies `identifier "<the code-signing identifier of this app's own
 ///    acpmux binary>" and anchor apple generic and certificate leaf[subject.OU] = "<team>"`

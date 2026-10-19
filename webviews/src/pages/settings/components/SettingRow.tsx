@@ -78,8 +78,7 @@ export function SettingRow({
             <Highlight text={text(row.title)} query={query} />
           </div>
           {row.summary && (
-            // The title is a fallback for a translation that still runs long.
-            <div className="row-help" title={text(row.summary)}>
+            <div className="row-help">
               <Highlight text={text(row.summary)} query={query} />
             </div>
           )}
@@ -95,7 +94,11 @@ export function SettingRow({
             </div>
           )}
           {error && (
-            <div className="row-error" role="alert" title={error.detail}>
+            <div
+              className="row-error"
+              role="alert"
+              /* tooltip-allow: the failure's detail, shown nowhere else */ title={error.detail}
+            >
               {row.key === "agents.chats.roots" && error.detail ? error.detail : error.message}
             </div>
           )}

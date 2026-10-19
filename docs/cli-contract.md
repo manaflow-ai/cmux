@@ -49,13 +49,13 @@ Global options, accepted before the scope:
 
 `--socket` is a daemon session socket. The remote commands (`connect`, `ssh`,
 `forward`, `rpc`) reach a ROUTE and refuse `--socket`. A tagged app's
-`/tmp/cmux-debug-<tag>.sock` is the app control socket: pass it with
+`~/.local/state/cmux/cmux-debug-<tag>.sock` is the app control socket: pass it with
 `--app-socket` to an app verb (`cmux --app-socket <path> app identify`).
 To call one app control method of a DEV or tagged build (for example a
 `debug.*` read), use `app call`:
 
 ```text
-cmux --app-socket /tmp/cmux-debug-<tag>.sock app call debug.surfaces '{}'
+cmux --app-socket ~/.local/state/cmux/cmux-debug-<tag>.sock app call debug.surfaces '{}'
 ```
 
 `app call METHOD [JSON_OBJECT]` first asks the app `system.identify` and
@@ -81,6 +81,23 @@ Chief turn, an acpmux event hook): it exits 1 with `origin.forbidden`
 session. This keeps a person's other apps on a shared host out of an agent's
 answers. It is not a sandbox: the OS boundary is still the user, and naming a
 session explicitly (`--socket`, `--session`, `<session>:<id>`) still works.
+`cmux chief new`, `cmux chief edit` and `cmux chief delete` are refused for
+an agent caller with the same code, reason and marker (`details.refused` names
+the refused word), for every field of every Chief. A Chief changes its own
+profile only with its `profile` tool on its own bound connection.
+`cmux chief list` stays open. `cmux chief engine` with a change
+(`details.refused` `engine`), `cmux chief stop` (`stop`), `cmux chief
+shutdown` (`shutdown`), `/model`, `/effort` and Ctrl+C in the chat (a note,
+no call), `cmux raw operation` or `cmux raw command` naming a `chief.*` write
+(`details.refused` the operation), and the app actions `home.newChief`,
+`home.archiveChief` and `home.stopChief` (by id or CLI name; `details.refused`
+the name given) are refused the same way, before any connection.
+`cmux chief engine` with no change and the `chief.engine.get`,
+`chief.profile.list`, `chief.profile.get` and `chief.profile.avatar.get`
+reads stay open. An action alias other than the id or CLI name is not
+checked. This check is cooperative, like
+the one above: the daemon cannot yet tell a Chief turn's unbound connection
+from the person's.
 
 ## Output and exit codes
 
@@ -90,7 +107,7 @@ English only). Results go to stdout and diagnostics to stderr.
 | Exit | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | Operation failure (the request ran and failed, or `screen wait` timed out). |
+| 1 | Operation failure (the request ran and failed, or `screen wait` or `agents wait` timed out). |
 | 2 | Usage error (`usage.invalid`). |
 | 3 | Transport failure (no session or app socket, unreachable, broken reply). |
 
@@ -119,7 +136,7 @@ daemon inject, so no flags are needed.
 | --- | --- |
 | `CMUX_SOCKET_PATH` | App control socket. Wins over the derived path. |
 | `CMUX_BUNDLE_ID` | App bundle id; derives the app socket and daemon session. |
-| `CMUX_TAG` | Tagged dev build; derives `/tmp/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and acpmux home `~/.acpmux/tags/<tag>`. |
+| `CMUX_TAG` | Tagged dev build; derives `~/.local/state/cmux/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and, with the bundle id, the acpmux home `~/.acpmux/builds/<build key>`. |
 | `CMUX_TUI_SOCKET` | Daemon session socket. |
 | `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it. `current` selectors do not use it. |
 | `ACPMUX_HOME` | acpmux state directory. Wins over the tag rule. |
@@ -128,15 +145,20 @@ App socket order: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX
 then the app bundle that contains the executable (`CFBundleIdentifier` and
 `LSEnvironment.CMUX_TAG`). The path table mirrors the app's `ControlSocketPath`:
 release uses `~/.local/state/cmux/cmux.sock`, nightly/rc/staging use
-`/tmp/cmux-<channel>.sock`, and a tagged debug build uses
-`/tmp/cmux-debug-<tag>.sock`.
+`~/.local/state/cmux/cmux-<channel>.sock`, and a tagged debug build uses
+`~/.local/state/cmux/cmux-debug-<tag>.sock`. Every one but release keeps a
+symlink at its old `/tmp` name (`/tmp/cmux-debug-<tag>.sock`) for tools that
+still use it; the CLI takes the old name when only it exists (an app from
+before the move), and a path too long for `sun_path` stays at the old name.
 
 Daemon socket order: `--socket`/`--session`, `CMUX_TUI_SOCKET`, then (macOS) the
 app's session `cmux-app` or `cmux-app-<tag>` under the per-user Darwin temp
 directory, then cmux-tui's `main` session.
 
-acpmux home: `ACPMUX_HOME`, else `~/.acpmux/tags/<tag>` under `CMUX_TAG`, else
-`~/.acpmux` (shared with a standalone acpmux).
+acpmux home: `ACPMUX_HOME`, else the home of the CLI's build (`CMUX_BUNDLE_ID` and
+`CMUX_TAG`, else the app bundle around the CLI; schemas/build-identity/vectors.json):
+`~/.acpmux` for NIGHTLY (`com.cmuxterm.app.nightly`) and outside any app (shared
+with a standalone acpmux), `~/.acpmux/builds/<build key>` for every other build.
 
 ## Selectors
 
@@ -211,6 +233,19 @@ else `current`; with `--socket` or `--session` they target that session's
 `current`. Text that starts with a dash goes after `--`. `--ephemeral` creates
 an incognito workspace that the session closes at its next start. Workspace
 groups and their order are personal state of this Mac's home session.
+
+```text
+cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>] [--timeout <500ms|30s|5m>|--timeout-ms <n>]
+```
+
+`cmux status wait` blocks until the status entry `KEY` of the workspace holds
+`--until`, then prints `{workspace_id, key, cleared, entry}`. `settled`, the
+default, returns when the entry is gone (cleared, its owner ended or its TTL
+passed) or shows `success` (exit 0), or shows `error` (exit 1); a key with no
+entry is settled at once. `cleared` waits for the entry to go, and `state=<s>`
+(`busy`, `waiting`, `success`, `error` or `info`) for that state. It follows the
+session's event stream instead of polling, and a passed timeout exits 124 with
+`wait.timeout`, also when the daemon stops answering.
 
 Rooms and groups (workspace, tab, screen and saved tab groups) take their id or
 their exact name. The CLI reads the list on the request's connection and sends
@@ -317,6 +352,7 @@ cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 cmux terminal <selector> copy [--mode screen|selection|scrollback]
 cmux terminal <selector> process show
 cmux terminal <selector> process wait [--timeout-ms <n>]
+cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>|--timeout-ms <n>]
 cmux terminal <selector> viewport scroll --delta-rows <n>
 cmux terminal <selector> move|project --workspace <sel> --screen <sel> --pane <sel> --index <n>
 cmux terminal <selector> attach [--read-only]
@@ -332,7 +368,18 @@ modifiers `ctrl`, `alt` (or `option`), `shift`; keys `enter`, `tab`, `backtab`,
 Example: `cmux terminal current keys ctrl+c enter`.
 
 `screen wait` prints its result either way and exits 1 when the timeout passes
-without a match.
+without a match. `cmux agents wait` does the same: it prints its receipt
+(`matched: false`) and exits 1 when its timeout passes.
+
+`wait --until prompt` returns when the shell sits at its prompt (`extra.prompt`,
+from OSC 133 shell integration); `--until idle` when no plain command runs, no
+program reports `working` (OSC 7501) and no OSC 9;4 progress is under way. Both
+follow the session's event stream instead of polling and print the terminal
+record. A passed timeout exits 124 with `wait.timeout`, also when the daemon
+stops answering. Both read shell state from OSC 133 marks: in a shell without
+integration `--until idle` returns while a command still runs. After the daemon
+reattaches to a running terminal host, the prompt and command state come back
+only with the shell's next mark.
 
 ### browser (daemon-owned)
 
@@ -354,7 +401,7 @@ These address `browser_…` resources. App browser tabs use the page commands in
 
 ```text
 cmux notification list [--limit <n>]
-cmux notification create --title <value> --body <value> [--subtitle <value>] [--level info|success|warning|error] [--terminal <term_id>]
+cmux notification create --title <value> --body <value> [--subtitle <value>] [--level info|warning|error] [--terminal <term_id>]
 cmux notification clear [--terminal <term_id>]
 cmux notification ack --client <id> <notification_id...>
 cmux notify [--title <value>] [--subtitle <value>] [--body <value>] [--surface <term_id|current>] [--workspace <ws_id|current>]

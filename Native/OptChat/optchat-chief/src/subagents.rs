@@ -151,6 +151,13 @@ pub struct Spawner {
     /// a restarted host reports them as not started).
     waiting: Mutex<BTreeMap<String, Waiting>>,
     log: crate::brain::Log,
+    /// This Chief's grant (chief_profile.rs): the harnesses the person lets
+    /// its subagents use (its record's `harnesses`; empty: every harness),
+    /// read at each spawn (a default Chief's record can arrive late).
+    grant: Option<std::sync::Arc<crate::chief_profile::ChiefTools>>,
+    /// Queued ids of a spawn the grant refused, with the refusal: the queue
+    /// starter fails them with it when the brain dequeues them.
+    refused: Mutex<BTreeMap<String, String>>,
 }
 
 impl Spawner {
@@ -172,7 +179,18 @@ impl Spawner {
             pinned: false,
             waiting: Mutex::new(BTreeMap::new()),
             log,
+            grant: None,
+            refused: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// The person's harness grant (empty: every harness).
+    pub fn with_harness_grant(
+        mut self,
+        grant: std::sync::Arc<crate::chief_profile::ChiefTools>,
+    ) -> Spawner {
+        self.grant = Some(grant);
+        self
     }
 
     pub fn with_trace(mut self, trace: Trace) -> Spawner {
@@ -521,6 +539,14 @@ impl Spawner {
                 error: error.to_owned(),
             });
         };
+        let refused = self
+            .refused
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(id);
+        if let Some(e) = refused {
+            return fail(&e);
+        }
         let Some(w) = waiting else {
             return fail("the Chief host restarted while it waited for a free slot");
         };
@@ -670,6 +696,15 @@ impl Orchestrator for Spawner {
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())??;
         let run = self.engine_settings(plan.engine.as_ref());
+        // The person's grant: a harness outside it starts nothing.
+        let grant = self.grant.as_ref().map(|g| g.grant());
+        let refused = grant.filter(|g| !g.allows_harness(&run.harness)).map(|g| {
+            format!(
+                "the person has not given this Chief's subagents the {} harness; it may use {}",
+                run.harness,
+                g.harnesses.iter().cloned().collect::<Vec<_>>().join(", ")
+            )
+        });
         self.trace.emit(
             "spawn",
             json!({
@@ -701,7 +736,31 @@ impl Orchestrator for Spawner {
         };
         let mut started = Vec::new();
         let mut lines = Vec::new();
+        if let Some(e) = &refused {
+            // Queued ids first, before any failure frees a slot: the brain
+            // dequeues them to the queue starter, which fails them with this
+            // refusal (they are in no `waiting` entry).
+            let mut map = self
+                .refused
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for id in plan.ids.iter().filter(|id| plan.queued.contains(id)) {
+                map.insert(id.clone(), e.clone());
+            }
+        }
         for (id, task) in plan.ids.iter().zip(&tasks) {
+            if let Some(e) = &refused {
+                (self.log)(&format!("subagent {id} did not start: {e}"));
+                lines.push(format!("- {id}: did not start ({e})"));
+                if plan.queued.contains(id) {
+                    continue;
+                }
+                let _ = self.send(Input::SubagentFailed {
+                    id: id.clone(),
+                    error: e.clone(),
+                });
+                continue;
+            }
             if plan.queued.contains(id) {
                 self.waiting
                     .lock()
@@ -735,7 +794,7 @@ impl Orchestrator for Spawner {
                 }
             }
         }
-        let head = if started.is_empty() && plan.queued.is_empty() {
+        let head = if started.is_empty() && (plan.queued.is_empty() || refused.is_some()) {
             "No subagent started.".to_owned()
         } else if started.is_empty() {
             format!("Queued {}.", plan.queued.join(", "))

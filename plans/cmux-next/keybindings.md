@@ -275,7 +275,8 @@ wherever its tier allows).
   owner); that slice needs a cmux-tui landing window.
 - R59 is done only after a live Ctrl-Tab proof on cmux-lawrence-2 (never the laptop).
   Proof recorded 2026-10-12 (cx-9ce.18) on capture minis, real keys through cua-driver; since
-  Leo 2026-10-12 these keys select sidebar items, not pane tabs. cmux-next (DEV build of
+  Leo 2026-10-12 these keys select sidebar items, not pane tabs. Superseded for Ctrl-Tab (#20116) and
+  Cmd-Shift-] / [ (Lawrence 2026-10-15): they cycle the focused pane's tabs. cmux-next (DEV build of
   8f408161, `scripts/cmux-next/chrome-tab-keys-e2e.py --real --tidy`): Ctrl-Tab, Ctrl-Shift-Tab,
   Cmd-Shift-] and Cmd-Shift-[, pressed and as Leo's Karabiner sequences, pass from a terminal,
   terminal copy mode, a web page, Settings and Home (40/40). Classic (main a5cb091d): the same four
@@ -362,15 +363,23 @@ Test: `GhosttyKeybindPrecedenceTests`.
 ### Modifier hold hints
 
 `shortcuts.showModifierHoldHints` defaults to `true` and is editable in Keyboard
-Shortcuts. Hold Command or Control by itself for 0.30 seconds to show the current
-workspace, space, focused pane tab, and titlebar shortcuts beside their targets.
-Hints use the resolved default and user binding table, so a rebind or unbind
-changes the hints too. Typing, releasing the modifier, disabling the setting,
-or leaving the key window hides them immediately. The hints use small rectangles
-and appear without a fade; they never handle clicks or consume terminal input.
+Shortcuts. Hold Command, Control or Option (alone or together, with or without
+Shift; Lawrence 2026-10-14) for 0.30 seconds to show the current workspace,
+space, focused pane tab, pane, and titlebar shortcuts whose modifiers contain
+the held set, beside their targets: Command shows the Command bindings, Control
+the Control ones (Ctrl-1...9 tabs by default), Option the Option variants
+(Ctrl-Opt-1...9 spaces by default). A hold that matches no binding shows
+nothing. Only Command/Control chords get a chip, because only those run as
+shortcuts (`KeyRouter.isChord`). Hints use the resolved default and user
+binding table, so a rebind or unbind changes the hints too. Typing, a click,
+releasing the modifiers, disabling the setting, or leaving the key window hides
+them immediately. The chips are Liquid Glass capsules in the theme's glass tint
+(the blur fallback before macOS 26, the opaque popup surface under Reduce
+Transparency) and appear without a fade; they never handle clicks or consume
+terminal input.
 
-DEBUG capture tooling can call `debug.shortcut_hints` with `modifier: "cmd"`
-or `"ctrl"`. This posts a synthetic flagsChanged event through the production
+DEBUG capture tooling can call `debug.shortcut_hints` with `modifier: "cmd"`,
+`"ctrl"`, `"opt"`, `"shift"` or a `+` set such as `"ctrl+opt"`. This posts a synthetic flagsChanged event through the production
 window monitor and waits for its own intentional-hold callback before returning
 `ready: true`. Capture the real window, then call with `modifier: "release"`.
 Label this evidence **modifier held via debug event injection**. The hook is

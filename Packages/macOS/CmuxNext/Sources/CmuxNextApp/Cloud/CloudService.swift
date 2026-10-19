@@ -22,6 +22,8 @@ final class CloudService {
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
+    /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
+    @ObservationIgnored let hands: HandsService
     @ObservationIgnored private let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
@@ -82,8 +84,11 @@ final class CloudService {
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
+        hands = HandsService(
+            apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
+            presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)))
         let identity = installIdentity
-        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(tag: LaunchIdentity.current().tag) : nil
+        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
         link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
                                   connection: { [machines] in machines.local.connection })
         let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
@@ -181,6 +186,7 @@ final class CloudService {
                     // The install first: the app server path's first list goes
                     // through the credential relay, which sends the install token.
                     await self.installSignedIn()
+                    self.hands.start()
                     await self.ensureLink()
                     await self.refresh()
                 } else {
@@ -189,6 +195,7 @@ final class CloudService {
                     // expired): no link keeps running for it.
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
+                    self.hands.stop()
                 }
             }
         })

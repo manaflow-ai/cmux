@@ -1,18 +1,24 @@
 import AppKit
+public import CmuxNextAgentPane
 import CmuxNextBrowser
-import CmuxNextDesign
+public import CmuxNextDesign
+import CmuxNextTerminal
 
 /// Content a pane keeps in place, hidden, while another tab shows (browser
-/// perf phase 2, cx-asb1). Taking a browser's chrome out of the window and
-/// back costs AppKit tens of ms on each tab switch (its constraints and
-/// controls leave and join the window's layout engine, and a Chromium page
-/// re-adds its child window). A hidden view stops drawing, takes no events
-/// and is not in the accessibility tree; the content lifecycle
-/// (`TabContentCache.conceal`) already stops the page itself rendering.
+/// perf phase 2, cx-asb1; terminals, perf-tabs I6). Taking a browser's chrome
+/// out of the window and back costs AppKit tens of ms on each tab switch (its
+/// constraints and controls leave and join the window's layout engine, and a
+/// Chromium page re-adds its child window). A hidden view stops drawing, takes
+/// no events and is not in the accessibility tree; the content lifecycle
+/// (`TabContentCache.conceal`) stops the page or surface rendering.
 @MainActor
 protocol PaneParkableContent: NSView {}
 
 extension BrowserChromeView: PaneParkableContent {}
+extension TerminalHostView: PaneParkableContent {}
+/// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits
+/// synchronously for its web process (170-215 ms on Cmd-W back to a New Tab page, #20516).
+extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
 
 /// One parked view, weak: the content cache owns it.
 struct ParkedContent {
@@ -20,7 +26,7 @@ struct ParkedContent {
 }
 
 extension PaneContentView {
-    /// The most browsers one pane keeps hidden. Older ones leave the window
+    /// The most terminals, browsers and agent pages one pane keeps hidden. Older ones leave the window
     /// (the old cost, paid once for a tab visited long ago).
     static let parkLimit = 8
 
@@ -49,7 +55,7 @@ extension PaneContentView {
         if view is PaneParkableContent { view.isHidden = false }
     }
 
-    /// The pane stops showing `view`: a browser stays here, hidden; other
+    /// The pane stops showing `view`: a terminal, browser or agent page stays here, hidden; other
     /// content leaves the pane. A view another pane took is not touched.
     func retire(_ view: NSView) {
         guard view.superview === contentHost else { return }
@@ -65,8 +71,10 @@ extension PaneContentView {
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
-        // Hidden views do not follow pane resizes; `install` sets the frame.
-        view.autoresizingMask = []
+        // A hidden agent page stays sized with the pane, so showing it again needs no redraw at a new
+        // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
+        // sets their frame.
+        if !(view is AgentPaneView) { view.autoresizingMask = [] }
         parked.removeAll { $0.view == nil || $0.view === view }
         parked.append(ParkedContent(view: view))
         prunePark()

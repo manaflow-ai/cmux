@@ -7,7 +7,8 @@ a signed `notes/index.json` listing recent builds for the full history.
 
 The notes also carry the build's What's New digest ("whatsNew", decision
 WHATS-NEW-AFTER-UPDATE W3; scripts/whats-new/digest.py) built from the same
-highlight files, when they validate.
+highlight files, when they validate, or from the short user-facing summary
+when the build has no valid highlight digest.
 
 Highlights are human-written: one Markdown file per highlight under
 release-notes/next/highlights/. A highlight belongs to the first build whose
@@ -17,8 +18,8 @@ matter (lines before the first blank line):
     title: Updates you barely notice
     action: palette.checkForUpdates | Try it      (optional "Try it" button)
 
-The rest is the body (Markdown). A build with no new highlight file ships
-only its commit subjects (full history, no what's-new card). Each commit is
+The rest is the body (Markdown). A build with no new highlight file uses its
+user-facing summary for the What's New digest. Each commit is
 also an item {title, author, pr} (newest first; pr from a "(#1234)" suffix)
 for the update card's "What's changed" popover; older notes without items
 still decode, and the app then reads the PR from each subject.
@@ -31,6 +32,7 @@ writes the same lines as plain text into the build's appcast <description>.
 
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
+  release-notes.py prs --head SHA [--since SHA] [--repo O/R] [--limit N]   the GitHub release's "PRs in this build"
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
   release-notes.py backfill --index I --base URL... --public-key K --out DIR   adds summary/items to old notes
   release-notes.py since --index index.json [--not SHA]  prints the newest build's head commit (the next span's start)
@@ -43,6 +45,7 @@ from pathlib import Path
 HIGHLIGHTS = "release-notes/next/highlights"
 MAX_CHANGES = 200
 SUMMARY_LIMIT = 8
+PR_LIMIT = 40
 GROUP_TITLES = {"new": "New", "fixed": "Fixed", "changed": "Changed"}
 # Conventional types that never reach a person.
 INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "style", "build", "lint", "release-note",
@@ -190,6 +193,44 @@ def whats_new_digest(args):
     return document if document["entries"] else None
 
 
+def summary_whats_new_digest(args, lines):
+    """A validated nightly digest when there are summary lines but no highlight digest."""
+    if not lines:
+        return None
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
+    import validate
+
+    def bounded(text, limit):
+        text = " ".join(text.split()).rstrip(". ")
+        if len(text) > limit:
+            text = text[:limit - 1].rsplit(" ", 1)[0].rstrip(". ") + "…"
+        return text
+
+    document = {"schemaVersion": 1, "version": args.short, "channel": "nightly", "date": args.date,
+                "headline": {"en": "Fixes and improvements"}, "entries": []}
+    categories = {"new": "new", "fixed": "fixed", "changed": "improved"}
+    for index, line in enumerate(lines):
+        title = bounded(line.get("title", ""), validate.LIMITS["title"])
+        if not title or line.get("group") not in categories:
+            continue
+        entry = {"id": f"summary-{index}", "category": categories[line["group"]],
+                 "title": {"en": title}, "summary": {"en": line["title"].strip()},
+                 "platforms": ["macos"], "audience": "all", "docs": "https://cmux.com/docs/changelog"}
+        problems = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
+        if problems:
+            print(f"whats-new summary: dropped {entry['id']}:\n" + "\n".join(problems), file=sys.stderr)
+            continue
+        document["entries"].append(entry)
+    if not document["entries"]:
+        return None
+    document["headline"] = {"en": bounded(document["entries"][0]["title"]["en"], validate.LIMITS["headline"])}
+    problems = validate.validate_document(f"{args.short}.json", document)
+    if problems:
+        print("whats-new summary skipped:\n" + "\n".join(problems), file=sys.stderr)
+        return None
+    return document
+
+
 def write_community_summary(digest, args):
     """notes/community-<build>.md: a short Discord/X summary a human posts (K2); the
     release-notes artifact keeps it and the R2 upload publishes it with the notes."""
@@ -201,10 +242,46 @@ def write_community_summary(digest, args):
             out.write(text)
 
 
+def commits_with_authors(since, head, limit=MAX_CHANGES):
+    """(subject, author) of each non-merge commit in the span, newest first, at most `limit` (None: all)."""
+    span = rev_range(since, head)
+    commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
+    return [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:limit]
+
+
+def pr_lines(items, repo, limit=PR_LIMIT):
+    """The GitHub release body's "PRs in this build" section: one line per PR (newest first, each
+    PR once), at most `limit`, then "and K more"; commits without a "(#1234)" suffix are counted."""
+    seen, prs = set(), []
+    for item in items:
+        if "pr" in item and item["pr"] not in seen:
+            seen.add(item["pr"])
+            prs.append(item)
+    without = sum(1 for item in items if "pr" not in item)
+    if not prs and not without:
+        return ""
+    lines = ["### PRs in this build", ""]
+    # A subject's "@login" would ping that person and a "<" could open an HTML comment.
+    escape = lambda text: text.replace("&", "&amp;").replace("<", "&lt;").replace("@", "&#64;")
+    lines += [f'- [#{i["pr"]}](https://github.com/{repo}/pull/{i["pr"]}) {escape(i["title"])}' for i in prs[:limit]]
+    if len(prs) > limit:
+        lines.append(f"- and {len(prs) - limit} more")
+    if not prs:
+        lines.append("No PRs.")
+    if without:
+        lines += ["", f"{without} commit{'s' if without != 1 else ''} without a PR number not listed."]
+    return "\n".join(lines) + "\n"
+
+
+def prs(args):
+    # The whole span, not MAX_CHANGES: "and K more" and the no-PR count must cover every commit.
+    commits = commits_with_authors(args.since, args.head, limit=None)
+    print(pr_lines([change_item(s, a) for s, a in commits], args.repo, args.limit), end="")
+
+
 def build(args):
     span = rev_range(args.since, args.head)
-    commits = [line.split("\x1f", 1) for line in git("log", "--no-merges", "--format=%s%x1f%an", span).splitlines() if line.strip()]
-    commits = [(c[0], c[1] if len(c) > 1 else "") for c in commits if c[0].strip()][:MAX_CHANGES]
+    commits = commits_with_authors(args.since, args.head)
     changes = [subject for subject, _ in commits]
     items = [change_item(subject, author) for subject, author in commits]
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
@@ -216,6 +293,8 @@ def build(args):
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
              "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(changes)}
     digest = whats_new_digest(args)
+    if digest is None:
+        digest = summary_whats_new_digest(args, notes["summary"])
     if digest is not None:
         notes["whatsNew"] = digest
         write_community_summary(digest, args)
@@ -361,6 +440,11 @@ def main():
     a.add_argument("--appcasts", required=True)
     a.add_argument("--build", required=True)
     a.add_argument("--feeds", nargs="+", required=True)
+    p = sub.add_parser("prs")
+    p.add_argument("--head", required=True)
+    p.add_argument("--since", default="")
+    p.add_argument("--repo", default="manaflow-ai/cmux")
+    p.add_argument("--limit", type=int, default=PR_LIMIT)
     i = sub.add_parser("index")
     i.add_argument("--notes", required=True)
     i.add_argument("--previous")
@@ -383,7 +467,7 @@ def main():
     v.add_argument("--public-key", required=True)
     v.add_argument("file")
     args = parser.parse_args()
-    return {"build": build, "appcast": appcast, "index": index, "since": since, "backfill": backfill, "sign": sign, "verify": verify}[args.cmd](args) or 0
+    return {"build": build, "appcast": appcast, "prs": prs, "index": index, "since": since, "backfill": backfill, "sign": sign, "verify": verify}[args.cmd](args) or 0
 
 
 if __name__ == "__main__":

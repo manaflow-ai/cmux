@@ -5,6 +5,11 @@
 //! loopback port. Off macOS a remote chain does not run Claude Code at all.
 //! A local session's Claude spawns as before.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -137,9 +142,10 @@ async fn a_remote_chain_cannot_write_outside_its_folders_or_reach_a_loopback_por
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
-    // Outside the session folder and the temporary folders.
+    // Outside the session folder and the temporary folders. The name has a space, as a home under
+    // `Application Support` does (cx-0o66n): the agent must read the whole path.
     let home = std::fs::canonicalize(dirs_home()).unwrap();
-    let outside = home.join(format!(".acpmux-test-probe-{}", std::process::id()));
+    let outside = home.join(format!(".acpmux test probe-{}", std::process::id()));
     let _ = std::fs::remove_file(&outside);
     let probe = format!("sandbox-probe {} {port}", outside.display());
     // The control: a local session's agent may do all three.

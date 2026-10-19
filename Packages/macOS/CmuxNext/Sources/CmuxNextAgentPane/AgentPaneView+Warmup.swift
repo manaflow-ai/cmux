@@ -7,10 +7,19 @@ import WebKit
 /// about 65 ms earlier on a cold launch). The empty page goes once an agent
 /// page has loaded or the launch settled (`LaunchSettle`).
 ///
-/// It also has the pool start one more web content process with no page,
-/// set up while the windows build, which the first agent page takes: a
-/// page in a new process waited for that process's setup, which needs main
-/// thread turns the launch does not give it until about 450 ms (bd cx-z9kz0).
+/// It no longer has the pool prewarm a second, page-less web content process
+/// (`-[WKProcessPool _warmInitialProcess]`, cx-z9kz0, #19847). On some Macs
+/// the first load that takes that process holds the main thread for about
+/// 11 s: WebKit issues its font sandbox extensions to the prewarmed process
+/// while that process's network setup is stalled. A standalone WKWebView app
+/// on one test Mac (macOS 27.0.1) held 10.99 s with the prewarm and 0.005 s
+/// without; another held 0.006 s either way. A DEV build's watchdog killed
+/// every launch on the first (the New Tab spare took the process); a Release
+/// build froze. The
+/// prewarm saved about 65 ms before the first agent page went live on a
+/// cold launch (cx-z9kz0). To bring it back, call `_warmInitialProcess` on
+/// ``processPool`` after the warmup view's load, once WebKit's stall is
+/// understood.
 extension AgentPaneView {
     private static var warmupView: WKWebView?
     /// The in-memory data store every agent page shares. WebKit gives each store its own web
@@ -26,10 +35,6 @@ extension AgentPaneView {
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
         warmupView = view
-        // WebKit's prewarmed process (`-[WKProcessPool _warmInitialProcess]`), checked first: macOS
-        // has no public call for it; without it the first page starts its own process.
-        let prewarm = NSSelectorFromString("_warmInitialProcess") // crash-allow: performed only when the pool responds to it
-        if processPool.responds(to: prewarm) { _ = processPool.perform(prewarm) }
     }
 
     public static func finishWarmup() {

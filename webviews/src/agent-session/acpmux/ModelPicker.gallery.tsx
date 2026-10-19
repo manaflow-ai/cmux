@@ -185,6 +185,16 @@ export default componentEntry<ModelPickerProps>({
       props: { ...base },
       play: numericSearch,
     },
+    // Codex is signed out on this Mac (cx-ae9eb): its rail tab dims, and its list offers Log In in
+    // place of models, so a pick never starts a chat that fails its first turn.
+    "signed-out": {
+      props: { ...base, signedOut: { codex: "codex login" }, onLogIn: () => undefined },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.click({ selector: ".acpmux-mp-harness[data-signed-out]" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
+      },
+    },
     // A folder profile whose icon names no brand: the chip draws no mark (never a placeholder
     // square), and its rail tab its initial.
     "profile-without-mark": {

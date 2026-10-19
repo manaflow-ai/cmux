@@ -15,6 +15,7 @@ public final class BrowserProviderSnapshot implements WireValue {
     private final boolean available;
     private final Field<UInt64> clients;
     private final Field<String> endpoint;
+    private final Field<BrowserProviderHosting> hosting;
     private final Field<String> providerId;
     private final UInt64 revision;
     private final List<BrowserProviderTarget> targets;
@@ -25,6 +26,7 @@ public final class BrowserProviderSnapshot implements WireValue {
         this.available = builder.available;
         this.clients = builder.clients;
         this.endpoint = builder.endpoint;
+        this.hosting = builder.hosting;
         this.providerId = builder.providerId;
         if (!builder.revisionSet) throw new IllegalArgumentException("revision is required");
         this.revision = Wire.nonNull(builder.revision, "revision");
@@ -38,6 +40,7 @@ public final class BrowserProviderSnapshot implements WireValue {
     public boolean available() { return available; }
     public Field<UInt64> clients() { return clients; }
     public Field<String> endpoint() { return endpoint; }
+    public Field<BrowserProviderHosting> hosting() { return hosting; }
     public Field<String> providerId() { return providerId; }
     public UInt64 revision() { return revision; }
     public List<BrowserProviderTarget> targets() { return targets; }
@@ -59,6 +62,10 @@ public final class BrowserProviderSnapshot implements WireValue {
         if (!Wire.isMissing(rawEndpoint)) {
             builder.endpoint(Wire.string(rawEndpoint, "BrowserProviderSnapshot.endpoint"));
         }
+        Object rawHosting = Wire.optional(object, "hosting");
+        if (!Wire.isMissing(rawHosting)) {
+            builder.hosting(BrowserProviderHosting.fromWire(rawHosting));
+        }
         Object rawProviderId = Wire.optional(object, "provider_id");
         if (!Wire.isMissing(rawProviderId)) {
             builder.providerId(Wire.string(rawProviderId, "BrowserProviderSnapshot.provider_id"));
@@ -77,6 +84,7 @@ public final class BrowserProviderSnapshot implements WireValue {
         Wire.put(object, "available", available);
         Wire.put(object, "clients", clients);
         Wire.put(object, "endpoint", endpoint);
+        Wire.put(object, "hosting", hosting);
         Wire.put(object, "provider_id", providerId);
         Wire.put(object, "revision", revision);
         Wire.put(object, "targets", targets);
@@ -86,11 +94,11 @@ public final class BrowserProviderSnapshot implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof BrowserProviderSnapshot that)) return false;
-        return Objects.equals(authentication, that.authentication) && Objects.equals(available, that.available) && Objects.equals(clients, that.clients) && Objects.equals(endpoint, that.endpoint) && Objects.equals(providerId, that.providerId) && Objects.equals(revision, that.revision) && Objects.equals(targets, that.targets);
+        return Objects.equals(authentication, that.authentication) && Objects.equals(available, that.available) && Objects.equals(clients, that.clients) && Objects.equals(endpoint, that.endpoint) && Objects.equals(hosting, that.hosting) && Objects.equals(providerId, that.providerId) && Objects.equals(revision, that.revision) && Objects.equals(targets, that.targets);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(authentication, available, clients, endpoint, providerId, revision, targets); }
+    public int hashCode() { return Objects.hash(authentication, available, clients, endpoint, hosting, providerId, revision, targets); }
 
     @Override
     public String toString() { return "BrowserProviderSnapshot" + toWire(); }
@@ -101,6 +109,7 @@ public final class BrowserProviderSnapshot implements WireValue {
         private boolean availableSet;
         private Field<UInt64> clients = Field.omitted();
         private Field<String> endpoint = Field.omitted();
+        private Field<BrowserProviderHosting> hosting = Field.omitted();
         private Field<String> providerId = Field.omitted();
         private UInt64 revision;
         private boolean revisionSet;
@@ -122,6 +131,10 @@ public final class BrowserProviderSnapshot implements WireValue {
         }
         public Builder endpoint(String value) {
             this.endpoint = Field.of(value);
+            return this;
+        }
+        public Builder hosting(BrowserProviderHosting value) {
+            this.hosting = Field.of(value);
             return this;
         }
         public Builder providerId(String value) {

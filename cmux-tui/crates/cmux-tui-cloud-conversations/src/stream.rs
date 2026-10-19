@@ -67,6 +67,24 @@ pub enum CloudEvent {
         reason: &'static str,
         expires_at: Option<u64>,
     },
+    /// A Chief's run in a subscribed conversation changed (the owner's
+    /// `conversation-run-changed` frame: the run and the steps that changed;
+    /// ephemeral, never stored by the owner's stream).
+    RunChanged {
+        conversation: String,
+        run: Value,
+        steps: Vec<Value>,
+        account: Option<String>,
+    },
+    /// A Cloud Chief's live frame in a subscribed conversation
+    /// (`chief-live-v1`: `step.delta`, `run.activity`, or the `run.live`
+    /// snapshot the owner sends on join, on reconnect and on request), with
+    /// its `type`; ephemeral, never stored by the owner or the daemon.
+    Live {
+        conversation: String,
+        frame: Value,
+        account: Option<String>,
+    },
 }
 
 impl CloudEvent {
@@ -79,7 +97,9 @@ impl CloudEvent {
             | Self::InboxReset { account, .. }
             | Self::MuxWake { account, .. }
             | Self::MuxResynced { account, .. }
-            | Self::SubscriptionState { account, .. } => {
+            | Self::SubscriptionState { account, .. }
+            | Self::RunChanged { account, .. }
+            | Self::Live { account, .. } => {
                 *account = socket_account.map(str::to_string);
             }
             Self::SessionNeeded { .. } => {}
@@ -95,7 +115,9 @@ impl CloudEvent {
             | Self::InboxReset { account, .. }
             | Self::MuxWake { account, .. }
             | Self::MuxResynced { account, .. }
-            | Self::SubscriptionState { account, .. } => account.as_deref(),
+            | Self::SubscriptionState { account, .. }
+            | Self::RunChanged { account, .. }
+            | Self::Live { account, .. } => account.as_deref(),
             Self::SessionNeeded { .. } => None,
         }
     }
@@ -155,6 +177,17 @@ impl CloudEvent {
                 }
                 value
             }
+            Self::RunChanged { conversation, run, steps, .. } => json!({
+                "event": "cloud-conversation-run-changed",
+                "conversation": conversation,
+                "run": run,
+                "steps": steps,
+            }),
+            Self::Live { conversation, frame, .. } => json!({
+                "event": "cloud-conversation-live",
+                "conversation": conversation,
+                "frame": frame,
+            }),
         };
         if let Some(account) = self.account() {
             value["account"] = json!(account);
@@ -185,16 +218,24 @@ pub(crate) struct StreamState {
     /// user's position.
     user: Option<String>,
     awaiting_snapshot: bool,
+    /// This connection's `welcome` came and the subscribe went out.
+    subscribed: bool,
 }
 
 impl StreamState {
     pub(crate) fn new(target: Target) -> Self {
-        Self { target, last_seq: None, user: None, awaiting_snapshot: false }
+        Self { target, last_seq: None, user: None, awaiting_snapshot: false, subscribed: false }
     }
 
     /// A new connection starts; the next `welcome` subscribes again.
     pub(crate) fn on_connect(&mut self) {
         self.awaiting_snapshot = false;
+        self.subscribed = false;
+    }
+
+    /// The stream sent its subscribe on this connection.
+    pub(crate) fn is_live(&self) -> bool {
+        self.subscribed
     }
 
     fn stream_name(&self) -> Option<String> {
@@ -229,6 +270,12 @@ impl StreamState {
     /// Handles one text frame from the owner.
     pub(crate) fn on_text(&mut self, text: &str) -> Vec<StreamAction> {
         let Ok(frame) = serde_json::from_str::<Value>(text) else { return Vec::new() };
+        // The live frames name their kind with `type` (the brain contract),
+        // every other owner frame with `t`.
+        let kind = frame.get("t").or_else(|| frame.get("type")).and_then(Value::as_str);
+        if let Some(kind @ ("step.delta" | "run.activity" | "run.live")) = kind {
+            return self.on_live(kind, frame.clone());
+        }
         match frame.get("t").and_then(Value::as_str) {
             Some("welcome") => {
                 let user = frame
@@ -250,10 +297,32 @@ impl StreamState {
                         self.user = None;
                     }
                 }
+                self.subscribed = true;
                 vec![StreamAction::Send(self.frame("subscribe")), StreamAction::Live]
             }
             Some("snapshot") => self.on_snapshot(&frame),
             Some("event") => self.on_event(&frame),
+            // A Chief run change for this conversation's members (no seq: it
+            // is never replayed, a page reads the run again after a gap).
+            Some("conversation-run-changed") => match &self.target {
+                Target::Conversation(conversation)
+                    if frame.get("conversation").and_then(Value::as_str)
+                        == Some(conversation.as_str())
+                        && frame.get("run").is_some_and(Value::is_object) =>
+                {
+                    vec![StreamAction::Emit(CloudEvent::RunChanged {
+                        conversation: conversation.clone(),
+                        run: frame["run"].clone(),
+                        steps: frame
+                            .get("steps")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default(),
+                        account: None,
+                    })]
+                }
+                _ => Vec::new(),
+            },
             Some("error") => {
                 let code = frame.get("code").and_then(Value::as_str).unwrap_or_default();
                 if code == "auth.forbidden" { vec![StreamAction::Forbidden] } else { Vec::new() }
@@ -262,6 +331,25 @@ impl StreamState {
             // ops over HTTP, never on this socket.
             _ => Vec::new(),
         }
+    }
+
+    /// A live frame of this conversation goes to its subscribers unchanged,
+    /// with both `type` and `t` (passed through, never kept: a page that
+    /// missed one asks for the `run.live` snapshot again).
+    fn on_live(&self, kind: &str, mut frame: Value) -> Vec<StreamAction> {
+        let Target::Conversation(conversation) = &self.target else { return Vec::new() };
+        if frame.get("conversation").and_then(Value::as_str) != Some(conversation.as_str()) {
+            return Vec::new();
+        }
+        let Some(object) = frame.as_object_mut() else { return Vec::new() };
+        // Both keys, as the owner sends them (`t` = `type`).
+        object.insert("type".into(), json!(kind));
+        object.insert("t".into(), json!(kind));
+        vec![StreamAction::Emit(CloudEvent::Live {
+            conversation: conversation.clone(),
+            frame,
+            account: None,
+        })]
     }
 
     fn mine(&self, frame: &Value) -> bool {

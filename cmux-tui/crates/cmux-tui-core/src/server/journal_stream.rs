@@ -122,12 +122,57 @@ pub(super) fn handle_journal_extension_request(
                         )
                     })?;
             super::command_history::refuse_reserved_producer(&ingress)?;
+            // A turn-start hook's prompt rides beside the event, memory only: kept before the
+            // commit so the agent change the commit folds already carries it, put back when the
+            // append fails or replays, never journaled.
+            let noted = request
+                .fields
+                .get("live_prompt")
+                .and_then(Value::as_str)
+                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+                .and_then(|prompt| {
+                    let terminal = ingress
+                        .subjects
+                        .iter()
+                        .find(|subject| subject.kind == "terminal")
+                        .and_then(|subject| {
+                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
+                        })?;
+                    let previous = mux.note_agent_prompt(&terminal, prompt)?;
+                    Some((terminal, previous))
+                });
+            // A finished turn's last message rides the same way, for its banner's preview: the
+            // commit's notification event takes it, and whatever it did not take goes.
+            let reply = request
+                .fields
+                .get("live_reply")
+                .and_then(Value::as_str)
+                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+                .and_then(|reply| {
+                    let terminal = ingress
+                        .subjects
+                        .iter()
+                        .find(|subject| subject.kind == "terminal")
+                        .and_then(|subject| {
+                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
+                        })?;
+                    mux.note_agent_reply(&terminal, reply).then_some(terminal)
+                });
             let idempotency_key = request
                 .envelope
                 .idempotency_key
                 .as_deref()
                 .expect("catalog requires mutation idempotency");
-            mux.append_journal_ingress(&ingress, origin, idempotency_key)
+            let appended = mux.append_journal_ingress(&ingress, origin, idempotency_key);
+            if let Some((terminal, previous)) = noted
+                && !appended.as_ref().is_ok_and(|commit| !commit.replayed)
+            {
+                mux.restore_agent_prompt(&terminal, previous);
+            }
+            if let Some(terminal) = reply {
+                mux.forget_agent_reply(&terminal);
+            }
+            appended
                 .map(|commit| {
                     json!({
                         "value":{

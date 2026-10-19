@@ -1,6 +1,6 @@
 // What a chat has produced so far, read from its transcript's tool calls: the pull requests it
 // opened, the files it wrote, its subagents, the wakeups it scheduled and the web pages it
-// read. The header's summary popover lists them (SummaryPopover).
+// read. The summary card lists them (SummaryCard.tsx, SummaryBody.tsx).
 import { turnFiles, type TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";

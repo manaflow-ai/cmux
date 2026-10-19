@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextSidebar
 import CmuxNextUpdater
 
@@ -24,8 +25,12 @@ enum WhatsNewPage {
         return ChangelogPageTab.open(services, focus: true, from: from?.description, to: center.current?.description)
     }
 
-    /// A click on a client-only sidebar item: the What's New item opens the page.
+    /// A click on a client-only sidebar item: the What's New item opens the page; the lanes item
+    /// (Labs, cx-v9k2f) opens Agent Activity.
     static func activateClientItem(_ id: LayoutItemID, services: AppServices, in state: WindowState?) {
+        if id == SidebarTransientItem.lanesID { return services.agentActivityPage.open() }
+        // The Channels entry after Home (cx-frn2y): the one Home view path, as a person's click.
+        if id == SidebarTransientItem.channelsID { _ = services.registry.perform("home.switchView", invocation: .init(arguments: ["view": .string("channels")], origin: .user)) }
         if id == sidebarItemID { open(services, in: state) }
     }
 

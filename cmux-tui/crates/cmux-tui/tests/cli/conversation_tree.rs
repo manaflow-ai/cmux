@@ -13,16 +13,16 @@ use tokio_tungstenite::tungstenite::{self, Message, WebSocket};
 
 use super::*;
 
-const TOKEN: &str = "conversation-tree-test-credential";
+pub(super) const TOKEN: &str = "conversation-tree-test-credential";
 
-struct Ws {
+pub(super) struct Ws {
     socket: WebSocket<TcpStream>,
     next: u64,
-    events: VecDeque<Value>,
+    pub(super) events: VecDeque<Value>,
 }
 
 impl Ws {
-    fn open(addr: &str) -> Self {
+    pub(super) fn open(addr: &str) -> Self {
         let stream = TcpStream::connect(addr).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
         let (mut socket, _) = tungstenite::client(format!("ws://{addr}/"), stream).unwrap();
@@ -30,7 +30,7 @@ impl Ws {
         Self { socket, next: 1, events: VecDeque::new() }
     }
 
-    fn read(&mut self) -> Value {
+    pub(super) fn read(&mut self) -> Value {
         loop {
             match self.socket.read().unwrap() {
                 Message::Text(text) => return serde_json::from_str(&text).unwrap(),
@@ -41,7 +41,7 @@ impl Ws {
     }
 
     /// The whole reply, `ok` true or false; events read meanwhile are kept.
-    fn reply(&mut self, cmd: &str, params: Value) -> Value {
+    pub(super) fn reply(&mut self, cmd: &str, params: Value) -> Value {
         let id = self.next;
         self.next += 1;
         let mut body = params.as_object().cloned().unwrap_or_default();
@@ -60,7 +60,30 @@ impl Ws {
         }
     }
 
-    fn request(&mut self, cmd: &str, params: Value) -> Value {
+    /// One `cmux.protocol/2` request on this WebSocket; the whole response
+    /// (events read meanwhile are kept).
+    pub(super) fn v2(&mut self, operation: &str, params: Value) -> Value {
+        let id = format!("ws-v2-{}", self.next);
+        self.next += 1;
+        let mut params = params.as_object().cloned().unwrap_or_default();
+        params.insert("machine".into(), json!("current"));
+        params.insert("session".into(), json!("current"));
+        let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+                           "operation": operation, "params": params});
+        self.socket.send(Message::Text(frame.to_string().into())).unwrap();
+        loop {
+            let value = self.read();
+            if value.get("event").is_some() {
+                self.events.push_back(value);
+                continue;
+            }
+            if value["id"] == json!(id) && value["type"] == "response" {
+                return value;
+            }
+        }
+    }
+
+    pub(super) fn request(&mut self, cmd: &str, params: Value) -> Value {
         let value = self.reply(cmd, params);
         assert_eq!(value["ok"], true, "{cmd} failed over WebSocket: {value}");
         value["data"].clone()
@@ -101,7 +124,7 @@ impl Ws {
     }
 
     /// Sends and returns the stored message from its event.
-    fn sent(
+    pub(super) fn sent(
         &mut self,
         conversation: &str,
         key: &str,
@@ -119,7 +142,7 @@ impl Ws {
         }
     }
 
-    fn create_channel(&mut self, key: &str, title: &str) -> String {
+    pub(super) fn create_channel(&mut self, key: &str, title: &str) -> String {
         let created = self.request(
             "conversation-create",
             json!({"idempotency_key": key, "title": title, "participants": [
@@ -133,7 +156,7 @@ impl Ws {
 }
 
 /// The address the daemon bound (`--ws` port 0), from its startup log.
-fn ws_addr(server: &HeadlessServer) -> String {
+pub(super) fn ws_addr(server: &HeadlessServer) -> String {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         let tail = server.stderr_tail();

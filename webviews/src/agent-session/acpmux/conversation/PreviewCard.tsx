@@ -29,7 +29,7 @@ export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string
         <span className="acpmux-turn-preview-icon">
           {site?.icon ? <img src={site.icon} alt="" width={16} height={16} /> : <Globe size={16} />}
         </span>
-        <a className="acpmux-turn-preview-address" href={url} title={site?.title ? `${site.title}\n${url}` : url}>
+        <a className="acpmux-turn-preview-address" href={url}>
           {site?.title ? <span className="acpmux-turn-preview-title">{site.title}</span> : null}
           {address}
         </a>

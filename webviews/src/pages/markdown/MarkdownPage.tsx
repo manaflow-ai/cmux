@@ -92,11 +92,12 @@ export function MarkdownPage({
               </ToolbarButton>
             </ToolbarGroup>
           ) : null}
-          <span className="md-file" title={path}>
+          <span className="md-file">
             {state.phase === "loading" ? t(L.loading) : fileName(state.navigating ?? path)}
           </span>
           <span
             className={`md-status md-status-${state.readOnly ? "read-only" : state.status}`}
+            // tooltip-allow: why the file is read-only or failed to save
             title={state.readOnly ? t(L.readOnlyHelp) : state.status === "failed" ? t(L.saveFailed) : undefined}
             aria-live="polite"
           >

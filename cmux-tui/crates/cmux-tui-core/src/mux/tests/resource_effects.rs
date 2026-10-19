@@ -227,10 +227,17 @@ fn assert_ordinary_public_revision(mux: &Mux, revision: u64) -> Value {
     assert!(!changes.is_empty());
     for (sequence, change) in changes.iter().enumerate() {
         assert_eq!(change["sequence"], sequence);
-        // A creation also carries the new workspace's personal placement.
+        // A creation also carries the new workspace's personal placement
+        // and its sidebar document item (sidebar-doc-v1).
         assert!(matches!(
             (change["kind"].as_str(), change["resource"].as_str()),
-            (Some("upsert" | "delete"), _) | (Some("state_upsert"), Some("workspace_placement"))
+            (Some("upsert" | "delete"), _)
+                | (
+                    Some("state_upsert"),
+                    Some(
+                        "workspace_placement" | "sidebar_item" | "sidebar_section" | "sidebar_doc"
+                    )
+                )
         ));
         assert!(change["resource"].is_string());
         assert!(change["id"].is_string());
@@ -462,6 +469,8 @@ fn resource_large_workspace_mutations_are_targeted_and_query_bounded() {
                 public_id: public_id.clone(),
                 key: key.clone(),
                 name: name.clone(),
+                name_source: Default::default(),
+                name_revision: 0,
                 group_key: mux.session.clone(),
             },
             position: index,
@@ -472,6 +481,8 @@ fn resource_large_workspace_mutations_are_targeted_and_query_bounded() {
             public_id: public_id.clone(),
             key,
             name,
+            name_source: Default::default(),
+            name_revision: 0,
             screens: Vec::new(),
             active_screen: 0,
         });

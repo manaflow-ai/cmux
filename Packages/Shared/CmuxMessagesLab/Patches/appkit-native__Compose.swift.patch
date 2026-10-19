@@ -10,7 +10,23 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -417,6 +420,7 @@
+@@ -183,11 +186,13 @@
+     /// not depend on the blink's phase at the grab (Messages' still references show it solid).
+     static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
+ 
+-    private func startBlink() {
++    // cmux: not private, so a Reduce Motion change restarts or stills the blink (cx-sya4n).
++    func startBlink() {
+         if Self.caretLog { Self.log("blink restart \(CACurrentMediaTime())") }
+         caretLayer.removeAnimation(forKey: "blink")
+         caretLayer.opacity = 1
+-        if Self.solidCaret { return }
++        // cmux: under Reduce Motion the caret holds solid (cx-sya4n: nothing loops).
++        if Self.solidCaret || MessagesLabHomeView.reducesMotion { return }
+         let a = CAKeyframeAnimation(keyPath: "opacity")
+         a.calculationMode = .discrete
+         // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
+@@ -424,6 +429,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -18,17 +34,17 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -920,11 +924,11 @@
+@@ -940,11 +946,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
--            TextDraw.line(ph, font: ComposeView.font, color: NSColor(white: 123 / 255, alpha: 1), x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
+-            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholderInk, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
 +            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholder, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
          }.cgImage
          placeholderLayer.contentsScale = fmt.scale
          waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
--            NSColor(white: 144 / 255, alpha: 1).setFill()
-+            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above)
+-            Fixture.waveformInk.setFill()
++            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above); the see-through ink without a theme
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.

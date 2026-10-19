@@ -14,10 +14,17 @@ export type ModelPickerProps = {
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
+  /// What the composer's controls row draws in the chip (composerRowFit.ts): the name without its
+  /// vendor ("Opus 5.5") and its family ("Opus") for a narrow row; `title` names the model in the
+  /// tooltip of the row's mark-only chip. Away from the row the chip shows `label`.
+  chip?: { short?: string; family?: string; title?: string };
   /// A harness switch in flight: the chip draws this harness's mark and name until it starts.
   switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.
   detail?: string;
+  /// How much of the context window the chat has used ("42% of context used"), shown in the
+  /// chip's tooltip: the controls row draws no context ring (hq#1957 item 15 compact row).
+  usage?: string;
   /// The name of the model the agent's default resolves to, when known: the "Default" row draws
   /// as that model with a "Default" hint.
   resolvedDefault?: string;
@@ -49,10 +56,16 @@ export type ModelPickerProps = {
   /// Enables the chat folder's profile `id` from `folder` (a "needs Enable" row's pick). Called
   /// from the click or key handler itself: the host's confirmation needs the gesture.
   onHarnessEnable?(folder: string, id: string): void;
-  /// The rail's + (Add agent…): the pane's Harnesses page, in place (cx-uj5g8).
+  /// Add harness…, the menu's last row: the pane's Harnesses page, in place (cx-uj5g8).
   onAddAgent?(): void;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
+  /// The harnesses this Mac's acpmux found signed out, by acpmux id, with each one's login
+  /// command (cx-ae9eb). Their rail tab dims and lists Log In in place of models; none of their
+  /// models can be picked, so a pick never starts a chat that fails on its first turn.
+  signedOut?: Readonly<Record<string, string>>;
+  /// Runs a signed-out harness's login (its Log In row).
+  onLogIn?(harness: string, login: string): void;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;
@@ -97,7 +110,10 @@ export const SUBMENU_ROOM = 250;
 export const MODEL_PICKER_MAX_HEIGHT = 480;
 /// The shortest the open picker gets: the search field and about six model rows. A chip with less
 /// room than this, or a list that loads after the menu opened, never collapses the menu to its
-/// search field (Lawrence 2026-10-13); the menu then extends past the room instead.
+/// search field (Lawrence 2026-10-13). The menu opens on the side of the chip that has this much
+/// room (`useUiAnchor` `minHeight`; Leo: the menu stays inside the page). Only when neither side
+/// has it does it open below and run past the room, where the page scrolls to it; above, it ran off
+/// the top of the window (the New Tab chip's menu, 94 px).
 export const MODEL_PICKER_MIN_HEIGHT = 220;
 
 /// The open picker's height bounds: at most the anchor's room (`room`, when known) and

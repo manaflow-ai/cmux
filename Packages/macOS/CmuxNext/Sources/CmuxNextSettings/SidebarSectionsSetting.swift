@@ -47,14 +47,16 @@ public nonisolated enum SidebarSectionsSetting {
         SettingDescriptor(densityPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.density", "Sidebar Density"),
                           help: SettingsText.keyed("settings.sidebar.density.help",
-                                                   "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
+                                                   "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
                           kind: .choice(SidebarDensity.allCases.map { density in
-                              SettingChoice(density.rawValue, density == .compact
-                                  ? SettingsText.keyed("settings.choice.compact", "Compact")
-                                  : SettingsText.keyed("settings.choice.expanded", "Expanded"))
+                              switch density {
+                              case .compact: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.compact", "Compact"))
+                              case .comfortable: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable"))
+                              case .expanded: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.expanded", "Expanded"))
+                              }
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.density.rawValue),
-                          keywords: ["sidebar", "density", "expanded", "compact", "rows", "preview", "two lines", "t3", "codex"])
+                          keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
     }
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {

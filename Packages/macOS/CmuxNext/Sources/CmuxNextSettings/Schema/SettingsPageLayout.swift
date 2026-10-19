@@ -91,7 +91,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 group("settings.group.window"), group("settings.group.tabs"), group("settings.group.columns"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
-                group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.updates"),
+                group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.files"), group("settings.group.updates"),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
@@ -104,7 +104,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "appearance", title: section(.appearance), symbol: "paintbrush",
             groups: [
-                group("settings.group.terminalFont"), group("settings.group.densityMotion"),
+                group("settings.group.terminalFont"), group("settings.group.densityMotion"), group("settings.group.colorTransition"),
                 group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
                 group("settings.group.sidebar"), group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),
@@ -124,6 +124,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
                 group("settings.group.computerUse"),
+                // The free AI model while signed out (cx-ds09i).
+                group("settings.group.freeModel"),
+                // What this Mac does while agents work (keep awake).
+                group("settings.group.sessions"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added.
@@ -141,8 +145,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "browser", title: section(.browser), symbol: "globe",
             groups: [
                 group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"),
-                group("settings.group.bookmarks"),
-                group("settings.group.links"), group("settings.group.terminalLinks"), group("settings.group.passwords"),
+                group("settings.group.bookmarks"), group("settings.group.extensions"),
+                group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
                 group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),

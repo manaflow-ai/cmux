@@ -7,19 +7,23 @@
 //!
 //! One Chief per build (2026-10-14): the CLI resolves the home of the app it
 //! belongs to, by bundle id (`CMUX_BUNDLE_ID` in the app's terminals, else
-//! the bundle around this executable). A DEV or staging build has
-//! `~/.cmux/chief/<bundle id>[.<account>]`; NIGHTLY (and every other app,
-//! and a CLI outside any app) keeps the shared home of older builds,
+//! the bundle around this executable). Every build but NIGHTLY has
+//! `~/.cmux/chief/<bundle id>[.<account>]`; NIGHTLY (`com.cmuxterm.app.nightly`
+//! only, and a CLI outside any app) keeps the shared home of older builds,
 //! `~/.cmux/chief/<account>`. The app's terminals and its brain also get the
 //! exact home as `CMUX_CHIEF_HOME`, which wins.
 
 use std::path::{Component, Path, PathBuf};
 
-/// The builds with a Chief home of their own (ChiefHome.hasOwnHome).
+/// The one build that keeps the shared home, `~/.cmux/chief/<account>`.
+const NIGHTLY_BUNDLE_ID: &str = "com.cmuxterm.app.nightly";
+
+/// The builds with a Chief home of their own (ChiefHome.hasOwnHome): every
+/// bundle but NIGHTLY's, so two identities that run at the same time
+/// (NIGHTLY and cmux NEXT's `com.cmuxterm.app.nightly.cmux-next`, RC,
+/// release) never share one Chief.
 fn has_own_home(bundle_id: &str) -> bool {
-    ["com.cmuxterm.app.debug", "com.cmuxterm.app.staging"]
-        .iter()
-        .any(|base| bundle_id == *base || bundle_id.starts_with(&format!("{base}.")))
+    !bundle_id.trim().is_empty() && bundle_id != NIGHTLY_BUNDLE_ID
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +45,16 @@ impl ChiefHome {
         cwd: &Path,
     ) -> Self {
         let exe = std::env::current_exe().ok();
+        // In another app's terminal, that app's Chief variables are not this
+        // build's (per-build isolation S4): the own bundle's home.
+        let other_app = crate::app_identity::in_other_apps_terminal(&env, exe.as_deref());
+        let env = move |key: &str| {
+            if other_app && crate::app_identity::OTHER_APP_STATE_KEYS.contains(&key) {
+                None
+            } else {
+                env(key)
+            }
+        };
         let bundle = crate::app_identity::AppIdentity::detect(&env, exe.as_deref())
             .and_then(|identity| identity.bundle_id)
             .or_else(|| {
@@ -55,8 +69,8 @@ impl ChiefHome {
     /// `CMUX_NEXT_CHIEF_ROOT` (isolation markers ignored) or `~/.cmux/chief`:
     /// an isolated launch (`CMUX_NEXT_CHIEF_ISOLATED=1` and the app's other
     /// isolation markers) at `isolated/<CMUX_TAG or untagged>`, else the
-    /// build's home: `<bundle id>[.<account>]` for a DEV or staging build,
-    /// `<account>` for any other (NIGHTLY) and outside any app. A DEV bundle
+    /// build's home: `<bundle id>[.<account>]` for every build but NIGHTLY,
+    /// `<account>` for NIGHTLY and outside any app. A DEV bundle
     /// may name another build in `CMUX_NEXT_CHIEF_BUILD_ID` (tests only).
     pub(super) fn resolve_for(
         explicit: Option<&Path>,
@@ -135,6 +149,13 @@ impl ChiefHome {
 
     pub(super) fn host_lock(&self) -> PathBuf {
         self.root.join("state/host.lock")
+    }
+
+    /// Written by `cmux chief shutdown`: while it is there the app
+    /// (ChiefBrainWatch) starts no brain on its own; the next `cmux chief`
+    /// or Home ask takes it away.
+    pub(super) fn shutdown_marker(&self) -> PathBuf {
+        self.root.join("state/shutdown")
     }
 
     pub(super) fn token_file(&self) -> PathBuf {

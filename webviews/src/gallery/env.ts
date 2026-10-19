@@ -3,10 +3,10 @@
 // matrix manifest (scripts/gallery-matrix) and the native gallery (CmuxNextGallery
 // GalleryEnvironment) read the same names: entry, variant, locale, theme, colorScheme, fontFamily,
 // fontSize, density, scale, width, height, reducedMotion, highContrast, dynamicSize, windowKey,
-// frame, window, zoom, layout.
+// frame, window, zoom, layout, source.
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
-import { DEFAULT_DARK_THEME } from "./theme/ghostty";
+import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "./theme/ghostty";
 import { APP_ACCENTS, type AppAccent } from "../theme/appTheme";
 import { PANE_LAYOUTS, WINDOW_PRESETS, type PaneLayout } from "./window";
 
@@ -69,6 +69,8 @@ export type GalleryEnv = {
   density: Density;
   /** Interface scale (WKWebView pageZoom, DesignSettings.uiScale). */
   scale: number;
+  /** Chrome token multiplier (opt-in, Debug Settings `chrome.interfaceSize`), independent of document zoom. */
+  interfaceScale: number;
   /** A named width or a number of px. */
   width: WidthName | number;
   /** Px; 0 fits the state's own height. */
@@ -97,6 +99,7 @@ export const DEFAULT_ENV: GalleryEnv = {
   fontSize: 0,
   density: "comfortable",
   scale: 1,
+  interfaceScale: 1,
   width: "normal",
   height: 0,
   reducedMotion: false,
@@ -112,6 +115,21 @@ export const DEFAULT_ENV: GalleryEnv = {
 export const ZOOMS = ["fit", 0.5, 0.75, 1] as const;
 
 const KEYS = [...Object.keys(DEFAULT_ENV), "accent"] as (keyof GalleryEnv)[];
+
+/**
+ * The theme when the query names none: the app's default pair (Apple System Colors), on the side
+ * the window shows, as the app with no `theme` set follows the appearance. `auto` is the dark side.
+ */
+export function defaultTheme(colorScheme: GalleryEnv["colorScheme"]): string {
+  return colorScheme === "light" ? DEFAULT_LIGHT_THEME : DEFAULT_DARK_THEME;
+}
+
+/** `env` under another window appearance; the default pair moves to the matching side. */
+export function withColorScheme(env: GalleryEnv, colorScheme: GalleryEnv["colorScheme"]): GalleryEnv {
+  const theme =
+    colorScheme !== "auto" && env.theme === defaultTheme(env.colorScheme) ? defaultTheme(colorScheme) : env.theme;
+  return { ...env, colorScheme, theme };
+}
 
 export function widthPx(width: GalleryEnv["width"], presets: Partial<Record<WidthName, number>> = WIDTHS): number {
   return typeof width === "number" ? width : (presets[width] ?? WIDTHS[width]);
@@ -129,16 +147,17 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   const env: GalleryEnv = { ...DEFAULT_ENV };
   const locale = params.get("locale");
   if (locale && ([...LOCALES, ...PSEUDO_LOCALES] as readonly string[]).includes(locale)) env.locale = locale;
-  env.theme = params.get("theme") || env.theme;
   const accent = params.get("accent");
   if (accent !== "neutral" && (APP_ACCENTS as readonly string[]).includes(accent ?? ""))
     env.accent = accent as AppAccent;
   const scheme = params.get("colorScheme");
   if (scheme === "dark" || scheme === "light") env.colorScheme = scheme;
+  env.theme = params.get("theme") || defaultTheme(env.colorScheme);
   env.fontFamily = (params.get("fontFamily") ?? "").slice(0, 200);
   env.fontSize = finite(params.get("fontSize"), 0, 0, 40);
   if (params.get("density") === "compact") env.density = "compact";
   env.scale = finite(params.get("scale"), 1, 0.5, 3);
+  env.interfaceScale = finite(params.get("interfaceScale"), 1, 0.9, 1.25);
   const width = params.get("width");
   if (width && width in WIDTHS) env.width = width as WidthName;
   else if (width && /^\d+$/.test(width)) env.width = Math.min(Math.max(Number(width), 240), 3000);
@@ -163,7 +182,8 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
   for (const key of KEYS) {
     params.delete(key);
     const value = env[key];
-    if (value === DEFAULT_ENV[key] || value === undefined || (key === "accent" && value === "neutral")) continue;
+    const fallback = key === "theme" ? defaultTheme(env.colorScheme) : DEFAULT_ENV[key];
+    if (value === fallback || value === undefined || (key === "accent" && value === "neutral")) continue;
     params.set(key, typeof value === "boolean" ? "1" : String(value));
   }
   return params;
@@ -174,12 +194,13 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
  * gallery's edited tunables (experiments/tunable.ts `writeTunes`), outside the shared contract:
  * the native gallery has no tunables.
  */
-export type StageAddress = { entry: string; variant: string; tune?: string };
+export type StageAddress = { entry: string; variant: string; tune?: string; source?: string };
 
 export function frameQuery(address: StageAddress, env: GalleryEnv): string {
   const params = writeEnv(env);
   params.set("entry", address.entry);
   params.set("variant", address.variant);
   if (address.tune) params.set("tune", address.tune);
+  if (address.source) params.set("source", address.source);
   return params.toString();
 }

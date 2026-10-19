@@ -16,7 +16,9 @@
 //!   with the canonical path (symlinks resolved, no `..`).
 //! - A session method acpmux does not handle itself is not passed to the
 //!   harness (`requests.rs` catch-all), so no harness extension method can
-//!   take caller params that spawn or read.
+//!   take caller params that spawn or read. LocalApp may pass
+//!   `_acpmux/subagent_stop`, which only stops a task the agent already runs
+//!   (`forwards`).
 //!
 //! - Web only (ACP-REMOTE-GUARD), allow lists: only the `ask` and `deny-all`
 //!   policies, rules that cannot auto-approve, the cited asking modes
@@ -31,6 +33,14 @@
 //! - Web only: no `acp.trust.set` (`trust.remote`); the folder-trust
 //!   question is the user's, and the trust gate (`trust_gate.rs`) holds Web
 //!   prompts until the user answers it in the app or the CLI.
+//! - Web and Peer: no `_acpmux/process/*` (a process's command line and
+//!   its kill are local), refused in `processes.rs`, which runs first.
+//! - Web only: no `_acpmux/set_tools` (`tools.remote`). Turning an MCP
+//!   server on makes the harness start the stdio command the user's config
+//!   names on this machine; unlike a mode, no asking table makes that safe.
+//! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
+//!   session on this machine, in the chat's harness and folder, with a policy
+//!   that approves reads: the app and the unix socket only.
 //! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
 //!   change which machines this daemon reaches with the user's ssh keys and
 //!   tokens); `peer_reconnect` only retries a configured peer.
@@ -40,6 +50,14 @@
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
 use std::path::Path;
+
+/// Whether a session method acpmux does not handle itself goes on to the
+/// harness from `origin`: anything from the unix socket, and from the app only
+/// the stop of a running background subagent (no params that spawn or read).
+pub(super) fn forwards(origin: super::Origin, m: &str) -> bool {
+    use super::Origin::{Local, LocalApp};
+    origin == Local || (origin == LocalApp && m == method::MUX_SUBAGENT_STOP)
+}
 
 /// The rules a control request from `origin` runs under. A proven peer
 /// forwarding for its own Web client marks it `_meta.acpmux.via = "web"`.
@@ -76,6 +94,11 @@ pub(super) fn mark_forwarded(
     params: &Value,
     forwarded: &mut Value,
 ) {
+    // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
+    // the prompt goes there without it.
+    if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        mux.remove("provenance");
+    }
     if control_of(origin, auth, params) == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
     } else if origin == super::Origin::LocalApp {
@@ -110,6 +133,29 @@ pub(super) async fn check(
     {
         return Err(crate::session_env::origin_refused());
     }
+    // So is a chat's route: it decides where the harness sends its model traffic.
+    if m == method::SESSION_NEW
+        && params
+            .pointer("/_meta/acpmux/route")
+            .or_else(|| params.get("route"))
+            .is_some_and(|v| !v.is_null())
+    {
+        return Err(RpcError::new(
+            -32602,
+            "a session route is accepted only over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "route.origin_refused"})));
+    }
+    // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
+    if m == method::SESSION_PROMPT
+        && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
+    {
+        return Err(crate::prompt_provenance::origin_refused());
+    }
+    // And so is taking an agent message back (`hub/withdraw.rs`).
+    if m == method::MUX_PROMPT_WITHDRAW {
+        return Err(crate::prompt_provenance::withdraw_origin_refused());
+    }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
@@ -123,6 +169,14 @@ pub(super) async fn check(
     // The listener's own credential changes over the unix socket only.
     if m == method::MUX_WEB_TOKEN_ROTATE {
         return Err(refused("rotating the web token"));
+    }
+    // A side session starts a new local session that approves reads (`hub/btw.rs`):
+    // never for a Web connection or a peer, whatever the chat.
+    if m == method::MUX_BTW && origin.web_class() {
+        return Err(RpcError::invalid_params(
+            "btw.remote: a side session is opened only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "btw.remote"})));
     }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
@@ -210,6 +264,14 @@ pub(super) async fn check(
             "trust.remote: the folder's trust is answered only in the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "trust.remote"})));
+    }
+    // An MCP server turned on runs its configured command here: the app and
+    // the unix socket only (a peer forwarding for its own Web client too).
+    if m == method::MUX_SET_TOOLS && control_of(origin, auth, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "tools.remote: a chat's tools are turned on or off only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {

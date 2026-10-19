@@ -51,8 +51,13 @@ extension BrowserChromeView {
         object["probe_cursor"] = report.probeCursor ?? NSNull()
         object["installed_text_cursor"] = report.installedTextCursor ?? NSNull()
         object["tracked_cursor"] = report.trackedCursor ?? NSNull()
+        // The bar's resolved look (cx-d0d.101): fill RGBA, radius, ring, state, coverage.
+        object["bar_style"] = addressBar.pill.debugStyle
         #if DEBUG
         object["omnibar_trace"] = addressBar.controller.trace
+        // `ArrowCursorView.pointerDidMove` past its first check: calls and their mean cost.
+        object["move_hook"] = ["calls": MoveHookStats.calls,
+                               "mean_ns": MoveHookStats.calls == 0 ? 0 : Double(MoveHookStats.totalNanoseconds) / Double(MoveHookStats.calls)] as [String: Any]
         #endif
         object["frames"] = report.frames.mapValues { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) }
         return object

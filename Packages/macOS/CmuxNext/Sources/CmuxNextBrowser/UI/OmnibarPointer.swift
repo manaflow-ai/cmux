@@ -21,7 +21,7 @@ import CmuxNextDesign
 ///
 /// Hover:
 /// - One treatment: a theme-token fill (`Palette.hoverFill`, the pill's
-///   lift `OmnibarStyle.barHoverFill`) that eases in and clears at once
+///   lift `OmnibarStyle.barFill(.hover, ...)`) that eases in and clears at once
 ///   (`ChromeHover.fade`), so a sweep across the buttons leaves no trail.
 /// - Hover is where the pointer is now (`PointerHover`), recomputed when the
 ///   view hides, shows or changes window: a tab switch, a parked pane or a
@@ -60,63 +60,6 @@ enum OmnibarPointer {
     /// The cursor for `region`, the same at rest and while editing.
     static func cursor(_ region: Region) -> Cursor {
         region == .text || region == .bar ? .iBeam : .arrow
-    }
-}
-
-/// A toolbar row that shows the arrow over its whole frame and the I-beam
-/// over the omnibar's text area (`OmnibarPointer`).
-///
-/// Cursor rects work only in the key window. A Chromium page is a child
-/// window that takes the key while the page has the keyboard
-/// (`WindowKeyFamily`), so the toolbar's rects did nothing and the arrow
-/// stayed over the omnibar until a click made the parent key (Lawrence
-/// 2026-10-13). The row also sets the cursor itself on every pointer move
-/// over it, with a tracking area that works in any window state. The rects
-/// stay for the key window; subviews with their own rects (the editing
-/// omnibar text) take precedence inside it.
-public class ArrowCursorView: NSView {
-    private var cursorArea: NSTrackingArea?
-    /// The cursor the row last set on a pointer move (`debug.omnibar`).
-    private(set) var trackedCursor: OmnibarPointer.Cursor?
-
-    public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
-    }
-
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        // `.inVisibleRect` follows the view's visible rect: one area is enough.
-        guard cursorArea == nil else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .cursorUpdate, .activeAlways, .inVisibleRect],
-                                  owner: self)
-        addTrackingArea(area)
-        cursorArea = area
-    }
-
-    // The row's own area's events stop here; events a subview passed up
-    // the responder chain go on to the superview as before.
-    public override func mouseEntered(with event: NSEvent) {
-        setCursor(at: event.locationInWindow)
-        if event.trackingArea == nil || event.trackingArea !== cursorArea { super.mouseEntered(with: event) }
-    }
-
-    public override func mouseExited(with event: NSEvent) {
-        if event.trackingArea == nil || event.trackingArea !== cursorArea { super.mouseExited(with: event) }
-    }
-
-    public override func mouseMoved(with event: NSEvent) {
-        setCursor(at: event.locationInWindow)
-        if event.trackingArea == nil || event.trackingArea !== cursorArea { super.mouseMoved(with: event) }
-    }
-
-    public override func cursorUpdate(with event: NSEvent) {
-        setCursor(at: event.locationInWindow)
-    }
-
-    private func setCursor(at point: NSPoint) {
-        let cursor = OmnibarPointer.cursor(atWindowPoint: point, in: self)
-        trackedCursor = cursor
-        cursor.cursor.set()
     }
 }
 

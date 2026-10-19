@@ -252,7 +252,8 @@ fn conversation_thread_reads_the_whole_thread_and_pages_carry_root_stats() {
     let r2 = sent(&mut home, Some(&mut agent), &conversation, "r2", Some(&root_id));
     let r3 = sent(&mut home, None, &conversation, "r3", Some(&root_id));
     let summary = json!({"root": root_id, "reply_count": 3, "last_reply_seq": r3["seq"],
-                         "last_reply_at": r3["created_at"], "authors": ["user_local", "agent_mux"]});
+                         "last_reply_at": r3["created_at"], "authors": ["user_local", "agent_mux"],
+                         "status": "open"});
 
     // The first page: the root, two replies ascending, more to come.
     let page = home.request(
@@ -277,7 +278,7 @@ fn conversation_thread_reads_the_whole_thread_and_pages_carry_root_stats() {
     assert_eq!(
         empty["thread"],
         json!({"root": plain_id, "reply_count": 0, "last_reply_seq": null,
-               "last_reply_at": null, "authors": []})
+               "last_reply_at": null, "authors": [], "status": "open"})
     );
 
     // Snapshot and history carry the stats of the roots in their page only.
@@ -366,7 +367,8 @@ fn a_retracted_reply_stays_in_the_thread_but_not_in_the_stats() {
     // drops, the last reply stays.
     retract(&mut agent, &conversation, "retract-r2", &r2);
     let middle = json!({"root": root_id, "reply_count": 2, "last_reply_seq": r3["seq"],
-                        "last_reply_at": r3["created_at"], "authors": ["user_local"]});
+                        "last_reply_at": r3["created_at"], "authors": ["user_local"],
+                        "status": "open"});
     let page = thread(&mut home);
     assert_eq!(ids(&page["replies"]), all, "{page}");
     assert!(page["replies"][1]["retracted_at"].is_string(), "{page}");
@@ -377,7 +379,8 @@ fn a_retracted_reply_stays_in_the_thread_but_not_in_the_stats() {
     // not retracted.
     retract(&mut home, &conversation, "retract-r3", &r3);
     let last = json!({"root": root_id, "reply_count": 1, "last_reply_seq": r1["seq"],
-                      "last_reply_at": r1["created_at"], "authors": ["user_local"]});
+                      "last_reply_at": r1["created_at"], "authors": ["user_local"],
+                      "status": "open"});
     assert_eq!(thread(&mut home)["thread"], last);
     assert_eq!(stats(&mut home), (json!([last]), json!([last])));
 
@@ -388,7 +391,7 @@ fn a_retracted_reply_stays_in_the_thread_but_not_in_the_stats() {
     assert_eq!(
         none["thread"],
         json!({"root": root_id, "reply_count": 0, "last_reply_seq": null,
-               "last_reply_at": null, "authors": []})
+               "last_reply_at": null, "authors": [], "status": "open"})
     );
     assert_eq!(stats(&mut home), (json!([]), json!([])));
 }

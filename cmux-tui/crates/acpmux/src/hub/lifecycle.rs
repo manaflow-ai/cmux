@@ -2,7 +2,10 @@
 
 use super::*;
 
-use super::adoption::{Adoption, adopted_in, session_cwd};
+use super::adoption::{Adoption, adopted_in, start_folder};
+use super::new_request::{claude_resume_refusal, unique_name_among};
+// `turns.rs` names it here.
+pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
 
 impl Hub {
@@ -22,12 +25,15 @@ impl Hub {
             adopt,
             remote,
             env: session_env,
+            workspace_id,
+            keep_harness_mode,
+            route,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name, folder_root } = {
+        let Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest } = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
         };
@@ -47,6 +53,10 @@ impl Hub {
         // model/effort (or a model in its argv or env) and an adopted
         // conversation keep today's chain (request, then `defaults`).
         let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
+        // The start mode also skips a remote-origin session (the remote
+        // guard settles its mode) and a profile that pins its mode.
+        let mode_eligible =
+            super::start_mode::mode_eligible(eligible, remote, keep_harness_mode, &profile);
         // A harness that takes its model at spawn (Claude Code's `--model`)
         // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()
@@ -77,14 +87,13 @@ impl Hub {
                 Adoption::Existing(existing) => return Ok(existing),
                 Adoption::Found { cwd, fork, file, store } => (cwd, fork, file, store),
             };
-        // A fork resumes nothing as itself: its process forks the adopted id
-        // into a new conversation, so the adopted id is not this session's.
+        // A fork resumes nothing as itself: it forks the adopted id into a new conversation.
         let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
         // A gone recorded folder may be remapped: git runs to compare repositories.
         let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
         let fam = family.clone();
-        let (cwd, adopted_cwd) =
-            tokio::task::spawn_blocking(move || session_cwd(cwd, recorded, &fam, &cwd_map))
+        let (cwd, adopted_cwd, git) =
+            tokio::task::spawn_blocking(move || start_folder(cwd, recorded, &fam, &cwd_map))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))??;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
@@ -112,13 +121,15 @@ impl Hub {
             policy,
             remote,
         });
-        (meta.session_env, meta.chat_store, meta.adopted_cwd) =
-            (session_env, chat_store, adopted_cwd);
+        (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
+            (session_env, chat_store, adopted_cwd, git.branch, git.head);
+        meta.workspace_id = workspace_id;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
         let pooled = match &adopt {
-            None if meta.session_env.is_empty() => {
+            // A pooled harness was started without this chat's route: never claimed.
+            None if meta.session_env.is_empty() && route.is_none() => {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
             _ => None,
@@ -128,6 +139,19 @@ impl Hub {
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
         let id = pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         meta.id = id.clone();
+        // A named route is checked before anything is created: it exists and
+        // serves this chat's harness family.
+        if let Some(route_id) = &route {
+            let (dir, _) = crate::routes::places(&*self.config.read().await);
+            let found = crate::routes::find(dir.as_deref(), route_id).map_err(|e| {
+                RpcError::invalid_params(format!("route {route_id}: {}", e.message()))
+            })?;
+            if !found.serves(&family) {
+                return Err(RpcError::invalid_params(format!(
+                    "route {route_id} does not serve the {family} harness"
+                )));
+            }
+        }
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
         let session = {
@@ -172,6 +196,17 @@ impl Hub {
             self.sessions.lock().unwrap().remove(&id);
             return Err(RpcError::internal(e.to_string()));
         }
+        // The chat's route is bound once the session exists and before its
+        // harness starts, so its first spawn already runs on it (route_switch.rs).
+        if let Some(route_id) = &route {
+            let (_, state) = crate::routes::places(&*self.config.read().await);
+            if let Err(e) =
+                crate::routes::set_binding(&state, &format!("chat:{id}"), Some(route_id))
+            {
+                self.sessions.lock().unwrap().remove(&id);
+                return Err(RpcError::invalid_params(e.message().to_owned()));
+            }
+        }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
         if let Some(a) = &adopt {
             let adopted = if fork_from.is_some() {
@@ -181,6 +216,7 @@ impl Hub {
             };
             self.append(&session, "mux", "adopted", adopted);
         }
+        self.note_preset_resolved(&session, preset_digest);
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
             Err(e) => Err(e),
@@ -240,6 +276,15 @@ impl Hub {
                     Err(err) => return Err(RpcError::invalid_params(format!("effort {e:?} for {agent}: {}", err.message))),
                 }
             }
+            // The permission mode a new chat starts in (start_mode.rs): full
+            // access unless the person picked or set otherwise. Soft.
+            let start_mode = if mode_eligible { self.start_mode(&session).await } else { None };
+            if let Some(mode) = start_mode
+                && let Err(err) = self.set_mode(&session, &mode).await
+            {
+                tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
+                self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
+            }
             Ok(())
         }
         .await;
@@ -287,7 +332,7 @@ impl Hub {
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        profile: &HarnessProfile,
+        profile: &super::spawn::Spawn,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
@@ -321,10 +366,9 @@ impl Hub {
             }
         }
 
-        self.record_launch_roots(session, profile).await;
+        self.record_spawn_inputs(session, profile).await;
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
-        *session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Default::default();
+        self.fresh_agent(session, profile.preset_digest.clone());
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
@@ -431,7 +475,7 @@ impl Hub {
             };
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
-            let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
+            let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let mode = meta
                 .modes
@@ -440,6 +484,13 @@ impl Hub {
                 .and_then(Value::as_str)
                 .unwrap_or("default")
                 .to_owned();
+            // A remote chain never runs in full access (remote_sandbox.rs),
+            // even when a transfer moved a full-access chat here.
+            let mode = if meta.remote_origin && mode == "bypassPermissions" {
+                "default".to_owned()
+            } else {
+                mode
+            };
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -493,7 +544,9 @@ impl Hub {
                     Some((&session.id, &meta.name)),
                 )
                 .await
-                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(|e| {
+                    crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+                })?
             }
         } else if self.agent_hosts_enabled() {
             self.spawn_hosted_child(session, profile, &meta, None, None, tap).await?
@@ -509,7 +562,9 @@ impl Hub {
                 Some((&session.id, &meta.name)),
             )
             .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| {
+                crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+            })?
         };
         {
             // The shutdown marks itself started, then takes each session's
@@ -794,6 +849,11 @@ impl Hub {
         wait: bool,
         only: Option<std::collections::BTreeSet<String>>,
     ) {
+        // A probe starts the agent: none while launches are off (cx-9ettq).
+        if crate::launch_policy::agent_launch_disabled() {
+            tracing::info!("agent launch is disabled; model probes skipped");
+            return;
+        }
         let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
@@ -935,100 +995,4 @@ impl Hub {
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
         self.ensure_child(session, &spawn).await
     }
-}
-
-/// The agent name, or `agent-N` for the first N not taken in `sessions`.
-fn unique_name_among(sessions: &HashMap<String, Arc<Session>>, agent: &str) -> String {
-    let taken: Vec<String> = sessions.values().map(|s| s.meta().name).collect();
-    for n in 0.. {
-        let candidate = if n == 0 { agent.to_owned() } else { format!("{agent}-{n}") };
-        if !taken.contains(&candidate) {
-            return candidate;
-        }
-    }
-    unreachable!()
-}
-
-/// Whether the harness takes its model on the command line or in env.
-/// A declared model as `_acpmux/models` lists it: id, name, `declared`, and
-/// the catalog fields its profile file gave (shortName, family, efforts…).
-pub fn declared_model_json(
-    model: &crate::config::DeclaredModel,
-    meta: Option<&crate::config::ProfileMeta>,
-) -> Value {
-    let mut v = json!({"id": model.id(), "name": model.name(), "declared": true});
-    if let Some(detail) = meta.and_then(|m| m.model_details.iter().find(|d| d.id == model.id()))
-        && let (Some(out), Ok(Value::Object(extra))) =
-            (v.as_object_mut(), serde_json::to_value(detail))
-    {
-        for (k, x) in extra {
-            if k != "id" && k != "name" {
-                out.insert(k, x);
-            }
-        }
-    }
-    v
-}
-
-/// `session/new` for a terminal harness: it runs in a terminal tab.
-pub fn terminal_harness_refusal(name: &str) -> RpcError {
-    RpcError::invalid_params(format!(
-        "harness.terminal: {name} is a terminal harness without ACP; open it with `cmux harness run {name}`"
-    ))
-    .with_data(json!({"reason": "harness.terminal", "harness": name}))
-}
-
-pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {
-    // Claude Code takes `--model` at spawn (`claude_stdio::spawn_plan`).
-    // Switching it after start with session/set_model makes Claude Code
-    // check the model with the API first: with 16 sessions starting at
-    // once that check took about 6 s per session (session/new p50 7.9 s,
-    // 0.9-1.6 s without it) and sometimes failed ("Couldn't confirm
-    // model"), so a new session never switches. A running session still
-    // switches with session/set_model.
-    profile.kind == crate::config::HarnessKind::ClaudeStdio
-        || profile.argv.iter().any(|a| a.contains("${model}"))
-        || profile.env.values().any(|v| v.contains("${model}"))
-}
-
-/// What `session/new` carries: `harness` is a family or profile name
-/// (the head of `-m HEAD/MODEL`), `preset` a `presets` entry. Explicit
-/// values win over the preset, which wins over the defaults chain.
-#[derive(Debug, Clone, Default)]
-pub struct NewRequest {
-    pub harness: Option<String>,
-    pub preset: Option<String>,
-    pub name: Option<String>,
-    /// None: the adopted session's recorded cwd, else the home directory.
-    pub cwd: Option<PathBuf>,
-    pub policy: Option<PermissionPolicy>,
-    pub model: Option<String>,
-    pub effort: Option<String>,
-    /// Requested over a remote-origin connection (the WebSocket listener).
-    pub remote: bool,
-    /// A harness session to resume instead of starting a new one.
-    pub adopt: Option<crate::adopt::AdoptRequest>,
-    /// Per-session env (`session_env.rs`), already checked by the caller.
-    pub env: std::collections::BTreeMap<String, String>,
-}
-
-/// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
-/// it can): it never finished a turn, or another profile ran it and this
-/// profile's store (its CLAUDE_CONFIG_DIR) does not have it.
-fn claude_resume_refusal(
-    meta: &SessionMeta,
-    profile: &HarnessProfile,
-    sid: &str,
-) -> Option<&'static str> {
-    if meta.claude_unstored {
-        return Some("never finished a turn");
-    }
-    let ran_elsewhere = meta.claude_profile.as_deref().is_some_and(|p| p != meta.harness);
-    if ran_elsewhere {
-        let store = meta.claude_store(&profile.env);
-        if !crate::adopt::claude_session_exists(&store, sid) {
-            return Some("is not in this profile's Claude store");
-        }
-    }
-    None
 }

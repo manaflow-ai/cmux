@@ -43,7 +43,7 @@ class SidebarItemRowView: NSView {
     private let pill = CALayer()
     private let chip = CALayer()
     let icon = NSImageView()
-    let title = NSTextField(labelWithString: "")
+    let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()
     /// The workspace item's status: the shared indicator (`info.activity`).
@@ -85,8 +85,8 @@ class SidebarItemRowView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
     var onDragEnded: (() -> Void)?
@@ -135,7 +135,8 @@ class SidebarItemRowView: NSView {
             // A tile's well is the raised surface on the tiles card (Safari's
             // favorites); a list row's well is the quieter hover step.
             let rest = style == .favorite ? Palette.elevatedBackground : Palette.hoverFill
-            chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? rest).cgColor : nil
+            // A favicon draws in its own colors: on the resting well, not the workspace color.
+            chip.backgroundColor = wells ? ((info.favicon == nil ? info.color.map(SidebarStyle.color) : nil) ?? rest).cgColor : nil
             title.textColor = Palette.textPrimary
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
@@ -178,6 +179,8 @@ class SidebarItemRowView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let side = isRailButton ? SidebarStyle.railIconBox : SidebarStyle.iconBox
+        // A text-only workspace item beside its title draws no glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON).
+        let bare = info.textOnly && !style.isIconOnly
         // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
@@ -189,7 +192,7 @@ class SidebarItemRowView: NSView {
             : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
         pill.frame = pillFrame
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
-        chip.frame = style == .list ? iconFrame : .zero
+        chip.frame = style == .list && !bare ? iconFrame : .zero
         chip.cornerRadius = Metrics.space1 + 1
         CATransaction.commit()
 
@@ -197,7 +200,11 @@ class SidebarItemRowView: NSView {
         // Row size beside a title, like a workspace row's type glyph; inside a list well, the well's
         // glyph size; a rail button's own glyph size.
         let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize
-        if style == .icon, !isRailButton, let (image, frame) = inkSizedGlyph(centeredIn: b) {
+        if bare {
+            icon.image = nil
+            icon.frame = .zero
+        } else if style == .icon, !isRailButton, info.favicon == nil, !info.textOnly,
+                  let (image, frame) = inkSizedGlyph(centeredIn: b) {
             icon.image = image
             icon.frame = frame
         } else {
@@ -221,7 +228,7 @@ class SidebarItemRowView: NSView {
         let badgeHeight = badge.state == .dot ? badgeWidth : bh
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
-        let textX = iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
+        let textX = bare ? iconFrame.minX : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
     }
 
@@ -252,7 +259,10 @@ class SidebarItemRowView: NSView {
 
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
+        if let favicon = info.favicon { return NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side)) }
         if let emoji = info.emoji { return Self.emojiImage(emoji, side: side) }
+        // An empty title has no initial: the item's neutral symbol keeps an icon-only look visible.
+        if info.textOnly, let initial = Self.initialImage(info.caption ?? info.title, side: side) { return initial }
         if let brand = info.brand, let mark = AgentBrandCatalog.templateImage(brand: brand, size: side) { return mark }
         var glyphIcon = info.icon, symbolName = info.symbol
         // The Notifications item draws the Debug Settings glyph (`NotificationIconLook`, cx-epgo).
@@ -284,11 +294,26 @@ class SidebarItemRowView: NSView {
     /// `emoji` drawn as a text glyph filling a `side` square (in color, not a template).
     static func emojiImage(_ emoji: String, side: CGFloat) -> NSImage {
         NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: side * 0.85)])
+            let text = NSAttributedString(string: emoji, attributes: [.font: Typography.system(size: side * 0.85)])
             let size = text.size()
             text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
             return true
         }
+    }
+
+    /// The first letter of `title` as a template glyph filling a `side` square (it takes the
+    /// glyph tint); nil for an empty title.
+    static func initialImage(_ title: String, side: CGFloat) -> NSImage? {
+        guard let first = title.trimmingCharacters(in: .whitespacesAndNewlines).first else { return nil }
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            let font = Typography.system(size: side * 0.72, weight: .semibold)
+            let text = NSAttributedString(string: String(first).localizedUppercase, attributes: [.font: font, .foregroundColor: NSColor.black])
+            let size = text.size()
+            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     /// An icon-only item's glyph (the footer's avatar and gear): drawn so its

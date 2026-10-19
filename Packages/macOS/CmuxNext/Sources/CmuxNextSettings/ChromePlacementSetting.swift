@@ -118,6 +118,7 @@ extension SettingsApplier {
         if design.spacesVisibility != snapshot.spacesVisibility { design.spacesVisibility = snapshot.spacesVisibility }
         if design.tabBarPosition != snapshot.tabBarPosition { design.tabBarPosition = snapshot.tabBarPosition }
         if design.tabBarOrder != snapshot.tabBarOrder { design.tabBarOrder = snapshot.tabBarOrder }
+        applyChromeStyle(snapshot, to: design)
         applySidebarSurface(snapshot, to: design)
     }
 }

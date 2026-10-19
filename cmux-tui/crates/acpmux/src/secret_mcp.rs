@@ -8,6 +8,8 @@ use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
+use std::future::Future;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
@@ -47,7 +49,26 @@ fn tools() -> Value {
 
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
-    let session = std::env::var(SESSION_ENV).map_err(|_| anyhow!("{SESSION_ENV} is not set"))?;
+    serve(SERVER_NAME, SESSION_ENV, tools(), |daemon, session, params| async move {
+        call(&daemon, &session, &params).await
+    })
+    .await
+}
+
+/// An MCP stdio server for one agent session (the one in `session_env`):
+/// `tools/call` is `call(daemon, session, params)` on a new daemon
+/// connection. `offer_mcp.rs` serves its tool with it too.
+pub(crate) async fn serve<F, Fut>(
+    name: &'static str,
+    session_env: &str,
+    tools: Value,
+    call: F,
+) -> Result<()>
+where
+    F: Fn(Arc<Client>, String, Value) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Value> + Send + 'static,
+{
+    let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
     let (tx, mut rx) = mpsc::channel::<Value>(64);
     let writer = tokio::spawn(async move {
         let mut out = tokio::io::stdout();
@@ -68,18 +89,18 @@ pub async fn run() -> Result<()> {
             "initialize" => json!({
                 "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
+                "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
             }),
             "ping" => json!({}),
-            "tools/list" => json!({"tools": tools()}),
+            "tools/list" => json!({"tools": tools}),
             "tools/call" => {
                 // A card waits on the person: the next request is read meanwhile. Each call
                 // connects anew, so a restarted daemon serves the next one.
-                let (tx, session, params) =
-                    (tx.clone(), session.clone(), message["params"].clone());
+                let (tx, session, params, call) =
+                    (tx.clone(), session.clone(), message["params"].clone(), call.clone());
                 tokio::spawn(async move {
                     let result = match crate::daemon::connect(false).await {
-                        Ok(daemon) => call(&daemon, &session, &params).await,
+                        Ok(daemon) => call(daemon, session, params).await,
                         Err(e) => error_result(format!("{e:#}")),
                     };
                     let _ = tx.send(response(&id, result)).await;
@@ -106,7 +127,7 @@ fn response(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
 
-fn error_result(text: String) -> Value {
+pub(crate) fn error_result(text: String) -> Value {
     json!({"content": [{"type": "text", "text": text}], "isError": true})
 }
 

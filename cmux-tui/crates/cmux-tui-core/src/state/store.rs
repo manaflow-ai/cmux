@@ -93,11 +93,13 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     // triggers drop an archive with its group.
     crate::workspace_registry::terminal_archive_store::create_schema(transaction)?;
     super::agent_folder::create_agent_folder_schema(transaction)?;
-    super::agent_message_store::create_agent_message_schema(transaction)?;
+    super::agent_message_schema::create_agent_message_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::sidebar_layout_store::create_sidebar_layout_schema(transaction)?;
+    super::sidebar_doc_store::create_sidebar_doc_schema(transaction)?;
     super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
+    super::stash_store::create_stash_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::status_meta::create_status_meta_schema(transaction)?;
     super::home_store::create_home_schema(transaction)?;
@@ -293,6 +295,37 @@ impl WorkspaceRegistry {
         Ok(StateCommit { revision, result, replayed: false, personal_revision })
     }
 
+    /// What [`Self::commit_state_mutation`] answers before it applies
+    /// anything: `Some` replay of the first result of a retry under the same
+    /// key, or its refusal of a key reused with other input or of a stale
+    /// `expected_revision`; `None` when it would apply. For a mutation that
+    /// acts outside the registry before its commit.
+    pub(crate) fn state_mutation_replay(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<Option<StateCommit>> {
+        let fingerprint = canonical_json(fingerprint)?;
+        let db = self.connection.get();
+        if let Some(replayed) = resource_patch_replay(&db, mutation, operation, &fingerprint)? {
+            return Ok(Some(replayed.into()));
+        }
+        if let Some(expected) = expected_revision {
+            let current: String = db.query_row(
+                "SELECT value FROM meta WHERE key = 'resource_revision'",
+                [],
+                |row| row.get(0),
+            )?;
+            let current: u64 = current.parse().context("resource revision is invalid")?;
+            if expected != current {
+                anyhow::bail!("resource revision conflict: expected {expected}, current {current}");
+            }
+        }
+        Ok(None)
+    }
+
     /// Run a read against the registry connection.
     pub(crate) fn read_state<T>(
         &self,
@@ -315,6 +348,7 @@ pub(crate) fn state_snapshot(connection: &Connection) -> anyhow::Result<Value> {
         "workspace_status": super::workspace_status_store::status_snapshots(connection)?,
         "window_records": super::window_record_store::record_snapshots(connection)?,
         "sidebar_layout": super::sidebar_layout_store::snapshot(connection)?,
+        "sidebar": super::sidebar_doc_store::snapshot(connection)?,
     }))
 }
 

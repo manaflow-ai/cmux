@@ -75,6 +75,10 @@ impl Hub {
             }
             other => other,
         };
+        // Until startup has read the login shell, PATH is the app's bare one and
+        // the catalog lacks every harness installed under the person's home. Not
+        // the rest of startup: launcher checks can take seconds each.
+        let _ = self.catalog_ready.subscribe().wait_for(|ready| *ready).await;
         let mut view = self.harnesses_view().await;
         let Some(cwd) = cwd.filter(|_| !remote) else { return Ok(view) };
         let cfg = self.config.read().await.clone();

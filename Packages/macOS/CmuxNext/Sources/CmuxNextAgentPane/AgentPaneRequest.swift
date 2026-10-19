@@ -32,6 +32,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `command` in `cwd` (``AgentPaneShell``); answers `{id}`. Only with a
     /// real gesture in the pane.
     case shellRun(command: String, cwd: String?)
+    /// `harness.update {id}`: the chat card's Update (cx-1mbnu): this Mac's acpmux runs that agent
+    /// CLI's own update now and answers `{ok, version?, error?}`. Only with a real gesture.
+    case harnessUpdate(id: String)
+    /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
+    /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
+    case harnessRestart
     /// `shell.read {id, after}`: the run's output from byte `after`.
     case shellRead(id: String, after: Int)
     /// `shell.stop {id}`: interrupt the run's process group.
@@ -99,10 +105,16 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
     /// asks for the chat folder's pull request again.
     case tabState(refresh: Bool)
+    /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
+    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
+    case tabRowTools(width: Double)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
     /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
     case chatTab(String)
+    /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
+    /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
+    case subagentPane(String, focus: Bool)
     /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
     case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so
@@ -112,7 +124,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// (once per document).
     case painted
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
-    /// or `dictation.openSettings` with `{permission}`.
+    /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.

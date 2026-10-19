@@ -15,6 +15,15 @@ reviews:
   path_instructions:
     - path: "**/*"
       instructions: |
+        Apply `.github/review-bot-rules/familiar-intent.md`. When a changed hunk
+        touches `@intent ... stability=familiar`, warn and @-mention the marker's
+        owner unless the description or diff shows whether the region's familiar
+        behavior is kept; an optional `Intent-Delta:` line settles it, and a
+        missing line or `Intent-Delta: none` is no stated delta. Never ask the
+        author to add a template field.
+        This is warning-only and must never request changes or block the PR.
+    - path: "**/*"
+      instructions: |
         Apply `.github/review-bot-rules/source-control-artifacts.md` during review. Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, or release reason.
     - path: "**/*.swift"
       instructions: |

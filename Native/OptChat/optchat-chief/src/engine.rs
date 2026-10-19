@@ -124,9 +124,9 @@ pub fn save(path: &Path, choice: &EngineChoice) -> std::io::Result<()> {
 
 /// The compactor's harness setting at host start: `env`
 /// (`OPTCHAT_COMPACTOR_HARNESS`), else engine.json's `compactor_harness`.
-/// The turns' harness never picks it (Lawrence 2026-10-09: the compactor is
-/// always Claude Haiku by default); None leaves the host's Claude route
-/// (`host::default_compactor_harness`).
+/// None leaves the compactor on Claude Haiku (Lawrence 2026-10-09) over the
+/// turns' engine harness when it is a Claude one, else the host's Claude
+/// route (`host::compactor_harness_for`).
 pub fn compactor_harness_setting(env: Option<String>, choice: &EngineChoice) -> Option<String> {
     env.or_else(|| choice.compactor_harness.clone())
 }

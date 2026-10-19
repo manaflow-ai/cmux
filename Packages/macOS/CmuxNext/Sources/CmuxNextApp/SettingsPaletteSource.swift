@@ -20,6 +20,12 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     /// Every Ghostty theme and its swatch strip, for theme settings (R98).
     private let themes: ThemeCatalog?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.settings")
+    /// Values committed whose write has not landed, by setting id: the rows show them at once
+    /// (nil: the default). Each write's token, so only the latest write of a row clears it.
+    private var pending: [String: (token: Int, value: JSONValue?)] = [:]
+    private var writeCount = 0
+    /// The palette's page reload (`observeChanges`).
+    private var onChange: (@MainActor () -> Void)?
 
     init(settings: SettingsController, themes: ThemeCatalog? = nil, themeColors: @escaping @MainActor () -> [ThemeRGB]) {
         self.settings = settings
@@ -31,8 +37,13 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         let root = settings.snapshot.root
         let colors = themeColors()
         return SettingsSchema.all.filter(\.isPaletteExposed).map { descriptor in
-            row(descriptor, current: descriptor.effectiveValue(in: root), colors: colors)
+            let current = pending[descriptor.id].map { $0.value ?? descriptor.defaultValue } ?? descriptor.effectiveValue(in: root)
+            return row(descriptor, current: current, colors: colors)
         }
+    }
+
+    func observeChanges(_ onChange: @escaping @MainActor () -> Void) {
+        self.onChange = onChange
     }
 
     func preview(row: String, option: String?) {
@@ -59,14 +70,23 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         commitValue(descriptor, value)
     }
 
+    /// The row shows `value` at once (the palette reloads after the command); when the write
+    /// lands, or fails and the row goes back to the stored value, the palette reloads again.
     private func commitValue(_ descriptor: SettingDescriptor, _ value: JSONValue?) {
         let settings = settings
-        Task {
+        let id = descriptor.id
+        writeCount += 1
+        let token = writeCount
+        pending[id] = (token, value)
+        Task { [weak self] in
             do {
                 try await settings.commitPreview(descriptor, value)
             } catch {
-                Self.logger.error("palette setting \(descriptor.id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                Self.logger.error("palette setting \(id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
+            guard let self, self.pending[id]?.token == token else { return }
+            self.pending[id] = nil
+            self.onChange?()
         }
     }
 
@@ -110,7 +130,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             PaletteSettingCustomInput(placeholder: "\(number.range.lowerBound.formatted())–\(number.range.upperBound.formatted())") {
                 parse($0, for: descriptor) != nil
             }
-        case .sound, .url, .theme, .fontFamily:
+        case .sound, .url, .theme, .fontFamily, .text:
             PaletteSettingCustomInput(placeholder: descriptor.title) { parse($0, for: descriptor) != nil }
         }
     }

@@ -38,6 +38,7 @@ public struct DaemonCapabilities: Sendable {
     /// a daemon lacks them (`DaemonIdentity.supports`).
     public let workspaceGroups = "workspace-groups-v1"
     public let workspaceMetadata = "workspace-metadata-v1"
+    public let workspaceNameSource = "workspace-name-source-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
     /// A frontend browser tab's back/forward entries and scroll positions,
@@ -47,6 +48,10 @@ public struct DaemonCapabilities: Sendable {
     /// another browser profile in place (same tab id and position).
     public let frontendBrowserTabProfile = "frontend-browser-tab-profile-v1"
     public let tabDrag = "tab-drag-v1"
+    /// `set-size-counts` (protocol 12): a hidden view keeps its lease and stops counting toward
+    /// the grid (`TerminalAttachment.sendHidden`). The GUI reads it from `identify`; it does not
+    /// advertise it back (that would subscribe its streams to `size-state` events).
+    public let sharedSizing = "shared-sizing-v1"
     /// `name` on `move-tab-to-new-workspace`: the new workspace takes the
     /// moved tab's name in the same commit (else the app renames after).
     public let tabWorkspaceName = "tab-workspace-name-v1"
@@ -88,6 +93,11 @@ public struct DaemonCapabilities: Sendable {
     /// Client-minted `pane_id` / `tab_id` on `split`, `new-pane` and `new-pane-right`, keyed
     /// retries (plans/cmux-next/remote-state-ownership.md S1).
     public let splitClientKeys = "split-client-keys-v1"
+    /// `split` takes a client-minted `split_id` and layout split nodes carry `split_id`.
+    public let splitClientSplitID = "split-client-split-id-v1"
+    /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
+    /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
+    public let conversationTabSplit = "conversation-tab-split-v1"
     /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
     /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
     public let terminalInputWhileCreating = "terminal-input-while-creating-v1"
@@ -143,6 +153,9 @@ public struct DaemonCapabilities: Sendable {
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
     public let profiles = "profiles-v1"
+    /// `remote_localhost` on personal workspaces (`set-personal-workspace`,
+    /// `list-personal`): the person's per-workspace remote-localhost choice.
+    public let personalRemoteLocalhost = "personal-remote-localhost-v1"
     /// `identify.session_id` and `identify.machine_name` (data-model.md 1.1);
     /// informational, the app falls back to `registry_id` and its own names.
     public let sessionIdentity = "session-identity-v1"
@@ -171,6 +184,10 @@ public struct DaemonCapabilities: Sendable {
     /// `restart-tab`: a terminal tab whose shell ended restarts under the
     /// same terminal id (Unix daemons).
     public let tabRestart = "tab-restart-v1"
+    /// `restart-tab` of a keep-layout tab starts its shell in the kept
+    /// directory and ends the keep (an exit closes the tab again, no relaunch
+    /// on the next connect): the only way kept tabs restart (Unix daemons).
+    public let tabRestartKeptLayout = "tab-restart-kept-layout-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -192,6 +209,12 @@ public struct DaemonCapabilities: Sendable {
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     public let conversationDraftEvents = "conversation-draft-events-v1"
+    /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
+    /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
+    public let chiefLive = "chief-live-v1"
+    public let cloudChiefLive = "cloud-chief-live-v1"
+    public let conversationRuns = "conversation-runs-v1"
+    public let cloudConversationRuns = "cloud-conversation-runs-v1"
     /// `workspace.ensure_home` and the home workspace (`kind: home`; home.md 7).
     public let workspaceKind = "workspace-kind-v1"
     /// `workspace.agent_folder.set` and `extra.agent_folder` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
@@ -215,6 +238,13 @@ public struct DaemonCapabilities: Sendable {
     /// "agent-session-start"). A chat in a remote workspace starts only through it; without it
     /// the app asks to update that machine's cmux-tui, never starts on this Mac.
     public let agentSessionStart = "agent-session-start-v1"
+    /// The folder trust of a chat of that machine (`agent-session-trust`, cx-1bhjj): the person's
+    /// Trust answer for a folder there, recorded in that machine's acpmux.
+    public let agentSessionTrust = "agent-session-trust-v1"
+    /// `agent-session-start` takes `require_person_key` and answers the typed
+    /// `agent_session.needs_keyed_start` (cx-0w0jj): that machine's daemon says whether a keyed
+    /// restart of its acpmux can lose nothing, so the app no longer reads the acpmux status.
+    public let agentSessionStartKeyedReason = "agent-session-start-keyed-reason-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     public let pageTabs = "page-tabs-v1"
@@ -226,22 +256,26 @@ public struct DaemonCapabilities: Sendable {
     public let appScreens = "app-screens-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
-    /// `thread_root` on conversation messages, and a send that moves the
-    /// sender's own read cursor (cmux-tui/spec/commands.md `conversation-op`).
+    /// `thread_root` on messages, and a send that moves the sender's own read cursor (spec `conversation-op`).
     public let conversationThreads = "conversation-threads-v1"
-    /// `conversation-thread` (and `cloud-conversation-thread` with the cloud
-    /// transport) and the owner's `threads` stats on snapshot and history pages.
+    /// `conversation-thread` (`cloud-conversation-thread` too) and the owner's `threads` stats on snapshot and history pages.
     public let conversationThread = "conversation-thread-v1"
-    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
-    /// the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*`
-    /// commands and their `cloud-*` events. Advertised only when the daemon
-    /// has the cloud transport installed.
+    /// `conversation-inbox-op` (the caller's own pins and marks), `home-inbox` (the Home list rows), `chief-changed` events.
+    public let conversationInboxState = "conversation-inbox-state-v1"
+    public let homeInbox = "home-inbox-v1"
+    public let chiefEvents = "chief-events-v1"
+    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md): the `cloud-session-*`,
+    /// `cloud-inbox-*` and `cloud-conversation-*` commands and their `cloud-*` events. Advertised only when
+    /// the daemon has the cloud transport installed.
     public let cloudConversations = "cloud-conversations-v1"
     /// `page-credential`: the verified app gets a credential for its own page, which then gets
     /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
     public let pageCredential = "page-credential-v1"
-    /// `ws-listen`: a running owner opens its loopback page listener on
-    /// request (cx-hnmbt.5); an older owner is handed off to the bundled build.
+    /// `page-credential {page}`: any trusted local connection gets a single-use credential bound
+    /// to one page (its Origin only, never the Cloud lease); the Chief home's owner, whose app
+    /// connection is not the verified app, hands the Channels page one.
+    public let scopedPageCredential = "page-credential-scoped-v1"
+    /// `ws-listen`: a running owner opens its loopback page listener on request (cx-hnmbt.5); an older owner is handed off to the bundled build.
     public let wsListen = "ws-listen-v1"
     /// `ws-listen {allow_origins}`: the listener admits every first-party page origin
     /// (cx-hnmbt.10); an owner without it gets the Channels origin only.
@@ -290,12 +324,34 @@ public struct DaemonCapabilities: Sendable {
     /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
     /// cmux-tui PR #16842).
     public let sidebarLayout = "sidebar-layout-v1"
+    /// The one sidebar document (`sidebar.get|move|pin|unpin|apply|adopt`,
+    /// `sidebar_item`/`sidebar_section` on `session.events`;
+    /// .cmux-scratch/sidebar-rewrite/CONTRACT.md). Without it the sidebar
+    /// keeps the personal order and `sidebar-layout-v1` path.
+    public let sidebarDoc = "sidebar-doc-v1"
+    /// The client orders rows from the sidebar document only, so the daemon
+    /// sends no `workspace_placement` restatement (cmux-tui
+    /// state/placement_shift.rs). Echoed only when this build orders rows
+    /// from the document (`echoesPlacementShift`), never advertised alone.
+    public let placementShift = "placement-shift-v1"
+    /// Set once at launch, before the first connection, by the App when this
+    /// build has the sidebar document mirror (its rows come from the document,
+    /// never from `workspace_placement`).
+    public static var echoesPlacementShift: Bool {
+        get { placementShiftEcho.withLock { $0 } }
+        set { placementShiftEcho.withLock { $0 = newValue } }
+    }
+    private static let placementShiftEcho = OSAllocatedUnfairLock(initialState: false)
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public let paletteUsage = "palette-usage-v1"
     /// `browser.devices.*` and `browser.tab.emulate*`: Chrome's device toolbar
     /// list and each browser tab's emulation (`extra.emulation`), owned by the daemon (cx-ocbf3).
     public let browserDevices = "browser-devices-v1"
+    /// `browser.tab.emulate {fit}`: Fit as 16:9 Desktop (cx-va1wd).
+    public let browserFit = "browser-fit-v1"
+    /// `browser.tab.emulate {fit: "1280"}`: Fit as Desktop (1280) (cx-2ftlq).
+    public let browserFitWidth = "browser-fit-width-v1"
     /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
     public let keybindings = "keybindings-v1"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
@@ -308,6 +364,9 @@ public struct DaemonCapabilities: Sendable {
     /// spawns a new tab of the same kind in the source pane, in the same
     /// owner op (plans/cmux-next/layout-invariants.md).
     public let tabSplitRespawn = "tab-split-respawn-v1"
+    /// `move-tab-to-split` `keep_focus`: the new pane does not take focus (a
+    /// pane the app opens for a subagent while the user types in the chat).
+    public let tabSplitKeepFocus = "tab-split-keep-focus-v1"
     /// Additive shapes the app asks for through `set-client-info`: view
     /// identity on attach, creation receipts, caller-chosen creation attempt
     /// keys, and per-terminal color overrides.
@@ -338,6 +397,14 @@ public struct DaemonCapabilities: Sendable {
     public let sessionJournal = "session-journal-v1"
     /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
     public let terminalResources = "terminal-resources-v1"
+    /// Owner machine metadata on `identify` (`HandshakeLines`).
+    public let machineIdentity = "machine-identity-v1"
+    /// Registered `agent_cli` app providers (`AppProviderSession`).
+    public let agentCLIAppProvider = "agent-cli-app-provider-v1"
+    /// Agent inventory invalidation events for app providers (`AppProviderSession`).
+    public let agentCLIAppInvalidation = "agent-cli-app-invalidation-v1"
+    /// Admission receipts on the agent inventory watch (`DaemonReadyConnection`).
+    public let agentInventoryWatchAdmission = "agent-inventory-watch-admission-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -345,19 +412,20 @@ public struct DaemonCapabilities: Sendable {
     /// scripts/cmux-next/check-daemon-capabilities.sh fails the build when it
     /// does not serve one of these or `required`. The GUI still checks each
     /// with `DaemonIdentity.supports`, for remote and older daemons.
-    public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
+    public var optional: [String] { [workspaceGroups, workspaceMetadata, workspaceNameSource, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
-                                            sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory, frontendBrowserTabProfile,
+                                            sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, wsListen, wsListenOrigins, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, browserDevices, projectList, splitClientKeys, terminalInputWhileCreating,
-                                            workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
+                                            workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout,
+                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
+                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -376,12 +444,16 @@ public struct DaemonCapabilities: Sendable {
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).
+    /// `sharedSizing` is not either: the GUI only reads it from `identify`.
     public var advertised: [String] {
-        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration }
+        // `placementShift` only with the sidebar document (`handshakeCapabilities`).
+        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration && $0 != placementShift && $0 != sharedSizing }
     }
 
     /// What a connection echoes in `set-client-info`.
     public func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool) -> [String] {
-        resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised
+        // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
+        let document = Self.echoesPlacementShift && advertised.contains(sidebarDoc) ? [placementShift] : []
+        return (resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised) + document
     }
 }

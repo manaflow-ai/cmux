@@ -86,6 +86,10 @@ impl WorkspaceRegistry {
                     .get("changes")
                     .cloned()
                     .context("resource journal record omitted changes")?,
+                placement_shift: record
+                    .payload
+                    .get(crate::state::placement_shift::PAYLOAD_KEY)
+                    .cloned(),
             });
             expected_revision = expected_revision.saturating_add(1);
         }

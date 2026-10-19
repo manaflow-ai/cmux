@@ -16,6 +16,8 @@ use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::StreamPublicId;
 use crate::resource::WireDecimal;
+use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
+use crate::state::placement_shift::PlacementShift;
 use crate::stream_interrupt::StreamInterrupt;
 use serde_json::Value;
 use serde_json::json;
@@ -132,27 +134,47 @@ pub(super) fn prepare_session_event_stream(
                 });
             }
             Ok(page) => {
+                let mut deltas = Vec::with_capacity(page.batches.len());
+                let mut failed = None;
                 for batch in page.batches {
                     let cursor = json!({
                         "generation":page.generation,
                         "revision":batch.revision.to_string(),
                     });
+                    match delta_item(mux, client, &page.generation, &cursor, batch) {
+                        Ok(item) => deltas.push((cursor, item)),
+                        Err(error) => {
+                            failed = Some(error);
+                            break;
+                        }
+                    }
+                }
+                if let Some(error) = failed {
+                    // The placements could not be read: resume from the
+                    // snapshot instead, as for an expired cursor.
+                    eprintln!("cmux-tui: session.events: placement restatement failed: {error:#}");
                     initial_items.push((
-                        cursor.clone(),
+                        snapshot_cursor.clone(),
                         json!({
-                            "kind":"delta",
-                            "cursor":cursor,
-                            "previous_revision":batch.previous_revision.to_string(),
-                            "revision":batch.revision.to_string(),
-                            "changes":batch.changes,
+                            "kind":"snapshot",
+                            "cursor":snapshot_cursor,
+                            "reset_reason":"cursor_expired",
+                            "snapshot":snapshot,
                         }),
                     ));
+                    last_revision = snapshot_revision;
+                    opened_cursor = json!({
+                        "generation":snapshot_generation,
+                        "revision":snapshot_revision.to_string(),
+                    });
+                } else {
+                    initial_items.extend(deltas);
+                    last_revision = page.head_revision;
+                    opened_cursor = json!({
+                        "generation":page.generation,
+                        "revision":page.head_revision.to_string(),
+                    });
                 }
-                last_revision = page.head_revision;
-                opened_cursor = json!({
-                    "generation":page.generation,
-                    "revision":page.head_revision.to_string(),
-                });
             }
             Err(error) if error.to_string().starts_with("cursor.gap:") => {
                 initial_items.push((
@@ -327,6 +349,24 @@ pub(super) fn run_session_event_stream(
                     "generation":page.generation,
                     "revision":batch.revision.to_string(),
                 });
+                let revision = batch.revision;
+                let item = match delta_item(mux, client, &page.generation, &cursor, batch) {
+                    Ok(item) => item,
+                    Err(error) => {
+                        eprintln!(
+                            "cmux-tui: session.events: placement restatement failed: {error:#}"
+                        );
+                        let end = resource_stream_end(
+                            &stream.stream_id,
+                            "gap",
+                            None,
+                            Some("request a fresh session snapshot"),
+                            None,
+                        );
+                        let _ = writer.send_terminal(&end, &stream.outbound);
+                        break 'stream;
+                    }
+                };
                 let end = resource_stream_end(
                     &stream.stream_id,
                     "gap",
@@ -342,13 +382,7 @@ pub(super) fn run_session_event_stream(
                         &stream.stream_id,
                         stream.next_sequence,
                         &cursor,
-                        json!({
-                            "kind":"delta",
-                            "cursor":cursor,
-                            "previous_revision":batch.previous_revision.to_string(),
-                            "revision":batch.revision.to_string(),
-                            "changes":batch.changes,
-                        }),
+                        item,
                     )
                 {
                     mux.control_clients.finish_resource_stream(
@@ -359,7 +393,7 @@ pub(super) fn run_session_event_stream(
                     return;
                 }
                 stream.next_sequence = stream.next_sequence.saturating_add(1);
-                stream.last_revision = batch.revision;
+                stream.last_revision = revision;
             }
             if stream.last_revision >= head_revision {
                 break;
@@ -367,4 +401,60 @@ pub(super) fn run_session_event_stream(
         }
     }
     mux.control_clients.finish_resource_stream(client, &stream.stream_id, stream.outbound.id);
+}
+
+/// One journal batch as the `session.events` delta item `client` reads. A
+/// batch with a placement shift (`crate::state::placement_shift`) restates
+/// the shifted placements, from the current state, for a connection that
+/// did not echo `placement-shift-v1`; a connection that did gets the batch
+/// as stored.
+fn delta_item(
+    mux: &Mux,
+    client: u64,
+    generation: &str,
+    cursor: &Value,
+    batch: crate::workspace_registry::ResourceEventBatch,
+) -> anyhow::Result<Value> {
+    let mut changes = batch.changes;
+    if let Some(shift) = batch.placement_shift.as_ref().and_then(PlacementShift::from_value)
+        && !mux.control_clients.supports_capability(client, PLACEMENT_SHIFT_CAPABILITY)
+        && let Some(array) = changes.as_array_mut()
+    {
+        let all = current_placements(mux, generation)?;
+        for mut change in crate::state::placement_shift::restatement(&all, shift) {
+            change["sequence"] = json!(array.len());
+            array.push(change);
+        }
+    }
+    Ok(json!({
+        "kind":"delta",
+        "cursor":cursor,
+        "previous_revision":batch.previous_revision.to_string(),
+        "revision":batch.revision.to_string(),
+        "changes":changes,
+    }))
+}
+
+/// The current placements, shared by every connection and every batch
+/// while the state they depend on is unchanged (keyed by the registry's
+/// generation, its resource and personal revisions and its write count). A
+/// read at or after a batch's commit is valid for that batch
+/// (`crate::state::placement_shift`), so a stream that resumes across many
+/// shifted batches reads them once.
+type PlacementCache = Option<((String, (u64, u64, u64)), Arc<Vec<Value>>)>;
+static PLACEMENTS: std::sync::Mutex<PlacementCache> = std::sync::Mutex::new(None);
+
+fn current_placements(mux: &Mux, generation: &str) -> anyhow::Result<Arc<Vec<Value>>> {
+    let mut cache = PLACEMENTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    mux.read_registry_state(|connection| {
+        let key = (generation.to_string(), crate::state::placement_shift::state_key(connection)?);
+        if let Some((cached, all)) = cache.as_ref()
+            && *cached == key
+        {
+            return Ok(all.clone());
+        }
+        let all = Arc::new(crate::state::placement_shift::all_changes(connection)?);
+        *cache = Some((key, all.clone()));
+        Ok(all)
+    })
 }

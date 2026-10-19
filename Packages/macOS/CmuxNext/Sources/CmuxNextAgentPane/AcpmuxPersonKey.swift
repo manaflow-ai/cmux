@@ -136,7 +136,7 @@ nonisolated enum AcpmuxPersonKey {
             guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }
             logger.info("acpmux \(pid) has another launch's person key; handing it off")
             do {
-                try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath)
+                try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
             } catch {
                 logger.error("acpmux person handoff request failed: \(String(describing: error), privacy: .public)")
                 return false

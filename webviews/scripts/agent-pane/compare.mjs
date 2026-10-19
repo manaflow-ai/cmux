@@ -58,12 +58,14 @@ const scenarios = {
     anchor: { text: "The reconnect test fails about one run in five", top: 72 },
   },
   // A capture: a turn that fetched pages, ran subagents, edited files, opened and merged pull
-  // requests and scheduled wakeups, with the header's summary popover open over it.
+  // requests and scheduled wakeups, with the summary card shown at its top right.
   summary: {
     fixture: "summary-turn.json",
     scale: 2,
     pane: { x: 0, y: 0, width: 1200, height: 800 },
     open: ".acpmux-summary-button",
+    // A chat with subagents shows the card itself; the button would hide it then.
+    shown: ".acpmux-summary-card",
   },
   // The mock daemon's seeded workspace as it opens (mockFixture.ts): the populated sidebar
   // and its worked session, with no recorded script or prompt. A whole-window capture.
@@ -162,9 +164,9 @@ async function run(browser, name, scenario) {
     // A scenario without its own anchor (workspace) scrolls `--anchor` text to the top of the pane.
     const anchor = anchorText ? { top: 0, ...scenario.anchor, text: anchorText } : scenario.anchor;
     if (anchor) await scrollToAnchor(page, { ...anchor, edge: !referencePath || Boolean(anchorText) });
-    if (scenario.open) {
+    if (scenario.open && !(scenario.shown && (await page.$(scenario.shown)))) {
       await page.click(scenario.open);
-      await page.waitForSelector(`${scenario.open}[aria-expanded="true"]`);
+      await page.waitForSelector(`${scenario.open}[aria-expanded="true"], ${scenario.open}[aria-pressed="true"]`);
     }
     await settle(page);
     const shot = PNG.sync.read(await page.screenshot({ animations: "disabled", caret: "hide" }));

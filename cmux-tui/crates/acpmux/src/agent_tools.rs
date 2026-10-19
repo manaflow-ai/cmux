@@ -25,15 +25,24 @@
 //!   or preset env with `CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS` (for example
 //!   the session's own tagged `com.cmuxterm.app.debug.<tag>`) unlocks exact
 //!   bundle ids for that session only.
+//! - Per-workspace displays (`agent_displays.rs`, a Linux cloud machine
+//!   with `CMUX_AGENT_DISPLAYS=per-workspace`): `cmux-cua mcp` gets its
+//!   workspace's `CMUX_CUA_DISPLAY`, and a session without a workspace gets
+//!   no computer use server.
 //! - Binaries are found next to this executable (the app's
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`. A missing
-//!   binary leaves its server out. `cmux mcp serve` refuses unless
-//!   cmux.json sets `mcp.enabled`, so its server is added only then.
+//!   binary leaves its server out. Every agent chat gets `cmux mcp serve`
+//!   by default (cx-wx93i, Lawrence 2026-10-14: "give every agent chat the
+//!   cmux MCP tools by default"), so it controls cmux without a shell
+//!   command its sandbox may refuse; the settings file's `"mcp":
+//!   {"enabled": false}` turns it off (`cmux mcp serve` refuses then too).
 //! - Left out (`left_out`): remote-origin sessions (`remote_sandbox.rs`
 //!   keeps their MCP config empty on purpose), a profile or preset whose env
 //!   sets `ACPMUX_AGENT_TOOLS=0` (isolated sessions such as the Chief's
 //!   compactor), and Claude args with `--strict-mcp-config`.
 //!   `ACPMUX_AGENT_TOOLS=0` on the daemon turns all of it off.
+//! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
+//!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -121,6 +130,10 @@ pub struct AgentTools {
     pub servers: Vec<McpServer>,
     /// The Claude Code plugin folder holding the skills.
     pub plugin_dir: Option<PathBuf>,
+    /// The display allocation folder, only in per-workspace display mode
+    /// (`agent_displays.rs`): [`AgentTools::scoped`] then gives the
+    /// computer use server its workspace's display, or leaves it out.
+    pub displays: Option<PathBuf>,
 }
 
 /// Where the tools come from; `current()` reads them from this process.
@@ -143,10 +156,25 @@ pub struct Inputs {
     /// get `request_secret` (`secret_mcp.rs`). Without the card an ask would
     /// wait with nothing to answer it.
     pub secrets: bool,
+    /// The app shows offered chats as chips ([`OFFER_TOOLS_ENV`] is `1`):
+    /// sessions get `offer_session` (`offer_mcp.rs`).
+    pub offers: bool,
+    /// The display allocation folder when this daemon runs with
+    /// per-workspace displays (`agent_displays.rs`), else `None`.
+    pub displays: Option<PathBuf>,
 }
 
 /// Set to `1` by an app that shows the secret card (cx-ncc.42).
 pub const SECRET_TOOLS_ENV: &str = "ACPMUX_SECRET_TOOLS";
+/// Set to `1` by an app that shows offered chats as chips (cx-807da).
+pub const OFFER_TOOLS_ENV: &str = "ACPMUX_OFFER_TOOLS";
+/// A profile or preset env key: the comma-separated MCP server names of
+/// these tools a session keeps (`cmux`: only `cmux mcp serve`). Unset or
+/// empty keeps every server. The Chief's built-in turn presets set `cmux`
+/// (`config/chief_builtins.rs`, cx-4a5w2): a turn's tool names and server
+/// instructions come after its cache mark, so each extra server is
+/// uncached input on every turn.
+pub const SERVERS_ENV: &str = "ACPMUX_AGENT_TOOL_SERVERS";
 
 impl Inputs {
     pub fn current() -> Self {
@@ -154,19 +182,18 @@ impl Inputs {
         let bin_dir = var(BIN_DIR_ENV).map(PathBuf::from).or_else(|| {
             std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf))
         });
-        let config = match var("CMUX_NEXT_CONFIG_FILE") {
-            Some(path) => PathBuf::from(path),
-            None => dirs::home_dir().unwrap_or_default().join(".config/cmux/cmux.json"),
-        };
         Inputs {
             enabled: var(SWITCH_ENV).is_none_or(|v| v != "0"),
             bin_dir,
-            cmux_json: std::fs::read_to_string(config).ok(),
+            cmux_json: crate::user_settings::text(),
             state_dir: crate::config::home().join("agent-tools"),
             cua: crate::cua_socket::from_env(),
             cua_v2: crate::cua_v2::active_dir(crate::cua_v2::dir_from_env()),
             acpmux: std::env::current_exe().ok(),
             secrets: var(SECRET_TOOLS_ENV).is_some_and(|v| v == "1"),
+            offers: var(OFFER_TOOLS_ENV).is_some_and(|v| v == "1"),
+            displays: crate::agent_displays::per_workspace()
+                .then(|| crate::agent_displays::dir(&crate::config::home())),
         }
     }
 }
@@ -292,8 +319,17 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
+    if let (true, Some(acpmux)) = (inputs.offers, &inputs.acpmux) {
+        // offer_session (`offer_mcp.rs`): `for_session` names the session.
+        servers.push(McpServer {
+            name: crate::offer_mcp::SERVER_NAME.into(),
+            command: acpmux.clone(),
+            args: vec!["offer-mcp".into()],
+            env: vec![],
+        });
+    }
     if let Some(cmux) = executable("cmux")
-        && inputs.cmux_json.as_deref().is_some_and(mcp_enabled)
+        && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
         servers.push(McpServer {
             name: "cmux".into(),
@@ -309,20 +345,64 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             None
         }
     };
-    AgentTools { servers, plugin_dir }
+    AgentTools { servers, plugin_dir, displays: inputs.displays.clone() }
 }
 
 impl AgentTools {
     /// The tools for one session: its env's [`CUA_SCOPE_ENV`] reaches only
     /// the computer use server. Without one the server gets the key empty,
     /// so a value inherited from the daemon's env never widens the guard.
+    ///
+    /// In per-workspace display mode the env's
+    /// [`crate::agent_displays::WORKSPACE_KEY`] picks the server's display;
+    /// without a workspace, or when no display can be allocated, the session
+    /// gets no computer use server at all (fail closed: never the shared
+    /// display).
     pub fn scoped(mut self, session_env: &BTreeMap<String, String>) -> Self {
+        use crate::agent_displays::{DISPLAY_ENV, WORKSPACE_KEY};
+        let keep = session_env.get(SERVERS_ENV).map(|v| v.trim()).filter(|v| !v.is_empty());
+        if let Some(keep) = keep {
+            let keep: Vec<&str> = keep.split(',').map(str::trim).collect();
+            self.servers.retain(|s| keep.contains(&s.name.as_str()));
+        }
         let scope = session_env.get(CUA_SCOPE_ENV).cloned().unwrap_or_default();
         for server in &mut self.servers {
             server.env.retain(|(k, _)| k != CUA_SCOPE_ENV);
             if server.name == "cmux-cua" {
                 server.env.push((CUA_SCOPE_ENV.to_owned(), scope.clone()));
             }
+        }
+        let Some(dir) = &self.displays else {
+            return self;
+        };
+        let display = match session_env.get(WORKSPACE_KEY) {
+            None => {
+                tracing::warn!(
+                    "agent tools: per-workspace displays and the session names no workspace; it gets no computer use server"
+                );
+                None
+            }
+            Some(ws) => match crate::agent_displays::display_for(dir, ws) {
+                Ok(n) => Some(n),
+                Err(e) => {
+                    tracing::warn!(
+                        "agent tools: no display for workspace {ws}, the session gets no computer use server: {e:#}"
+                    );
+                    None
+                }
+            },
+        };
+        // The helper v2 bridge (`acpmux cua-mcp`, same server name) cannot be
+        // pinned to a display: never in this mode.
+        self.servers.retain(|s| s.args.first().is_none_or(|a| a != "cua-mcp"));
+        match display {
+            Some(n) => {
+                for server in self.servers.iter_mut().filter(|s| s.name == "cmux-cua") {
+                    server.env.retain(|(k, _)| k != DISPLAY_ENV);
+                    server.env.push((DISPLAY_ENV.to_owned(), format!(":{n}")));
+                }
+            }
+            None => self.servers.retain(|s| s.name != "cmux-cua"),
         }
         self
     }
@@ -336,15 +416,42 @@ impl AgentTools {
             if server.name == "cmux" {
                 server.env.push((AGENT_SESSION_ENV.to_owned(), session_id.to_owned()));
             }
-            if server.name == crate::secret_mcp::SERVER_NAME {
+            let session_env = match server.name.as_str() {
+                crate::secret_mcp::SERVER_NAME => Some(crate::secret_mcp::SESSION_ENV),
+                crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::SESSION_ENV),
+                _ => None,
+            };
+            if let Some(key) = session_env {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
-                    (crate::secret_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
+                    (key.to_owned(), session_id.to_owned()),
                     ("ACPMUX_SOCKET".to_owned(), socket),
                 ];
             }
         }
         self
+    }
+
+    /// The chat's tool list rows for these tools (`hub/tools.rs`): each MCP
+    /// server, which `toggles` says the harness turns on or off mid-session,
+    /// and for Claude Code (`claude`) each skill of the plugin.
+    pub fn tool_rows(&self, claude: bool, toggles: bool) -> Vec<crate::store::ToolRow> {
+        let row = |id: String, name: &str, can_toggle: bool| crate::store::ToolRow {
+            id,
+            name: name.to_owned(),
+            kind: "cmux".into(),
+            source: "cmux".into(),
+            enabled: true,
+            can_toggle,
+            status: None,
+        };
+        let mut rows: Vec<_> =
+            self.servers.iter().map(|s| row(format!("mcp:{}", s.name), &s.name, toggles)).collect();
+        if claude && self.plugin_dir.is_some() {
+            let skills = SKILL_FILES.iter().filter_map(|(p, _)| p.strip_suffix("/SKILL.md"));
+            rows.extend(skills.map(|n| row(format!("skill:{PLUGIN_NAME}:{n}"), n, false)));
+        }
+        rows
     }
 
     /// `mcpServers` for an ACP `session/new`, `session/load` or `session/fork`.
@@ -406,7 +513,7 @@ impl AgentTools {
 /// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary
 /// file first, then renamed, so claude never reads half a config).
 #[cfg(unix)]
-fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
@@ -425,11 +532,13 @@ fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     }
     Ok(written?)
 }
-/// Windows port: owner-only files are ACLs there (a later landing); until
-/// then no private file is written.
-#[cfg(not(unix))]
-fn write_private(_path: &Path, _bytes: &[u8]) -> anyhow::Result<()> {
-    Err(crate::platform::unsupported("private files"))
+/// Windows: the folder and the file owner-only (`owner_only.rs`).
+#[cfg(windows)]
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
+    crate::owner_only::create_dir_all(dir)?;
+    crate::owner_only::restrict(dir)?;
+    crate::config::write_atomic(path, bytes)
 }
 
 #[cfg(unix)]
@@ -443,18 +552,15 @@ fn is_executable(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
-/// Same rule as `cmux mcp serve` (cmux-tui `cli/mcp/config.rs`): on only when
-/// `mcp.enabled` is `true`; comments are allowed, anything unreadable is off.
-fn mcp_enabled(text: &str) -> bool {
-    let plain: String = text
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("//"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    serde_json::from_str::<Value>(&plain)
-        .ok()
-        .and_then(|doc| doc.pointer("/mcp/enabled").and_then(Value::as_bool))
-        .unwrap_or(false)
+/// Same rule as `cmux mcp serve` for an agent session (cmux-tui
+/// `cli/mcp/config.rs`): off only when the settings file says `mcp.enabled`
+/// is not `true` (`false`, or a value `serve` refuses); a missing file or
+/// key is on. An unreadable file is on too: `serve` reports the error to
+/// the agent instead of the server vanishing.
+fn mcp_disabled(text: &str) -> bool {
+    crate::user_settings::document(text)
+        .and_then(|doc| doc.pointer("/mcp/enabled").cloned())
+        .is_some_and(|v| !v.is_null() && v != Value::Bool(true))
 }
 
 /// The plugin folder for the compiled-in skills, written once per content

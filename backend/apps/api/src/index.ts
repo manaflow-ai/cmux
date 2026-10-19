@@ -29,9 +29,17 @@ export { AccountIndexDO } from "./account-index-do.ts"
 export { AddressDO } from "./address-do.ts"
 export { ConversationDO } from "./conversation-do.ts"
 export { MuxDO } from "./mux-do.ts"
+export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
+export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
+import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
+import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
+import { FAULT_PATH, handleFault } from "./chief-fault.ts"
+import { handleBrainImpl, handleOpencodeHost, handleOpencodeRuns, OPENCODE_HOST_PATH, OPENCODE_IMPL_PATH, opencodeOn } from "./chief-brain-opencode/routes.ts"
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
+export { HandDO } from "./hand-do.ts"
+import { HAND_PATH, handleHands } from "./hand-routes.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
@@ -39,6 +47,8 @@ import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
+import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
+import { CREDITS_PATH, CREDITS_WEBHOOK_PATH, handleCredits, handleCreditsWebhook } from "./credits-routes.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -60,12 +70,12 @@ const gateUnreachable = (e: unknown) => {
 /**
  * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocol
  * `cmux.wire.v1`. The credential is the Authorization header (native clients), a `ticket.<ticket>`
- * subprotocol from POST /v1/wire/ticket (browsers), or the legacy `bearer.<token>` subprotocol
- * (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
+ * subprotocol from POST /v1/wire/ticket (browsers); the legacy `bearer.<token>` subprotocol is
+ * retired (wire-ticket.ts; invocation logs record every header but Authorization). The Worker
  * authenticates and passes the principal to the owner DO; frames never carry identity.
  */
 const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
-  const credential = await wireCredential(request, env, scope, spent)
+  const credential = await wireCredential(request, env, spent)
   if (!credential.ok) return credential.response
   const { principal: authenticatedToken, protocols } = credential
   if (!authenticatedToken?.user || !authenticatedToken.team) return wireUnauthenticated()
@@ -172,6 +182,21 @@ export default {
     // A chief's wake queue (mux:<agent>): the chief's agent token or its owner; install_kind is resolved.
     const mux = url.pathname.match(/^\/v1\/wire\/mux\/(agent_[A-Za-z0-9_.-]{1,64})$/)
     if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "mux", mux[1]!)
+    // Chief hands (hand-routes.ts): the installer, pairing, the hand socket, and the person's hand management.
+    if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
+    // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
+    if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env, ctx)
+    // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
+    const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
+    // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
+    if (chiefBrain && chiefBrain[2] !== "brain" && opencodeOn(env)) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
+    if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrain[2] === "brain" ? "brain" : "runs", chiefBrain[3])
+    const fault = url.pathname.match(FAULT_PATH)
+    if (fault) return handleFault(request, env, fault[1]!)
+    const brainImpl = url.pathname.match(OPENCODE_IMPL_PATH)
+    if (brainImpl) return handleBrainImpl(request, env, brainImpl[1]!)
+    const opencodeHost = url.pathname.match(OPENCODE_HOST_PATH)
+    if (opencodeHost) return handleOpencodeHost(request, env, opencodeHost[1]!)
     // Home invite links: anonymous; the card answers only for open invites, the preview only with the secret.
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
@@ -196,6 +221,11 @@ export default {
     if (url.pathname === BILLING_LEVELS_PATH) return handleBillingLevels(request, env)
     if (url.pathname === BILLING_SYNC_PATH) return handleBillingSync(request, env)
     if (url.pathname === BILLING_TEAM_MODE_PATH) return handleBillingTeamMode(request, env)
+    // Prepaid Cloud Chief credits: balance and top-ups (credits-routes.ts), the top-up webhook, operator grants.
+    const credits = url.pathname.match(CREDITS_PATH)
+    if (credits) return handleCredits(request, env, credits[1]?.startsWith("checkout/") && credits[2] ? "checkout/link" : credits[1], credits[2])
+    if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
+    if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
     const tvmExport = url.pathname.match(/^\/v1\/team-vm\/export\/(team_[A-Za-z0-9_-]{1,64})\/([0-9a-f]{64})$/)
@@ -229,7 +259,10 @@ export default {
       if (compare.status === "rejected") throw compare.reason
       return
     }
-    const report = await sweepFeedText(sweepDeps(env))
-    console.log(JSON.stringify({ msg: "feed.sweep", ...report }))
+    const [report, hands] = await Promise.allSettled([sweepFeedText(sweepDeps(env)), (async () => (await import("./hand-sweep.ts")).sweepSandboxVms(env))()])
+    if (hands.status === "fulfilled") console.log(JSON.stringify({ msg: "hand.sandbox_sweep", ...hands.value }))
+    else console.error(JSON.stringify({ msg: "hand.sandbox_sweep.failed", error: String(hands.reason).slice(0, 200) }))
+    if (report.status === "rejected") throw report.reason
+    console.log(JSON.stringify({ msg: "feed.sweep", ...report.value }))
   }
 } satisfies ExportedHandler<Env>

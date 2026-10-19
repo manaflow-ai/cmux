@@ -2,10 +2,18 @@
 //! GPT-6.1 Sol, Claude Code: Opus 5.5, both medium), never on the harness
 //! CLI's own default; the person's pick in a chat is saved in config.json
 //! `defaults` and a new chat after a daemon restart starts on it (cx-qtmy2,
-//! cx-fusxy). Driven through the protocol handler as the local app.
+//! cx-fusxy). With nothing picked, the harness's own config (Codex's
+//! config.toml `model` and `model_reasoning_effort`, Claude Code's
+//! settings.json `model`) comes before the catalog (cx-uq9xi). Driven through
+//! the protocol handler as the local app.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
+
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
@@ -27,20 +35,37 @@ fn home(name: &str) -> (PathBuf, PathBuf) {
 
 /// `home` with extra fake env for `claude` and a config.json `defaults` object.
 fn home_with(name: &str, claude_env: Value, defaults: Value) -> (PathBuf, PathBuf) {
+    home_env(name, json!({}), claude_env, defaults)
+}
+
+/// `home_with`, with extra fake env for `codex` too.
+fn home_env(
+    name: &str,
+    codex_env: Value,
+    claude_env: Value,
+    defaults: Value,
+) -> (PathBuf, PathBuf) {
     let dir =
         std::env::temp_dir().join(format!("acpmux-start-defaults-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let calls = dir.join("calls.jsonl");
+    // Each fake reads its own config folder, empty unless a test writes one, never the
+    // machine's ~/.codex or ~/.claude.
+    let homes =
+        json!({"CODEX_HOME": dir.join("codex-home"), "CLAUDE_CONFIG_DIR": dir.join("claude-home")});
     let profile = |extra: &Value| {
         let mut env = json!({"FAKE_PICKER": "1", "FAKE_CALLS": calls.to_str().unwrap()});
+        for (k, v) in homes.as_object().unwrap() {
+            env[k] = v.clone();
+        }
         for (k, v) in extra.as_object().unwrap() {
             env[k] = v.clone();
         }
         json!({"argv": ["python3", FAKE], "env": env})
     };
     let config = json!({
-        "harnesses": {"codex": profile(&json!({})), "claude": profile(&claude_env)},
+        "harnesses": {"codex": profile(&codex_env), "claude": profile(&claude_env)},
         "defaultHarness": "codex",
         "permissionPolicy": "approve-all",
         "defaults": defaults,
@@ -58,7 +83,8 @@ fn hub(dir: &Path) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
-struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+/// The connection, its replies, the last request id, and the notifications it received.
+struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64, Vec<Value>);
 
 /// The app's agent pane.
 fn client(hub: &Arc<Hub>) -> Client {
@@ -69,7 +95,7 @@ fn client_as(hub: &Arc<Hub>, origin: Origin) -> Client {
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
-    Client(in_tx, out_rx, 0)
+    Client(in_tx, out_rx, 0, Vec::new())
 }
 
 impl Client {
@@ -87,7 +113,19 @@ impl Client {
                 assert!(v.get("error").is_none(), "{m} {v}");
                 return v["result"].clone();
             }
+            if v.get("id").is_none() {
+                self.3.push(v);
+            }
         }
+    }
+
+    /// Whether a `_acpmux/harnesses_changed` came, after one more round trip
+    /// (a notification sent before it has arrived by then).
+    async fn told_harnesses_changed(&mut self) -> bool {
+        self.call("_acpmux/status", json!({})).await;
+        let told = self.3.iter().any(|n| n["method"] == "_acpmux/harnesses_changed");
+        self.3.clear();
+        told
     }
 
     async fn new_chat(&mut self, harness: &str) -> String {
@@ -169,6 +207,41 @@ async fn a_new_chat_starts_on_the_catalog_default_then_on_the_persons_pick_after
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Leo 2026-10-18: a New Tab prewarmed before a pick drew the old start effort (Medium) and the chat
+/// then started on the pick (Low). A saved pick changes `_acpmux/harnesses` `start`, so watchers
+/// are told to read it again; a pick that saves nothing new tells nobody.
+#[tokio::test]
+async fn a_saved_pick_is_announced_to_watchers_so_open_pages_read_the_new_start() {
+    let (dir, calls) = home("pick-notice");
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    app.call("_acpmux/watch", json!({"enabled": true})).await;
+    let claude = app.new_chat("claude").await;
+    take_calls(&calls);
+    app.3.clear();
+
+    app.call("session/set_model", json!({"sessionId": claude, "modelId": "claude-haiku-5-5"}))
+        .await;
+    assert!(app.told_harnesses_changed().await, "a saved model pick is announced");
+    app.call(
+        "session/set_config_option",
+        json!({"sessionId": claude, "configId": "effort", "value": "low"}),
+    )
+    .await;
+    assert!(app.told_harnesses_changed().await, "a saved effort pick is announced");
+    let start = &app.call("_acpmux/harnesses", json!({})).await["harnesses"]["claude"]["start"];
+    assert_eq!((&start["model"], &start["effort"]), (&json!("claude-haiku-5-5"), &json!("low")));
+
+    // The same effort again saves nothing new: no notice.
+    app.call(
+        "session/set_config_option",
+        json!({"sessionId": claude, "configId": "effort", "value": "low"}),
+    )
+    .await;
+    assert!(!app.told_harnesses_changed().await, "an unchanged pick is not announced");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn a_model_named_in_the_request_wins_and_its_effort_follows_the_catalog() {
     let (dir, calls) = home("explicit");
@@ -211,5 +284,135 @@ async fn a_model_set_from_the_cli_is_no_saved_pick() {
     cli.call("session/set_model", json!({"sessionId": codex, "modelId": "gpt-6-astra"})).await;
     assert_eq!(take_calls(&calls), vec![("model".to_owned(), "gpt-6-astra".to_owned())]);
     assert_eq!(saved(&dir, "codex"), Value::Null);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A home whose fake `codex` reads `codex_toml` as its `$CODEX_HOME/config.toml` and whose fake
+/// `claude` reads `claude_settings` as its `$CLAUDE_CONFIG_DIR/settings.json` (None: no file).
+fn home_with_harness_config(
+    name: &str,
+    codex_toml: Option<&str>,
+    claude_settings: Option<&str>,
+) -> (PathBuf, PathBuf) {
+    let (dir, calls) = home(name);
+    let (codex_home, claude_home) = (dir.join("codex-home"), dir.join("claude-home"));
+    std::fs::create_dir_all(&codex_home).unwrap();
+    std::fs::create_dir_all(&claude_home).unwrap();
+    if let Some(t) = codex_toml {
+        std::fs::write(codex_home.join("config.toml"), t).unwrap();
+    }
+    if let Some(t) = claude_settings {
+        std::fs::write(claude_home.join("settings.json"), t).unwrap();
+    }
+    (dir, calls)
+}
+
+#[tokio::test]
+async fn with_nothing_picked_a_new_chat_starts_on_the_harness_own_config_then_on_the_pick() {
+    let (dir, calls) = home_with_harness_config(
+        "harness-config",
+        Some("model = \"gpt-6-astra\"\nmodel_reasoning_effort = \"high\"\n"),
+        Some(r#"{"model": "sonnet", "permissions": {"allow": []}}"#),
+    );
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+
+    // Codex: its config.toml's model and effort. Claude Code: its settings.json model (the
+    // `sonnet` alias, as the catalog names it), with that model's catalog effort.
+    let codex = app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-6-astra", "high"));
+    app.new_chat("claude").await;
+    assert_eq!(take_calls(&calls), set("claude-sonnet-5-5", "medium"));
+    let harnesses = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(
+        harnesses["harnesses"]["codex"]["start"],
+        json!({"model": "gpt-6-astra", "modelSource": "harness", "effort": "high", "effortSource": "harness"})
+    );
+    assert_eq!(
+        harnesses["harnesses"]["claude"]["start"],
+        json!({"model": "claude-sonnet-5-5", "modelSource": "harness", "effort": "medium", "effortSource": "catalog"})
+    );
+
+    // The person's pick beats the harness's config for the next new chat.
+    app.call("session/set_model", json!({"sessionId": codex, "modelId": "gpt-6-luna"})).await;
+    take_calls(&calls);
+    app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-6-luna", "high"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_broken_or_unknown_harness_config_falls_back_to_the_catalog() {
+    // Codex's config.toml does not parse; Claude Code names a model the catalog does not list
+    // (a retired one).
+    let (dir, calls) = home_with_harness_config(
+        "harness-config-broken",
+        Some("model = \"gpt-6-astra\n[[broken"),
+        Some(r#"{"model": "claude-retired-1"}"#),
+    );
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "medium"));
+    app.new_chat("claude").await;
+    assert_eq!(take_calls(&calls), set("claude-opus-5-5", "medium"));
+    let harnesses = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(harnesses["harnesses"]["codex"]["start"]["modelSource"], "catalog");
+    assert_eq!(harnesses["harnesses"]["claude"]["start"]["modelSource"], "catalog");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_claude_model_with_a_context_suffix_starts_on_its_catalog_model() {
+    // Claude Code's settings.json names the 1M-context variant (`sonnet[1m]`): the catalog lists
+    // the model without the suffix.
+    let (dir, calls) =
+        home_with_harness_config("harness-config-1m", None, Some(r#"{"model": "sonnet[1m]"}"#));
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    app.new_chat("claude").await;
+    assert_eq!(take_calls(&calls), set("claude-sonnet-5-5", "medium"));
+    let harnesses = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(harnesses["harnesses"]["claude"]["start"]["modelSource"], "harness");
+
+    // A full model id with the suffix names its model too.
+    std::fs::write(
+        dir.join("claude-home").join("settings.json"),
+        r#"{"model": "claude-haiku-5-5[1m]"}"#,
+    )
+    .unwrap();
+    app.new_chat("claude").await;
+    assert_eq!(take_calls(&calls), set("claude-haiku-5-5", "medium"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_harness_config_effort_applies_only_with_its_own_model_or_with_none() {
+    // Codex's config.toml pairs an effort with a model the catalog does not list (a retired
+    // one): the chat starts on the catalog default with that model's own effort, not the
+    // effort chosen for the retired model.
+    let (dir, calls) = home_with_harness_config(
+        "harness-config-effort",
+        Some("model = \"gpt-retired-1\"\nmodel_reasoning_effort = \"high\"\n"),
+        None,
+    );
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "medium"));
+    let harnesses = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(
+        harnesses["harnesses"]["codex"]["start"],
+        json!({"model": "gpt-6.1-sol", "modelSource": "catalog", "effort": "medium", "effortSource": "catalog"})
+    );
+
+    // An effort with no model is Codex's effort for whatever model runs.
+    std::fs::write(
+        dir.join("codex-home").join("config.toml"),
+        "model_reasoning_effort = \"high\"\n",
+    )
+    .unwrap();
+    app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "high"));
     let _ = std::fs::remove_dir_all(&dir);
 }

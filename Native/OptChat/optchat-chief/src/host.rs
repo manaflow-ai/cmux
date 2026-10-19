@@ -26,13 +26,12 @@ use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
 
 /// Env passed through to the turn's tools, as mux/host passes it.
-const PASSTHROUGH: [&str; 6] = [
+const PASSTHROUGH: [&str; 5] = [
     "CMUX_SOCKET_PATH",
     crate::cmux_env::APP_DAEMON_KEY,
     "ACPMUX_SOCKET",
     "ACPMUX_HOME",
     "ACPMUX_BIN",
-    "CMUX_MCP_COMMAND",
 ];
 
 /// A turn longer than this is stopped (minutes; `OPTCHAT_CHIEF_TURN_LIMIT_MIN`,
@@ -78,6 +77,33 @@ pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> St
     } else {
         claude.to_owned()
     }
+}
+
+/// The compactor's harness at host start, from acpmux's start-up `answer`:
+/// the set one (`OPTCHAT_COMPACTOR_HARNESS`, else engine.json's
+/// `compactor_harness`), else the turns' Claude harness (engine.json's
+/// `harness`, else the host's `turn`), else `default_harness`. On a
+/// machine whose only Claude login is the subrouter, a Chief set to
+/// `claude-sr` compacts there too, not on a `claude` that is not signed in
+/// (cosmic-gray 2026-10-14).
+pub fn compactor_harness_for(
+    answer: &serde_json::Value,
+    set: Option<&str>,
+    turn: &str,
+    engine: &crate::engine::EngineChoice,
+) -> String {
+    if let Some(set) = set {
+        return set.to_owned();
+    }
+    // engine.json's harness when it is Claude, else the host's `turn` when
+    // it is (a codex engine on a claude-sr host still compacts on claude-sr).
+    let turn = engine
+        .harness
+        .as_deref()
+        .filter(|h| crate::harness_gate::plan(answer, h).family == Family::Claude)
+        .unwrap_or(turn);
+    let family = crate::harness_gate::plan(answer, turn).family;
+    default_compactor_harness(turn, family, default_harness(answer))
 }
 
 /// `ACPMUX_PROBE_HARNESSES` of the acpmux daemon this host starts: the
@@ -181,6 +207,10 @@ pub fn turn_preset(
     if family == Family::Claude {
         env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
     }
+    // Only acpmux's cmux MCP server (cx-4a5w2), as acpmux's built-in turn
+    // presets set it for a Chief that sends no env.
+    let (servers_key, servers) = session_dir::TURN_TOOL_SERVERS;
+    env.insert(servers_key.to_owned(), servers.to_owned());
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),
@@ -233,9 +263,18 @@ pub fn turn_preset(
 }
 
 /// The built-in tools a turn is offered (an allowlist: a built-in a later
-/// Claude Code adds is not offered); the Chief's MCP tools come on top,
-/// loaded with the turn (no ToolSearch, `session_dir::TURN_SETTINGS_ENV`).
-pub const TURN_TOOLS: [&str; 6] = ["Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch"];
+/// Claude Code adds is not offered). On top, the Chief's own MCP tools load
+/// with the turn and the cmux MCP tools wait behind ToolSearch
+/// (`session_dir::TURN_SETTINGS_ENV`).
+pub const TURN_TOOLS: [&str; 7] = [
+    "Bash",
+    "Read",
+    "Edit",
+    "Write",
+    "WebFetch",
+    "WebSearch",
+    "ToolSearch",
+];
 
 /// The Claude Code args of an isolated turn: no user or local setting
 /// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
@@ -414,6 +453,12 @@ pub fn conversation_source(flags: &Flags) -> Result<Source, String> {
     }
 }
 
+/// The build-session kill switch, the test of acpmux launch_policy.rs.
+fn agent_launch_disabled() -> bool {
+    env("ACPMUX_AGENT_LAUNCH").is_some_and(|v| v.trim().eq_ignore_ascii_case("deny"))
+        || env("CMUX_AGENTS_DISABLED").is_some_and(|v| v.trim() == "1")
+}
+
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
@@ -430,6 +475,7 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         .value("mux-home")
         .map(PathBuf::from)
         .unwrap_or_else(mux_home);
+    let _ = HOST_HOME.set(home.clone());
     let source = match conversation_source(flags) {
         Ok(source) => source,
         Err(why) => {
@@ -442,8 +488,19 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         log(format!("creating {}: {e}", paths.root.display()));
         return 1;
     }
+    // cx-tgf4h: agents are off in this build session (acpmux refuses every
+    // launch), so no turn could start; the host would only hold messages.
+    if agent_launch_disabled() {
+        log("not starting: agents are disabled in this build session \
+             (ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1)");
+        return 0;
+    }
     let _lock = match HostLock::take(&paths.host_lock, started_ms) {
-        Ok(lock) => lock,
+        Ok(lock) => {
+            // A stop mark an earlier host of this home left says nothing now.
+            crate::lock::clear_stopping(&paths.host_lock);
+            lock
+        }
         Err(LockError::Held) => {
             log(format!("already running for {}", home.display()));
             return 0;
@@ -458,7 +515,10 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         }
     };
     // A status left by a host that crashed mid-wait says nothing true now.
-    crate::settle_status::SettleStatus::new(&paths.settle_status).clear();
+    let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
+    settle.clear();
+    // The start-up probe says again when the compactor cannot work.
+    settle.compactor_fault(None);
     let started = start(&paths, &home, &daemon_socket, source);
     if STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
         // A stop signal: whatever `start` returned (its acpmux connection
@@ -481,6 +541,29 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     }
 }
 
+/// This Chief's record from the local owner's Chief registry, read on its
+/// own bound connection (chief_profile.rs `ChiefTools::start`: no registry
+/// or no record, every tool; the daemon away, a non-default Chief does not
+/// start and the default Chief has zoom and date only until the link is up).
+fn load_chief_tools(
+    source: &Source,
+    daemon_socket: &str,
+    membership: &crate::membership::Membership,
+) -> Result<crate::chief_profile::ChiefTools, String> {
+    use crate::chief_profile::{ChiefTools, ProfileClient};
+    let Source::Local { token_file } = source else {
+        return Ok(ChiefTools::none());
+    };
+    let client = ProfileClient::new(
+        daemon_socket.into(),
+        token_file.clone(),
+        membership.participant.clone(),
+    );
+    ChiefTools::start(Some(client), membership.is_default(), &|line: String| {
+        log(line)
+    })
+}
+
 fn start(
     paths: &Paths,
     home: &std::path::Path,
@@ -495,8 +578,11 @@ fn start(
     let pinned = crate::cmux_env::pinned_subset(&session_env);
     // Each turn reads the person's Home workspace with the CLI the turns use (home_view).
     let home_view = crate::home_view::HomeView {
-        cli: crate::cmux_env::bundled_bin(&exe)
-            .map_or_else(|| std::path::PathBuf::from("cmux"), |bin| bin.join("cmux")),
+        cli: crate::home_view::HomeView::cli_for(
+            pinned
+                .get(crate::cmux_env::BUNDLED_CLI_KEY)
+                .map(std::path::Path::new),
+        ),
         env: pinned.clone(),
     };
     // One setting picks the harness of turns and compactor alike.
@@ -513,10 +599,12 @@ fn start(
     let mut daemon_env = pinned.clone();
     // The Chief home whose codex homes acpmux's built-in codex presets use
     // (acpmux `config/chief_builtins.rs`): in the daemon's own environment.
-    daemon_env.insert(
-        "ACPMUX_CHIEF_MUX_HOME".to_owned(),
-        home.display().to_string(),
-    );
+    // A shared acpmux (one per Chief home) names the Chief home, whose
+    // `c/<id>` directories hold the other Chiefs (acpmux maps their ids).
+    let chief_mux_home = env("CMUX_CHIEF_HOME")
+        .filter(|_| crate::acpmux_daemon::shared())
+        .unwrap_or_else(|| home.display().to_string());
+    daemon_env.insert("ACPMUX_CHIEF_MUX_HOME".to_owned(), chief_mux_home);
     daemon_env.insert(
         "ACPMUX_PROBE_HARNESSES".to_owned(),
         probe_harnesses(
@@ -527,7 +615,36 @@ fn start(
         ),
     );
     crate::acpmux_daemon::set_child_env(daemon_env);
-    let instructions = crate::prompt::chief_instructions(&paths.person, &paths.instructions);
+    // Who this Chief is in the conversations (membership): its participant
+    // and which messages of the owner's other conversations wake it.
+    let membership =
+        crate::membership::Membership::from_env(matches!(source, Source::Local { .. }))?;
+    log(format!(
+        "conversations: as {}{}",
+        membership.participant,
+        if membership.local_side {
+            format!(
+                ", and the local conversations it takes part in ({:?})",
+                membership.group_wake
+            )
+        } else {
+            String::new()
+        }
+    ));
+    let instructions = match (
+        crate::prompt::chief_instructions(&paths.person, &paths.instructions),
+        membership.instructions(),
+    ) {
+        (Some(base), Some(channels)) => Some(format!("{base}\n\n{channels}")),
+        (base, channels) => base.or(channels),
+    };
+    // This Chief's record (multi-Chief S5): its profile goes into the turns'
+    // (and compactions') system text after everything above; subagents keep
+    // the text without it (they are not this Chief). Its grant limits the
+    // turn's tools (chief_profile.rs).
+    let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
+    let sub_instructions = instructions.clone();
+    let instructions = chief_tools.instructions(instructions);
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
@@ -619,13 +736,15 @@ fn start(
                 sub_harness = harness.clone();
             }
         }
-        // The compactor runs on a Claude route unless set otherwise, whatever
-        // the turns run on (engine.json may swap them to codex per turn).
-        if compactor_set.is_none() {
-            let turn_family = crate::harness_gate::plan(&answer, &harness).family;
-            compactor_harness =
-                default_compactor_harness(&harness, turn_family, default_harness(&answer));
-        }
+        // The compactor runs on a Claude route unless set otherwise: the
+        // turns' engine harness when it is one, else the default route
+        // (engine.json may swap the turns to codex per turn).
+        compactor_harness = compactor_harness_for(
+            &answer,
+            compactor_set.as_deref(),
+            &harness,
+            &engine_choice_file,
+        );
         let (turn, compactor, sub) = (
             plan(&harness, "turn"),
             plan(&compactor_harness, "compactor"),
@@ -664,8 +783,8 @@ fn start(
     };
     let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
-    // directory; acpmux gives any other harness no MCP server, so its memory
-    // tools are the launcher's commands.
+    // directory; acpmux gives no other harness the optchat server (only its
+    // own agent tools), so its memory tools are the launcher's commands.
     let tools = if claude {
         crate::prompt::Tools::Mcp
     } else {
@@ -673,11 +792,12 @@ fn start(
     };
     let setup = SessionSetup {
         exe: exe.display().to_string(),
-        cmux_mcp: env("CMUX_MCP_COMMAND"),
         env: session_env,
         instructions: instructions.clone(),
         tools,
         user_env: session_dir::host_user_env(),
+        profile_tool: chief_tools.grant().allows("profile"),
+        chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
@@ -686,7 +806,7 @@ fn start(
     } else {
         crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
     };
-    let sub_text = crate::prompt::subagent_system_text(instructions.as_deref(), &sub_tools);
+    let sub_text = crate::prompt::subagent_system_text(sub_instructions.as_deref(), &sub_tools);
     let sub_setup = SessionSetup {
         tools: sub_tools,
         ..setup.clone()
@@ -809,7 +929,7 @@ fn start(
                 crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
             };
             let other_text =
-                crate::prompt::subagent_system_text(instructions.as_deref(), &other_tools);
+                crate::prompt::subagent_system_text(sub_instructions.as_deref(), &other_tools);
             if sub_other == Family::Codex
                 && let Err(e) = session_dir::write_subagent_agents_md(paths, &other_text)
             {
@@ -1079,6 +1199,7 @@ fn start(
         )
         .with_trace(trace.clone())
         .with_pinned_harness(sub_set.is_some())
+        .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone());
         let spawner = Arc::new(spawner);
@@ -1109,6 +1230,7 @@ fn start(
             orchestrator,
             control: Some(control),
             inspector: start_inspector(paths, &chat, &claude_text),
+            chief: Some(chief_tools.clone()),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -1222,6 +1344,7 @@ fn start(
         cache_ttl: cache_ttl_env,
         shared_ttl,
         home_view: Some(home_view),
+        membership: membership.clone(),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
@@ -1249,6 +1372,9 @@ fn start(
     .with_settle_status(crate::settle_status::SettleStatus::new(
         &paths.settle_status,
     ))
+    // The app watches only the default Chief's state/ (cx-oqnw3 review): another
+    // Chief still hears a compactor fault as its message until the app watches its home.
+    .with_compactor_messages(membership.participant != crate::chief_profile::DEFAULT_CHIEF)
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
@@ -1273,6 +1399,10 @@ fn start(
     let sink: Arc<dyn Fn(daemon::DaemonEvent) + Send + Sync> = Arc::new(move |event| {
         let _ = tx.send(Input::from(event));
     });
+    // A default Chief that could not read its record at start reads it each
+    // time the link comes up, until it has it (zoom and date only until then).
+    let sink =
+        crate::chief_profile::read_record_on_up(chief_tools.clone(), sink, brain_log.clone());
     match source {
         Source::Local { token_file } => {
             let (display_name, title) = LinkConfig::names_from_env();
@@ -1282,6 +1412,7 @@ fn start(
                     token_file,
                     display_name,
                     title,
+                    participant: membership.participant.clone(),
                 },
                 sink,
                 brain_log,
@@ -1368,15 +1499,84 @@ static STOP_TX: std::sync::OnceLock<std::sync::mpsc::Sender<Input>> = std::sync:
 /// A stop signal arrived.
 static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Stops the acpmux daemon this host started, once: its agent hosts and
-/// their sessions (and their MCP children) end with it; a daemon this host
-/// did not start is left alone. A second caller waits for the first.
+/// Stops what this host owns on its acpmux, once (a second caller waits
+/// for the first). One acpmux per Chief home (hq-6d 2026-10-14): the
+/// daemon stops only when its last user leaves.
+/// - The daemon this host started (the default Chief's host, a VM Chief's
+///   own daemon): stopped with its agent hosts, unless another Chief uses
+///   it (`agents::other_users`); then only this Chief's own sessions end and
+///   the daemon keeps running for them. A daemon already gone (a handoff:
+///   the app stopped it and the next build's daemon adopts the sessions) is
+///   left alone, and so is the next daemon on its socket.
+/// - A shared acpmux (`acpmux_daemon::shared`): this Chief's own sessions
+///   end; when no other Chief uses the daemon, it stops too.
+///
+/// Before it looks for other users a stopping host marks itself stopping
+/// (`lock::mark_stopping`) and ends its own sessions, so when Chiefs stop
+/// at once the last one to look stops the daemon. A daemon this host
+/// neither started nor shares is left alone.
 fn stop_started_acpmux() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        crate::acpmux_daemon::shutdown_started(&|line| log(line));
+        let home = HOST_HOME.get().cloned().unwrap_or_else(mux_home);
+        let shared = crate::acpmux_daemon::shared();
+        let chief_home = env("CMUX_CHIEF_HOME")
+            .filter(|_| shared)
+            .map_or_else(|| home.clone(), PathBuf::from);
+        // No start begins from here; a start in flight finishes first.
+        let mut started = crate::acpmux_daemon::take_started();
+        if started.as_mut().is_some_and(|daemon| daemon.gone()) {
+            // A handoff stopped it: the next build's daemon adopts this
+            // Chief's sessions, and the daemon on the socket is not ours.
+            log("acpmux: the daemon this host started already stopped (a handoff or the app); nothing to stop");
+            return;
+        }
+        if !shared && started.is_none() {
+            // A daemon it found running is the app's, a supervisor's or
+            // another Chief's.
+            return;
+        }
+        // Every stopping Chief first marks itself stopping and ends its own
+        // sessions, then looks for other users: the last one to look sees
+        // all the others gone and stops the daemon, also when all stop at
+        // once (the supervisor stops every brain together).
+        crate::lock::mark_stopping(&home.join("state/host.lock"));
+        match crate::agents::end_own_sessions(&home) {
+            Ok(names) => log(format!("acpmux: ended this Chief's {} session(s)", names.len())),
+            Err(e) => log(format!("acpmux: ending this Chief's sessions: {e}")),
+        }
+        match crate::agents::other_users(&home, &chief_home) {
+            Ok(users) if !users.is_empty() => {
+                log(format!(
+                    "acpmux: other Chiefs use it, the daemon keeps running: {}",
+                    users.join(", ")
+                ));
+            }
+            Ok(_) => {
+                log("acpmux: no other Chief uses it; stopping it");
+                match started.take() {
+                    // A shared host stops within the supervisor's grace:
+                    // the shutdown runs on without it.
+                    _ if shared => crate::acpmux_daemon::shutdown_shared(&|line| log(line)),
+                    Some(daemon) => {
+                        daemon.shutdown(&|line| log(line));
+                    }
+                    None => {}
+                }
+            }
+            Err(e) if !shared => {
+                log(format!("acpmux: its users unknown ({e}); stopping the daemon it started"));
+                if let Some(daemon) = started.take() {
+                    daemon.shutdown(&|line| log(line));
+                }
+            }
+            Err(e) => log(format!("acpmux: its users unknown ({e}); the daemon keeps running")),
+        }
     });
 }
+
+/// This host's `MUX_HOME` (`--mux-home`), for the stop path.
+static HOST_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Set just before the brain's loop starts.
 static BRAIN_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);

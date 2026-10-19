@@ -9,6 +9,10 @@
 //!
 //! The choice is a list of harness ids in `<acpmux home>/harness-auto-update.json`,
 //! set with `_acpmux/harness/health {autoUpdate: {id, on}}`.
+//!
+//! Update Everything (cx-1mbnu, `_acpmux/harness/update`) runs the same
+//! updaters on request (`run_updates`), whatever the choice, under the same
+//! no-sudo rule.
 
 use super::{HarnessHealth, HealthService, Settings, now_ms, probe};
 use serde::{Deserialize, Serialize};
@@ -51,12 +55,45 @@ fn read(path: Option<&Path>) -> BTreeSet<String> {
         .unwrap_or_default()
 }
 
-/// The updater a row runs on its own, if any.
-fn runnable(row: &HarnessHealth) -> Option<Vec<String>> {
+/// The updater cmux may run for an outdated row, if any: a plan that needs
+/// no elevated rights and whose program does not raise them.
+pub fn updatable(row: &HarnessHealth) -> Option<Vec<String>> {
     let plan = row.update.as_ref().filter(|p| !p.elevated)?;
     let program = plan.argv.first()?;
     let name = Path::new(program).file_name().and_then(|n| n.to_str()).unwrap_or(program);
-    (row.auto_update && row.outdated && !ELEVATING.contains(&name)).then(|| plan.argv.clone())
+    (row.outdated && !ELEVATING.contains(&name)).then(|| plan.argv.clone())
+}
+
+/// The updater a row runs on its own, if any.
+fn runnable(row: &HarnessHealth) -> Option<Vec<String>> {
+    row.auto_update.then(|| updatable(row)).flatten()
+}
+
+/// Runs one updater: whether it succeeded, and its last output line (or why
+/// it did not finish).
+async fn run_updater(argv: &[String]) -> (bool, String) {
+    let run = argv.to_vec();
+    let outcome =
+        tokio::task::spawn_blocking(move || probe::run(&run, &BTreeMap::new(), UPDATE_LIMIT))
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+    match outcome {
+        Ok((ok, text)) => {
+            (ok, text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_owned())
+        }
+        Err(e) => (false, e),
+    }
+}
+
+/// What a requested update did for one harness (`run_updates`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Requested {
+    /// The updater ran: whether it succeeded, and its last output line.
+    Ran { ok: bool, detail: String },
+    /// Nothing to run: the installed version is the newest known.
+    Current,
+    /// Not run, and why (an update that needs sudo, none known, no such harness).
+    Refused(String),
 }
 
 impl HealthService {
@@ -104,6 +141,10 @@ impl HealthService {
     /// (one at a time, each command once, and not again for the same versions),
     /// and returns the ids it ran for. Callers wait for a run already going.
     pub async fn run_auto_updates(&self) -> Vec<String> {
+        // A build session with agent launches off changes no installed CLI (cx-9ettq).
+        if crate::launch_policy::agent_launch_disabled() {
+            return Vec::new();
+        }
         let _one = self.updating.lock().await;
         let mut done: BTreeMap<Vec<String>, AutoUpdateResult> = BTreeMap::new();
         let mut ran = Vec::new();
@@ -124,24 +165,7 @@ impl HealthService {
             let result = match done.get(&argv) {
                 Some(result) => result.clone(),
                 None => {
-                    let run = argv.clone();
-                    let outcome = tokio::task::spawn_blocking(move || {
-                        probe::run(&run, &BTreeMap::new(), UPDATE_LIMIT)
-                    })
-                    .await
-                    .unwrap_or_else(|e| Err(e.to_string()));
-                    let (ok, detail) = match outcome {
-                        Ok((ok, text)) => (
-                            ok,
-                            text.lines()
-                                .rev()
-                                .find(|l| !l.trim().is_empty())
-                                .unwrap_or("")
-                                .trim()
-                                .to_owned(),
-                        ),
-                        Err(e) => (false, e),
-                    };
+                    let (ok, detail) = run_updater(&argv).await;
                     tracing::info!(harness = %row.id, ok, "auto-update ran");
                     let result = AutoUpdateResult {
                         at: now_ms(),
@@ -158,5 +182,66 @@ impl HealthService {
             ran.push(row.id);
         }
         ran
+    }
+
+    /// Runs now, for the person (Update Everything, cx-1mbnu), the updater of
+    /// each row named in `ids` (every outdated row when None), whatever its
+    /// auto-update choice and earlier runs, under the same rule: never one
+    /// that needs sudo or whose program raises rights. One at a time, shared
+    /// with auto-update, and each command once. `check` runs once the
+    /// updates are this caller's (after any auto-update ends), so a version
+    /// an auto-update just installed is not installed again; its rows are
+    /// returned with the outcomes.
+    pub async fn run_updates(
+        &self,
+        check: impl std::future::Future<Output = Vec<HarnessHealth>>,
+        ids: Option<&BTreeSet<String>>,
+    ) -> (Vec<HarnessHealth>, Vec<(String, Requested)>) {
+        let _one = self.updating.lock().await;
+        let rows = check.await;
+        let rows = &rows[..];
+        let asked: Vec<String> = match ids {
+            Some(ids) => ids.iter().cloned().collect(),
+            None => rows.iter().filter(|r| r.outdated).map(|r| r.id.clone()).collect(),
+        };
+        let mut done: BTreeMap<Vec<String>, (bool, String)> = BTreeMap::new();
+        let mut out = Vec::new();
+        for id in asked {
+            let Some(row) = rows.iter().find(|r| r.id == id) else {
+                out.push((id, Requested::Refused("no such harness on this machine".into())));
+                continue;
+            };
+            if !row.outdated {
+                let unknown = || row.problem.clone().unwrap_or("its version is unknown".into());
+                let answer = if row.version.is_some() {
+                    Requested::Current
+                } else {
+                    Requested::Refused(unknown())
+                };
+                out.push((id, answer));
+                continue;
+            }
+            let Some(argv) = updatable(row) else {
+                let why = match &row.update {
+                    Some(plan) => {
+                        format!("its update needs elevated rights: run `{}`", plan.command)
+                    }
+                    None => "cmux cannot update it: update it the way it was installed".to_owned(),
+                };
+                out.push((id, Requested::Refused(why)));
+                continue;
+            };
+            let (ok, detail) = match done.get(&argv) {
+                Some(result) => result.clone(),
+                None => {
+                    let result = run_updater(&argv).await;
+                    tracing::info!(harness = %id, ok = result.0, "requested update ran");
+                    done.insert(argv, result.clone());
+                    result
+                }
+            };
+            out.push((id, Requested::Ran { ok, detail }));
+        }
+        (rows.to_vec(), out)
     }
 }

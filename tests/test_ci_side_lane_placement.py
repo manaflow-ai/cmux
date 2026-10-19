@@ -90,6 +90,28 @@ class Decide(unittest.TestCase):
     def test_route_keeps_side_label_when_any_online_runner_carries_it(self):
         self.assertEqual(placement.route_label(SIDE, [runner("mini-a-glaeda")]), SIDE)
 
+    def test_gui_route_requires_an_online_runner_with_the_gui_label(self):
+        self.assertEqual(placement.gui_route_label(SIDE, []), "")
+        self.assertEqual(placement.gui_route_label(SIDE, None), "")
+        self.assertEqual(placement.gui_route_label(SIDE, [runner("mini-a-glaeda")]), "")
+        self.assertEqual(
+            placement.gui_route_label(SIDE, [runner("mini-a-glaeda", labels=(STD, SIDE, GUI))]),
+            GUI,
+        )
+
+    def test_a_light_side_lane_borrows_the_std_gui_runners(self):
+        # The light minis run no GUI runner, so a light side lane's GUI suites take the std minis'
+        # live GUI label instead of the Blacksmith fallback; a live light GUI label still wins.
+        light_side, light_gui = "glaeda-side-light-xcode-26.6", "glaeda-gui-light-xcode-26.6"
+        light = runner("light-a-glaeda-1", labels=("glaeda-light-xcode-26.6", light_side))
+        std_gui = runner("mini-a-glaeda-4", labels=(STD, GUI))
+        self.assertEqual(placement.gui_route_label(light_side, [light, std_gui]), GUI)
+        self.assertEqual(placement.gui_route_label(light_side, [light]), "")
+        self.assertEqual(placement.gui_route_label(light_side, [light, runner("mini-a-glaeda-4", labels=(STD, GUI),
+                                                                              status="offline")]), "")
+        live_light = runner("light-b-glaeda-4", labels=("glaeda-light-xcode-26.6", light_gui))
+        self.assertEqual(placement.gui_route_label(light_side, [light, live_light, std_gui]), light_gui)
+
     def test_attempt_2_and_later_are_unchanged(self):
         # Attempt 2+ keeps its own route (the workflow's expression sends it to the fallback): no decision.
         idle = [runner(f"mini-{host}-glaeda-3") for host in "abc"]
@@ -124,6 +146,7 @@ class Decide(unittest.TestCase):
             self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
             self.assertEqual(lines["fallback_jobs"], "")
             self.assertEqual(lines["runner"], SIDE)
+            self.assertEqual(lines["gui_runner"], "")
             self.assertEqual(lines["watch"], "true")
             # Every job on the fallback: no owned job for the rescue to watch.
             output.write_text("")
@@ -155,9 +178,11 @@ class CmuxNextWiring(unittest.TestCase):
                                  CI_SIDE_LANE_RUNNER=SIDE)
         context["vars"].pop("MACOS_RUNNER_PR")
         head = "someone/cmux" if fork else "manaflow-ai/cmux"
+        # PR Mac jobs run only with the full-ci label (the batch integration PR).
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
                                  triggering_actor=triggering_actor,
-                                 event={"pull_request": {"head": {"repo": {"full_name": head}}}})
+                                 event={"pull_request": {"head": {"repo": {"full_name": head}},
+                                                         "labels": [{"name": "full-ci"}]}})
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner,
                                                     "gui_runner": GUI if runner else ""}
         # path_route (#17164) gates every Mac job; these cases are native changes.
@@ -180,7 +205,7 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertIn(self.PLACEMENT, job["needs"] if isinstance(job["needs"], list) else [job["needs"]])
                 # A failed placement job must not skip the Mac jobs: they keep today's route.
-                self.assertTrue(job["if"].startswith("${{ !cancelled() && "), job["if"])
+                self.assertIn("!cancelled() && ", job["if"])
                 self.assertIn("needs.macos-placement.outputs." + ("gui_runner" if name in GUI_JOBS else "runner"),
                               job["runs-on"])
                 # The job's own copy of its label (mini-only steps) agrees with runs-on.
@@ -205,16 +230,22 @@ class CmuxNextWiring(unittest.TestCase):
                                                                  triggering_actor="github-actions[bot]")), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
 
-    def test_a_bot_attempt_4_leaves_the_placement_label_for_blacksmith(self):
-        # A re-run keeps attempt 1's placement output, so bot attempt 3 stays on
-        # the minis; the rescue re-runs a refusal there as attempt 4, which must
-        # leave the minis (#18147, 2026-10-07 02:23Z).
+    def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
+        jobs = self.workflow()["jobs"]
+        context = self.context(runner=STD)
+        context["needs"][self.PLACEMENT]["outputs"]["gui_runner"] = ""
+        for name in GUI_JOBS:
+            self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
+
+    def test_a_bot_attempt_3_leaves_the_placement_label_for_blacksmith(self):
+        # A rescue attempt 3 must drop the stale placement output and use the
+        # hosted fallback; later bot attempts remain hosted as well.
         jobs = self.workflow()["jobs"]
         bot = "github-actions[bot]"
         for name in JOBS:
             runs_on = jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), on(name, STD))
+                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), FALLBACK)
                 # A person's re-run stays minis-first at any attempt.
@@ -295,15 +326,26 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(job=name):
                 concurrency = jobs[name].get("concurrency")
                 self.assertIsInstance(concurrency, dict, f"{name} has no job-level concurrency")
-                self.assertIs(concurrency["cancel-in-progress"], False)
+                # A push never cancels a running Mac job; a newer PR head may.
+                cancel = concurrency["cancel-in-progress"]
+                self.assertFalse(evaluate(cancel, self.push("101")) if isinstance(cancel, str) else cancel)
                 group = concurrency["group"]
                 first, second = evaluate(group, self.push("101")), evaluate(group, self.push("102"))
                 self.assertEqual(first, second)
                 push_groups[name] = first
-                for event_name in ("pull_request", "workflow_dispatch"):
-                    one, other = (evaluate(group, self.push(run_id, event_name)) for run_id in ("101", "102"))
-                    self.assertNotEqual(one, other, event_name)
-                    self.assertNotEqual(one, first, event_name)
+                # Dispatch runs keep a group per run. Pull request runs are kept
+                # apart per run or, for jobs that coalesce stale heads, per pull
+                # request; either way two pull requests never share a group.
+                one, other = (evaluate(group, self.push(run_id, "workflow_dispatch")) for run_id in ("101", "102"))
+                self.assertNotEqual(one, other, "workflow_dispatch")
+                self.assertNotEqual(one, first, "workflow_dispatch")
+                pulls = []
+                for run_id, number in (("101", 1), ("102", 2)):
+                    context = self.push(run_id, "pull_request")
+                    context["github"]["event"] = {"pull_request": {"number": number}}
+                    pulls.append(evaluate(group, context))
+                self.assertNotEqual(pulls[0], pulls[1], "pull_request")
+                self.assertNotEqual(pulls[0], first, "pull_request")
         self.assertEqual(len(set(push_groups.values())), len(JOBS))
 
     def test_push_runs_upload_no_rescue_watch_marker(self):

@@ -345,6 +345,17 @@ try:
         snapshot("dark-editing")
         blur()
     rpc("debug.appearance", {"mode": "system"})
+
+    # 8. Pointer moves over a New Tab page and back over a browser toolbar keep the app alive.
+    print("new tab page", rpc("action.run", {"action": "newTab.page", "focus": True}), flush=True)
+    for point in ((600, 20), (600, 44), (300, 44), (600, 300), (40, 400)):
+        mouse("move", point)
+    check("error" not in (rpc("debug.focus") or {"error": 1}), "the app answers after moves over a New Tab page")
+    rpc("action.run", {"action": "prevSurface", "focus": True})
+    for point in ((center(text) if text else None), (center(reload) if reload else None), page):
+        if point:
+            mouse("move", point)
+    check("error" not in (rpc("debug.focus") or {"error": 1}), "the app answers after moves over the toolbar and the page")
 finally:
     if app:
         rpc("debug.quit", {"fixture_quit": "end-sessions"})

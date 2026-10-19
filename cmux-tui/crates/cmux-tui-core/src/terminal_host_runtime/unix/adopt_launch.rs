@@ -284,7 +284,11 @@ fn spawn_adopting_host(
     binary: Option<PathBuf>,
     master: RawFd,
 ) -> anyhow::Result<(SpawnedHostProcess, ChildStdinPair)> {
+    let orphan_env = host_orphan_env();
     let configure = |command: &mut Command| {
+        if let Some((name, value)) = &orphan_env {
+            command.env(name, value);
+        }
         command
             .args(["__terminal-host", "--bootstrap-stdio", ADOPT_PTY_FD_FLAG])
             .arg(ADOPTED_PTY_FD.to_string())
@@ -378,9 +382,9 @@ pub(crate) fn launch_terminal_host_adopting_with_program_status(
     let terminal_hex = terminal_id.to_hex();
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
     let uid = fs::metadata(root)?.uid();
-    let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
-    prepare_endpoint_dir(&endpoint_root)?;
-    let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
+    prepare_endpoint_dir(&sys::endpoint_dir(uid))?;
+    prepare_endpoint_dir(&sys::host_endpoint_dir(uid, root))?;
+    let endpoint = sys::host_endpoint(uid, root, &terminal_hex);
     let record_path =
         crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
     let predecessor = predecessor(&record_path, &adoption.identity)?;

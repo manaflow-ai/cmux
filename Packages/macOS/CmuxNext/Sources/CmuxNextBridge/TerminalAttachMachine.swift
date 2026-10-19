@@ -67,6 +67,13 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     /// True while this view believes it holds geometry: it claimed, and the
     /// stream has not announced another client's grid since.
     public private(set) var claimed = false
+    /// The link this view hid on (`.hide`); showing the view again un-hides it there.
+    private var hiddenOn: Link?
+    /// This view's claims the stream has not echoed yet, oldest first (a live resize claims every frame).
+    public private(set) var echoesDue: [CellSize] = []
+    /// The grid the stream last announced on the live link: a claim of it changes nothing, so the
+    /// stream echoes nothing and no echo is due (a stale one held the next drag's grids).
+    public private(set) var announcedSize: CellSize?
     /// Last status the view was told (it starts connected: nothing shown).
     public private(set) var status: LinkStatus = .connected
     /// The process ended while an attach was pending: its replay (the last
@@ -158,6 +165,12 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         reportedSize = pending.size
         claimed = false
         var effects = announce(.connected)
+        // Hidden while it attached (a background tab, a re-attach while parked): the size its attach
+        // reported does not count toward the grid.
+        if !visible {
+            hiddenOn = link
+            effects.append(.hide(link))
+        }
         effects += syncGeometry(link)
         effects += queuedInput.map { .send(link, $0) }
         queuedInput = []
@@ -197,13 +210,14 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         return claim(link, size)
     }
 
-    /// The stream announced `size`. Another client's grid means this view no
-    /// longer holds geometry; its next key press or focus claims again. A
-    /// grid from this view's earlier report (announced after a newer one)
-    /// costs at most one redundant claim.
+    /// The stream announced `size`. Another client's grid means this view no longer holds
+    /// geometry; its next key press or focus claims again. Its own earlier reports are not.
     private mutating func gridAnnounced(_ link: Link, size: CellSize) -> [Effect] {
-        guard liveLink == link, claimed, size != reportedSize else { return [] }
-        claimed = false
+        guard liveLink == link else { return [] }
+        announcedSize = size
+        if let mine = echoesDue.firstIndex(of: size) { echoesDue.removeFirst(mine + 1); return [] }
+        guard claimed, size != reportedSize else { return [] }
+        claimed = false; echoesDue = []
         return []
     }
 
@@ -227,12 +241,15 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         if visible, liveLink == nil { return reconnect() }
         guard let link = liveLink else { return [] }
         if !visible {
+            // The claim stays: hidden, the view only stops counting toward the grid (no PTY resize,
+            // no report or claim to show it again). Another client's grid meanwhile clears `claimed`.
             guard claimed || reportedSize != nil else { return [] }
-            claimed = false
-            reportedSize = nil
-            return [.release(link)]
+            hiddenOn = link
+            return [.hide(link)]
         }
-        return syncGeometry(link)
+        let unhide: [Effect] = hiddenOn == link ? [.unhide(link)] : []
+        hiddenOn = nil
+        return unhide + syncGeometry(link)
     }
 
     private mutating func ended(_ link: Link, reason: TerminalChannelCloseReason) -> [Effect] {
@@ -265,8 +282,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         // replay. Input typed meanwhile queues until that replay.
         let pending = newPending(failures: failures + 1)
         phase = .reattaching(pending)
-        claimed = false
-        reportedSize = nil
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         return [.detach(link), .open(attempt: pending.attempt, size: pending.size)]
     }
 
@@ -315,8 +331,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private mutating func disconnect(_ reason: DisconnectReason, after pending: Pending?) -> [Effect] {
         let failed = pending?.reconnects.map { $0 + 1 } ?? 0
         phase = .disconnected(Disconnected(reason: reason, failedReconnects: failed))
-        claimed = false
-        reportedSize = nil
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         if visible, reason != .fellBehind, autoReconnects < Self.maxAutoReconnects {
             autoReconnects += 1
             return reconnect(byEvent: false)
@@ -339,8 +354,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         droppedInputBytes += queuedInputBytes
         queuedInput = []
         queuedInputBytes = 0
-        claimed = false
-        reportedSize = nil
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         return (link.map { [Effect.detach($0)] } ?? []) + announce(.exited)
     }
 
@@ -412,6 +426,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private mutating func claim(_ link: Link, _ size: CellSize) -> [Effect] {
         claimed = true
         reportedSize = size
+        if size != announcedSize || !echoesDue.isEmpty { echoesDue = Array((echoesDue + [size]).suffix(8)) }
         return [.claim(link, size)]
     }
 
@@ -420,8 +435,7 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
         droppedInputBytes += queuedInputBytes
         queuedInput = []
         queuedInputBytes = 0
-        claimed = false
-        reportedSize = nil
+        claimed = false; reportedSize = nil; echoesDue = []; announcedSize = nil; hiddenOn = nil
         return (link.map { [Effect.detach($0)] } ?? []) + [.finish]
     }
 }
