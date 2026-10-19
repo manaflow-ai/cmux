@@ -86,6 +86,9 @@ afterAll(() => {
 });
 
 type Summary = Record<string, unknown> | undefined;
+type PermissionAccess = {
+  grants: readonly { id: string; label: string; onRemove(): void }[];
+};
 
 function reported(sessionId: string, currentModeId: string): Summary {
   return {
@@ -104,7 +107,7 @@ function reported(sessionId: string, currentModeId: string): Summary {
 }
 
 /// Renders the composer's chips for `summary` (undefined: a new chat whose session has not reported).
-async function render(summary: Summary, cwd?: string) {
+async function render(summary: Summary, cwd?: string, permissionAccess?: PermissionAccess) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -134,6 +137,7 @@ async function render(summary: Summary, cwd?: string) {
     return (
       <ComposerPickers
         snapshot={snapshot}
+        permissionAccess={permissionAccess}
         pickerCatalog={picker.catalog}
         onModel={() => undefined}
         onMode={() => undefined}
@@ -213,6 +217,23 @@ test("a new chat acpmux starts in full access draws its warning chip on the firs
   // Its session reports the same mode: nothing changes.
   await render(reported("new", "bypassPermissions"));
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
+});
+
+test("the access chip keeps grant details in its menu without a count in the pill", async () => {
+  await render(reported("chat", "default"), undefined, {
+    grants: [{ id: "grant-1", label: "Always allow shell", onRemove: () => undefined }],
+  });
+  const chip = host.querySelector<HTMLElement>(".acpmux-mode")!;
+  expect(chip.querySelector(".acpmux-access-grant-count")).toBeNull();
+  expect(chip.querySelector(".acpmux-mode-text")?.textContent?.trim()).toBe("Ask before edits");
+  await act(async () => {
+    const trigger = chip.querySelector<HTMLButtonElement>(".acpmux-access-trigger")!;
+    const press = new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 1, clientY: 1 });
+    Object.defineProperties(press, { pointerId: { value: 1 }, pointerType: { value: "mouse" } });
+    trigger.dispatchEvent(press);
+  });
+  expect(document.querySelector(".acpmux-access-grant-label")?.textContent).toBe("Always allow shell");
+  expect(document.querySelector<HTMLButtonElement>(".acpmux-access-grant-remove")).not.toBeNull();
 });
 
 test("a kept answer that is wrong gives way to acpmux's answer", async () => {
