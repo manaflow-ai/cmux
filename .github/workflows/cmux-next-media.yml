@@ -221,13 +221,34 @@ jobs:
           python3 scripts/ci/prune_media_derived_data.py \
             --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" --keep-others 2
 
-      # Another tour has often built this merge base's app under this tag
-      # already: an earlier push of the pull request, another pull request
-      # branched from the same commit, or the merge tour of the commit before.
-      # It is in that run's artifacts (media_app_cache.py); fetching it skips
-      # the base's worktree, GhosttyKit and ~6 min build. Any failure builds.
       # A pull request branched before these scripts checks out a head
       # without them; this step takes them from the merge ref instead.
+      # MEDIA_APP_RECIPE hashes how this tour builds an app, so a pull request
+      # that changes that never shares its app with other tours.
+      - name: Take the tour build scripts
+        if: steps.scope.outputs.is_ui == 'true'
+        run: |
+          set -euo pipefail
+          ci="$GITHUB_WORKSPACE/scripts/ci"
+          if [ ! -f "$ci/media_app_cache.py" ] || [ ! -f "$ci/media_build_app.sh" ]; then
+            git fetch --no-tags origin "$GITHUB_SHA"
+            ci="$RUNNER_TEMP/media-tour-ci"
+            mkdir -p "$ci"
+            for script in media_app_cache.py media_build_app.sh media_module_cache_stamp.py; do
+              git show "$GITHUB_SHA:scripts/ci/$script" > "$ci/$script"
+            done
+            chmod +x "$ci/media_build_app.sh"
+          fi
+          recipe="$({ cat "$ci/media_build_app.sh" "$ci/media_module_cache_stamp.py"
+            env | grep -E '^(CMUX_SKIP_ZIG_BUILD|CMUX_GHOSTTYKIT_PREPROVISIONED|CMUX_CI_XCODE_APP)=' | sort
+          } | shasum -a 256 | cut -c1-12)"
+          { echo "MEDIA_TOUR_CI=$ci"; echo "MEDIA_APP_RECIPE=$recipe"; } >> "$GITHUB_ENV"
+
+      # A tour of the same pull request with the same merge base built this
+      # app under this tag already (and with per-Mac tour slots, any tour in
+      # the same slot number on any Mac). It is in that run's artifacts
+      # (media_app_cache.py); fetching it skips the base's worktree, GhosttyKit
+      # and ~6 min build. Any miss, refusal or failure builds as before.
       - name: Reuse the base app another tour built
         id: base_cache
         if: steps.scope.outputs.is_ui == 'true'
@@ -236,19 +257,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ci="$GITHUB_WORKSPACE/scripts/ci"
-          if [ ! -f "$ci/media_app_cache.py" ] || [ ! -f "$ci/media_build_app.sh" ]; then
-            git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
-            ci="$RUNNER_TEMP/media-tour-ci"
-            mkdir -p "$ci"
-            for script in media_app_cache.py media_build_app.sh media_module_cache_stamp.py; do
-              git show "$GITHUB_SHA:scripts/ci/$script" > "$ci/$script"
-            done
-            chmod +x "$ci/media_build_app.sh"
-          fi
-          echo "MEDIA_TOUR_CI=$ci" >> "$GITHUB_ENV"
-          python3 "$ci/media_app_cache.py" fetch --repo "$GITHUB_REPOSITORY" \
-            --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" \
+          python3 "$MEDIA_TOUR_CI/media_app_cache.py" fetch --repo "$GITHUB_REPOSITORY" \
+            --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" --recipe "$MEDIA_APP_RECIPE" \
             --dest "$HOME/Library/Developer/Xcode/DerivedData/cmux-${TOUR_TAG}-base/Build/Products/Debug" \
             --github-output "$GITHUB_OUTPUT" || echo "no reusable base app; building it"
 
@@ -291,13 +301,14 @@ jobs:
             exit 0
           fi
           export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}"
-          ci="${MEDIA_TOUR_CI:-$GITHUB_WORKSPACE/scripts/ci}"
+          ci="$MEDIA_TOUR_CI"
           "$ci/media_build_app.sh" "$RUNNER_TEMP/cmux-next-base" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-base.out" base_app
           # Pack it for later tours (the next step uploads it). Best effort.
           app="$(sed -n 's/^base_app=//p' "$GITHUB_OUTPUT" | tail -n 1)"
           if python3 "$ci/media_app_cache.py" pack --app "$app" --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" \
-              --out "$RUNNER_TEMP/media-app/app.tar"; then
-            echo "artifact=$(python3 "$ci/media_app_cache.py" name --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE")" >> "$GITHUB_OUTPUT"
+              --recipe "$MEDIA_APP_RECIPE" --out "$RUNNER_TEMP/media-app/app.tar"; then
+            echo "artifact=$(python3 "$ci/media_app_cache.py" name --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" \
+              --recipe "$MEDIA_APP_RECIPE")" >> "$GITHUB_OUTPUT"
           fi
 
       # Uploaded before the head builds, so a tour cancelled by a newer push
@@ -319,7 +330,7 @@ jobs:
         run: |
           set -euo pipefail
           export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}"
-          ci="${MEDIA_TOUR_CI:-$GITHUB_WORKSPACE/scripts/ci}"
+          ci="$MEDIA_TOUR_CI"
           "$ci/media_build_app.sh" "$GITHUB_WORKSPACE" "${TOUR_TAG}-head" "$RUNNER_TEMP/reload-head.out" head_app
 
       - name: Capture before and after interactions

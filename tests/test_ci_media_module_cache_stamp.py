@@ -187,6 +187,8 @@ def scenario_workflow_step():
             GITHUB_OUTPUT=os.path.join(tmp, "output"),
             TOUR_TAG="ci-media-pr-9",
             RUNNER_NAME="runner-1",
+            MEDIA_TOUR_CI=os.path.join(workspace, "scripts", "ci"),
+            MEDIA_APP_RECIPE="0123456789ab",
             MERGE_BASE="0" * 40,
             BASE_APP="",
         )
