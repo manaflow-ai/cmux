@@ -469,6 +469,7 @@ class BaseReds(unittest.TestCase):
         controller.base_probe = None
         controller.base_probe_result = {}
         controller.base_probe_stop = threading.Event()
+        controller.base_tree_waited = False
         controller.base_sha = "b" * 40
         controller.batch_id = "local-1"
         return controller
@@ -509,6 +510,20 @@ class BaseReds(unittest.TestCase):
         ]}
         self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug)"})
         self.assertIn("event=push", controller.gh.runs.call_args.args[1])
+
+    def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
+        controller = self.controller()
+        controller.gh.runs.return_value = [
+            {"id": 3, "status": "in_progress", "head_branch": nb.BASE, "html_url": "u"},
+            {"id": 4, "status": "in_progress", "head_branch": "next-batch/x-1", "html_url": "u"},
+            {"id": 5, "status": "completed", "head_branch": nb.BASE, "html_url": "u"},
+        ]
+        waited = []
+        controller.wait_run = lambda run_id, timeout: waited.append(run_id) or {"status": "completed"}
+        controller.wait_base_tree()
+        controller.wait_base_tree()
+        self.assertEqual(waited, [3])
+        self.assertEqual(controller.gh.runs.call_args.args[0], nb.TUI_WORKFLOW)
 
     def test_a_cancelled_probe_is_never_rerun(self):
         controller = self.controller()
