@@ -1457,7 +1457,7 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
     runs-on: ${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
@@ -1585,10 +1585,20 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
+    # nightly-next pushes share one build slot. Each push used to build its own
+    # head, so pushes queued for the trusted runner and every intermediate head got
+    # a full build (2026-10-18: three pushes in three minutes, three 90-minute
+    # builds; merged-to-published p50 5.8 h, p90 2.1 d). Now at most one build
+    # waits, and a newer push replaces it; a running build always finishes. The
+    # workflow group above stays run-scoped so post-publication checks never hold
+    # the next build. Every other ref and dispatch keeps a slot of its own.
+    concurrency:
+      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && 'nightly-next-build-app' || format('nightly-build-app-{0}', github.run_id) }}
+      cancel-in-progress: false
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # Attempt 1 of main's push/schedule uses its existing trusted runner.
     # NEXT's own push uses a separately configured trusted runner whose hook
     # admits only nightly.yml/build-nightly-app on nightly-next. Both labels
@@ -2308,6 +2318,11 @@ jobs:
       # resolved build commit, so a run whose tip moved but whose resolved
       # commit is already published builds nothing.
       already_published: ${{ steps.build.outputs.already_published }}
+      # A nightly-next push whose ref has already moved on builds nothing: the
+      # newer push's run builds the tip. Checked here, the last thing before
+      # build-nightly-app enters its shared slot, so an older run can never
+      # take the slot from a newer one.
+      superseded: ${{ steps.superseded.outputs.superseded }}
     steps:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2401,6 +2416,22 @@ jobs:
             echo "- tip: \`$TIP_SHA\` (${BEHIND:-0} commits and ${BEHIND_HOURS:-0} h behind)"
             echo "- already published: $already_published"
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Leave the build slot to a newer nightly-next push
+        id: superseded
+        if: github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TIP_SHA: ${{ needs.decide.outputs.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$REPOSITORY/git/ref/heads/nightly-next" --jq .object.sha)"
+          if [[ "$current" =~ ^[0-9a-f]{40}$ && "$current" != "$TIP_SHA" ]]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Superseded::nightly-next moved from $TIP_SHA to $current; the newer push's run builds it"
+          else
+            echo "superseded=false" >> "$GITHUB_OUTPUT"
+          fi
 
   prepare-nightly-variant:
     # No environment and no secrets: this job runs code from the bundle (the
@@ -2408,7 +2439,7 @@ jobs:
     # sidecar handshake) before signing. build-sign-notarize-nightly signs
     # exactly the app it uploads and runs no bundle code itself (#21024).
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
       contents: read
@@ -2744,7 +2775,7 @@ jobs:
     # track uses `release-next`, whose policy allows only branch nightly-next.
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     outputs:
       # nightly-next is arm64 only, so its one matrix leg sets this; publish
       # waits for a later run when Apple had not accepted the build in time.
@@ -6428,11 +6459,15 @@ jobs:
     permissions:
       contents: read
       issues: write
+      # The replaced-build check lists this run's jobs.
+      actions: read
     steps:
       - name: Open or update the nightly failure issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha || needs.decide.outputs.head_sha }}
+          # The pushed nightly-next head (HEAD_SHA can be an older resolved build commit).
+          TIP_SHA: ${{ needs.decide.outputs.head_sha }}
           RESULTS: ${{ toJSON(needs) }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
@@ -6451,9 +6486,34 @@ jobs:
             const label = `${process.env.CHANNEL_RELEASE_TAG}-failure`;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
+            // A nightly-next build that a newer push replaced while it waited for
+            // the shared build slot ends cancelled without ever getting a runner;
+            // the newer run builds and reports. Only that case is dropped: a build
+            // that started and was cancelled (timeout, by hand) still reports, and
+            // so does every other failed job of this run.
+            let replaced = false;
+            if (refName === 'nightly-next' && results['build-nightly-app']?.result === 'cancelled') {
+              try {
+                // Latest attempt of each job (the endpoint's default filter).
+                const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
+                  { owner, repo, run_id: context.runId, per_page: 100 });
+                const build = jobs.find((job) => job.name === 'build-nightly-app');
+                const neverStarted = Boolean(build) && !build.runner_name && !(build.steps || []).length;
+                // A build cancelled while queued for a runner never started either;
+                // only a newer push (the ref moved past this tip) replaces it.
+                const { data: ref } = await github.rest.git.getRef({ owner, repo, ref: 'heads/nightly-next' });
+                replaced = neverStarted && ref.object.sha !== process.env.TIP_SHA;
+              } catch (error) {
+                core.warning(`Could not read this run's jobs (${error.message}); reporting the cancelled build.`);
+              }
+            }
             const failed = Object.entries(results)
-              .filter(([, v]) => v.result === 'failure' || v.result === 'cancelled')
+              .filter(([k, v]) => (v.result === 'failure' || v.result === 'cancelled') && !(replaced && k === 'build-nightly-app'))
               .map(([k, v]) => `${k} (${v.result})`);
+            if (replaced && failed.length === 0 && !process.env.REFUSAL_REASON && process.env.TAG_STATUS !== 'stale') {
+              core.info('build-nightly-app was replaced in its slot by a newer nightly-next push before it started; nothing else failed.');
+              return;
+            }
             // A refused publication succeeds as a job but published nothing.
             if (process.env.REFUSAL_REASON) failed.push(`publish-nightly (refused: ${process.env.REFUSAL_REASON})`);
             // nightly-next: notes jobs that were skipped after a publication
