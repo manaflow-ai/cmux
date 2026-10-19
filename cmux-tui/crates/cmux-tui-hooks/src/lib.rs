@@ -48,7 +48,9 @@ use windows_sys::Win32::System::Threading::{
 #[cfg(test)]
 mod claude_worktree_tests;
 mod message_hooks;
+mod status_conflict;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
+use status_conflict::{conflict_row, ensure_replaceable_target};
 
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
@@ -628,6 +630,12 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
         for provider in selected {
             let path = context.provider_path(provider);
             let from_env_override = context.provider_path_from_env_override(provider);
+            if plan.action == Action::Status
+                && let Some(row) = conflict_row(provider, &path)
+            {
+                results.push(row);
+                continue;
+            }
             let outcome = if provider.id == "hermes-agent" {
                 run_hermes_provider(plan.action, provider, &path, context)
             } else {
@@ -2800,21 +2808,6 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
         let _ = fs::remove_file(&temporary);
     }
     result
-}
-
-fn ensure_replaceable_target(path: &Path) -> anyhow::Result<()> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error).with_context(|| format!("inspect {}", path.display())),
-    };
-    anyhow::ensure!(
-        !metadata.file_type().is_symlink(),
-        "refusing to replace symlink {}",
-        path.display()
-    );
-    anyhow::ensure!(metadata.is_file(), "refusing to replace non-file {}", path.display());
-    Ok(())
 }
 
 #[cfg(test)]
