@@ -115,7 +115,7 @@ public final class AgentCLIUpdateActions {
         let scope = DaemonCommandScope(idempotencyKey: key)
         let invocation = ActionInvocation(target: .init(kind: .machine, id: localMachine),
             arguments: id.map { ["id": .string($0)] } ?? [:], origin: .user)
-        let work = DaemonCommandScope.$current.withValue(scope) {
+        let work = DaemonCommandScope.$current.withValueInTask(scope) {
             registry.capturingWork { registry.perform("agent.harness.updateAll", invocation: invocation) }
         }
         guard !work.isEmpty else { throw PageError.unavailable(unsupported()) }
