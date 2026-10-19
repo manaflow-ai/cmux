@@ -1308,14 +1308,76 @@ class StickyBody(unittest.TestCase):
         self.assertNotIn("batch 7", body)
 
 
+def waiver_controller(base_now="b"):
+    """A controller whose batch validated stacks on base `b`; feat-cmux-next is now `base_now`."""
+    controller = nb.Controller.__new__(nb.Controller)
+    controller.args = Namespace(repo="o/r")
+    controller.run_url = "https://example.test/run/1"
+    controller.writer = nb.GitHub("o/r")
+    controller.validations = []
+    controller.current_base = lambda: base_now
+    controller.same_tree = lambda a, b: a == b
+    controller.job_ids = lambda run_url, names: {name: 4000 + index for index, name in enumerate(names)}
+    return controller
+
+
+def heavy_validation(prs, passed=("cmux-next swift test",), heads=None):
+    return nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40, included=list(prs), heads=heads or {}),
+                         heavy_passed=list(passed), heavy_url="https://example.test/actions/runs/77")
+
+
 class LandingRetry(unittest.TestCase):
+    RED_SWIFT = "not green: 'cmux-next swift test' on abc1234, not excused by feat-cmux-next (x)\n"
+
+    def merge(self, controller, target, validation):
+        calls = []
+
+        def fake_run(command, **_):
+            calls.append(command)
+            if "--override" not in command:
+                return subprocess.CompletedProcess(command, 1, "", self.RED_SWIFT)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with mock.patch.object(nb.subprocess, "run", fake_run):
+            return controller.merge_one(Path("/bin/true"), target, validation), calls
+
+    def test_the_override_names_the_batch_run_and_job_ids(self):
+        controller = waiver_controller()
+        outcome, calls = self.merge(controller, pr(7), heavy_validation([pr(7)]))
+        self.assertTrue(outcome.startswith("landed"))
+        reason = calls[-1][calls[-1].index("--override") + 1]
+        self.assertIn("https://example.test/actions/runs/77", reason)
+        self.assertIn("cmux-next swift test (job 4000)", reason)
+
+    def test_a_later_member_could_have_made_the_job_green_so_no_waiver(self):
+        controller = waiver_controller()
+        outcome, calls = self.merge(controller, pr(7), heavy_validation([pr(7), pr(8)]))
+        self.assertTrue(outcome.startswith("not landed"))
+        self.assertTrue(all("--override" not in call for call in calls))
+
+    def test_a_prefix_ending_at_the_pr_waives_for_it(self):
+        controller = waiver_controller(base_now="m")  # #6 landed: the base is the stack through #6
+        prefix = heavy_validation([pr(6), pr(7)], heads={6: "s6", 7: "s7"})
+        controller.validations = [heavy_validation([pr(6), pr(7), pr(8)], heads={6: "s6", 7: "s7", 8: "s8"}), prefix]
+        controller.same_tree = lambda a, b: {a, b} == {"m", "s6"}
+        outcome, calls = self.merge(controller, pr(7), controller.validations[0])
+        self.assertTrue(outcome.startswith("landed"))
+
+    def test_a_base_that_moved_past_the_stack_gets_no_waiver(self):
+        controller = waiver_controller(base_now="d")
+        outcome, calls = self.merge(controller, pr(7), heavy_validation([pr(7)]))
+        self.assertTrue(outcome.startswith("not landed"))
+        self.assertTrue(all("--override" not in call for call in calls))
+
+    def test_unreadable_job_ids_give_no_waiver(self):
+        controller = waiver_controller()
+        controller.job_ids = lambda run_url, names: {}
+        outcome, calls = self.merge(controller, pr(7), heavy_validation([pr(7)]))
+        self.assertTrue(outcome.startswith("not landed"))
+
     def test_red_heavy_check_lands_with_an_override_naming_the_batch(self):
-        controller = nb.Controller.__new__(nb.Controller)
-        controller.args = Namespace(repo="o/r")
-        controller.run_url = "https://example.test/run/1"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
-                                   heavy_passed=["cmux-next swift test"])
+        controller = waiver_controller()
+        validation = heavy_validation([pr(7)])
         calls = []
 
         def fake_run(command, **_):
@@ -1332,12 +1394,8 @@ class LandingRetry(unittest.TestCase):
 
     def test_each_override_is_checked_against_its_own_refusal(self):
         """A lane that turns red while landing waits must be judged again, not waived."""
-        controller = nb.Controller.__new__(nb.Controller)
-        controller.args = Namespace(repo="o/r")
-        controller.run_url = "u"
-        controller.writer = nb.GitHub("o/r")
-        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
-                                   heavy_passed=["cmux-next swift test"])
+        controller = waiver_controller()
+        validation = heavy_validation([pr(7)])
         tail = " on abc1234, not excused by feat-cmux-next (x)\n"
         replies = iter([
             "not green: 'cmux-next swift test'" + tail,  # waivable: retry with --override
