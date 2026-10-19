@@ -50,6 +50,7 @@ fn git(dir: &std::path::Path, args: &[&str]) {
         .arg("-C")
         .arg(dir)
         .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+        .args(["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"])
         .args(args)
         .status()
         .unwrap()
@@ -67,6 +68,15 @@ async fn an_agent_starts_reads_lists_and_messages_another_session() {
     git(&repo, &["init", "-q"]);
     git(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
     let repo_path = repo.to_string_lossy().into_owned();
+    // A hook the agent could write in its own repository: making the worktree never runs it.
+    let ran = scratch.join("hook-ran");
+    let hook = repo.join(".git/hooks/post-checkout");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", ran.display())).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let parent = person
         .request(method::SESSION_NEW, json!({"cwd": repo_path, "mcpServers": []}))
         .await
@@ -127,6 +137,7 @@ async fn an_agent_starts_reads_lists_and_messages_another_session() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&base.stdout).trim(), "main");
+    assert!(!ran.exists(), "the repository's post-checkout hook ran outside the agent's sandbox");
 
     // read_session waits for the turn and reads the reply.
     let read = mcp.call("read_session", json!({"session": child_id, "wait_seconds": 30})).await;
@@ -163,7 +174,16 @@ async fn an_agent_starts_reads_lists_and_messages_another_session() {
     let read = mcp.call("read_session", json!({"session": child_id, "wait_seconds": 30})).await;
     assert!(read["structuredContent"]["replies"].to_string().contains("echo: again"), "{read}");
 
-    // Refusals: this chat itself, a worktree on another host, a missing brief.
+    // Refusals: this chat itself, a chat it did not start, a worktree on another host, a
+    // missing brief.
+    let other =
+        person.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap()
+            ["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let unrelated = mcp.call("send_to_session", json!({"session": other, "text": "hi"})).await;
+    assert_eq!(unrelated["isError"], true, "{unrelated}");
     let own = mcp.call("send_to_session", json!({"session": parent, "text": "hi"})).await;
     assert_eq!(own["isError"], true, "{own}");
     let own = mcp.call("read_session", json!({"session": parent})).await;
@@ -175,7 +195,11 @@ async fn an_agent_starts_reads_lists_and_messages_another_session() {
     let empty = mcp.call("start_session", json!({"prompt": "  "})).await;
     assert_eq!(empty["isError"], true, "{empty}");
     let before = hub.all_session_summaries().len();
-    assert_eq!(before, 2, "a refused start made no session");
+    assert_eq!(before, 3, "a refused start or send made no session");
+    assert!(
+        hub.events(&other, 0, 10_000).unwrap().iter().all(|e| e.kind != "user_message"),
+        "the refused send reached no chat"
+    );
 
     drop(mcp);
     let _ = std::fs::remove_file(&socket);
