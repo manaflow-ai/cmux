@@ -541,10 +541,11 @@ class PathRoutingStructure(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
         self.assertNotIn(stale, text)
-        self.assertEqual(
-            text.count("(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."),
-            13,
-        )
+        guard = "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && "
+        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output.
+        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
+        self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
+                                    "needs.macos-placement.outputs.gui_runner)"), 4)
         self.assertIn("bot attempt 3 is the measured Blacksmith overflow", text)
         self.assertIn("bot attempt 3\n# drops the stale placement output and takes the Blacksmith fallback", text)
 
