@@ -32,13 +32,17 @@ await requireBrowserLane("settings-font-preview-reveal.test.ts", async () => {
     await vite?.close();
   });
 
+  // The gallery's capture size, and short windows where centering the row has no room above it.
   test.each([
     [480, 760],
-    [1000, 520],
+    [480, 560],
+    [1000, 420],
   ])("at %ipx x %ipx the focused Fonts row shows the preview's first bubble whole", async (width, height) => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width, height } });
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=pages.settings&variant=fonts`);
+    await page.goto(
+      `http://127.0.0.1:${port}/gallery/frame.html?entry=pages.settings&variant=fonts&frame=component&width=${width}&height=${height}`,
+    );
     // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
     await page.locator("[data-font-preview]").first().waitFor({ timeout: 90_000 });
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
