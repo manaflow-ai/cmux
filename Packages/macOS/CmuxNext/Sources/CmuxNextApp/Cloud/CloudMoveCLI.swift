@@ -52,9 +52,9 @@ nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// `cmux link machine update`: updates the cmux-tui of the machine whose daemon `socket`
-    /// reaches to this app's own pinned build, when that machine is outdated (cx-rppd.13).
-    func machineUpdate(socket: String) async throws -> Answer {
-        try await run(["link", "machine", "update", "--socket", socket], timeout: max(timeout, Self.machineUpdateTimeout))
+    /// reaches to this app's own pinned build, when that machine is outdated (cx-rppd.13), or with `toBundled` whenever its build differs (cx-1mbnu).
+    func machineUpdate(socket: String, toBundled: Bool = false) async throws -> Answer {
+        try await run(["link", "machine", "update", "--socket", socket] + (toBundled ? ["--to-bundled"] : []), timeout: max(timeout, Self.machineUpdateTimeout))
     }
 
     /// Longer than `link machine update`'s own wait for the machine (25 minutes) plus a first download.

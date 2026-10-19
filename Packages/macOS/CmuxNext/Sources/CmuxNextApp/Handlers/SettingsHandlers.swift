@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextUpdateEverything
 import os
 
 /// Settings and help actions (category `settings`, except appearance, see
@@ -38,6 +39,7 @@ enum SettingsHandlers {
         ChangelogPageTab.register(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false })
+        UpdateEverything.bind(into: registry, host: .app(context.services))
         OnboardingHandlers.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
