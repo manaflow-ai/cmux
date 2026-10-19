@@ -128,6 +128,15 @@ const moduleFiles = (segments: Array<string>, reader: SourceReader): Array<strin
   const p = rel.join("/")
   const roots = segments[0] === "crate" ? [CORE] : [`${CORE}/server`, CORE]
   const files = roots.flatMap((r) => [`${r}/${p}.rs`, `${r}/${p}/mod.rs`])
+  // A child declared `#[path = "x.rs"] mod name;` in its parent's file lives at that path.
+  if (rel.length > 1) {
+    const name = rel[rel.length - 1]!
+    for (const parent of moduleFiles([...segments.slice(0, -1)], reader)) {
+      const text = stripComments(reader.read(parent) ?? "")
+      const decl = text.match(new RegExp(`#\\[path\\s*=\\s*"([^"]+)"\\]\\s*(?:pub(?:\\([^)]*\\))?\\s+)?mod\\s+${name}\\s*;`))
+      if (decl) files.push(`${parent.slice(0, parent.lastIndexOf("/"))}/${decl[1]!}`)
+    }
+  }
   if (segments[0] === "crate") {
     const lib = stripComments(reader.read(`${CORE}/lib.rs`) ?? "")
     const reexport = lib.match(new RegExp(`\\buse\\s+(\\w+)::${rel[0]}\\s*;`))
