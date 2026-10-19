@@ -32,7 +32,12 @@ final class SpaceSwitchBench {
     let rooms: [ProfileID]
     let keysByRoom: [ProfileID: [String]]
 
-    init(total: Int, spaces: Int = 2) async throws {
+    /// - Parameters:
+    ///   - total: workspaces in the window, split evenly across `spaces` rooms.
+    ///   - panes: each workspace holds one pane with a terminal tab (shown) and a browser tab.
+    ///   - parked: workspaces visited once before the timed switches, so they stay mounted and
+    ///     parked as in a long-running window (`WindowController.park`).
+    init(total: Int, spaces: Int = 2, panes: Bool = false, parked: Int = 0) async throws {
         _ = NSApplication.shared
         services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.machines.local.store
@@ -45,7 +50,8 @@ final class SpaceSwitchBench {
         var byRoom: [ProfileID: [String]] = [:]
         for (index, key) in keys.enumerated() { byRoom[rooms[index % spaces], default: []].append(key) }
         var tree = DaemonTree(registryID: "s-local", workspaces: keys.enumerated().map { index, key in
-            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: "Workspace \(index)")
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: "Workspace \(index)",
+                              screens: panes ? [Self.screen(index)] : [])
         })
         tree.personal = PersonalState(
             sessions: [SessionRecord(id: "s-local")],
@@ -63,7 +69,32 @@ final class SpaceSwitchBench {
         controller.showWorkspace(requested: state.workspaceID)
         try await Task.sleep(for: .milliseconds(300))
         drain()
+        // Visit `parked` workspaces of each room (alternating rooms), then go back to the first.
+        for index in 0..<min(parked, total) {
+            services.windows.select(keys[index], in: state)
+            controller.showWorkspace(requested: state.workspaceID)
+            drain()
+        }
+        if parked > 0 {
+            services.windows.select(keys[0], in: state)
+            controller.showWorkspace(requested: state.workspaceID)
+            try await Task.sleep(for: .milliseconds(300))
+            drain()
+        }
     }
+
+    /// Workspace `index`'s one screen: a pane with a terminal tab (shown) and a browser tab.
+    static func screen(_ index: Int) -> ScreenSnapshot {
+        let id = UInt64(index + 1)
+        let pane = PaneSnapshot(id: PaneID(rawValue: id), tabs: [
+            TabSnapshot(surface: SurfaceID(rawValue: id * 2 - 1), title: "~"),
+            TabSnapshot(surface: SurfaceID(rawValue: id * 2), kind: .browser, title: "Page \(index)", url: "https://example.com/\(index)"),
+        ])
+        return ScreenSnapshot(id: ScreenID(rawValue: id), layout: .leaf(pane.id), panes: [pane])
+    }
+
+    /// Mounted workspaces of the window (shown and parked).
+    var mounted: Int { controller.mountedContents.count }
 
     func close() {
         controller.teardown()
