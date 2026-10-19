@@ -1,8 +1,8 @@
 // l10n-allow-file: gallery prototype fixtures (sample agent names and tasks), not shipped UI.
 // The session hierarchy the subagent prototypes draw: agents start subagents, which start their
-// own. The shape follows the fields the acpmux spawn tools will carry (plans/cmux-next/subagents,
-// depth, children; status and indicator; subsessionLimits with their source) through the brief's fields: id, parentId, name, startedBy, depth, harness, state, lastEvent,
-// childCount, limits {width, depth}. Everything here is deterministic (no Math.random, no clock),
+// own. It maps onto plans/cmux-next/subagents/PROTOCOL.md: startedBy (the tree), depth, children,
+// the live status, and subsessionLimits with their source. Fields: id, parentId, name, startedBy,
+// depth, harness, state, lastEvent, childCount, limits {width, depth}.
 // so a screenshot of a variant is the same on every run.
 
 export type Harness = "claude" | "codex" | "opencode" | "pi";
