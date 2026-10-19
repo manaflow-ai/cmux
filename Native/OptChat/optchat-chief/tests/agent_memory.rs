@@ -532,3 +532,72 @@ fn the_cli_keeps_chief_flags_inside_note_text() {
         "{log}"
     );
 }
+
+/// A memory_get with the id and source of an earlier hit reads that entry,
+/// even after a new source file renumbered the index.
+#[test]
+fn a_get_by_id_and_source_survives_a_rebuild() {
+    let home = short_home();
+    seed(home.path());
+    let mut server = Server {
+        index: index(home.path()),
+        remember: true,
+        owner: None,
+    };
+    let hit = server.index.search("polling loop", 5).unwrap().remove(0);
+    // Sorts before every other source: every later id moves by one.
+    write(
+        home.path(),
+        ".claude/projects/-aaa/memory/first.md",
+        "A new memory file.",
+    );
+    assert_eq!(server.index.search("new memory", 5).unwrap().len(), 1);
+    let answer = call(
+        &mut server,
+        "memory_get",
+        json!({"id": hit.id, "source": hit.source}),
+    );
+    let text = answer["result"]["content"][0]["text"].as_str().unwrap();
+    assert_eq!(answer["result"]["isError"], false, "{text}");
+    assert!(text.contains("never a polling loop"), "{text}");
+    // The source alone is enough.
+    let answer = call(&mut server, "memory_get", json!({"source": hit.source}));
+    let text = answer["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("never a polling loop"), "{text}");
+    // A source that is gone says so instead of reading another entry.
+    let answer = call(
+        &mut server,
+        "memory_get",
+        json!({"id": hit.id, "source": "~/gone.md"}),
+    );
+    assert_eq!(answer["result"]["isError"], true);
+}
+
+#[test]
+fn more_credential_shapes_are_refused() {
+    use optchat_chief::agent_memory::notes::looks_secret;
+    // Built at runtime: literal key shapes would trip push protection.
+    let body = "51HabcdefGHIJKLmnopQRSTuv";
+    for secret in [
+        format!("stripe {}_{}_{body}", "sk", "live"),
+        format!("{}_{}_{body}", "rk", "test"),
+        format!("{}_abcdefghijklmnopqrstuvwxyz0123456789", "npm"),
+        format!("{}_abcdefghijklmnopqrstuvwxyzABCDEFGH", "hf"),
+        [
+            "eyJhbGciOiJIUzI1NiJ9",
+            "eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+            "dozjgNryP4J3jVmNHl0w5N",
+        ]
+        .join("."),
+    ] {
+        assert!(looks_secret(&secret), "{secret}");
+    }
+    for fine in [
+        "set npm_config_cache for the runner",
+        "call hf_hub_download first",
+        "the sk_live_ prefix marks Stripe live keys",
+        "eyJ is how a base64 JSON object starts",
+    ] {
+        assert!(!looks_secret(fine), "{fine}");
+    }
+}
