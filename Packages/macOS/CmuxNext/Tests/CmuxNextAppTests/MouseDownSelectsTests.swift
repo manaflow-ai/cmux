@@ -13,19 +13,25 @@ private typealias StripTab = CmuxNextTabs.TabID
 @MainActor @Suite(.serialized) struct MouseDownSelectsTests {
     final class BandHarness {
         let region = SidebarRegionView(region: .top)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 200), styleMask: [.borderless],
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         private(set) var activated: [LayoutItemID] = []
         static let home = LayoutItemID("itm_home"), appStore = LayoutItemID("itm_app_store"), settings = LayoutItemID("itm_settings")
+        static let workspace = LayoutItemID("itm_workspace"), tab = LayoutItemID("itm_tab"), space = LayoutItemID("itm_space")
+        static let link = LayoutItemID("itm_link")
 
         init() {
             let items = [LayoutItem(id: Self.home, ref: SidebarLayoutDocument.homeRef),
                          LayoutItem(id: Self.appStore, ref: .app("cmux/app-store")),
-                         LayoutItem(id: Self.settings, ref: .builtIn(.settings))]
+                         LayoutItem(id: Self.settings, ref: .builtIn(.settings)),
+                         LayoutItem(id: Self.workspace, ref: .workspace("ws_pinned")),
+                         LayoutItem(id: Self.tab, ref: .tab("tab_pinned")),
+                         LayoutItem(id: Self.space, ref: .room("space_pinned")),
+                         LayoutItem(id: Self.link, ref: .url("https://example.com"))]
             let section = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, items: items)
             let content = SidebarRegionView.Content(sections: [section], infos: [:], collapsed: [], look: SidebarSectionTunables.currentLook,
                                                     metrics: .standard, drawsLines: false)
-            region.frame = NSRect(x: 0, y: 0, width: 240, height: 160)
+            region.frame = NSRect(x: 0, y: 0, width: 240, height: 360)
             region.update(content, width: 240)
             window.contentView = region
             window.orderFrontRegardless()
@@ -60,14 +66,45 @@ private typealias StripTab = CmuxNextTabs.TabID
         #expect(harness.activated == [id], "the release ran the item a second time")
     }
 
-    @Test func otherItemsStillActOnRelease() throws {
+    /// Lawrence 2026-10-19: "Mouse down to focus." A pinned workspace, tab or space tile only changes
+    /// what the window shows, so it switches on the press too, with no release.
+    @Test(arguments: ["itm_workspace", "itm_tab", "itm_space"])
+    func pinnedWorkspaceTabAndSpaceTilesSwitchOnMouseDownAndOnlyOnce(_ raw: String) throws {
+        let id = LayoutItemID(raw)
         let harness = BandHarness()
         defer { harness.window.orderOut(nil) }
-        let view = try harness.view(BandHarness.settings)
+        let view = try harness.view(id)
         view.mouseDown(with: try harness.event(.leftMouseDown, on: view))
-        #expect(harness.activated.isEmpty, "Settings opened on the press")
+        #expect(harness.activated == [id], "the press did not switch")
         view.mouseUp(with: try harness.event(.leftMouseUp, on: view))
-        #expect(harness.activated == [BandHarness.settings])
+        #expect(harness.activated == [id], "the release ran the item a second time")
+    }
+
+    @Test func aPinnedWorkspaceTilePressThatBecomesADragStillDragsAndSwitchesOnce() throws {
+        let harness = BandHarness()
+        defer { harness.window.orderOut(nil) }
+        let view = try harness.view(BandHarness.workspace)
+        var drags = 0, ended = 0
+        view.onDragged = { _, _ in drags += 1; return true }
+        view.onDragEnded = { ended += 1 }
+        view.mouseDown(with: try harness.event(.leftMouseDown, on: view))
+        view.mouseDragged(with: try harness.event(.leftMouseDragged, on: view, dy: 30))
+        view.mouseUp(with: try harness.event(.leftMouseUp, on: view, dy: 30))
+        #expect(drags == 1 && ended == 1, "the press did not drag")
+        #expect(harness.activated == [BandHarness.workspace])
+    }
+
+    /// Settings and a link (it may open a new tab) act on release only.
+    @Test(arguments: ["itm_settings", "itm_link"])
+    func otherItemsStillActOnRelease(_ raw: String) throws {
+        let id = LayoutItemID(raw)
+        let harness = BandHarness()
+        defer { harness.window.orderOut(nil) }
+        let view = try harness.view(id)
+        view.mouseDown(with: try harness.event(.leftMouseDown, on: view))
+        #expect(harness.activated.isEmpty, "\(raw) ran on the press")
+        view.mouseUp(with: try harness.event(.leftMouseUp, on: view))
+        #expect(harness.activated == [id])
     }
 
     @Test func aPressThatBecomesADragStillDragsAndSwitchesOnce() throws {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pick the runner for cmux-next-media.yml's tour: an owned Mac's gui runner, or none.
+"""Pick the runner for cmux-next-media.yml's tour: an owned Mac's session or gui runner, or none.
 
 The tour launches cmux-next and screenshots it, so it needs a logged-in
 console session that can come to the front and be captured. Blacksmith's
@@ -9,13 +9,20 @@ does not run, and the comment says why.
 
 The label is the gui runner of the owned pool for the pull request lane's
 Xcode pin (pr_runner_pool.gui_label(), `glaeda-gui-<class>-xcode-<version>`),
-one per mini, the runner that holds the mini's console session. Workflows
+one per mini, the runner that holds the mini's console session. The tour
+needs the logged-in session but not the console gui token, so where the pool's
+session label (pr_runner_pool.session_label(), `glaeda-session-<class>-xcode-<version>`,
+glaeda#1530) has runners in CI_OWNED_POOL_SLOTS it takes that instead and runs
+beside a console GUI job. Each mini's console gui runner carries it too, and
+with `guiRunners` 2 a session runner carries only it. Until the slots name a
+session count the tour keeps the gui label: a label no runner carries would
+leave it queued for good. Workflows
 never name an owned label (tests/test_ci_self_hosted_guard.sh), so it reaches
 runs-on only as this script's output.
 
 Rules, in order: a fork head gets nothing (owned Macs run trusted code only);
 CI_PR_POOL_OWNED must be 1; the first owned pool class whose gui label has
-machines in CI_OWNED_POOL_SLOTS wins.
+machines in CI_OWNED_POOL_SLOTS wins, its session label first.
 
 Writes `runs_on` (a label, or "") and `reason` to $GITHUB_OUTPUT, and prints them.
 """
@@ -43,10 +50,13 @@ def pick(*, same_repo: bool, owned: str | None, owned_slots: str | None,
         return "", f"no owned pool for the lane's Xcode pin ({pr_xcode_app or 'unset'})"
     slots = pr_runner_pool.slots(owned_slots, pr_xcode_app)
     for pool in pools:
+        session = pr_runner_pool.session_label(pool)
+        if session and slots.get(session, 0) > 0:
+            return session, f"{slots[session]} session runner(s) on {pool}"
         gui = pr_runner_pool.gui_label(pool)
         if gui and slots.get(gui, 0) > 0:
             return gui, f"{slots[gui]} gui runner(s) on {pool}"
-    return "", "no owned pool has gui runners in CI_OWNED_POOL_SLOTS"
+    return "", "no owned pool has session or gui runners in CI_OWNED_POOL_SLOTS"
 
 
 def main(argv: list[str] | None = None) -> int:

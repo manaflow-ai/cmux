@@ -3916,7 +3916,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A player for what is playing, at the bottom of the sidebar and on the new chat page.</string>
 			<key>pfm_name</key>
