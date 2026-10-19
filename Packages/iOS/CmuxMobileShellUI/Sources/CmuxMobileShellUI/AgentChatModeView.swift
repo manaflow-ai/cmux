@@ -114,13 +114,13 @@ struct AgentChatModeView: View {
                 compactNavigationPath.removeAll()
             }
         }
-        .alert("Agent mode error", isPresented: Binding(
+        .alert(AgentChatStrings.modeError, isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.clearError() } }
         )) {
-            Button("OK", role: .cancel) { model.clearError() }
+            Button(AgentChatStrings.ok, role: .cancel) { model.clearError() }
         } message: {
-            Text(model.errorMessage ?? "Unknown error")
+            Text(model.errorMessage ?? AgentChatStrings.unknownError)
         }
         // Agent Chat owns the same task composer used by the workspace shell.
         // A task created here is sent through `workspace.create` with the
@@ -175,14 +175,14 @@ struct AgentChatModeView: View {
             showNewSessionComposer: { isShowingNewSessionComposer = true },
             refresh: { await refresh() }
         )
-        .navigationTitle("Agents")
+        .navigationTitle(AgentChatStrings.agents)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button { dismiss() } label: {
                     Image(systemName: "xmark")
                 }
-                .accessibilityLabel("Close")
+                .accessibilityLabel(AgentChatStrings.close)
                 .accessibilityIdentifier("MobileAgentCloseMode")
             }
         }
@@ -266,7 +266,7 @@ private struct AgentChatSidebar: View {
                     .listRowSeparator(.hidden)
                 } else {
                     if !pinned.isEmpty {
-                        Section("Pinned") {
+                        Section(AgentChatStrings.pinned) {
                             ForEach(pinned) { session in
                                 AgentChatSessionRow(
                                     session: session,
@@ -281,7 +281,7 @@ private struct AgentChatSidebar: View {
                         }
                     }
                     if !needsAttention.isEmpty {
-                        Section("Needs your attention") {
+                        Section(AgentChatStrings.needsYourAttention) {
                             ForEach(needsAttention) { session in
                                 AgentChatSessionRow(
                                     session: session,
@@ -296,7 +296,7 @@ private struct AgentChatSidebar: View {
                         }
                     }
                     if !recentSessions.isEmpty {
-                        Section("Recent") {
+                        Section(AgentChatStrings.recent) {
                         ForEach(recentSessions) { session in
                             AgentChatSessionRow(
                                 session: session,
@@ -311,7 +311,7 @@ private struct AgentChatSidebar: View {
                         }
                     }
                     if !model.visibleArchivedSessions.isEmpty {
-                        Section("Archived") {
+                        Section(AgentChatStrings.archived) {
                             ForEach(model.visibleArchivedSessions) { session in
                                 AgentChatSessionRow(
                                     session: session,
@@ -328,7 +328,7 @@ private struct AgentChatSidebar: View {
             }
             }
             .listStyle(.plain)
-            .searchable(text: $searchText, placement: .sidebar, prompt: "Search sessions")
+            .searchable(text: $searchText, placement: .sidebar, prompt: AgentChatStrings.searchSessions)
             .refreshable { await refresh() }
         }
         .background(Color(.systemBackground))
@@ -343,30 +343,30 @@ private struct AgentSidebarHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Label("Agent history", systemImage: "clock.arrow.circlepath")
+            Label(AgentChatStrings.agentHistory, systemImage: "clock.arrow.circlepath")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
             Spacer()
             Menu {
                 Button { showNewSessionComposer() } label: {
-                    Label("New session", systemImage: "plus")
+                    Label(AgentChatStrings.newSession, systemImage: "plus")
                 }
                 Button { Task { await refresh() } } label: {
-                    Label("Refresh sessions", systemImage: "arrow.clockwise")
+                    Label(AgentChatStrings.refreshSessions, systemImage: "arrow.clockwise")
                 }
                 Divider()
-                Picker("Provider", selection: $selectedProvider) {
-                    Text("All agents").tag("all")
-                    Text("Claude Code").tag("claude")
-                    Text("Codex").tag("codex")
-                    Text("OpenCode").tag("opencode")
+                Picker(AgentChatStrings.provider, selection: $selectedProvider) {
+                    Text(AgentChatStrings.allAgents).tag("all")
+                    Text(AgentChatStrings.claudeCode).tag("claude")
+                    Text(AgentChatStrings.codex).tag("codex")
+                    Text(AgentChatStrings.openCode).tag("opencode")
                 }
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.title3)
                     .symbolRenderingMode(.hierarchical)
             }
-            .accessibilityLabel("New agent session and filters")
+            .accessibilityLabel(AgentChatStrings.newAgentSessionAndFilters)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
@@ -407,7 +407,7 @@ private struct AgentChatDetail: View {
                 }
             }
         }
-        .navigationTitle(model.selectedSession?.title ?? "Agents")
+        .navigationTitle(model.selectedSession?.title ?? AgentChatStrings.agents)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
@@ -415,12 +415,12 @@ private struct AgentChatDetail: View {
                 Button(action: showSidebar) {
                     Image(systemName: "sidebar.left")
                 }
-                .accessibilityLabel("Agent sessions")
+                .accessibilityLabel(AgentChatStrings.agentSessions)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { Task { await refresh() } } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
+                        Label(AgentChatStrings.refresh, systemImage: "arrow.clockwise")
                     }
                     if model.selectedSession != nil {
                         Divider()
@@ -429,7 +429,7 @@ private struct AgentChatDetail: View {
                                 Task { await model.forkSelectedSession() }
                             } label: {
                                 Label(
-                                    model.isLaunchingSelectedSession ? "Opening side chat…" : "Fork side chat",
+                                    model.isLaunchingSelectedSession ? AgentChatStrings.openingSideChat : AgentChatStrings.forkSideChat,
                                     systemImage: "arrow.triangle.branch"
                                 )
                             }
@@ -438,14 +438,14 @@ private struct AgentChatDetail: View {
                                 Button {
                                     Task { await model.resumeSelectedSession() }
                                 } label: {
-                                    Label("Resume session", systemImage: "play.circle")
+                                    Label(AgentChatStrings.resumeSession, systemImage: "play.circle")
                                 }
                                 .disabled(model.isLaunchingSelectedSession)
                             } else {
                                 Button {
                                     Task { await model.reopenSelectedSession() }
                                 } label: {
-                                    Label("Reopen in terminal", systemImage: "rectangle.portrait.and.arrow.right")
+                                    Label(AgentChatStrings.reopenInTerminal, systemImage: "rectangle.portrait.and.arrow.right")
                                 }
                                 .disabled(model.isLaunchingSelectedSession)
                             }
@@ -454,7 +454,7 @@ private struct AgentChatDetail: View {
                             renameText = model.selectedSession?.title ?? ""
                             isRenaming = true
                         } label: {
-                            Label("Rename session", systemImage: "pencil")
+                            Label(AgentChatStrings.renameSession, systemImage: "pencil")
                         }
                         Button {
                             Task {
@@ -465,7 +465,7 @@ private struct AgentChatDetail: View {
                         } label: {
                             Label(
                                 model.exportingSessionIDs.contains(model.selectedSessionID ?? "")
-                                    ? "Exporting…" : "Export transcript",
+                                    ? AgentChatStrings.exporting : AgentChatStrings.exportTranscript,
                                 systemImage: "square.and.arrow.up"
                             )
                         }
@@ -473,38 +473,38 @@ private struct AgentChatDetail: View {
                         Button(role: .destructive) {
                             isConfirmingDelete = true
                         } label: {
-                            Label("Delete session", systemImage: "trash")
+                            Label(AgentChatStrings.deleteSession, systemImage: "trash")
                         }
                     }
                     Button(action: closeMode) {
-                        Label("Close", systemImage: "xmark")
+                        Label(AgentChatStrings.close, systemImage: "xmark")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel("Agent mode options")
+                .accessibilityLabel(AgentChatStrings.agentModeOptions)
             }
         }
-        .alert("Rename session", isPresented: $isRenaming) {
-            TextField("Session name", text: $renameText)
-            Button("Cancel", role: .cancel) {}
-            Button("Rename") {
+        .alert(AgentChatStrings.renameSession, isPresented: $isRenaming) {
+            TextField(AgentChatStrings.sessionName, text: $renameText)
+            Button(AgentChatStrings.cancel, role: .cancel) {}
+            Button(AgentChatStrings.rename) {
                 Task { await model.renameSelectedSession(title: renameText) }
             }
         } message: {
-            Text("Choose a name you will recognize in Agent history.")
+            Text(AgentChatStrings.renameGuidance)
         }
         .confirmationDialog(
-            "Delete this session?",
+            AgentChatStrings.deleteSessionConfirmation,
             isPresented: $isConfirmingDelete,
             titleVisibility: .visible
         ) {
-            Button("Delete", role: .destructive) {
+            Button(AgentChatStrings.delete, role: .destructive) {
                 Task { await model.deleteSelectedSession() }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(AgentChatStrings.cancel, role: .cancel) {}
         } message: {
-            Text("The session will be removed from Agent history. Its provider transcript remains on your Mac.")
+            Text(AgentChatStrings.deleteSessionGuidance)
         }
         .sheet(item: $exportedTranscript) { exported in
             NavigationStack {
@@ -512,23 +512,23 @@ private struct AgentChatDetail: View {
                     Image(systemName: "doc.richtext")
                         .font(.system(size: 34))
                         .foregroundStyle(.tint)
-                    Text("Transcript ready to share")
+                    Text(AgentChatStrings.transcriptReadyToShare)
                         .font(.headline)
-                    Text("Send the Markdown transcript to Files, Messages, or another app.")
+                    Text(AgentChatStrings.shareTranscriptGuidance)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
                     ShareLink(
                         item: exported.text,
-                        subject: Text("Agent transcript"),
-                        preview: SharePreview("Agent transcript", image: Image(systemName: "doc.richtext"))
+                        subject: Text(AgentChatStrings.agentTranscript),
+                        preview: SharePreview(AgentChatStrings.agentTranscript, image: Image(systemName: "doc.richtext"))
                     ) {
-                        Label("Share transcript", systemImage: "square.and.arrow.up")
+                        Label(AgentChatStrings.shareTranscript, systemImage: "square.and.arrow.up")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                 }
                 .padding(24)
-                .navigationTitle("Export transcript")
+                .navigationTitle(AgentChatStrings.exportTranscript)
                 .navigationBarTitleDisplayMode(.inline)
             }
             .presentationDetents([.medium])
@@ -547,7 +547,7 @@ private struct AgentLoadingState: View {
             ProgressView()
                 .controlSize(.large)
         } description: {
-            Text("Loading agent sessions…")
+            Text(AgentChatStrings.loadingAgentSessions)
         }
         .accessibilityIdentifier("MobileAgentLoadingState")
     }
@@ -560,18 +560,18 @@ private struct AgentNoSelectionState: View {
     var body: some View {
         ContentUnavailableView {
             Label(
-                isConnected ? "Choose an agent session" : "Reconnecting to your Mac",
+                isConnected ? AgentChatStrings.chooseAnAgentSession : AgentChatStrings.reconnectingToYourMac,
                 systemImage: isConnected ? "sparkles" : "wifi.exclamationmark"
             )
         } description: {
             Text(isConnected
-                ? "Select a session from Agent history to view its conversation."
-                : "Your agent history will appear here when the connection is restored.")
+                ? AgentChatStrings.selectSessionGuidance
+                : AgentChatStrings.historyUnavailableGuidance)
         } actions: {
             Button {
                 Task { await refresh() }
             } label: {
-                Label("Try again", systemImage: "arrow.clockwise")
+                Label(AgentChatStrings.tryAgain, systemImage: "arrow.clockwise")
             }
             .buttonStyle(.borderedProminent)
         }
@@ -590,22 +590,22 @@ private struct AgentSessionEmptyRow: View {
             Image(systemName: hasSearch ? "magnifyingglass" : (isConnected ? "sparkles" : "wifi.exclamationmark"))
                 .font(.title2)
                 .foregroundStyle(.secondary)
-            Text(hasSearch ? "No matching sessions" : (isConnected ? "No agent sessions yet" : "Waiting for a connection"))
+            Text(hasSearch ? AgentChatStrings.noMatchingSessions : (isConnected ? AgentChatStrings.noAgentSessionsYet : AgentChatStrings.waitingForConnection))
                 .font(.headline)
                 .multilineTextAlignment(.center)
             Text(hasSearch
-                ? "Try a different name, project, or provider."
+                ? AgentChatStrings.searchNoMatchGuidance
                 : (isConnected
-                    ? "Start Claude Code, Codex, or OpenCode in cmux to see it here."
-                    : "Reconnect to your Mac to load agent history."))
+                    ? AgentChatStrings.startSessionGuidance
+                    : AgentChatStrings.reconnectHistoryGuidance))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             if hasSearch {
-                Button("Clear search", action: clearSearch)
+                Button(AgentChatStrings.clearSearch, action: clearSearch)
                     .buttonStyle(.bordered)
             } else if isConnected {
-                Button("Start a new session", action: showNewSessionComposer)
+                Button(AgentChatStrings.startNewSession, action: showNewSessionComposer)
                     .buttonStyle(.bordered)
             }
         }
@@ -618,7 +618,7 @@ private struct AgentSessionLoadingRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ProgressView()
-            Text("Loading sessions…")
+            Text(AgentChatStrings.loadingSessions)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -635,11 +635,11 @@ private struct AgentConnectionNotice: View {
         HStack(spacing: 9) {
             Image(systemName: isConnected ? "checkmark.circle.fill" : "wifi.exclamationmark")
                 .foregroundStyle(isConnected ? .green : .orange)
-            Text(isConnected ? "Connected to your Mac" : "Reconnecting to your Mac…")
+            Text(isConnected ? AgentChatStrings.connectedToYourMac : AgentChatStrings.reconnectingToYourMacWithEllipsis)
                 .font(.caption.weight(.medium))
             Spacer(minLength: 8)
             if !isConnected {
-                Button("Retry") { Task { await refresh() } }
+                Button(AgentChatStrings.retry) { Task { await refresh() } }
                     .font(.caption.weight(.semibold))
             }
         }
@@ -723,13 +723,13 @@ private struct AgentChatSessionRow: View {
         .contextMenu {
             Button(action: togglePinned) {
                 Label(
-                    isPinned ? "Unpin session" : "Pin session",
+                    isPinned ? AgentChatStrings.unpinSession : AgentChatStrings.pinSession,
                     systemImage: isPinned ? "pin.slash" : "pin"
                 )
             }
             Button(action: toggleArchived) {
                 Label(
-                    isArchived ? "Unarchive session" : "Archive session",
+                    isArchived ? AgentChatStrings.unarchiveSession : AgentChatStrings.archiveSession,
                     systemImage: isArchived ? "tray.and.arrow.up" : "archivebox"
                 )
             }
@@ -764,11 +764,11 @@ private struct AgentChatSessionRow: View {
 
     private var accessibilityStateLabel: String {
         switch session.state {
-        case .working: return "Working"
-        case .needsInput: return "Needs input"
-        case .failed: return "Turn failed; retry available"
-        case .idle: return "Idle"
-        case .ended: return "Ended"
+        case .working: return AgentChatStrings.working
+        case .needsInput: return AgentChatStrings.needsInput
+        case .failed: return AgentChatStrings.turnFailedRetryAvailable
+        case .idle: return AgentChatStrings.idle
+        case .ended: return AgentChatStrings.ended
         }
     }
 }
@@ -791,11 +791,11 @@ private struct AgentStatusIndicator: View {
 
     private var label: String {
         switch state {
-        case .working: return "Working"
-        case .needsInput: return "Needs input"
-        case .failed: return "Turn failed; retry available"
-        case .idle: return "Idle"
-        case .ended: return "Ended"
+        case .working: return AgentChatStrings.working
+        case .needsInput: return AgentChatStrings.needsInput
+        case .failed: return AgentChatStrings.turnFailedRetryAvailable
+        case .idle: return AgentChatStrings.idle
+        case .ended: return AgentChatStrings.ended
         }
     }
 }
@@ -843,7 +843,7 @@ private struct AgentChatTranscriptView: View {
                                     }
                                 }
                             } label: {
-                                Label("Load earlier messages", systemImage: "chevron.up")
+                                Label(AgentChatStrings.loadEarlierMessages, systemImage: "chevron.up")
                                     .font(.footnote.weight(.medium))
                                     .frame(maxWidth: .infinity)
                             }
@@ -854,7 +854,7 @@ private struct AgentChatTranscriptView: View {
                            model.selectedTerminalBlocks.isEmpty,
                            model.selectedStreamingMessage == nil,
                            model.selectedPendingPrompts.isEmpty {
-                            ContentUnavailableView("Start a task", systemImage: "sparkles", description: Text("Ask your coding agent to inspect, change, or explain your project."))
+                            ContentUnavailableView(AgentChatStrings.startTask, systemImage: "sparkles", description: Text(AgentChatStrings.startTaskGuidance))
                                 .padding(.top, 80)
                         } else {
                             if model.selectedSession?.kind == .terminal {
@@ -972,12 +972,12 @@ private struct AgentPendingPromptBubble: View {
         HStack {
             Spacer(minLength: 36)
             VStack(alignment: .leading, spacing: 5) {
-                Text(text.isEmpty ? "Attachment" : text)
+                Text(text.isEmpty ? AgentChatStrings.attachment : text)
                     .font(.body)
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
                 Label(
-                    isQueued ? "Queued for the next turn" : "Sending…",
+                    isQueued ? AgentChatStrings.queuedForNextTurn : AgentChatStrings.sending,
                     systemImage: isQueued ? "clock.arrow.circlepath" : "arrow.up.circle"
                 )
                 .font(.caption2.weight(.medium))
@@ -988,7 +988,9 @@ private struct AgentPendingPromptBubble: View {
             .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22))
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(isQueued ? "Queued" : "Sending"): \(text.isEmpty ? "Attachment" : text)")
+        .accessibilityLabel(isQueued
+            ? AgentChatStrings.queuedAccessibility(text.isEmpty ? AgentChatStrings.attachment : text)
+            : AgentChatStrings.sendingAccessibility(text.isEmpty ? AgentChatStrings.attachment : text))
     }
 }
 
@@ -1000,7 +1002,7 @@ private struct AgentNeedsInputNotice: View {
             Image(systemName: "hand.raised.fill")
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Your input is needed")
+                Text(AgentChatStrings.yourInputIsNeeded)
                     .font(.subheadline.weight(.semibold))
                 Text(detail)
                     .font(.caption)
@@ -1020,8 +1022,8 @@ private struct AgentNeedsInputNotice: View {
 
     private var detail: String {
         switch actionableCount {
-        case 0: return "Answer the agent's question or approve its next action below."
-        case 1: return "Review the pending request below to keep the task moving."
+        case 0: return AgentChatStrings.answerOrApproveGuidance
+        case 1: return AgentChatStrings.reviewPendingRequestGuidance
         default: return "Review the \(actionableCount) pending requests below to keep the task moving."
         }
     }
@@ -1038,7 +1040,7 @@ private struct AgentFailedTurnNotice: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Turn failed")
+                Text(AgentChatStrings.turnFailed)
                     .font(.subheadline.weight(.semibold))
                 if let reason, !reason.isEmpty {
                     Text(reason)
@@ -1046,7 +1048,7 @@ private struct AgentFailedTurnNotice: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
                 } else {
-                    Text("The agent did not complete this turn.")
+                    Text(AgentChatStrings.agentDidNotCompleteTurn)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1058,13 +1060,13 @@ private struct AgentFailedTurnNotice: View {
                 if isRetrying {
                     ProgressView().controlSize(.small)
                 } else {
-                    Label("Retry", systemImage: "arrow.clockwise")
+                    Label(AgentChatStrings.retry, systemImage: "arrow.clockwise")
                 }
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .disabled(!canRetry || isRetrying)
-            .accessibilityLabel(isRetrying ? "Retrying failed turn" : "Retry failed turn")
+            .accessibilityLabel(isRetrying ? AgentChatStrings.retryingFailedTurn : AgentChatStrings.retryFailedTurn)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -1120,7 +1122,7 @@ private struct AgentSessionControlsMenu: View {
             Menu {
                 let controls = model.selectedControls
                 if !controls.modelOptions.isEmpty {
-                    Menu("Model") {
+                    Menu(AgentChatStrings.model) {
                         ForEach(controls.modelOptions) { option in
                             Button {
                                 var next = model.selectedControls
@@ -1134,7 +1136,7 @@ private struct AgentSessionControlsMenu: View {
                     }
                 }
                 if !controls.reasoningEffortOptions.isEmpty {
-                    Menu("Reasoning effort") {
+                    Menu(AgentChatStrings.reasoningEffort) {
                         ForEach(controls.reasoningEffortOptions) { option in
                             Button {
                                 var next = model.selectedControls
@@ -1147,7 +1149,7 @@ private struct AgentSessionControlsMenu: View {
                     }
                 }
                 if !controls.permissionOptions.isEmpty {
-                    Menu("Permission mode") {
+                    Menu(AgentChatStrings.permissionMode) {
                         ForEach(controls.permissionOptions) { option in
                             Button {
                                 var next = model.selectedControls
@@ -1160,7 +1162,7 @@ private struct AgentSessionControlsMenu: View {
                     }
                 }
                 if !controls.sandboxOptions.isEmpty {
-                    Menu("Sandbox") {
+                    Menu(AgentChatStrings.sandbox) {
                         ForEach(controls.sandboxOptions) { option in
                             Button {
                                 var next = model.selectedControls
@@ -1181,7 +1183,7 @@ private struct AgentSessionControlsMenu: View {
                             Task { await model.updateSelectedControls(next) }
                         }
                     )) {
-                        Label("Plan mode", systemImage: "list.bullet.clipboard")
+                        Label(AgentChatStrings.planMode, systemImage: "list.bullet.clipboard")
                     }
                 }
             } label: {
@@ -1196,7 +1198,7 @@ private struct AgentSessionControlsMenu: View {
                             Text(effort.displayName).foregroundStyle(.secondary)
                         }
                     } else {
-                        Label("Controls", systemImage: "slider.horizontal.3")
+                        Label(AgentChatStrings.controls, systemImage: "slider.horizontal.3")
                     }
                 }
                 .font(.subheadline)
@@ -1265,7 +1267,7 @@ private struct AgentChatMessageView: View {
             case .attachment(let attachment):
                 AgentAttachmentCard(attachment: attachment, artifactLoader: artifactLoader)
             case .unsupported(let payload):
-                Label("Unsupported agent event: \(payload.rawType)", systemImage: "questionmark.circle")
+                Label(AgentChatStrings.unsupportedEvent(payload.rawType), systemImage: "questionmark.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1296,7 +1298,7 @@ private struct AgentChatMessageView: View {
             if let output = tool.output, !output.isEmpty { lines.append("Output:\n\(output)") }
             return lines.joined(separator: "\n")
         case .webSearch(let search):
-            var lines = [search.query.map { "Search \($0)" } ?? "Sources"]
+            var lines = [search.query.map { AgentChatStrings.searchQuery($0) } ?? AgentChatStrings.sources]
             lines.append(contentsOf: search.sources.map { source in
                 [source.title, source.url, source.snippet].compactMap { $0 }.joined(separator: "\n")
             })
@@ -1304,7 +1306,7 @@ private struct AgentChatMessageView: View {
         case .terminal(let terminal):
             var lines = [terminal.command]
             if let output = terminal.output, !output.isEmpty { lines.append(output) }
-            if let exitCode = terminal.exitCode { lines.append("Exit \(exitCode)") }
+            if let exitCode = terminal.exitCode { lines.append(AgentChatStrings.exitCode(exitCode)) }
             return lines.joined(separator: "\n")
         case .fileEdit(let edit):
             return edit.unifiedDiff ?? edit.filePath
@@ -1339,13 +1341,13 @@ private struct AgentMessageActions: ViewModifier {
                 .contextMenu {
                     if let edit {
                         Button(action: edit) {
-                            Label("Edit prompt", systemImage: "pencil")
+                            Label(AgentChatStrings.editPrompt, systemImage: "pencil")
                         }
                     }
                     if let regenerate {
                         Button(action: regenerate) {
                             Label(
-                                regenerating ? "Regenerating response…" : "Regenerate response",
+                                regenerating ? AgentChatStrings.regeneratingResponse : AgentChatStrings.regenerateResponse,
                                 systemImage: "arrow.clockwise"
                             )
                         }
@@ -1355,19 +1357,19 @@ private struct AgentMessageActions: ViewModifier {
                         Button {
                             UIPasteboard.general.string = copyText
                         } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
+                            Label(AgentChatStrings.copy, systemImage: "doc.on.doc")
                         }
                         ShareLink(item: copyText) {
-                            Label("Share", systemImage: "square.and.arrow.up")
+                            Label(AgentChatStrings.share, systemImage: "square.and.arrow.up")
                         }
                     }
                 }
-                .accessibilityAction(named: Text("Copy")) {
+                .accessibilityAction(named: Text(AgentChatStrings.copy)) {
                     if let copyText, !copyText.isEmpty {
                         UIPasteboard.general.string = copyText
                     }
                 }
-                .accessibilityAction(named: Text("Regenerate response")) {
+                .accessibilityAction(named: Text(AgentChatStrings.regenerateResponse)) {
                     guard !regenerating, canRegenerate else { return }
                     regenerate?()
                 }
@@ -1418,14 +1420,14 @@ private struct AgentTerminalBlockView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: block.isInteractive ? "rectangle.inset.filled" : "terminal")
-                Text(block.command.isEmpty ? "Shell" : block.command)
+                Text(block.command.isEmpty ? AgentChatStrings.shell : block.command)
                     .font(.caption.monospaced().weight(.semibold))
                     .lineLimit(2)
                 Spacer()
                 if block.isRunning {
                     ProgressView().controlSize(.mini)
                 } else if let exitCode = block.exitCode {
-                    Text("Exit \(exitCode)")
+                    Text(AgentChatStrings.exitCode(exitCode))
                         .font(.caption2.monospaced())
                         .foregroundStyle(block.failed ? .red : .green)
                 }
@@ -1448,7 +1450,7 @@ private struct AgentTerminalBlockView: View {
     private var copyText: String {
         var lines = [block.command]
         if !block.output.isEmpty { lines.append(block.output) }
-        if let exitCode = block.exitCode { lines.append("Exit \(exitCode)") }
+        if let exitCode = block.exitCode { lines.append(AgentChatStrings.exitCode(exitCode)) }
         return lines.joined(separator: "\n")
     }
 }
@@ -1456,7 +1458,7 @@ private struct AgentTerminalBlockView: View {
 private struct AgentThoughtCard: View {
     let text: String
     var body: some View {
-        DisclosureGroup("Thinking") { Text(text).font(.caption).foregroundStyle(.secondary) }
+        DisclosureGroup(AgentChatStrings.thinking) { Text(text).font(.caption).foregroundStyle(.secondary) }
             .padding(12)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
     }
@@ -1480,7 +1482,7 @@ private struct AgentToolCard: View {
             }
             if let inputDetail = tool.inputDetail,
                !inputDetail.isEmpty {
-                DisclosureGroup("Input", isExpanded: $isInputExpanded) {
+                DisclosureGroup(AgentChatStrings.input, isExpanded: $isInputExpanded) {
                     Text(inputDetail)
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
@@ -1494,7 +1496,7 @@ private struct AgentToolCard: View {
                     .textSelection(.enabled)
             }
             if let output = tool.output {
-                DisclosureGroup("Output", isExpanded: $isOutputExpanded) {
+                DisclosureGroup(AgentChatStrings.output, isExpanded: $isOutputExpanded) {
                     Text(output)
                         .font(.caption.monospaced())
                         .textSelection(.enabled)
@@ -1504,7 +1506,7 @@ private struct AgentToolCard: View {
             if tool.status == .running {
                 ProgressView()
                     .controlSize(.small)
-                    .accessibilityLabel("Tool is running")
+                    .accessibilityLabel(AgentChatStrings.toolIsRunning)
             }
         }
         .padding(12)
@@ -1524,9 +1526,9 @@ private struct AgentToolCard: View {
 
     private var statusLabel: String {
         switch tool.status {
-        case .running: return "Running"
-        case .succeeded: return "Done"
-        case .failed: return "Failed"
+        case .running: return AgentChatStrings.running
+        case .succeeded: return AgentChatStrings.done
+        case .failed: return AgentChatStrings.failed
         }
     }
 
@@ -1547,7 +1549,7 @@ private struct AgentWebSearchCard: View {
             HStack(spacing: 8) {
                 Image(systemName: "globe")
                     .foregroundStyle(statusColor)
-                Text(search.query.map { "Search \($0)" } ?? "Sources")
+                Text(search.query.map { AgentChatStrings.searchQuery($0) } ?? AgentChatStrings.sources)
                     .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 4)
                 Text(statusLabel)
@@ -1555,7 +1557,7 @@ private struct AgentWebSearchCard: View {
                     .foregroundStyle(statusColor)
             }
             if search.sources.isEmpty {
-                Text("No sources returned")
+                Text(AgentChatStrings.noSourcesReturned)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -1610,9 +1612,9 @@ private struct AgentWebSearchCard: View {
 
     private var statusLabel: String {
         switch search.status {
-        case .running: return "Searching"
-        case .succeeded: return search.sources.isEmpty ? "Done" : "Sources"
-        case .failed: return "Failed"
+        case .running: return AgentChatStrings.searching
+        case .succeeded: return search.sources.isEmpty ? AgentChatStrings.done : AgentChatStrings.sources
+        case .failed: return AgentChatStrings.failed
         }
     }
 
@@ -1635,12 +1637,12 @@ private struct AgentTerminalCard: View {
                 Spacer(minLength: 4)
                 if terminal.isRunning {
                     ProgressView().controlSize(.mini)
-                    Text("Running")
+                    Text(AgentChatStrings.running)
                 } else if let exitCode = terminal.exitCode {
-                    Text("Exit \(exitCode)")
+                    Text(AgentChatStrings.exitCode(exitCode))
                         .foregroundStyle(exitCode == 0 ? .green : .red)
                 } else {
-                    Text("Done").foregroundStyle(.secondary)
+                    Text(AgentChatStrings.done).foregroundStyle(.secondary)
                 }
             }
             if let output = terminal.output { Text(output).font(.caption.monospaced()).textSelection(.enabled) }
@@ -1696,10 +1698,10 @@ private struct AgentStatusCard: View {
 
     private var title: String {
         switch status.event {
-        case .sessionStarted: return "Session started"
-        case .sessionEnded: return "Session ended"
-        case .interrupted: return "Turn interrupted"
-        case .contextCompacted: return "Context compacted"
+        case .sessionStarted: return AgentChatStrings.sessionStarted
+        case .sessionEnded: return AgentChatStrings.sessionEndedStatus
+        case .interrupted: return AgentChatStrings.turnInterrupted
+        case .contextCompacted: return AgentChatStrings.contextCompacted
         }
     }
 
@@ -1746,7 +1748,7 @@ private struct AgentDiffCard: View {
                 if let deletions = edit.deletions { Text("-\(deletions)").foregroundStyle(.red) }
             }
             if let diff = edit.unifiedDiff {
-                DisclosureGroup("View diff", isExpanded: $isExpanded) {
+                DisclosureGroup(AgentChatStrings.viewDiff, isExpanded: $isExpanded) {
                     Text(diff)
                         .font(.caption2.monospaced())
                         .textSelection(.enabled)
@@ -1759,7 +1761,7 @@ private struct AgentDiffCard: View {
                         Button {
                             review(.apply, nil, nil)
                         } label: {
-                            Label("Apply", systemImage: "checkmark.circle")
+                            Label(AgentChatStrings.apply, systemImage: "checkmark.circle")
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -1768,7 +1770,7 @@ private struct AgentDiffCard: View {
                         Button {
                             review(.revert, nil, nil)
                         } label: {
-                            Label("Revert", systemImage: "arrow.uturn.backward")
+                            Label(AgentChatStrings.revert, systemImage: "arrow.uturn.backward")
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -1777,16 +1779,16 @@ private struct AgentDiffCard: View {
                     }
                     .disabled(isReviewing)
 
-                    DisclosureGroup("Comment on a line", isExpanded: $isCommentExpanded) {
+                    DisclosureGroup(AgentChatStrings.commentOnLine, isExpanded: $isCommentExpanded) {
                         HStack(spacing: 8) {
-                            TextField("Line", text: $lineNumber)
+                            TextField(AgentChatStrings.line, text: $lineNumber)
                                 .keyboardType(.numberPad)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 72)
-                            TextField("Review comment", text: $comment, axis: .vertical)
+                            TextField(AgentChatStrings.reviewComment, text: $comment, axis: .vertical)
                                 .textFieldStyle(.roundedBorder)
                                 .lineLimit(2...4)
-                            Button("Send") {
+                            Button(AgentChatStrings.send) {
                                 guard let line = Int(lineNumber), line > 0,
                                       !comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                                 review(.comment, line, comment.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -1801,17 +1803,17 @@ private struct AgentDiffCard: View {
                     .disabled(isReviewing)
                 }
             } else {
-                Label("Diff unavailable", systemImage: "exclamationmark.triangle")
+                Label(AgentChatStrings.diffUnavailable, systemImage: "exclamationmark.triangle")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
-                Text("The agent changed this file, but the host did not provide a reviewable diff.")
+                Text(AgentChatStrings.diffMissingGuidance)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if isExpanded, let artifactLoader, artifactLoader.supportsArtifacts {
                 Divider()
-                Text("Current file")
+                Text(AgentChatStrings.currentFile)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 ChatArtifactInlineViewer(path: edit.filePath)
@@ -1830,9 +1832,9 @@ private struct AgentDiffCard: View {
 
     private var operationLabel: String {
         switch edit.operation {
-        case .edit: return "Edited"
-        case .write: return "Created"
-        case .delete: return "Deleted"
+        case .edit: return AgentChatStrings.edited
+        case .write: return AgentChatStrings.created
+        case .delete: return AgentChatStrings.deleted
         }
     }
 
@@ -1859,14 +1861,14 @@ private struct AgentAttachmentCard: View {
             HStack(spacing: 8) {
                 Image(systemName: attachment.media == .image ? "photo" : "doc")
                     .foregroundStyle(Color.accentColor)
-                Text(attachment.displayName ?? "Attachment")
+                Text(attachment.displayName ?? AgentChatStrings.attachment)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
                 Spacer(minLength: 4)
                 if attachment.hostPath != nil,
                    let artifactLoader,
                    artifactLoader.supportsArtifacts {
-                    Button(isPreviewExpanded ? "Hide preview" : "Preview") {
+                    Button(isPreviewExpanded ? AgentChatStrings.hidePreview : AgentChatStrings.preview) {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isPreviewExpanded.toggle()
                         }
@@ -1898,13 +1900,13 @@ private struct AgentPermissionCard: View {
             Label(request.title, systemImage: "hand.raised.fill")
                 .font(.headline)
             if isSubmitting {
-                Label("Sending decision…", systemImage: "arrow.triangle.2.circlepath")
+                Label(AgentChatStrings.sendingDecision, systemImage: "arrow.triangle.2.circlepath")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Text(request.subject).font(.caption.monospaced()).textSelection(.enabled)
             if let scope = request.scope, !scope.isEmpty {
-                Label("Scope: \(scope)", systemImage: "scope")
+                Label(AgentChatStrings.scope(scope), systemImage: "scope")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -1926,11 +1928,11 @@ private struct AgentPermissionCard: View {
 
     private func resolutionLabel(_ resolution: ChatPermissionRequest.Resolution) -> String {
         switch resolution {
-        case .approved: return "Allowed once"
-        case .approvedAlways: return "Always allowed"
-        case .approvedAll: return "All matching actions allowed"
-        case .denied: return "Denied"
-        case .expired: return "Expired"
+        case .approved: return AgentChatStrings.allowedOnce
+        case .approvedAlways: return AgentChatStrings.alwaysAllowed
+        case .approvedAll: return AgentChatStrings.allMatchingActionsAllowed
+        case .denied: return AgentChatStrings.denied
+        case .expired: return AgentChatStrings.expired
         }
     }
 
@@ -2004,17 +2006,17 @@ private struct AgentQuestionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if isPlanReview {
-                Label("Plan ready for review", systemImage: "checklist")
+                Label(AgentChatStrings.planReadyForReview, systemImage: "checklist")
                     .font(.headline)
             }
             if isSubmitting {
-                Label("Sending answer…", systemImage: "arrow.triangle.2.circlepath")
+                Label(AgentChatStrings.sendingAnswer, systemImage: "arrow.triangle.2.circlepath")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Text(question.prompt).font(isPlanReview ? .body : .headline)
             if let selected = question.selectedOptionLabel {
-                Label("Answered: \(selected)", systemImage: "checkmark.circle.fill")
+                Label(AgentChatStrings.answered(selected), systemImage: "checkmark.circle.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.green)
             } else {
@@ -2025,17 +2027,17 @@ private struct AgentQuestionCard: View {
                     Button {
                         answerSelections?(selectedIndexes.sorted())
                     } label: {
-                        Label("Submit selection", systemImage: "checkmark.circle")
+                        Label(AgentChatStrings.submitSelection, systemImage: "checkmark.circle")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(selectedIndexes.isEmpty || isSubmitting)
                 }
                 HStack(spacing: 8) {
-                    TextField("Or type an answer", text: $freeText)
+                    TextField(AgentChatStrings.typeAnAnswer, text: $freeText)
                         .textFieldStyle(.roundedBorder)
                         .disabled(isSubmitting)
-                    Button("Send") {
+                    Button(AgentChatStrings.send) {
                         answerText?(freeText.trimmingCharacters(in: .whitespacesAndNewlines))
                     }
                     .buttonStyle(.bordered)
@@ -2131,10 +2133,10 @@ private struct AgentChatComposer: View {
             if !model.attachmentStaging.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 7) {
-                        Text("Preparing \(model.attachmentStaging.count) attachment\(model.attachmentStaging.count == 1 ? "" : "s")")
+                        Text(AgentChatStrings.preparingAttachments(model.attachmentStaging.count))
                             .font(.caption.weight(.medium))
                         Spacer(minLength: 0)
-                        Button("Cancel") {
+                        Button(AgentChatStrings.cancel) {
                             attachmentStagingTask?.cancel()
                             model.cancelAttachmentStaging()
                         }
@@ -2157,7 +2159,7 @@ private struct AgentChatComposer: View {
                         .foregroundStyle(.red)
                     Spacer(minLength: 0)
                     if !photoSelection.isEmpty {
-                        Button("Retry") {
+                        Button(AgentChatStrings.retry) {
                             Task { await stagePhotos(photoSelection) }
                         }
                         .font(.caption.weight(.semibold))
@@ -2176,7 +2178,7 @@ private struct AgentChatComposer: View {
                         .font(.caption)
                     Spacer(minLength: 0)
                     if dictation.state == .unavailable {
-                        Button("Settings") { openDictationSettings() }
+                        Button(AgentChatStrings.settings) { openDictationSettings() }
                             .font(.caption.weight(.semibold))
                     }
                 }
@@ -2186,7 +2188,7 @@ private struct AgentChatComposer: View {
             if model.queuedSendCount > 0 {
                 HStack(spacing: 6) {
                     Image(systemName: "clock.arrow.circlepath")
-                    Text("\(model.queuedSendCount) message queued")
+                    Text(AgentChatStrings.queuedMessages(model.queuedSendCount))
                     Spacer()
                 }
                 .font(.caption.weight(.medium))
@@ -2210,7 +2212,7 @@ private struct AgentChatComposer: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 TextField(
-                    isSessionEnded ? "Session ended" : "Message your agent",
+                    isSessionEnded ? AgentChatStrings.sessionEndedStatus : AgentChatStrings.messageYourAgent,
                     text: $model.draft,
                     axis: .vertical
                 )
@@ -2229,24 +2231,24 @@ private struct AgentChatComposer: View {
                         Button {
                             isPhotoPickerPresented = true
                         } label: {
-                            Label("Photo Library", systemImage: "photo.on.rectangle")
+                            Label(AgentChatStrings.photoLibrary, systemImage: "photo.on.rectangle")
                         }
                         Button {
                             startAttachmentStaging { await model.stagePastedImages() }
                         } label: {
-                            Label("Paste Image", systemImage: "doc.on.clipboard")
+                            Label(AgentChatStrings.pasteImage, systemImage: "doc.on.clipboard")
                         }
                         Button {
                             isFileImporterPresented = true
                         } label: {
-                            Label("Choose File", systemImage: "doc")
+                            Label(AgentChatStrings.chooseFile, systemImage: "doc")
                         }
                     } label: {
                         Image(systemName: "plus")
                             .font(.title3)
                             .frame(width: 44, height: 44)
                     }
-                    .accessibilityLabel("Add attachment")
+                    .accessibilityLabel(AgentChatStrings.addAttachment)
                     .disabled(isSessionEnded || model.attachments.count >= 10)
                     Spacer(minLength: 0)
                     AgentSessionControlsMenu(model: model)
@@ -2261,7 +2263,7 @@ private struct AgentChatComposer: View {
                     .symbolEffect(.pulse, isActive: dictation.state.isListening)
                     .disabled(isSessionEnded || !dictation.isAvailable)
                     .accessibilityLabel(
-                        dictation.state.isListening ? "Stop dictation" : "Start dictation"
+                        dictation.state.isListening ? AgentChatStrings.stopDictation : AgentChatStrings.startDictation
                     )
                     .accessibilityIdentifier("MobileAgentComposerMic")
                     if model.selectedSession?.isWorking == true {
@@ -2269,12 +2271,12 @@ private struct AgentChatComposer: View {
                             Button {
                                 Task { await model.interrupt() }
                             } label: {
-                                Label("Stop turn", systemImage: "stop.circle")
+                                Label(AgentChatStrings.stopTurn, systemImage: "stop.circle")
                             }
                             Button(role: .destructive) {
                                 Task { await model.interrupt(hard: true) }
                             } label: {
-                                Label("Force stop", systemImage: "exclamationmark.octagon")
+                                Label(AgentChatStrings.forceStop, systemImage: "exclamationmark.octagon")
                             }
                         } label: {
                             if model.interruptingSessionIDs.contains(model.selectedSessionID ?? "") {
@@ -2286,8 +2288,8 @@ private struct AgentChatComposer: View {
                             }
                         }
                         .foregroundStyle(.primary)
-                        .accessibilityLabel("Stop agent")
-                        .accessibilityHint("Choose a polite or forceful interruption")
+                        .accessibilityLabel(AgentChatStrings.stopAgent)
+                        .accessibilityHint(AgentChatStrings.stopAgentGuidance)
                         .disabled(isSessionEnded || model.interruptingSessionIDs.contains(model.selectedSessionID ?? ""))
                     }
                     if model.selectedSession?.isWorking == true {
@@ -2296,13 +2298,13 @@ private struct AgentChatComposer: View {
                                 dictation.cancel()
                                 Task { await model.sendDraft() }
                             } label: {
-                                Label("Queue for next turn", systemImage: "clock.arrow.circlepath")
+                                Label(AgentChatStrings.queueForNextTurn, systemImage: "clock.arrow.circlepath")
                             }
                             Button {
                                 dictation.cancel()
                                 Task { await model.steerDraft() }
                             } label: {
-                                Label("Steer current turn", systemImage: "arrow.uturn.forward")
+                                Label(AgentChatStrings.steerCurrentTurn, systemImage: "arrow.uturn.forward")
                             }
                         } label: {
                             Image(systemName: "arrow.up.circle.fill")
@@ -2311,8 +2313,8 @@ private struct AgentChatComposer: View {
                         }
                         .foregroundStyle(canSend ? Color.primary : Color.secondary)
                         .disabled(!canSend)
-                        .accessibilityLabel("Send instruction")
-                        .accessibilityHint("Choose whether to queue the instruction or steer the current turn")
+                        .accessibilityLabel(AgentChatStrings.sendInstruction)
+                        .accessibilityHint(AgentChatStrings.sendInstructionGuidance)
                     } else {
                         Button {
                             dictation.cancel()
@@ -2324,7 +2326,7 @@ private struct AgentChatComposer: View {
                         }
                         .foregroundStyle(canSend ? Color.primary : Color.secondary)
                         .disabled(!canSend)
-                        .accessibilityLabel("Send")
+                        .accessibilityLabel(AgentChatStrings.send)
                     }
                 }
             }
@@ -2336,7 +2338,7 @@ private struct AgentChatComposer: View {
         .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileAgentComposer")
-        .accessibilityHint(isSessionEnded ? "This agent session has ended and is read only." : "")
+        .accessibilityHint(isSessionEnded ? AgentChatStrings.readOnlySession : "")
         .photosPicker(
             isPresented: $isPhotoPickerPresented,
             selection: $photoSelection,
@@ -2476,8 +2478,8 @@ private struct AgentChatComposer: View {
         }
         if failures > 0 {
             attachmentErrorMessage = failures == 1
-                ? "That image could not be prepared."
-                : "Some images could not be prepared."
+                ? AgentChatStrings.imageCouldNotBePrepared
+                : AgentChatStrings.someImagesCouldNotBePrepared
         }
     }
 
@@ -2489,7 +2491,7 @@ private struct AgentChatComposer: View {
         let selected = Array(urls.prefix(remaining))
         let stages = selected.map { url in
             AgentChatModeModel.AttachmentStagingItem(
-                displayName: url.lastPathComponent.isEmpty ? "Attachment" : url.lastPathComponent,
+                displayName: url.lastPathComponent.isEmpty ? AgentChatStrings.attachment : url.lastPathComponent,
                 format: .file
             )
         }
@@ -2534,8 +2536,8 @@ private struct AgentChatComposer: View {
         }
         if failures > 0 {
             attachmentErrorMessage = failures == 1
-                ? "That file could not be attached. Files must be 32 MB or smaller."
-                : "Some files could not be attached. Files must be 32 MB or smaller."
+                ? AgentChatStrings.fileCouldNotBeAttached
+                : AgentChatStrings.someFilesCouldNotBeAttached
         }
     }
 
@@ -2575,13 +2577,13 @@ private struct AgentChatComposer: View {
     private var dictationStatusText: String {
         switch dictation.state {
         case .requestingPermission:
-            return "Allow microphone and speech recognition to dictate."
+            return AgentChatStrings.microphonePermissionGuidance
         case .listening:
-            return "Listening… speak your next instruction."
+            return AgentChatStrings.listening
         case .stopping:
-            return "Finishing dictation…"
+            return AgentChatStrings.finishingDictation
         case .unavailable:
-            return "Dictation is unavailable. Enable microphone and speech access in Settings."
+            return AgentChatStrings.dictationUnavailable
         case .idle:
             return ""
         }
@@ -2598,12 +2600,12 @@ private struct AgentAttachmentStagingRow: View {
 
     private var stateLabel: String {
         switch item.state {
-        case .queued: return "Waiting"
-        case .loading: return "Loading"
-        case .preparing: return "Preparing"
-        case .completed: return "Ready"
-        case .failed: return "Couldn’t attach"
-        case .cancelled: return "Cancelled"
+        case .queued: return AgentChatStrings.waiting
+        case .loading: return AgentChatStrings.loading
+        case .preparing: return AgentChatStrings.preparing
+        case .completed: return AgentChatStrings.ready
+        case .failed: return AgentChatStrings.couldNotAttach
+        case .cancelled: return AgentChatStrings.cancelled
         }
     }
 
@@ -2629,7 +2631,7 @@ private struct AgentAttachmentStagingRow: View {
                 HStack(spacing: 6) {
                     Text(stateLabel)
                     if item.state == .loading || item.state == .preparing {
-                        Text("\(Int(item.progress * 100))%")
+                        Text(AgentChatStrings.attachmentProgress(Int(item.progress * 100)))
                             .monospacedDigit()
                     }
                 }
@@ -2674,14 +2676,14 @@ private struct AgentChatAttachmentChip: View {
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Preview \(attachment.displayName)")
+            .accessibilityLabel(AgentChatStrings.previewAttachment(attachment.displayName))
             .accessibilityIdentifier("MobileAgentAttachmentPreview-\(attachment.id.uuidString)")
             Button(action: remove) {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(attachment.displayName)")
+            .accessibilityLabel(AgentChatStrings.removeAttachment(attachment.displayName))
         }
         .padding(4)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
@@ -2720,7 +2722,7 @@ private struct AgentAttachmentPreview: View {
                 } else if attachment.format == .file && !didAttemptFilePreview {
                     VStack(spacing: 14) {
                         ProgressView()
-                        Text("Preparing preview…")
+                        Text(AgentChatStrings.preparingPreview)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -2740,7 +2742,7 @@ private struct AgentAttachmentPreview: View {
                         ))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                        Text("Preview is unavailable for this file type.")
+                        Text(AgentChatStrings.previewUnavailableForFileType)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -2752,7 +2754,7 @@ private struct AgentAttachmentPreview: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button(AgentChatStrings.done) { dismiss() }
                 }
             }
         }

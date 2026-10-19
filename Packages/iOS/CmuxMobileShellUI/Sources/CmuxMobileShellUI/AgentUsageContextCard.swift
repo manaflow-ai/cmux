@@ -21,7 +21,7 @@ public struct AgentUsageContextCard: View {
             Image(systemName: presentation.systemImage)
                 .foregroundStyle(presentation.isNearLimit ? Color.orange : Color.secondary)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Usage and context")
+                Text(AgentChatStrings.usageAndContext)
                     .font(.caption.weight(.semibold))
                 Text(presentation.labels.joined(separator: " · "))
                     .font(.caption2.weight(.medium))
@@ -49,33 +49,33 @@ struct AgentUsageContextPresentation: Equatable, Sendable {
     init(totals: ChatUsageTotals, now: Date = Date()) {
         var labels: [String] = []
         if let fraction = totals.contextUsedFraction {
-            labels.append("\(Self.percent(fraction))% context")
+            labels.append(AgentChatStrings.contextPercent(Self.percent(fraction)))
         } else if let context = totals.contextTokens {
-            labels.append("\(Self.compact(context)) context tokens")
+            labels.append(AgentChatStrings.contextTokens(Self.compact(context)))
         }
         if totals.usage.totalTokens > 0 {
-            labels.append("\(Self.compact(totals.usage.totalTokens)) tokens")
+            labels.append(AgentChatStrings.totalTokens(Self.compact(totals.usage.totalTokens)))
         }
         var nearLimit = false
         if let rateLimit = totals.rateLimit {
             if rateLimit.spendControlReached == true {
-                labels.append("Limit reached")
+                labels.append(AgentChatStrings.limitReached)
                 nearLimit = true
             } else if let window = rateLimit.tightestWindow {
-                labels.append("\(Self.percent(window.usedPercent / 100))% allowance")
+                labels.append(AgentChatStrings.allowancePercent(Self.percent(window.usedPercent / 100)))
                 nearLimit = window.usedPercent >= 80
                 if let resetsAt = window.resetsAt, resetsAt > now {
-                    labels.append("Resets \(Self.relativeReset(resetsAt.timeIntervalSince(now)))")
+                    labels.append(AgentChatStrings.resets(Self.relativeReset(resetsAt.timeIntervalSince(now))))
                 }
             }
         }
         if labels.isEmpty {
-            labels.append("Usage unavailable")
+            labels.append(AgentChatStrings.usageUnavailable)
         }
         self.labels = labels
         self.isNearLimit = nearLimit
         self.systemImage = nearLimit ? "exclamationmark.triangle.fill" : "gauge.with.dots.needle.67percent"
-        self.accessibilityLabel = "Usage and context, " + labels.joined(separator: ", ")
+        self.accessibilityLabel = AgentChatStrings.usageAccessibility(labels.joined(separator: ", "))
     }
 
     private static func percent(_ fraction: Double) -> Int {
@@ -95,9 +95,9 @@ struct AgentUsageContextPresentation: Equatable, Sendable {
 
     private static func relativeReset(_ seconds: TimeInterval) -> String {
         let minutes = max(1, Int((seconds / 60).rounded()))
-        if minutes < 60 { return "in \(minutes)m" }
+        if minutes < 60 { return AgentChatStrings.relativeMinutes(minutes) }
         let hours = max(1, Int((Double(minutes) / 60).rounded()))
-        if hours < 24 { return "in \(hours)h" }
-        return "in \(max(1, Int((Double(hours) / 24).rounded())))d"
+        if hours < 24 { return AgentChatStrings.relativeHours(hours) }
+        return AgentChatStrings.relativeDays(max(1, Int((Double(hours) / 24).rounded())))
     }
 }

@@ -281,7 +281,7 @@ final class AgentChatModeModel {
         }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            errorMessage = "Enter a name for this session."
+            errorMessage = AgentChatStrings.enterSessionName
             return
         }
         do {
@@ -886,7 +886,7 @@ final class AgentChatModeModel {
 
     func addAttachment(_ attachment: PendingAttachment) {
         guard attachments.count < 10 else {
-            errorMessage = "You can attach up to 10 attachments."
+            errorMessage = AgentChatStrings.maxAttachmentsReached
             return
         }
         let maximumBytes = attachment.format == .file
@@ -894,13 +894,13 @@ final class AgentChatModeModel {
             : MobileImageAttachmentPreparer.maximumEncodedBytes
         guard attachment.data.count <= maximumBytes else {
             errorMessage = attachment.format == .file
-                ? "That file is too large to send."
-                : "That image is too large to send."
+                ? AgentChatStrings.fileTooLargeToSend
+                : AgentChatStrings.imageTooLargeToSend
             return
         }
         let totalBytes = attachments.reduce(0) { $0 + $1.data.count }
         guard totalBytes + attachment.data.count <= 64 * 1024 * 1024 else {
-            errorMessage = "Attachments can use up to 64 MB in total."
+            errorMessage = AgentChatStrings.attachmentsTotalLimit
             return
         }
         guard !attachments.contains(where: { $0.data == attachment.data }) else { return }
@@ -987,7 +987,7 @@ final class AgentChatModeModel {
     func stagePastedImages() async {
         let reader = MobilePasteboardReader()
         guard reader.hasAttachmentContent(in: .general) else {
-            errorMessage = "No image is available to paste."
+            errorMessage = AgentChatStrings.noImageToPaste
             return
         }
         let items = await reader.materializeAttachments(from: .general)
@@ -997,7 +997,7 @@ final class AgentChatModeModel {
         let selected = Array(imageItems.prefix(remaining))
         let stages = selected.enumerated().map { index, item in
             AttachmentStagingItem(
-                displayName: item.displayName.isEmpty ? "Pasted image \(index + 1)" : item.displayName,
+                displayName: item.displayName.isEmpty ? AgentChatStrings.pastedImage(index + 1) : item.displayName,
                 format: .png
             )
         }
@@ -1007,13 +1007,13 @@ final class AgentChatModeModel {
             let stageID = stages[index].id
             guard !Task.isCancelled else { return }
             guard attachments.count < 10 else {
-                errorMessage = "You can attach up to 10 images."
+                errorMessage = AgentChatStrings.maxImagesReached
                 failAttachmentStagingItem(id: stageID)
                 return
             }
             updateAttachmentStaging(id: stageID, state: .preparing, progress: 0.3)
             guard let prepared = await prepareImage(at: item.url) else {
-                errorMessage = "That image couldn’t be prepared. Choose another image."
+                errorMessage = AgentChatStrings.imageCouldNotBePreparedForPaste
                 failAttachmentStagingItem(id: stageID)
                 continue
             }
