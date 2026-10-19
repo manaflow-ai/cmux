@@ -51,14 +51,17 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         public var generation: UInt64
         public var scope: String?
         public var requiresScope: Bool
+        public var nativeLink: CloudCredentialNativeLink?
 
-        public init(signedIn: Bool, team: String?, account: String? = nil, generation: UInt64 = 0, scope: String? = nil, requiresScope: Bool = false) {
+        public init(signedIn: Bool, team: String?, account: String? = nil, generation: UInt64 = 0, scope: String? = nil, requiresScope: Bool = false,
+                    nativeLink: CloudCredentialNativeLink? = nil) {
             self.signedIn = signedIn
             self.team = team
             self.account = account
             self.generation = generation
             self.scope = scope
             self.requiresScope = requiresScope
+            self.nativeLink = nativeLink
         }
     }
 
