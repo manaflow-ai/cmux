@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 84cd4c3f33af065e3de184ef0e7620f0a5ee2060ef94477fadee1b71ca92da36. */
+/* cmux-tui mux protocol 12, IR c09dd7c14b07e11ae0cfd502853da8ac29ed04e4022b4ab807cb844565da7eaa. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */

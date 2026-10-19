@@ -65,6 +65,17 @@ pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
+/// A run that waits for a person's answer in the app (an agent's cookie
+/// import shows a consent panel, then macOS asks for a password): the app
+/// bounds it at 200 s (`ActionDescriptor.personDeadline`).
+pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
+/// The CLI names of the actions that wait for a person (`waits_for_person`).
+const PERSON_ACTIONS: &[&str] = &["browser import-cookies", "browser.importCookies"];
+
+/// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
+pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
+    if PERSON_ACTIONS.contains(&action) { PERSON_RUN_TIMEOUT } else { WAITING_RUN_TIMEOUT }
+}
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -460,7 +471,7 @@ pub(super) fn run_action(
     Ok(AppCommand::Call {
         method: "action.run",
         params: Value::Object(params),
-        timeout: Some(if wait { WAITING_RUN_TIMEOUT } else { READ_TIMEOUT }),
+        timeout: Some(if wait { waiting_run_timeout(action) } else { READ_TIMEOUT }),
         pick: None,
     })
 }
