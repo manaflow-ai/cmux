@@ -8,6 +8,7 @@ mod adoption;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
+mod exit_reason;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 mod bookmarks;

@@ -34,7 +34,9 @@ impl Brain {
         if tasks.is_empty() {
             return Err("spawn needs at least one task".into());
         }
-        let mut free = crate::subagents::MAX_LIVE.saturating_sub(self.live_subs());
+        let mut free = self
+            .max_live
+            .map_or(usize::MAX, |n| n.saturating_sub(self.live_subs()));
         let first = self.state.next_subagent.max(1);
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
@@ -83,8 +85,18 @@ impl Brain {
             spawn,
             ids,
             queued,
+            limit: self.max_live,
             engine: self.spawn_engine(),
         })
+    }
+
+    pub(super) fn sub_queued(&mut self, id: &str, launch: crate::state::QueuedLaunch) {
+        if let Some(sub) = self.state.sub_mut(id)
+            && sub.status == SubStatus::Queued
+        {
+            sub.queued_launch = Some(launch);
+            self.save();
+        }
     }
 
     pub(super) fn sub_started(&mut self, id: &str, session_id: String, policy: Option<String>) {
@@ -517,24 +529,31 @@ impl Brain {
 
     /// Starts queued subagents, oldest first, while slots are free.
     pub(super) fn start_queued(&mut self) {
-        while self.live_subs() < crate::subagents::MAX_LIVE {
+        while self.max_live.is_none_or(|n| self.live_subs() < n) {
             let next = self
                 .state
                 .spawns
-                .values()
-                .flat_map(|r| r.subs.iter())
-                .filter(|s| s.status == SubStatus::Queued)
-                .min_by_key(|s| {
+                .iter()
+                .flat_map(|(spawn, r)| r.subs.iter().map(move |s| (spawn, s)))
+                .filter(|(_, s)| s.status == SubStatus::Queued)
+                .min_by_key(|(_, s)| {
                     s.id.trim_start_matches('a')
                         .parse::<u64>()
                         .unwrap_or(u64::MAX)
                 })
-                .map(|s| s.id.clone());
-            let Some(id) = next else { return };
+                .map(|(spawn, s)| crate::subagents::QueuedStart {
+                    id: s.id.clone(),
+                    spawn: spawn.clone(),
+                    launch: s.queued_launch.clone(),
+                    engine: None,
+                });
+            let Some(mut queued) = next else { return };
+            queued.engine = self.spawn_engine();
+            let id = queued.id.clone();
             let sent = self
                 .sub_starter
                 .as_ref()
-                .is_some_and(|starter| starter.send(id.clone()).is_ok());
+                .is_some_and(|starter| starter.send(queued).is_ok());
             if !sent {
                 self.sub_failed(&id, "this Chief host cannot start queued subagents");
                 continue;
@@ -542,6 +561,7 @@ impl Brain {
             if let Some(sub) = self.state.sub_mut(&id) {
                 sub.status = SubStatus::Starting;
                 sub.run_ms = now_ms();
+                sub.queued_launch = None;
             }
             self.save();
             (self.log)(&format!("subagent {id}: a slot is free, starting it"));

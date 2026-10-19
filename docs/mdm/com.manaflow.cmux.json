@@ -106,28 +106,6 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
-    "agents.subsessions.enabled" : {
-      "default" : true,
-      "description" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.",
-      "title" : "Let Agents Start Sub-sessions",
-      "type" : "boolean"
-    },
-    "agents.subsessions.maxChildren" : {
-      "default" : 50,
-      "description" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
-      "maximum" : 1000,
-      "minimum" : 1,
-      "title" : "Open Sub-sessions per Session",
-      "type" : "number"
-    },
-    "agents.subsessions.maxDepth" : {
-      "default" : 10,
-      "description" : "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own.",
-      "maximum" : 100,
-      "minimum" : 1,
-      "title" : "Deepest Nesting",
-      "type" : "number"
-    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -810,14 +788,14 @@
     },
     "appearance.metrics.tabMinActiveWidth" : {
       "description" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.",
-      "maximum" : 200,
+      "maximum" : 320,
       "minimum" : 32,
       "title" : "Minimum Selected Tab Width",
       "type" : "number"
     },
     "appearance.metrics.tabMinInactiveWidth" : {
       "description" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.",
-      "maximum" : 120,
+      "maximum" : 320,
       "minimum" : 16,
       "title" : "Minimum Tab Width",
       "type" : "number"
@@ -2248,6 +2226,29 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "phone.allowConnections" : {
+      "default" : false,
+      "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers.",
+      "title" : "Let Your Phone Use This Mac",
+      "type" : "boolean"
+    },
+    "phone.keepAwake" : {
+      "default" : "pluggedIn",
+      "description" : "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep.",
+      "enum" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "title" : "Keep Mac Awake for Your Phone",
+      "type" : "string"
+    },
+    "phone.startSessions" : {
+      "default" : true,
+      "description" : "Off, your phone can still follow, type into and answer what's already running.",
+      "title" : "Let Your Phone Start New Workspaces",
+      "type" : "boolean"
+    },
     "picker.pinned" : {
       "default" : [
 
@@ -2376,6 +2377,12 @@
       ],
       "title" : "Hide Bands Until Hover",
       "type" : "string"
+    },
+    "sidebar.nowPlaying.enabled" : {
+      "default" : true,
+      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "title" : "Show Now Playing",
+      "type" : "boolean"
     },
     "sidebar.numbering" : {
       "default" : "allItems",

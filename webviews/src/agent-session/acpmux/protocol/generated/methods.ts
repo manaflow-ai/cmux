@@ -32,6 +32,12 @@ export interface AcpmuxRequests {
   "_acpmux/rename": { params: unknown; result: unknown };
   "_acpmux/offer_session": { params: unknown; result: unknown };
   "_acpmux/offer_respond": { params: unknown; result: unknown };
+  "_acpmux/subsession/get": { params: unknown; result: unknown };
+  "_acpmux/subsession/limits": { params: unknown; result: unknown };
+  "_acpmux/subsession/list": { params: unknown; result: unknown };
+  "_acpmux/subsession/send": { params: unknown; result: unknown };
+  "_acpmux/subsession/start": { params: unknown; result: unknown };
+  "_acpmux/subsession/stop": { params: unknown; result: unknown };
   "_acpmux/set_tools": { params: unknown; result: unknown };
   "_acpmux/subagent_stop": { params: unknown; result: unknown };
   "_acpmux/stats": { params: unknown; result: unknown };
@@ -205,6 +211,12 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_session", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_respond", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/subsession/get", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/subsession/limits", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/subsession/list", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/subsession/send", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/subsession/start", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/subsession/stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
