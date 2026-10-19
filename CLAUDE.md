@@ -47,6 +47,13 @@ repair is printed, and a fixer failure is an advisory warning. The hook is
 best-effort so an unavailable Python interpreter or an incomplete edit never
 turns an agent edit into a failed tool call.
 
+`scripts/ci/format-post-edit.sh` formats each edited file the way CI checks it:
+`webviews/` and `cmux-tui/frontends/web/` with that package's own `vp fmt`
+(reinstalled from its lockfile when stale), Rust with the pinned toolchain's
+rustfmt. The pre-commit hook does the same for staged files and restages them.
+Both touch only those files, so agents sharing a checkout never reformat each
+other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:
