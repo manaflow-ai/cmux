@@ -339,7 +339,7 @@ public final class WorkstreamStore {
     // MARK: - Private helpers
 
     private func bumpRevision() {
-        revision += 1
+        revision = revision == Int.max ? Int.max : revision + 1
         onRevisionChange?(revision)
         persistRevision()
     }

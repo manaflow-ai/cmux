@@ -77,6 +77,9 @@ public actor WorkstreamPersistence {
     /// JSON decode. Larger rows are treated as corrupt history by bounded
     /// readers and remain available for later forensic inspection.
     private static let maximumPersistedRowBytes = 8 * 1024 * 1024
+    /// Leave one representable value for the startup bump after restoring a
+    /// persisted high-water mark.
+    private static let maximumRevision = UInt64(Int.max - 1)
 
     public init(fileURL: URL) {
         self.fileURL = fileURL
@@ -170,7 +173,7 @@ public actor WorkstreamPersistence {
             let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
             let fileExists = FileManager.default.fileExists(atPath: fileURL.path)
             let fileBytes = (try? fileSize()) ?? 0
-            let revision = (try? loadRevision()) ?? Int(min(fileBytes, UInt64(Int.max)))
+            let revision = (try? loadRevision()) ?? Int(min(fileBytes, Self.maximumRevision))
             return StartupSnapshot(
                 items: [],
                 revision: revision,
@@ -246,7 +249,7 @@ public actor WorkstreamPersistence {
     /// revision below the phone's last-known snapshot and hide a reply or
     /// resolution behind a stale `feed.changed` event.
     public func loadRevision() throws -> Int {
-        let fileRevision = try fileSize()
+        let fileRevision = (try? fileSize()) ?? 0
         let durableRevision: UInt64
         if let data = FileManager.default.contents(atPath: revisionURL.path),
            let text = String(data: data, encoding: .utf8),
@@ -255,7 +258,7 @@ public actor WorkstreamPersistence {
         } else {
             durableRevision = 0
         }
-        return Int(min(max(fileRevision, durableRevision), UInt64(Int.max)))
+        return Int(min(max(fileRevision, durableRevision), Self.maximumRevision))
     }
 
     /// Persists a feed revision high-water mark independently of JSONL rows.
@@ -476,15 +479,8 @@ public actor WorkstreamPersistence {
                 throw error
             }
         }
-        do {
-            try FileManager.default.removeItem(at: revisionURL)
-        } catch {
-            let nsError = error as NSError
-            if nsError.domain != NSCocoaErrorDomain ||
-               nsError.code != NSFileNoSuchFileError {
-                throw error
-            }
-        }
+        // Keep the revision sidecar. Clearing visible history must not let a
+        // subscribed phone observe a lower generation after the next launch.
     }
 
     private func fileSize() throws -> UInt64 {

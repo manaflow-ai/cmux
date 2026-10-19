@@ -22,7 +22,27 @@ struct WorkstreamPersistenceTests {
         #expect(try await restarted.loadRevision() == 41)
 
         try await restarted.clear()
-        #expect(try await restarted.loadRevision() == 0)
+        #expect(try await restarted.loadRevision() == 41)
+    }
+
+    @Test("An oversized revision sidecar is clamped without startup overflow")
+    @MainActor
+    func oversizedRevisionSidecarIsClamped() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-revision-overflow-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(at: tmp.appendingPathExtension("revision"))
+        }
+
+        try Data("18446744073709551615\n".utf8)
+            .write(to: tmp.appendingPathExtension("revision"))
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        #expect(try await persistence.loadRevision() == Int.max - 1)
+
+        let store = WorkstreamStore(persistence: WorkstreamPersistence(fileURL: tmp))
+        await store.start()
+        #expect(store.revision == Int.max)
     }
 
     @Test("Append + loadRecent round-trips items oldest-first")
