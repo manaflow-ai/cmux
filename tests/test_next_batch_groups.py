@@ -368,6 +368,20 @@ class GroupCycle(unittest.TestCase):
         self.assertEqual(shown.count("show"), 2)  # once per batch, never a stale copy from an earlier one
         self.assertNotEqual(first.merge_green(), second.merge_green())
 
+    def test_a_member_with_its_own_red_check_holds_the_group(self):
+        """Every member lands through gh-merge-green, which judges its own checks:
+        admitting a red one could land the members before it and strand the group."""
+        item = controller()
+        item.reported = lambda target, kinds: ""
+        ran = []
+        item.run_group = lambda name, members: ran.append(name) or []
+        prs = [pr(1, labels=["batch:a"]), pr(2, labels=["batch:a"], checks=[("ci-status", "completed", "failure")])]
+        skipped = {}
+        with mock.patch.object(nb, "now", return_value=NOW):
+            item.run_groups(prs, None, skipped)
+        self.assertEqual(ran, [])
+        self.assertIn("#2 red check ci-status", skipped[1])
+
     def test_lanes_use_each_members_full_diff(self):
         item = controller()
         item.git = mock.Mock(return_value="\n".join(f"webviews/src/f{index}.ts" for index in range(150)))

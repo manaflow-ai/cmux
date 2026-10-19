@@ -1322,8 +1322,10 @@ def waiver_controller(base_now="b"):
 
 
 def heavy_validation(prs, passed=("cmux-next swift test",), heads=None):
-    return nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40, included=list(prs), heads=heads or {}),
-                         heavy_passed=list(passed), heavy_url="https://example.test/actions/runs/77")
+    heads = heads if heads is not None else {prs[-1].number: "c" * 40}
+    return nb.Validation(name="batch", stack=nb.Stack(base="b", head=heads.get(prs[-1].number, "c" * 40),
+                                                      included=list(prs), heads=heads),
+                         heavy_passed=list(passed), heavy_url="https://example.test/actions/runs/77", build={"ok": True})
 
 
 class LandingRetry(unittest.TestCase):
@@ -1362,6 +1364,17 @@ class LandingRetry(unittest.TestCase):
         controller.same_tree = lambda a, b: {a, b} == {"m", "s6"}
         outcome, calls = self.merge(controller, pr(7), controller.validations[0])
         self.assertTrue(outcome.startswith("landed"))
+
+    def test_a_stack_with_a_failed_fleet_build_or_a_regen_commit_gets_no_waiver(self):
+        controller = waiver_controller()
+        failed_build = heavy_validation([pr(7)])
+        failed_build.build = {"ok": False}
+        regen = heavy_validation([pr(7)], heads={7: "s7"})
+        regen.stack.head = "c" * 40  # the tested head is a regen commit on top of #7's
+        for validation in (failed_build, regen):
+            with self.subTest(validation=validation.stack.heads):
+                outcome, calls = self.merge(controller, pr(7), validation)
+                self.assertTrue(all("--override" not in call for call in calls))
 
     def test_a_base_that_moved_past_the_stack_gets_no_waiver(self):
         controller = waiver_controller(base_now="d")
