@@ -567,3 +567,35 @@ fn a_chat_send_that_cannot_reach_its_chat_fails_with_its_receipt() {
     assert_eq!(receipt["result"]["state"], "failed", "{receipt}");
     assert!(receipt["result"]["message_id"].is_string(), "{receipt}");
 }
+
+#[test]
+fn a_read_masks_secrets_in_another_chats_text() {
+    let daemon = machine("chat-secrets");
+    let workspace = workspace(&daemon);
+    let reader = chat(&daemon, Some(&workspace));
+    let holder = chat(&daemon, Some(&workspace));
+    // The person pastes a key into one chat; the test agent echoes it back.
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let prompted = Acp::connect(&daemon).call(
+        "session/prompt",
+        json!({"sessionId": holder, "prompt": [{"type": "text",
+               "text": format!("deploy with {key} please")}]}),
+    );
+    assert!(prompted.get("error").is_none(), "{prompted}");
+
+    // Another chat's agent reads it, over MCP and over the CLI.
+    let page = read_until(&daemon, &reader, json!({"target": holder}), |items| {
+        items.iter().any(|item| item["role"] == "turn_end")
+    });
+    let (code, cli) = agents_chat(&daemon, Some(&reader), &["read", &holder]);
+    assert_eq!(code, Some(0), "{cli}");
+    for page in [&page, &cli] {
+        assert!(!page.to_string().contains(&key), "a read shows another chat's key: {page}");
+        let items = page["items"].as_array().unwrap();
+        for role in ["user", "assistant"] {
+            let item = items_of(items, role);
+            let text = item.first().and_then(|item| item["text"].as_str()).unwrap_or_default();
+            assert!(text.contains("[AWS access key]"), "{role} not masked: {page}");
+        }
+    }
+}
