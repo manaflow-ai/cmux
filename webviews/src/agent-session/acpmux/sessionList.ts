@@ -240,6 +240,20 @@ export function isAgentHome(cwd: string | undefined): boolean {
   return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
+/// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
+/// folder of its own starts. Not a private agent-home folder, the home folder or `/`, and not a chat
+/// on another machine (a peer or a Cloud host).
+export function mostRecentProject(sessions: readonly AcpmuxSessionEntry[], home?: string): string | undefined {
+  let newest: AcpmuxSessionEntry | undefined;
+  for (const session of sessions) {
+    const cwd = session.cwd?.replace(/\/+$/, "");
+    if (!cwd || cwd === "~" || cwd === home?.replace(/\/+$/, "") || isAgentHome(cwd)) continue;
+    if (session.peer || (session.hostKind && session.hostKind !== "local") || !listed(session)) continue;
+    if (!newest || (session.updatedAt ?? 0) > (newest.updatedAt ?? 0)) newest = session;
+  }
+  return newest?.cwd;
+}
+
 /** A project's name for its header: the folder's last component, `~` for a home folder. */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");

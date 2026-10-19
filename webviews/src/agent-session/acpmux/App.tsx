@@ -3492,7 +3492,15 @@ function AcpmuxPane() {
   }).current;
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
-    attach: (audio) => composerHandle.current?.attach(audioAttachment(audio, translate("dictation.recording"))),
+    attach: (audio) => {
+      const recording = audioAttachment(audio, translate("dictation.recording"));
+      if (recording) composerHandle.current?.attach(recording);
+      else directClient.current?.notice(translate("dictation.recordingTooLong"));
+    },
+    omitted: (reason) =>
+      directClient.current?.notice(
+        translate(reason === "tooLong" ? "dictation.recordingTooLong" : "dictation.recordingNarrowband"),
+      ),
   });
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -5546,6 +5554,7 @@ function AcpmuxPane() {
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
+              {...(newTab.widgets ? { widgets: true } : {})}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
