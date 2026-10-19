@@ -181,7 +181,12 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(claude.waitForExistence(timeout: 8))
         claude.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
-        let usage = app.otherElements["MobileAgentUsageContextCard"]
+        // Combined SwiftUI accessibility elements can be exposed as a static
+        // text node rather than `otherElements`; query the stable identifier
+        // across element types so this proof follows the product boundary.
+        let usage = app.descendants(matching: .any)
+            .matching(identifier: "MobileAgentUsageContextCard")
+            .firstMatch
         XCTAssertTrue(reveal(usage, in: app, requireHittable: false), "Claude usage/context card should be reachable")
         keepScreenshot(app, named: "agent-claude-context")
 
@@ -226,13 +231,20 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
         let initialPrompt = app.staticTexts["Review the networking changes and summarize risks."]
         XCTAssertTrue(reveal(initialPrompt, in: app), "Codex initial prompt should be reachable")
-        let usage = app.otherElements["MobileAgentUsageContextCard"]
+        let usage = app.descendants(matching: .any)
+            .matching(identifier: "MobileAgentUsageContextCard")
+            .firstMatch
         XCTAssertTrue(reveal(usage, in: app, requireHittable: false), "Codex usage/context card should be reachable")
         let diffPath = app.staticTexts["Sources/Network/RetryPolicy.swift"]
         XCTAssertTrue(reveal(diffPath, in: app), "Codex diff card should be reachable")
         let webSearch = app.otherElements["MobileAgentWebSearchCard"]
         XCTAssertTrue(reveal(webSearch, in: app), "Codex web-search card should be reachable")
-        let markdownCode = app.staticTexts["let delay = min(8, attempt * 2)"]
+        // The code block is a horizontally scrolling SwiftUI container, so
+        // its child text is not consistently exported as one static-text
+        // node. Assert the stable card identifier instead.
+        let markdownCode = app.descendants(matching: .any)
+            .matching(identifier: "MobileAgentMarkdownCode")
+            .firstMatch
         XCTAssertTrue(reveal(markdownCode, in: app, requireHittable: false), "Codex Markdown code block should be reachable")
         keepScreenshot(app, named: "agent-codex-review")
 
@@ -323,7 +335,9 @@ final class AgentChatModeUITests: XCTestCase {
 
         XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 12))
         keepScreenshot(app, named: "agent-history-arabic")
-        let codex = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Codex, Review the networking changes")).firstMatch
+        // RTL accessibility labels may place the provider after the title;
+        // the session title remains stable in every locale.
+        let codex = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Review the networking changes")).firstMatch
         XCTAssertTrue(codex.waitForExistence(timeout: 8))
         codex.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
