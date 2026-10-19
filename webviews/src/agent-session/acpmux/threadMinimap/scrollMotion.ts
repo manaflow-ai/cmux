@@ -27,10 +27,17 @@ export function stopScroll(node: HTMLElement): void {
 
 /// Scrolls `node` to `target()` over `duration` ms on `curve`. The target is read each frame, so rows
 /// that measure meanwhile move the landing with them. A zero duration jumps.
-export function animateScroll(node: HTMLElement, target: () => number, duration: number, curve: CubicBezier): void {
+export function animateScroll(
+  node: HTMLElement,
+  target: () => number,
+  duration: number,
+  curve: CubicBezier,
+  then?: () => void,
+): void {
   stopScroll(node);
   if (duration <= 0 || typeof requestAnimationFrame !== "function") {
     node.scrollTop = target();
+    then?.();
     return;
   }
   const from = node.scrollTop;
@@ -45,7 +52,44 @@ export function animateScroll(node: HTMLElement, target: () => number, duration:
     const progress = Math.min(1, Math.max(0, (now - start) / duration));
     node.scrollTop = from + (target() - from) * bezierAt(curve, progress);
     if (progress < 1) frame = requestAnimationFrame(step);
-    else end();
+    else {
+      end();
+      then?.();
+    }
+  };
+  for (const name of READER_INPUTS) node.addEventListener(name, end, { passive: true });
+  running.set(node, end);
+  frame = requestAnimationFrame(step);
+}
+
+/// Holds a jump's landing while the rows it crossed mount and measure: each frame, `offset()` says how
+/// far the target sits from where it should land (undefined while it is not mounted), and the scroll
+/// moves by that much, until it holds for three frames or `frames` run out. The reader's own input,
+/// or another scroll on `node`, ends it.
+export function settleScroll(node: HTMLElement, offset: () => number | undefined, frames: number): void {
+  stopScroll(node);
+  if (typeof requestAnimationFrame !== "function") return;
+  let frame = 0;
+  let left = frames;
+  let steady = 0;
+  const end = () => {
+    cancelAnimationFrame(frame);
+    for (const name of READER_INPUTS) node.removeEventListener(name, end);
+    if (running.get(node) === end) running.delete(node);
+  };
+  const step = () => {
+    const by = offset();
+    if (by !== undefined) {
+      const max = Math.max(0, node.scrollHeight - node.clientHeight);
+      const to = Math.max(0, Math.min(max, node.scrollTop + by));
+      if (Math.abs(to - node.scrollTop) > 0.5) {
+        node.scrollTop = to;
+        steady = 0;
+      } else steady += 1;
+    }
+    left -= 1;
+    if (steady >= 3 || left <= 0) end();
+    else frame = requestAnimationFrame(step);
   };
   for (const name of READER_INPUTS) node.addEventListener(name, end, { passive: true });
   running.set(node, end);

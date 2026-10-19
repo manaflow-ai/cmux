@@ -8,17 +8,20 @@
 // own list (during a scrub) and the card's height. Motion is transform only (threadMinimap.css);
 // the numbers are in model.ts.
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { usePromptMarks } from "./promptMarks";
 import { useHoverIntent } from "../../../ui/hoverIntent";
-import { animateScroll, highlightBubble, reducedMotion, stopScroll } from "./scrollMotion";
+import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
 import { BookmarkIcon } from "./BookmarkIcon";
 import {
+  CARD_DELAY,
   cardOffset,
   JUMP_CURVE,
   jumpDuration,
+  LANDING_OFFSET,
   MIN_GUTTER,
   MIN_PROMPTS,
   minimapTurns,
@@ -26,6 +29,8 @@ import {
   railHeight,
   ROW_PITCH,
   ROW_WIDTH,
+  SETTLE_FRAMES,
+  SHIFT_MS,
   STEP_CURVE,
   STEP_MS,
   TICK_BOX,
@@ -89,14 +94,15 @@ export function ThreadMinimap({
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
   const [cardRow, setCardRow] = useState<number | undefined>(undefined);
-  // The card's hover intent (ui/hoverIntent.ts), as every hover card's: the first waits the hover
-  // delay, then the card follows the pointer from row to row at once, and the rail cools a moment
-  // after it goes. Keyboard focus shows it at once.
-  const preview = useHoverIntent<"rail">();
+  // The card's hover intent (ui/hoverIntent.ts): the first waits Codex's 250 ms (CARD_DELAY), then
+  // the card follows the pointer from row to row at once, and the rail cools a moment after it goes.
+  // Keyboard focus shows it at once.
+  const preview = useHoverIntent<"rail">({ delay: CARD_DELAY });
   const cardOpen = preview.shown !== null;
   const intend = preview.hover;
   const dismiss = preview.dismiss;
   const [scrubbing, setScrubbing] = useState(false);
+  const [, setBandMoves] = useState(0);
   const [reduce, setReduce] = useState(false);
   const [listTop, setListTop] = useState(0);
   const [cardHeight, setCardHeight] = useState(0);
@@ -109,16 +115,37 @@ export function ThreadMinimap({
   const scrub = useRef<{ pointer: number; y: number; moved: boolean; at?: number } | undefined>(undefined);
   const swallowClick = useRef(false);
   const windowHeight = globalThis.innerHeight || viewportHeight;
-  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, scrollTop, viewportHeight);
+  /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
+  /// frame or two late (React schedules a scroll's render), so the band of lit rows read it here
+  /// instead and follows the reader on the scroll's own frame.
+  /// Another session's transcript starts from its own offset.
+  const domTop = useRef<{ sessionId?: string; top: number } | undefined>(undefined);
+  const top = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : scrollTop;
+  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   const shown = turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER;
   const height = railHeight(turns.length, windowHeight);
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
-  const live = useRef({ turns, tops: layout.tops, total: layout.totalHeight, marks });
+  const live = useRef({ turns, tops: layout.tops, total: layout.totalHeight, marks, viewportHeight, onScreen, sessionId });
   useLayoutEffect(() => {
-    live.current = { turns, tops: layout.tops, total: layout.totalHeight, marks };
+    live.current = { turns, tops: layout.tops, total: layout.totalHeight, marks, viewportHeight, onScreen, sessionId };
   });
+
+  // The band follows the scroll on its own frame: a scroll that moves it renders the rail at once
+  // (only the rows whose state changed draw again); one that does not renders nothing.
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const scrolled = () => {
+      const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
+      domTop.current = { sessionId: session, top: node.scrollTop };
+      const next = visibleTurns(all, tops, total, node.scrollTop, height);
+      if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
+    };
+    node.addEventListener("scroll", scrolled, { passive: true });
+    return () => node.removeEventListener("scroll", scrolled);
+  }, [scroller]);
 
   /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
   /// at once when it is not (or under Reduce Motion, or while scrubbing). A click or a bookmark jump
@@ -131,11 +158,25 @@ export function ThreadMinimap({
       Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight));
     const row = mountedRow(node, turn.id);
     const to = target();
+    // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark
+    // once the rows it reaches mount and measure (297 px off for 50 turns up). Where it lands is then
+    // corrected from the bubble itself, frame by frame, until it holds.
+    const settle = () =>
+      settleScroll(
+        node,
+        () => {
+          const bubble = bubbleOf(mountedRow(node, turn.id));
+          if (!bubble) return undefined;
+          return bubble.getBoundingClientRect().top - node.getBoundingClientRect().top - LANDING_OFFSET;
+        },
+        SETTLE_FRAMES,
+      );
     if (how === "scrub" || !row || reducedMotion()) {
       stopScroll(node);
       node.scrollTop = to;
-    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE);
-    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE);
+      if (how !== "scrub") settle();
+    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle);
+    else animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle);
     if (how === "click" || how === "bookmark") {
       if (row) highlightBubble(bubbleOf(row));
       // An unmounted row mounts once the transcript draws its new place.
@@ -206,6 +247,43 @@ export function ThreadMinimap({
     const node = card.current;
     if (showCard && node) setCardHeight(node.offsetHeight);
   }, [showCard, cardTurn]);
+
+  // Older turns that load above the reader (the transcript pages them in as it nears the top) add
+  // rows above the band and would move it on screen in one frame: 150 px for a 30-turn page. The
+  // band holds where it was instead. A rail that scrolls takes the new rows into its own scroll; one
+  // that grows glides back to center from where the band was, over SHIFT_MS. Where the band's first
+  // row sits comes from the rail's geometry, so no commit reads layout for it.
+  const anchor = useRef<{ key: string; firstKey: string; y: number } | undefined>(undefined);
+  useLayoutEffect(() => {
+    const was = anchor.current;
+    anchor.current = undefined;
+    if (!shown || !turns.length) return;
+    const top = Math.round((viewportHeight - height) / 2);
+    let scrolled = listTop;
+    if (was && was.firstKey !== turns[0]!.key) {
+      const index = turns.findIndex((turn) => turn.key === was.key);
+      const node = list.current;
+      const shell = rail.current;
+      if (index >= 0 && node && shell) {
+        let moved = top + index * ROW_PITCH - scrolled - was.y;
+        const room = Math.max(0, turns.length * ROW_PITCH - height);
+        const next = Math.max(0, Math.min(room, scrolled + moved));
+        if (next !== scrolled) {
+          node.scrollTop = next;
+          moved -= next - scrolled;
+          scrolled = next;
+          setListTop(next);
+        }
+        if (Math.abs(moved) >= 0.5 && typeof shell.animate === "function" && !reducedMotion())
+          shell.animate([{ transform: `translateY(${-moved}px)` }, { transform: "translateY(0)" }], {
+            duration: SHIFT_MS,
+            easing: `cubic-bezier(${STEP_CURVE.join(", ")})`,
+          });
+      }
+    }
+    const first = turns[onScreen.first];
+    if (first) anchor.current = { key: first.key, firstKey: turns[0]!.key, y: top + onScreen.first * ROW_PITCH - scrolled };
+  });
 
   // A rail longer than its room keeps the first prompt on screen in view while the reader scrolls.
   useLayoutEffect(() => {

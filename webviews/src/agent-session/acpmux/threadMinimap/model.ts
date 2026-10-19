@@ -46,6 +46,14 @@ export const THREAD_PADDING_TOP = 16;
 export const JUMP_CURVE = [0.35, 0.05, 0, 1] as const;
 export const STEP_CURVE = [0.3, 0.2, 0, 1] as const;
 export const STEP_MS = 200;
+/// The preview card opens this long after the pointer reaches the rail (Codex's `delayOpen`, 250 ms).
+/// Shorter than the app's 450 ms hover delay (ui/hoverIntent.ts): the rail is a deliberate target,
+/// and the card is the point of hovering it. Once one shows, the next row's follows at once.
+export const CARD_DELAY = 250;
+/// When older turns load above the rail's rows and move them, the rail glides back over this long.
+export const SHIFT_MS = 200;
+/// A jump keeps correcting its landing for up to this many frames while the rows it crossed measure.
+export const SETTLE_FRAMES = 45;
 /// The landing highlight on the prompt's bubble.
 export const HIGHLIGHT_MS = 1400;
 export const HIGHLIGHT_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
@@ -165,7 +173,12 @@ export function currentTurn(
   return Math.max(0, low - 1);
 }
 
-/// The turns on screen, first to last: a turn runs from its prompt to the next prompt (or the end).
+/// The turns on screen, first to last, as the Codex rail's IntersectionObserver sees them (its root
+/// margin is -16 px at the top): a turn runs from its prompt to the next prompt (or the end), and
+/// counts once it reaches below the viewport's top 16 px and starts above its bottom. A prompt's
+/// row draws THREAD_PADDING_TOP below its layout top, which is the same 16 px: so the first turn is
+/// the last whose prompt's layout top is at or above `scrollTop`, and the last is the last whose
+/// prompt draws above the bottom edge.
 export function visibleTurns(
   turns: readonly MinimapTurn[],
   tops: Float64Array,
@@ -173,7 +186,7 @@ export function visibleTurns(
   scrollTop: number,
   viewportHeight: number,
 ): { first: number; last: number } {
-  const bottom = scrollTop + viewportHeight;
+  const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
   const first = currentTurn(turns, tops, scrollTop, 0);
   let last = first;
   while (last + 1 < turns.length && (tops[turns[last + 1].index] ?? totalHeight) < bottom) last += 1;
