@@ -41,6 +41,9 @@ export type StartedSession = {
   pullRequests?: StartedPullRequests;
   /// When acpmux made the chat; places its card. Absent from an older acpmux: the card goes last.
   createdAt?: number;
+  /// The title is one the chat was given (its title or name), not the first prompt or "New chat"
+  /// standing in for one: only then can a reply name it by title.
+  named?: boolean;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -93,10 +96,13 @@ export function startedSessions(
       const state = startedState(entry);
       const pullRequests = startedPullRequests(entry);
       const live = state === "running" ? activity[entry.sessionId] : undefined;
+      const title = entry.displayTitle || entry.title || entry.sessionId;
+      const named = title === entry.name || title === entry.title?.trim();
       return {
         sessionId: entry.sessionId,
-        title: entry.displayTitle || entry.title || entry.sessionId,
+        title,
         state,
+        ...(named ? { named: true } : {}),
         ...(live ? { activity: live } : {}),
         ...(state === "idle" && entry.unread ? { unread: true } : {}),
         ...(pullRequests ? { pullRequests } : {}),
@@ -128,9 +134,11 @@ export function withStartedSessions(
 ): readonly AcpmuxRow[] {
   if (children.length === 0) return rows;
   const out: AcpmuxRow[] = [];
+  const made = new Set<string>();
   let next = 0;
   const place = (group: StartedSession[], at: number) => {
     const row = cardRow(group, at, cache);
+    made.add(row.id);
     // A turn's rows end with its summary: a chat started before the summary was written but
     // stamped after it still belongs to that turn.
     const end = out.length > 0 && out[out.length - 1]!.kind === "turnSummary" ? out.length - 1 : out.length;
@@ -146,6 +154,8 @@ export function withStartedSessions(
     const rest = children.slice(next);
     place(rest, rest[0]!.createdAt ?? out[out.length - 1]?.at ?? 0);
   }
+  // Only this pass's cards stay cached, so another chat's cards do not pile up.
+  for (const id of cache.keys()) if (!made.has(id)) cache.delete(id);
   return out;
 }
 
@@ -170,36 +180,51 @@ export function sessionMentions(children: readonly StartedSession[]): SessionMen
   const mentions: SessionMention[] = [];
   for (const child of children) {
     const base = { sessionId: child.sessionId, title: child.title, state: child.state };
-    if (child.title.length >= MIN_TITLE_MENTION) mentions.push({ ...base, text: child.title });
+    if (child.named && child.title.length >= MIN_TITLE_MENTION) mentions.push({ ...base, text: child.title });
     mentions.push({ ...base, text: child.sessionId });
   }
   return mentions.sort((a, b) => b.text.length - a.text.length);
 }
 
 /// `text` cut into plain pieces and the mentions in it, in order. A mention must stand alone: no
-/// letter, digit or `-`/`_` right before or after it, so a session id inside a longer token stays text.
+/// letter, digit, `-` or `_` right before or after it, and never inside a URL or path (no `/`, `:`,
+/// `#`, `?`, `=`, `@`, `~` or `.` before it; no `/`, `:`, `#`, `?`, `=`, `@` or `.x` after it), so a
+/// session id in `https://host/sessions/<id>/log` or a longer token stays text.
 export function splitMentions(
   text: string,
   mentions: readonly SessionMention[],
 ): (string | { mention: SessionMention; text: string })[] {
-  if (!text || !mentions.some((mention) => text.includes(mention.text))) return [text];
+  if (!text || mentions.length === 0) return [text];
+  const { pattern, byText } = mentionPattern(mentions);
   const out: (string | { mention: SessionMention; text: string })[] = [];
-  let at = 0;
   let plain = 0;
-  const edge = (char: string | undefined) => char === undefined || !/[\p{L}\p{N}_-]/u.test(char);
-  while (at < text.length) {
-    const found = mentions.find(
-      (mention) => text.startsWith(mention.text, at) && edge(text[at - 1]) && edge(text[at + mention.text.length]),
-    );
-    if (!found) {
-      at += 1;
-      continue;
-    }
-    if (at > plain) out.push(text.slice(plain, at));
-    out.push({ mention: found, text: found.text });
-    at += found.text.length;
-    plain = at;
+  for (const match of text.matchAll(pattern)) {
+    const mention = byText.get(match[0])!;
+    if (match.index > plain) out.push(text.slice(plain, match.index));
+    out.push({ mention, text: match[0] });
+    plain = match.index + match[0].length;
   }
+  if (out.length === 0) return [text];
   if (plain < text.length) out.push(text.slice(plain));
   return out;
+}
+
+const patterns = new WeakMap<readonly SessionMention[], { pattern: RegExp; byText: Map<string, SessionMention> }>();
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/// One alternation of every mention, longest first (``sessionMentions`` sorts them), built once a list.
+function mentionPattern(mentions: readonly SessionMention[]) {
+  let built = patterns.get(mentions);
+  if (!built) {
+    const byText = new Map<string, SessionMention>();
+    for (const mention of mentions) if (!byText.has(mention.text)) byText.set(mention.text, mention);
+    const names = [...byText.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp);
+    const pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}_\\-/:#?=@~.\\\\])(?:${names.join("|")})(?![\\p{L}\\p{N}_\\-/:#?=@\\\\]|\\.[\\p{L}\\p{N}])`,
+      "gu",
+    );
+    built = { pattern, byText };
+    patterns.set(mentions, built);
+  }
+  return built;
 }

@@ -1181,6 +1181,8 @@ export class AcpmuxDirectClient {
     if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
+    // A chat opened with its started chats already running watches them now, not at their next change.
+    this.watchOfferChildren();
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);

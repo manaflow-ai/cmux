@@ -426,7 +426,10 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveRuns = false): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing");
   const rows = liveRuns ? codexRuns(drawn) : drawn;
-  const last = rows.at(-1);
+  // A started chat's card that no row follows yet is not the turn's latest step.
+  let last: AcpmuxRow | undefined;
+  for (let index = rows.length - 1; index >= 0 && !last; index -= 1)
+    if (rows[index]!.kind !== STARTED_SESSIONS) last = rows[index];
   if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
   const answering = last.kind === "assistant";
   if (answering && rows.length === 1) return rows;
@@ -436,7 +439,10 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveR
   // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
   // the stored one, so the row draws again, done, once another row follows it.
   if (last.kind === "activity")
-    return [status, ...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }];
+    return [
+      status,
+      ...rows.map((row) => (row === last ? { ...last, live: true, version: last.version * 2 + 1 } : row)),
+    ];
   return [status, ...rows];
 }
 

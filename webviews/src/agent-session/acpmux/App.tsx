@@ -256,10 +256,16 @@ import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
-import { StartedMentionsContext, StartedSessionCards, type StartedMentions } from "./started/StartedSessionCard";
+import {
+  NO_MENTIONS,
+  StartedMentionsContext,
+  StartedSessionCards,
+  type StartedMentions,
+} from "./started/StartedSessionCard";
 import {
   STARTED_SESSIONS,
   type StartedCache,
+  type StartedSession,
   offerChildren,
   sessionMentions,
   startedCardsShown,
@@ -773,6 +779,8 @@ const OfferResultRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+
+const NO_STARTED: readonly StartedSession[] = [];
 
 /// The chats this chat's agent started, as cards where each was started (started/StartedSessionCard.tsx).
 const StartedSessionsRow = memo(
@@ -2766,21 +2774,30 @@ function AcpmuxPane() {
   // The chats this chat's agent started, as cards in its transcript and chips in its replies
   // (started/startedSessions.ts), with the started-session-cards experiment on. An offer's
   // started task stays on its suggested tasks card.
+  // Snapshots rebuild rows and activity each time: the list keeps its object while what it
+  // says is the same, so the transcript and every reply's chips (a context) do not redraw.
   const startedOn = startedCardsShown();
-  const started = useMemo(
+  const startedFresh = useMemo(
     () =>
       startedOn
         ? startedSessions(snapshot.sessions, snapshot.sessionId, {
             exclude: offerChildren(snapshot.rows),
             activity: snapshot.childActivity,
           })
-        : [],
+        : NO_STARTED,
     [startedOn, snapshot.sessions, snapshot.sessionId, snapshot.rows, snapshot.childActivity],
   );
+  const startedKept = useRef<{ key: string; started: readonly StartedSession[] }>({ key: "[]", started: NO_STARTED });
+  const startedKey = startedFresh.length ? JSON.stringify(startedFresh) : "[]";
+  if (startedKept.current.key !== startedKey)
+    startedKept.current = { key: startedKey, started: startedFresh.length ? startedFresh : NO_STARTED };
+  const started = startedKept.current.started;
   const startedCache = useRef<StartedCache>(new Map());
+  const mentionsKey = JSON.stringify(started.map((child) => [child.sessionId, child.title, child.named, child.state]));
   const startedMentions = useMemo<StartedMentions>(
-    () => ({ mentions: sessionMentions(started), open: openOfferChat }),
-    [started],
+    () => (started.length ? { mentions: sessionMentions(started), open: openOfferChat } : NO_MENTIONS),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- what the chips name, not each activity line
+    [mentionsKey],
   );
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);

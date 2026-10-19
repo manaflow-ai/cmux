@@ -782,7 +782,8 @@ export function Markdown({
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
   const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);
   const notePrefix = useId();
-  const started = useStartedMentions();
+  const startedContext = useStartedMentions();
+  const started = startedContext.mentions.length ? startedContext : undefined;
   const opts = useMemo<InlineOptions>(() => {
     const ids = noteIds ? noteIds.split(" ") : [];
     const numbers = new Map(ids.map((id, index) => [id, index + 1]));
@@ -791,7 +792,7 @@ export function Markdown({
       githubRepository,
       notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` },
       overBudget,
-      ...(started.mentions.length ? { started } : {}),
+      ...(started ? { started } : {}),
     };
   }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget, started]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.

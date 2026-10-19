@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { sessionEntry } from "../sessionList";
 import { renderInline } from "../conversation/Markdown";
+import { turnView } from "../conversation/turns";
 import { StartedSessionCard } from "./StartedSessionCard";
 import {
   STARTED_SESSIONS,
@@ -113,6 +114,21 @@ describe("withStartedSessions", () => {
     expect(changed.version).toBe(first.version + 1);
   });
 
+  test("drops the cached cards of chats no longer shown", () => {
+    const cache: StartedCache = new Map();
+    withStartedSessions([row("u1", 10, "user")], [started("x", 20)], cache);
+    withStartedSessions([row("u1", 10, "user")], [started("y", 20)], cache);
+    expect([...cache.keys()]).toEqual([`${STARTED_SESSIONS}-y`]);
+  });
+
+  test("a card no row follows yet leaves the running turn's latest step live", () => {
+    const activity: AcpmuxRow = { ...row("act", 20, "activity"), items: [] };
+    const rows = withStartedSessions([row("u1", 10, "user"), activity], [started("x", 30)]);
+    const shown = turnView(rows, new Set(), { working: true });
+    expect(shown.find((r) => r.id === "act")?.live).toBe(true);
+    expect(shown.at(-1)?.kind).toBe(STARTED_SESSIONS);
+  });
+
   test("returns the rows as they are with no started chats", () => {
     const rows = [row("u1", 10, "user")];
     expect(withStartedSessions(rows, [])).toBe(rows);
@@ -134,8 +150,8 @@ describe("offerChildren", () => {
 
 describe("name chips", () => {
   const children = [
-    { sessionId: "sess-1", title: "Triage the failing tests", state: "running" as const },
-    { sessionId: "sess-2", title: "Fix", state: "idle" as const },
+    { sessionId: "sess-1", title: "Triage the failing tests", state: "running" as const, named: true },
+    { sessionId: "sess-2", title: "Fix", state: "idle" as const, named: true },
   ];
 
   test("a long title and a session id are mentions; a short title is not", () => {
@@ -144,6 +160,31 @@ describe("name chips", () => {
     expect(texts).toContain("sess-1");
     expect(texts).toContain("sess-2");
     expect(texts).not.toContain("Fix");
+  });
+
+  test("a title standing in for a missing one (first prompt, New chat) is never a mention", () => {
+    const [untitled] = startedSessions(
+      [child("u", { title: undefined, lastPrompt: "Look into the flaky test" })],
+      PARENT,
+    );
+    expect(untitled).toMatchObject({ title: "Look into the flaky test" });
+    expect(untitled!.named).toBeUndefined();
+    expect(sessionMentions([untitled!]).map((m) => m.text)).toEqual(["u"]);
+    const [titled] = startedSessions([child("t")], PARENT);
+    expect(titled!.named).toBe(true);
+  });
+
+  test("a session id inside a URL or path stays text", () => {
+    const mentions = sessionMentions(children);
+    for (const text of [
+      "see https://host/sessions/sess-1/log",
+      "cmux://session/sess-1",
+      "~/.acpmux/sessions/sess-1/events.jsonl",
+      "sess-1.jsonl",
+    ])
+      expect(splitMentions(text, mentions)).toEqual([text]);
+    // A sentence may still end on one.
+    expect(splitMentions("Started sess-1.", mentions).length).toBe(3);
   });
 
   test("splits prose at whole mentions only", () => {
