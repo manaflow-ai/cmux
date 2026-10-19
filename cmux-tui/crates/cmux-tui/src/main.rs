@@ -69,6 +69,8 @@ mod provider_authority;
 mod provider_notice_identity;
 mod pty_input;
 #[cfg(unix)]
+mod distribution;
+#[cfg(unix)]
 mod remote_cli;
 #[cfg(not(unix))]
 mod remote_cli {
@@ -1678,8 +1680,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
-    // Before any mode can serve `identify` or `ping`.
+    // Before any mode can serve `identify` or `ping`, or run acpmux.
     cmux_tui_core::server::install_build_stamp(build_stamp());
+    #[cfg(unix)]
+    acpmux::hub::install_build(acpmux_build_id::BUILD);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()

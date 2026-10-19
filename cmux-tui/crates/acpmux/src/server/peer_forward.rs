@@ -124,7 +124,7 @@ async fn forward_inner(
         }
         let mut result = peer.request(m, p).await.map_err(|e| {
                         if e.message.contains("Method not found") {
-                            RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                            RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::build(), peer.name))
                         } else {
                             e
                         }

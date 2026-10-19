@@ -126,8 +126,33 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// How long a session's harness may sit unused (no client, no turn, no
 /// activity) before it exits; the session resumes on its next prompt.
 pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 60);
-/// Git hash and date stamped at build time (see build.rs).
-pub const BUILD: &str = env!("ACPMUX_BUILD");
+/// This process's build id (git short hash and date, acpmux-build-id). The
+/// cmux-tui binary installs it at start (`install_build`) and builds this
+/// crate without the `build-id` feature, so a new stamp does not recompile
+/// it. With the feature (the standalone `acpmux` binary, this crate's tests)
+/// the stamped value is the default. Without either, `unstamped`.
+pub fn build() -> &'static str {
+    INSTALLED_BUILD.get().copied().unwrap_or(DEFAULT_BUILD)
+}
+
+static INSTALLED_BUILD: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+
+#[cfg(feature = "build-id")]
+const DEFAULT_BUILD: &str = acpmux_build_id::BUILD;
+#[cfg(not(feature = "build-id"))]
+const DEFAULT_BUILD: &str = "unstamped";
+
+/// Records this process's build id. The first call wins: a running daemon's
+/// build never changes. Call it before anything reads `build()`.
+pub fn install_build(build: &'static str) {
+    let _ = INSTALLED_BUILD.set(build);
+}
+
+/// `<version> (<build>)`, for `--version`.
+pub fn version_line() -> &'static str {
+    static LINE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    LINE.get_or_init(|| format!("{VERSION} ({})", build()))
+}
 
 /// Fan-out item: one appended record for one session. `remote` carries the
 /// peer name and the peer's session summary when the session lives elsewhere.
