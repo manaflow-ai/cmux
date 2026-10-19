@@ -61,3 +61,16 @@ $A close --all
 - Do not poll `read` in a loop. Use `wait`, then `read` once.
 - Give each agent a clear task and an end condition. Tell it what to put in its final answer,
   because `read` returns only that.
+
+## Prompts: find and answer them yourself
+- `cmux-terminal-agents prompts [--terminal term_…]` lists agents stuck on a permission prompt or menu, with the prompt text.
+- `cmux-terminal-agents choose <name|term_…> N` picks option N when that choice is safe.
+- `cmux-terminal-agents steer <name|term_…> "instructions"` presses Esc (dismisses the prompt, or with `--esc 2` interrupts the turn) and then sends the instructions + Enter. Use this to redirect an agent instead of approving something risky.
+- Check `prompts` whenever an agent goes quiet. Ask the user only for money, legal, destructive or credential-minting steps.
+
+## Native subagents first
+For a Chief's own subagents (`a<N>`), use the native tools instead of this skill:
+`tell` (never fails for a queued or starting one; it is delivered after its task) and
+`control` (status, interrupt, answer, pause, resume, cancel, restart, priority, cap).
+Prompts, stuck runs and reports reach the Chief as messages, so nothing polls a screen.
+Use this skill only for agents in plain terminals.

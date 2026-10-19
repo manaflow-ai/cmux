@@ -244,6 +244,7 @@ MODEL_BY_PATH = {
     'commands/cloud-conversation-snapshot/request': models.CloudConversationSnapshotRequest,
     'commands/cloud-conversation-subscribe/request': models.CloudConversationSubscribeRequest,
     'commands/cloud-conversation-thread/request': models.CloudConversationThreadRequest,
+    'commands/cloud-conversation-typing/request': models.CloudConversationTypingRequest,
     'commands/cloud-conversation-unsubscribe/request': models.CloudConversationUnsubscribeRequest,
     'commands/cloud-inbox-list/request': models.CloudInboxListRequest,
     'commands/cloud-inbox-op/request': models.CloudInboxOpRequest,
