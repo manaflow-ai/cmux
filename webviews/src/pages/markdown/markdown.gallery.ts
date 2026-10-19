@@ -63,6 +63,26 @@ tags: [release, notes]
 - **Fixed** a crash when a tab closed during a drag.
 `;
 
+// A table and a code line far wider than the column (MARKDOWN-TABLE-SCROLL): each scrolls sideways
+// in its own box while the page scrolls only up and down (test/markdown-wide-table-scroll.test.ts).
+const WIDE_TABLE = `# Release matrix
+
+${"The table below is wider than the reading column. ".repeat(3)}
+
+| ${Array.from({ length: 14 }, (_, index) => `Column ${index + 1}`).join(" | ")} |
+| ${Array.from({ length: 14 }, () => "---").join(" | ")} |
+${Array.from(
+  { length: 6 },
+  (_, row) => `| ${Array.from({ length: 14 }, (_, column) => `value ${row + 1}.${column + 1} with words`).join(" | ")} |`,
+).join("\n")}
+
+\`\`\`ts
+export const WIDE_LINE = "${"a long code line that does not wrap ".repeat(8)}";
+\`\`\`
+
+${Array.from({ length: 30 }, (_, index) => `Paragraph ${index + 1} so the page itself scrolls up and down.`).join("\n\n")}
+`;
+
 const TASK_CHECKED = "- [x] Checked task\n- [x] Another completed task\n";
 const TASK_UNCHECKED = "- [ ] Unchecked task\n- [ ] Follow-up still needed\n";
 const TASK_NESTED =
@@ -166,6 +186,11 @@ export default markdownPageEntry({
       note: "YAML front matter over the body.",
       path: "/Users/you/src/atlas-web/RELEASE.md",
       text: FRONTMATTER,
+    },
+    "wide-table": {
+      note: "A table and a code line wider than the column: each scrolls sideways on its own.",
+      path: "/Users/you/src/atlas-web/MATRIX.md",
+      text: WIDE_TABLE,
     },
     long: {
       note: "A long document (40 sections).",
