@@ -50,7 +50,8 @@ use color_overrides::{
 };
 use frame_producer::spawn_frame_producer;
 use scrolling::{
-    broadcast_render_scroll_locked, set_terminal_scroll_offset, terminal_scroll_position,
+    broadcast_render_scroll_locked, output_scroll_event, set_terminal_scroll_offset,
+    terminal_scroll_position,
 };
 #[cfg(any(unix, windows))]
 mod hosted_stager;

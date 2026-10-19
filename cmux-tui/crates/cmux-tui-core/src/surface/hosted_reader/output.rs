@@ -97,7 +97,7 @@ impl HostedReader {
             }
             pty.record_directory(term.pwd());
             if before != after {
-                scroll_changed = Some(after);
+                scroll_changed = output_scroll_event(before, after);
                 broadcast_render_scroll_locked(pty, after);
             }
             // Advance the output watermark while the

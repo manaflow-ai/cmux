@@ -77,7 +77,11 @@ const MAX_HOST_CLIENT_QUEUED_BYTES: usize =
     MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES + MAX_HOST_CLIENT_STATE_QUEUED_BYTES;
 const HOST_SNAPSHOT_BOUNDARY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
 const MAX_SMART_RETAINED_BYTES: usize = 8 * 1024 * 1024;
-const MAX_SMART_RETAINED_FRAMES: usize = 4096;
+/// What one retained frame costs beyond its header and payload (its queue
+/// slot and allocation). Charged into `MAX_SMART_RETAINED_BYTES`, so the
+/// byte cap also bounds how many small frames are kept: a count cap of its
+/// own dropped a flood's 1 KiB frames long before the bytes ran out.
+const SMART_RETAINED_FRAME_OVERHEAD: usize = 64;
 const HOST_PARSER_QUEUE_CAPACITY: usize = 256;
 const MAX_HOST_PARSER_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 const HOST_START_NONCE_LEN: usize = 32;

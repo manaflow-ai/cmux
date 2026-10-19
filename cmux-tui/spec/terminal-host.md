@@ -589,7 +589,8 @@ Terminal-host protocol changes use their own version and do not change `identify
 - Per-client outbound queue: 256 legacy frames or 4,096 smart frames; raw PTY
   output is capped at 8 MiB, with bounded headroom for one maximum state
   transition.
-- Smart replay retention: 4,096 frames and 8 MiB including headers.
+- Smart replay retention: 8 MiB, counting each frame's header, payload and
+  64 bytes of bookkeeping (no separate frame count).
 - Renderer grant TTL: 60 seconds maximum.
 
 `LaunchFailed` is the only typed failure frame and is valid only as the

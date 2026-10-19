@@ -32,7 +32,7 @@ pub(crate) use listener::HostListener;
 pub(crate) use process::{
     kill_process_group, process_definitely_absent as process_definitely_gone,
 };
-pub(crate) use pty_readiness::wait_for_pty_readable_or_forced_drain;
+pub(crate) use pty_readiness::{pty_readable_now, wait_for_pty_readable_or_forced_drain};
 pub(crate) use spawned_host::SpawnedHostProcess;
 pub(crate) use waker::AcceptWaker;
 

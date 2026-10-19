@@ -148,6 +148,16 @@ pub(super) fn broadcast_render_scroll_locked(pty: &PtySurface, position: (u64, b
     render.taps.retain(|tap| tap.send(RenderAttachFrame::ScrollChanged { offset, at_bottom }));
 }
 
+/// The `scroll-changed` event PTY output owes, from the viewport position
+/// before and after it. Output that only grows the history while the
+/// viewport stays at the bottom moves nothing a viewer shows (it follows the
+/// bottom, and `offset` is then the history length the bytes already give
+/// it), so it sends none: a flood used to pair every output event with one.
+/// Render attach taps still get every position.
+pub(super) fn output_scroll_event(before: (u64, bool), after: (u64, bool)) -> Option<(u64, bool)> {
+    (before != after && !(before.1 && after.1)).then_some(after)
+}
+
 pub(super) fn terminal_scroll_position(term: &Terminal) -> (u64, bool) {
     match term.scrollbar() {
         Some(scrollbar) => (scrollbar.offset, !scrollbar.scrolled_back()),
