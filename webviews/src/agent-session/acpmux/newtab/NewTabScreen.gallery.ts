@@ -147,6 +147,14 @@ export default agentPaneEntry({
     "ui/VirtualList.tsx#VirtualList",
   ],
   variants: withAllChats({
+    "side-column": {
+      note: "Debug Settings agentChat.sideColumn: Opt-Cmd-B opens the chat's side column as window tiles (Terminal, Browser, Files, Changes, New chat), no text; a letter picks one.",
+      ready: newTab({ surfaces: true }),
+      snapshot: noChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-surface") !== null);
+      },
+    },
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
       ready: newTab(),

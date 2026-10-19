@@ -1,18 +1,21 @@
 import Testing
 @testable import CmuxNextAgentPane
 
-/// `agentPane.debug.topStripStyle`: the default sets no attribute, so the page draws as before; the
+/// `agentPane.debug.topStripStyle`: the default sets no top strip attribute, so the page draws as before; the
 /// variants set `data-top-strip` on `<html>` beside the other tunables' attributes.
 struct AgentPaneTopStripStyleTests {
     @Test func defaultSetsNoAttribute() {
         #expect(AgentPaneTunables.topStripStyle.descriptor.key == "agentPane.debug.topStripStyle")
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default).isEmpty)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default)
+            .filter { !$0.key.hasPrefix("lab-") }.isEmpty)
     }
 
     @Test(arguments: [AgentPaneTopStripStyle.bump, .plain, .tray])
     func variantSetsItsAttribute(style: AgentPaneTopStripStyle) {
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: style) == ["top-strip": style.rawValue])
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: style)
+            .filter { !$0.key.hasPrefix("lab-") } == ["top-strip": style.rawValue])
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: style)
+            .filter { !$0.key.hasPrefix("lab-") }
             == ["top-strip": style.rawValue, "fold-long-thoughts": "on"])
     }
 

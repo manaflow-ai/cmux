@@ -37,6 +37,7 @@ public final class AgentPaneView: NSView {
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
         didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
+    var renderPreviewInFlight = false
     private let navigation = AgentPaneNavigation()
     let dictation: AgentPaneDictation
     var crashReloads = PageCrashReloads()
