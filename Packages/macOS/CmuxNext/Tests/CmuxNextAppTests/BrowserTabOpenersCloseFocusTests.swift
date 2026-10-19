@@ -1,5 +1,5 @@
 @testable import CmuxNextApp
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import CmuxNextDesign
 import Testing
 
@@ -49,5 +49,17 @@ struct BrowserTabOpenersCloseFocusTests {
         // Tab 2 is gone: 3's opener is 1, as Chrome's FixOpeners would make it.
         #expect(Self.relations(openers, among: [1, 3, 4]) == [3: 1])
         #expect(Self.pick(3, in: [1, 3, 4], openers) == 1)
+    }
+
+    /// `relations(among:)` maps the surface tree onto the pane's tab ids; an
+    /// opener outside the given tabs (another pane) is not reported.
+    @Test func relationsMapSurfacesToTabIDs() async throws {
+        let openers = BrowserTabOpeners()
+        try await Self.open(2, from: 1, openers, order: [1, 3])
+        try await Self.open(4, from: 3, openers, order: [1, 2, 3])
+        let tabs = ([1, 2, 3, 4] as [SurfaceID]).map { TabModel(TabSnapshot(surface: $0, kind: .browser)) }
+        #expect(openers.relations(among: tabs) == [tabs[1].id: tabs[0].id, tabs[3].id: tabs[2].id])
+        // Tab 3 shows in another pane: 4 inherits nothing from this pane, 2 keeps 1.
+        #expect(openers.relations(among: [tabs[0], tabs[1], tabs[3]]) == [tabs[1].id: tabs[0].id])
     }
 }
