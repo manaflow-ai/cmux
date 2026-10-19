@@ -20,6 +20,8 @@ nonisolated extension ControlRouter {
 /// control methods with the app call's origin (`user` inside a gesture, else
 /// `script`). The supervisor already checked the scope, the action's agent
 /// surface and the view-state token before it routed the call here.
+/// The original mutation key reaches the shared action router unchanged;
+/// operation params cannot replace it or the supervisor's origin.
 nonisolated struct ActionAppOps: AppHostCapabilityHandler {
     let control: @Sendable (_ method: String, _ params: [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue
 
@@ -32,8 +34,10 @@ nonisolated struct ActionAppOps: AppHostCapabilityHandler {
             guard let id = request.params["id"]?.stringValue else {
                 throw AppHostCapabilityError(code: "invalid_params", message: "action.run needs id")
             }
-            return AppJSON(try await control("action.run", ["action": .string(id), "args": (request.params["args"] ?? .object([:])).settingsValue,
-                                                            "origin": origin]))
+            var params: [String: JSONValue] = ["action": .string(id),
+                "args": (request.params["args"] ?? .object([:])).settingsValue, "origin": origin]
+            if let key = request.idempotencyKey { params["idempotency_key"] = .string(key) }
+            return AppJSON(try await control("action.run", params))
         case "action.list":
             return AppJSON(try await control("action.list", ["origin": origin]))
         default:
