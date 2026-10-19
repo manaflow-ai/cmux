@@ -17,6 +17,24 @@ fn cloud_token_grant_decodes_backend_millisecond_expiry() {
     assert!(!format!("{grant:?}").contains("one-dial-token"));
 }
 
+#[test]
+fn cloud_token_grant_refuses_non_integer_expiry() {
+    for expiry in [
+        serde_json::json!("2026-10-05T00:05:00Z"),
+        serde_json::json!("1792430000000"),
+        serde_json::json!(1.5),
+        serde_json::Value::Null,
+    ] {
+        assert!(
+            serde_json::from_value::<LinkTokenGrant>(serde_json::json!({
+                "token": "one-dial-token", "expires_at": expiry,
+                "host": HOST, "epoch": 4, "services": ["ssh"]
+            }))
+            .is_err()
+        );
+    }
+}
+
 fn info(revision: u64) -> ConnectInfo {
     serde_json::from_value(serde_json::json!({
         "machine": "vm_1",
@@ -57,7 +75,7 @@ fn a_record_for_another_host_or_overlay_address_is_refused() {
 #[test]
 fn a_token_grant_is_scoped_and_never_printed() {
     let grant: LinkTokenGrant = serde_json::from_value(serde_json::json!({
-        "token": "secret-token", "expires_at": "2026-10-05T00:05:00Z",
+        "token": "secret-token", "expires_at": 1_792_430_000_000_i64,
         "host": HOST, "epoch": 4, "services": ["ssh"]
     }))
     .unwrap();
