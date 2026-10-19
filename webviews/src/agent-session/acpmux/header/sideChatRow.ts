@@ -15,12 +15,14 @@ export function sideChatRow(
 }
 
 /// The chat menu's group of rows that open something new beside the chat: New side chat, New
-/// terminal and New browser, a new one on every click.
+/// terminal and New browser, a new one on every click. Quick Chat's panel is not a tab: there is
+/// no split to open beside it, so it has none of them.
 export function opensBesideRows(
   chat: { sideChat: Exclude<ChatMenuItem, "separator"> | undefined; quick: boolean },
   open: { terminal: () => void; browser: () => void },
   t: Translate = translate,
 ): Exclude<ChatMenuItem, "separator">[] {
+  if (chat.quick) return [];
   return [
     ...(chat.sideChat ? [chat.sideChat] : []),
     { key: "newTerminal", label: t("chatMenu.newTerminal"), icon: "terminal", onSelect: open.terminal },
