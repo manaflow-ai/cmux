@@ -518,7 +518,9 @@ pub async fn serve_ws_with(
                 })
             });
             let devices = match origin {
-                Origin::Peer => std::mem::take(&mut *seen_device.lock().unwrap_or_else(|e| e.into_inner())),
+                Origin::Peer => {
+                    std::mem::take(&mut *seen_device.lock().unwrap_or_else(|e| e.into_inner()))
+                }
                 _ => Vec::new(),
             };
             serve_connection_from(hub, in_rx, out_tx, origin, proof, None, devices).await;

@@ -71,7 +71,8 @@ fn a_session_changed_notification_and_a_summary_under_meta_are_masked() {
         json!({"sessionId": "s1", "session": summary(&token), "kind": "turn_start"}),
     );
     assert_masked(&result(&masked(&changed).expect("masked"))["session"]);
-    let new = Message::ok(json!(2), json!({"sessionId": "s1", "_meta": {"acpmux": summary(&token)}}));
+    let new =
+        Message::ok(json!(2), json!({"sessionId": "s1", "_meta": {"acpmux": summary(&token)}}));
     assert_masked(&result(&masked(&new).expect("masked"))["_meta"]["acpmux"]);
 }
 
@@ -98,7 +99,10 @@ fn agent_updates_and_records_pass_as_they_are() {
         json!({"sessionId": "s1", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": token}}}),
     );
     assert!(masked(&update).is_none());
-    let event = Message::notification(method::MUX_EVENT, json!({"sessionId": "s1", "msg": summary(&token)}));
+    let event = Message::notification(
+        method::MUX_EVENT,
+        json!({"sessionId": "s1", "msg": summary(&token)}),
+    );
     assert!(masked(&event).is_none());
 }
 

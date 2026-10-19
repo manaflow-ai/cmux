@@ -98,7 +98,8 @@ fn mask_text(v: &mut Value) -> bool {
 fn mask_field(field: Option<&mut Value>) -> bool {
     let Some(Value::String(text)) = field else { return false };
     let long = text.chars().nth(PEER_TEXT_CHARS).is_some();
-    let head: String = if long { text.chars().take(PEER_SCAN_CHARS).collect() } else { text.clone() };
+    let head: String =
+        if long { text.chars().take(PEER_SCAN_CHARS).collect() } else { text.clone() };
     let mut masked = crate::secret_scan::mask(&head);
     if long {
         masked = masked.chars().take(PEER_TEXT_CHARS).collect();
