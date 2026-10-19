@@ -295,10 +295,7 @@
               "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur",
-              "appearance.backgroundVideo",
-              "appearance.backgroundVideoOnBattery",
-              "appearance.backgroundAvoidPanes"
+              "appearance.backgroundBlur"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -922,7 +919,18 @@
           "machines"
         ],
         "groups" : [
-
+          {
+            "key" : "settings.group.phone",
+            "rows" : [
+              "phone.allowConnections",
+              "phone.startSessions",
+              "phone.keepAwake"
+            ],
+            "title" : {
+              "key" : "settings.group.phone",
+              "text" : "Phone Access"
+            }
+          }
         ],
         "id" : "accounts",
         "lead" : [
@@ -2223,8 +2231,8 @@
     {
       "accepts" : [
         32,
-        200,
-        116
+        320,
+        176
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -2265,15 +2273,15 @@
         "tabMinActiveWidth"
       ],
       "range" : {
-        "max" : 200,
+        "max" : 320,
         "min" : 32,
         "placeholder" : 56,
         "step" : 1,
         "unit" : "points"
       },
       "refuses" : [
-        -136,
-        368,
+        -256,
+        608,
         "1"
       ],
       "section" : "general",
@@ -2287,8 +2295,8 @@
     {
       "accepts" : [
         16,
-        120,
-        68
+        320,
+        168
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -2329,15 +2337,15 @@
         "tabMinInactiveWidth"
       ],
       "range" : {
-        "max" : 120,
+        "max" : 320,
         "min" : 16,
         "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
       "refuses" : [
-        -88,
-        224,
+        -288,
+        624,
         "1"
       ],
       "section" : "general",
@@ -3806,6 +3814,178 @@
       "title" : {
         "key" : "settings.sessions.keepAwake",
         "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.allowConnections.help",
+        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.allowConnections",
+      "keywords" : [
+        "iphone",
+        "ios",
+        "mobile",
+        "remote",
+        "phone",
+        "pair",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "allowConnections"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.allowConnections",
+        "text" : "Let Your Phone Use This Mac"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.startSessions.help",
+        "text" : "Off, your phone can still follow, type into and answer what's already running."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.startSessions",
+      "keywords" : [
+        "iphone",
+        "mobile",
+        "remote",
+        "workspace",
+        "terminal",
+        "start"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "startSessions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.startSessions",
+        "text" : "Let Your Phone Start New Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.phoneKeepAwakeOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.phoneKeepAwakePluggedIn",
+            "text" : "While Plugged In"
+          },
+          "value" : "pluggedIn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.phoneKeepAwakeAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "pluggedIn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.phone",
+        "text" : "Phone Access"
+      },
+      "help" : {
+        "key" : "settings.phone.keepAwake.help",
+        "text" : "A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "phone.keepAwake",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "iphone",
+        "remote",
+        "battery",
+        "power"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "phone",
+        "keepAwake"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.phone.keepAwake",
+        "text" : "Keep Mac Awake for Your Phone"
       },
       "validation" : "portable"
     },
@@ -11301,192 +11481,6 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "play",
-        "whenActive",
-        "still"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideo.play",
-            "text" : "Play"
-          },
-          "value" : "play"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideo.whenActive",
-            "text" : "Only While cmux Is Active"
-          },
-          "value" : "whenActive"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideo.still",
-            "text" : "Still Picture"
-          },
-          "value" : "still"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "play",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundVideo.help",
-        "text" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundVideo",
-      "keywords" : [
-        "video",
-        "wallpaper",
-        "aerial",
-        "motion",
-        "play",
-        "pause",
-        "battery"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundVideo"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.backgroundVideo",
-        "text" : "Video Background"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "play",
-        "pause"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideoOnBattery.play",
-            "text" : "Keep Playing"
-          },
-          "value" : "play"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideoOnBattery.pause",
-            "text" : "Pause"
-          },
-          "value" : "pause"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "play",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundVideoOnBattery.help",
-        "text" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundVideoOnBattery",
-      "keywords" : [
-        "video",
-        "battery",
-        "power",
-        "energy"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundVideoOnBattery"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.backgroundVideoOnBattery",
-        "text" : "On Battery"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundAvoidPanes.help",
-        "text" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundAvoidPanes",
-      "keywords" : [
-        "painting",
-        "crop",
-        "subject",
-        "framing",
-        "sidebar",
-        "agent"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundAvoidPanes"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.backgroundAvoidPanes",
-        "text" : "Keep Paintings Clear of Panes"
       },
       "validation" : "portable"
     },
@@ -22440,79 +22434,6 @@
     },
     {
       "accepts" : [
-        "always",
-        "hover",
-        "never"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.always",
-            "text" : "Always"
-          },
-          "value" : "always"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.onHover",
-            "text" : "On Hover"
-          },
-          "value" : "hover"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.never",
-            "text" : "Never"
-          },
-          "value" : "never"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "hover",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefPictures",
-        "text" : "Chief Pictures"
-      },
-      "help" : {
-        "key" : "settings.home.chiefPictureMotion.help",
-        "text" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPictureMotion",
-      "keywords" : [
-        "chief",
-        "avatar",
-        "picture",
-        "gif",
-        "animation",
-        "motion"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPictureMotion"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "home",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.home.chiefPictureMotion",
-        "text" : "Animated Pictures"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -25616,7 +25537,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "6b4246f6b5249d3e2fb8d373c18c119c52c3a035bf7f9cb5cfffe251284acc7d",
+  "schema_hash" : "f5119e2c9dc4d35636278485f5c5f917acddeb28852bdf4b6333a676002f5da0",
   "sections" : [
     {
       "id" : "general",

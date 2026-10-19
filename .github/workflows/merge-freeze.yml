@@ -1,0 +1,74 @@
+name: merge freeze
+
+# Freezes are open `merge-freeze` issues (docs/ci/merge-freeze.md). This shows them where people
+# look: a `merge freeze` check on each pull request that touches a frozen path, and an hourly job
+# that closes lapsed freezes with a comment so the open ones are the live ones.
+#
+# The check reflects the freezes when the pull request last changed. gh-merge-green reads the
+# same issues again at merge time, so a freeze opened later still stops the merge.
+#
+# pull_request_target so fork pull requests are checked too. Nothing from the pull request is
+# checked out or run: the checker comes from main and reads the file list and the pull request's
+# label events through the API.
+
+on:
+  pull_request_target:
+    branches: [main, feat-cmux-next]
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request_target'
+    name: merge freeze
+    concurrency:
+      group: merge-freeze-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a read token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Checkout the checker from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: scripts/ci/merge_freeze.py
+          sparse-checkout-cone-mode: false
+      - name: Check the pull request against open freezes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: python3 scripts/ci/merge_freeze.py check --repo "$REPO" --pr "$NUMBER" --base "$BASE"
+
+  expire:
+    if: github.event_name != 'pull_request_target'
+    name: close lapsed freezes
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted issue-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci/merge_freeze.py
+          sparse-checkout-cone-mode: false
+      - name: Close freezes past their deadline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 scripts/ci/merge_freeze.py expire --repo "$REPO"
+          python3 scripts/ci/merge_freeze.py list --repo "$REPO" | tee -a "$GITHUB_STEP_SUMMARY"
