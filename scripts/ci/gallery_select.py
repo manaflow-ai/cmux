@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -77,15 +78,20 @@ def select(touched: dict, head_all: list[dict], base_all: list[dict], *, body: s
     for case in head_all + base_all:
         if state_of(case) not in ordered:
             ordered.append(state_of(case))
-    override = override_ids(body)
+    # Within an entry, the states the PR adds or removes come first (a stable sort).
+    ordered.sort(key=lambda state: (state in head_states) == (state in base_states))
+    requested = override_ids(body)
+    override, ignored = [], []
     picks: list[tuple[tuple[str, str], dict]] = []
-    if override:
-        for wanted in override:
-            entry, _, variant = wanted.partition("/")
-            for state in ordered:
-                if state[0] == entry and (not variant or state[1] == variant) and state not in [p[0] for p in picks]:
-                    picks.append((state, {"why": "pr-body", "file": "", "distance": 0}))
-    else:
+    for wanted in requested:
+        entry, _, variant = wanted.partition("/")
+        matched = [state for state in ordered if state[0] == entry and (not variant or state[1] == variant)]
+        (override if matched else ignored).append(wanted)
+        for state in matched:
+            if state not in [p[0] for p in picks]:
+                picks.append((state, {"why": "pr-body", "file": "", "distance": 0}))
+    # A `Gallery:` line that names no state (prose, a typo) falls back to the ranking.
+    if not picks:
         for row in touched.get("ranked", []):
             for state in ordered:
                 if state[0] == row.get("id") and state not in [p[0] for p in picks]:
@@ -102,7 +108,7 @@ def select(touched: dict, head_all: list[dict], base_all: list[dict], *, body: s
         "removed" if (entry, variant) not in head_states else "existing",
     } for (entry, variant), why in shown]
     selection = {"states": states, "more": len(picks) - len(shown), "cap": cap, "override": override,
-                 "touched": len(touched.get("entries", [])), "all": bool(touched.get("all"))}
+                 "override_ignored": ignored, "touched": len(touched.get("entries", [])), "all": bool(touched.get("all"))}
     return head, base, selection
 
 
@@ -150,6 +156,8 @@ def review(selection: dict, outcomes: list[dict], *, pr: int, head_sha: str, bas
     }
 
 
+SOURCE = "linux-fallback"
+SOURCE_LABEL = "linux · fallback fonts · Chromium (component)"
 RANK_REASON = {"own": "own-source", "pr-body": "override", "host-stylesheet": "rest", "everything": "rest"}
 
 
@@ -170,7 +178,8 @@ def visual_manifest(doc: dict, *, generated_at: str) -> dict:
         states.append({
             "id": image["state"], "title": image["state"],
             "theme": image["theme"] if image["theme"] in ("dark", "light") else theme_scheme(image),
-            "source": "webview-gallery", "changed": image["status"] != "unchanged", "status": image["status"],
+            # Headless Chromium on Linux with the runner's fallback fonts, not macOS WebKit.
+            "source": SOURCE, "changed": image["status"] != "unchanged", "status": image["status"],
             "diff_percent": image["diff_percent"], "rank_reason": reason, "rank_file": picked["file"],
             "before": side(image["base_image"], doc["base_sha"]), "after": side(image["head_image"], doc["head_sha"]),
             "before_after": side(image["before_after"], doc["head_sha"]),
@@ -180,6 +189,20 @@ def visual_manifest(doc: dict, *, generated_at: str) -> dict:
             "run_url": f"https://github.com/{doc['repo']}/actions/runs/{doc['run_id']}",
             "artifact": doc["artifact"], "download": doc["download"],
             "generated_at": generated_at, "more": doc["more"], "states": states}
+
+
+def previews(doc: dict) -> dict:
+    """HQ's preview tool shape (cmux.pr-previews.v1, tools/previews in cmuxterm-hq)."""
+    return {"schema": "cmux.pr-previews.v1", "head_sha": doc["head_sha"], "base_sha": doc["base_sha"],
+            "states": [{
+                "id": image["state"], "source": SOURCE, "kind": "story", "label": SOURCE_LABEL,
+                "status": image["status"] if image["status"] in ("changed", "new", "removed", "broken", "unchanged")
+                else "changed",
+                "caption": f"{image['state']} ({image.get('scheme') or image['theme']}), "
+                           f"{image['diff_percent']:.2f}% changed; picked by {image['selected_by']['why']}"
+                           + (f" {image['selected_by']['file']}" if image["selected_by"]["file"] else ""),
+                "before": image["base_image"], "after": image["head_image"],
+            } for image in doc["images"]]}
 
 
 def theme_scheme(image: dict) -> str:
@@ -203,7 +226,9 @@ def clean(doc: dict) -> dict:
         picked = image.get("selected_by") if isinstance(image.get("selected_by"), dict) else {}
         try:
             diff, distance = float(image.get("diff_percent", 0)), int(picked.get("distance", 0))
-        except (TypeError, ValueError):
+            if not math.isfinite(diff):
+                diff = 0.0
+        except (TypeError, ValueError, OverflowError):
             diff, distance = 0.0, 0
         images.append({
             "state": image["state"], "theme": re.sub(r"[^A-Za-z0-9 ._-]", "", str(image.get("theme", "")))[:40],
@@ -213,7 +238,7 @@ def clean(doc: dict) -> dict:
         })
     try:
         more = int(doc.get("more", 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         more = 0
     return {
         "head_sha": plain(doc.get("head_sha"), SHA), "download": str(doc.get("download", "")).replace("`", ""),
@@ -292,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--cases", nargs="*", default=[], help="the rendered manifests, for each case's color scheme")
     r.add_argument("--out", required=True)
     r.add_argument("--visual-out", help="also write the feed's cmux.visual-manifest.v1 here")
+    r.add_argument("--previews-out", help="also write HQ's cmux.pr-previews.v1 here")
     c = sub.add_parser("section")
     c.add_argument("--review", required=True)
     c.add_argument("--out", required=True)
@@ -320,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.visual_out:
             now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             Path(args.visual_out).write_text(json.dumps(visual_manifest(doc, generated_at=now), indent=2) + "\n")
+        if args.previews_out:
+            Path(args.previews_out).write_text(json.dumps(previews(doc), indent=2) + "\n")
     elif args.command == "section":
         Path(args.out).write_text(section(read_json(args.review)))
     else:

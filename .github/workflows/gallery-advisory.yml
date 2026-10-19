@@ -10,8 +10,8 @@ name: gallery visual evidence (advisory)
 #
 # The images stay in the run's artifact, gallery-advisory-<PR>-<HEAD_SHA> (#21400:
 # no gallery renders on the public PR). gallery-review.json in it lists every
-# image, its diff and the changed file that picked it; visual-manifest.json is
-# the team feed's shape of the same. The PR status comment's `gallery` section
+# image, its diff and the changed file that picked it; visual-manifest.json
+# (the team feed) and previews.json (HQ's preview tool) are other shapes of it. The PR status comment's `gallery` section
 # names the states and the download command, and says stale when the head moves.
 on:
   pull_request:
@@ -206,7 +206,7 @@ jobs:
             --outcomes "$evidence/diff/outcomes.json" --cases "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" \
             --pr "$PR" --head-sha "$HEAD_SHA" --base-sha "$base_sha" --repo "$GITHUB_REPOSITORY" \
             --run-id "$GITHUB_RUN_ID" --out "$evidence/gallery-review.json" \
-            --visual-out "$evidence/visual-manifest.json"
+            --visual-out "$evidence/visual-manifest.json" --previews-out "$evidence/previews.json"
           {
             echo "Captured advisory receipt for $HEAD_SHA (base $base_sha)."
             echo "Sample: the 16 most relevant states ($(jq .more "$RUNNER_TEMP/selection.json") more touched), dark/light themes, narrow component width, Chromium."
@@ -226,7 +226,9 @@ jobs:
   # base-branch scripts, no pull request code, plain ids (gallery_select.py).
   comment:
     needs: capture
-    if: ${{ always() && needs.capture.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
+    # Not on a cancelled run: a newer push cancelled it, and its mark-stale
+    # line must stand until the newer capture lands.
+    if: ${{ !cancelled() && needs.capture.result != 'skipped' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
     timeout-minutes: 5
@@ -259,6 +261,12 @@ jobs:
         run: |
           set -euo pipefail
           test -f scripts/ci/gallery_select.py || exit 0  # a base before this workflow change
+          # A run that finished after a newer push leaves the section to that push's run.
+          live=$(gh api "repos/$REPOSITORY/pulls/$PR" --jq .head.sha)
+          if [ "$live" != "$HEAD_SHA" ]; then
+            echo "#$PR moved to ${live:0:7}; its own run writes the gallery section"
+            exit 0
+          fi
           receipt="$RUNNER_TEMP/receipt"
           if [ -f "$receipt/gallery-review.json" ] \
             && jq -e --arg sha "$HEAD_SHA" '.head_sha == $sha' "$receipt/gallery-review.json" >/dev/null; then
