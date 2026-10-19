@@ -346,6 +346,11 @@ class LintFindings(unittest.TestCase):
         self.gh.logs[2] = l10n_log(611, f"{XCSTRINGS}:onboarding.step1.title: missing uk")
         with self.assertRaisesRegex(excuse.Refused, "onboarding.step2.title"):
             self.judge()
+        # Every digit after a letter, not just the first: item11 is not the base's item10.
+        self.gh.logs[1] = l10n_log(103765, f"{XCSTRINGS}:foo.item11: missing uk")
+        self.gh.logs[2] = l10n_log(611, f"{XCSTRINGS}:foo.item10: missing uk")
+        with self.assertRaisesRegex(excuse.Refused, "foo.item11"):
+            self.judge()
 
     def test_one_more_copy_of_a_base_finding_blocks(self):
         # A second blocking call in the same file prints the same line once more.
