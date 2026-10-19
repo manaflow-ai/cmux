@@ -823,7 +823,7 @@ gate_checked="${must[*]:-every reported check}"
 # The fast gate (scripts/ci/merge_fast_gate.py): routing, the fast tier and the
 # touched compiles on the exact head, plus completed reds in the gating families.
 fast_gate() {
-  local files workflow covered=x gate_out gate_err reds excuse_errors excused
+  local files files_list workflow covered=x gate_out gate_err reds excuse_errors excused
   local covered_flag=()
   if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
     if ! files=$(graphql_changed_files); then
@@ -853,9 +853,13 @@ fast_gate() {
   [ -n "$covered" ] && covered_flag=(--next-covered)
   gate_err=$(mktemp)
   tmp_files+=("$gate_err")
+  # The paginated list: gh pr view --json files, the gate's own read, stops at 100.
+  files_list=$(mktemp)
+  tmp_files+=("$files_list")
+  printf '%s\n' "$files" >"$files_list"
   if ! gate_out=$(python3 "$script_dir/ci/merge_fast_gate.py" "$repo" "$num" "$sha" --base "$base" \
       --next-workflow "$workflow_dir/cmux-next.yml" --ci-workflow "$workflow_dir/ci.yml" \
-      --web-workflow "$workflow_dir/ci-web.yml" \
+      --web-workflow "$workflow_dir/ci-web.yml" --files-from "$files_list" \
       "${covered_flag[@]+"${covered_flag[@]}"}" --timeout "$wait_seconds" 2>"$gate_err"); then
     rm -rf "$workflow_dir"
     local why
@@ -896,6 +900,14 @@ fast_gate() {
   printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 }
 
+# The full gate refuses an untrusted fork in merged_head_checks; the fast gate
+# skips those, so it refuses the fork here, before the wait (#21587).
+if [ "$fast" -eq 1 ] && jq -e '.isCrossRepository == true' <<<"$pr_json" >/dev/null 2>&1 &&
+   [ "$fork_trusted" -ne 1 ] && [ -z "$trust_fork_head" ]; then
+  refuse \
+    "not merged: $ref is from an untrusted fork; the fast gate does not merge unreviewed fork code" \
+    "review that code, then rerun with --trust-fork-head $sha; only teamleaderleo/cmux is owner-trusted"
+fi
 if [ "$fast" -eq 1 ]; then
   fast_gate
 else
@@ -1090,7 +1102,9 @@ if [ "$base" = feat-cmux-next ] && [ "$fast" -eq 0 ]; then
   merged_head_checks
 fi
 if [ -n "$trust_fork_head" ]; then
-  if ! gh pr comment "$num" --repo "$repo" --body "merge-source-trust: reviewed fork head $trust_fork_head for local merged-tree checks; normal CI, freeze, and merged-tree gates apply." >/dev/null; then
+  trust_scope='local merged-tree checks; normal CI, freeze, and merged-tree gates apply'
+  [ "$fast" -eq 1 ] && trust_scope='the fast gate; its lanes, freezes and conflict markers apply, and the full suites run after the merge'
+  if ! gh pr comment "$num" --repo "$repo" --body "merge-source-trust: reviewed fork head $trust_fork_head for $trust_scope." >/dev/null; then
     refuse \
       "not merged: could not record reviewed fork head $trust_fork_head on $ref" \
       'restore GitHub comment access, then retry the same reviewed head'

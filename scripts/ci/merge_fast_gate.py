@@ -144,6 +144,11 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
         fast = name == ROUTING or bool(FAST.match(name))
         if fast:
             if conclusion == "SKIPPED":
+                # On a PR, cmux-next.yml skips the fast tier only when push-head-preflight
+                # is not current (a runner failure or its timeout): no verdict, not a pass.
+                if name == FAST_TIER and touches_next:
+                    raise Refused(f"'{name}' was skipped on the exact head: no verdict to waive, "
+                                  "and --override cannot bypass that; rerun it")
                 continue
             seen.append(name)
             if status != "COMPLETED":
@@ -221,7 +226,9 @@ def missing_job_names(next_workflow: str, ci_workflow: str | None, web_workflow:
 
 def run(repo: str, number: str, sha: str, timeout: float, interval: float, touches_next: bool,
         read: Callable[..., dict] = gh_json, clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep, base: str | None = None) -> tuple[float, list[str], list[str]]:
+        sleep: Callable[[float], None] = time.sleep, base: str | None = None,
+        files: list[str] | None = None) -> tuple[float, list[str], list[str]]:
+    """files: the caller's full changed-file list; `gh pr view --json files` stops at 100."""
     start = clock()
     while True:
         pr = read("pr", "view", number, "--repo", repo, "--json", "headRefOid,baseRefName,statusCheckRollup,files")
@@ -229,8 +236,8 @@ def run(repo: str, number: str, sha: str, timeout: float, interval: float, touch
             raise Refused(f"the head moved to {pr.get('headRefOid')} while waiting on {sha}")
         if base is not None and pr.get("baseRefName") != base:
             raise Refused(f"the base changed to {pr.get('baseRefName')} (from {base}) while waiting on {sha}")
-        files = [f.get("path", "") for f in pr.get("files") or []]
-        waiting, seen, reds = evaluate(latest(pr.get("statusCheckRollup") or []), files, touches_next)
+        changed = files if files is not None else [f.get("path", "") for f in pr.get("files") or []]
+        waiting, seen, reds = evaluate(latest(pr.get("statusCheckRollup") or []), changed, touches_next)
         if not waiting:
             return clock() - start, seen, reds
         if clock() - start >= timeout:
@@ -251,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--next-workflow", help="cmux-next.yml of the exact head")
     parser.add_argument("--ci-workflow", help="ci.yml of the exact head")
     parser.add_argument("--web-workflow", help="ci-web.yml of the exact head")
+    parser.add_argument("--files-from", help="the full changed-file list, one path per line")
     args = parser.parse_args(argv)
     try:
         if args.next_workflow is not None:
@@ -260,8 +268,11 @@ def main(argv: list[str] | None = None) -> int:
             if missing:
                 raise Refused(f"the fast gate keys on {', '.join(missing)}, which no job in the head's "
                               "cmux-next.yml, ci.yml or ci-web.yml reports as; update merge_fast_gate.py or merge with --full")
+        files = None
+        if args.files_from is not None:
+            files = [line for line in Path(args.files_from).read_text().splitlines() if line]
         waited, seen, reds = run(args.repo, args.number, args.sha, args.timeout, args.interval, args.next_covered,
-                                 base=args.base)
+                                 base=args.base, files=files)
     except Refused as error:
         print(error, file=sys.stderr)
         return 1

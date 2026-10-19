@@ -24,8 +24,9 @@ l10n and concurrency lint and `risk evidence`, and refuses a red one with no
 override or base excuse, as the full gate does. It refuses a completed red in
 the fast lanes, in the web, app size and crash families, or in `ci-status`,
 the Release compile or the swift test, unless the base has the same red. A
-cancelled or timed-out fast lane refuses even with `--override`. It refuses
-conflict markers and frozen paths. React-apps-check is waited for when
+cancelled, timed-out or skipped fast tier refuses even with `--override`. It
+refuses conflict markers and frozen paths, and a pull request from an untrusted
+fork unless `--trust-fork-head <sha>` names its reviewed head. React-apps-check is waited for when
 `detect_ci_change_areas.py` routes a changed file to ci.yml's `web` job, or
 when that job is running. The gate keys on job names, so it refuses when one
 it waits for is no longer a job in the head's `cmux-next.yml`, `ci.yml` or
