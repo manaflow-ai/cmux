@@ -151,6 +151,60 @@ import Testing
         #expect(services.plans.isEmpty)
     }
 
+    @Test func backAndProgressOnTheFolderExplainer() async {
+        let services = MockOnboardingServices()
+        services.awaitingAccess = [.chrome]
+        let onboarding = OnboardingModel(services: services, step: .importData)
+        let step = onboarding.importer
+        step.detect()
+        await Self.until { step.phase == .ready }
+        #expect(!onboarding.canGoBack)
+        #expect(onboarding.flowProgress == nil)
+
+        step.askAccess(.chrome)
+        #expect(onboarding.canGoBack)
+        #expect(onboarding.flowProgress == 0.5)
+        onboarding.goBack()
+        #expect(step.phase == .ready)
+        #expect(services.accessRequests.isEmpty)
+        #expect(!onboarding.canGoBack)
+    }
+
+    @Test func backAndProgressOnTheKeychainExplainer() async {
+        let services = MockOnboardingServices()
+        services.passwordStore = true
+        services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [Self.profile(.chrome, passwords: .available)])]
+        let onboarding = OnboardingModel(services: services, step: .importData)
+        let step = onboarding.importer
+        step.detect()
+        await Self.until { step.phase == .ready }
+
+        onboarding.next()
+        #expect(step.isConfirmingPasswords)
+        #expect(onboarding.canGoBack)
+        #expect(onboarding.flowProgress == 0.75)
+        onboarding.goBack()
+        #expect(step.phase == .ready)
+        #expect(services.plans.isEmpty)
+        #expect(services.authorizationReasons.isEmpty)
+    }
+
+    @Test func noBackWhileTouchIDIsUp() async {
+        let services = MockOnboardingServices()
+        services.passwordStore = true
+        services.holdsAuthorization = true
+        services.sources = [BrowserSource(browser: .chrome, appURL: nil, profiles: [Self.profile(.chrome, passwords: .available)])]
+        let onboarding = OnboardingModel(services: services, step: .importData)
+        let step = onboarding.importer
+        step.detect()
+        await Self.until { step.phase == .ready }
+        onboarding.next()
+        onboarding.next()
+        await Self.until { services.authorizationReasons.count == 1 }
+        #expect(!onboarding.canGoBack)
+        services.answerAuthorizations()
+    }
+
     @Test func skipImportingWhileTouchIDIsUpReadsNothing() async {
         let services = MockOnboardingServices()
         services.passwordStore = true
