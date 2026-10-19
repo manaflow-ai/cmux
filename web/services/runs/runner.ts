@@ -75,8 +75,16 @@ async function executeClaim(attempt: ClaimedRunAttempt, client: RunCloudClient) 
 }
 
 async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
-  if (!attempt.ownerTeamId) throw new Error("Queued Run lacks an immutable owner");
-  const client = await runCloudClient(attempt.userId, attempt.ownerTeamId);
+  // Every failure after the claim, including opening the owner's session,
+  // must end the attempt. An escaped throw left it 'running', and each later
+  // cron claim failed the same way, so the Run never ended.
+  let client: RunCloudClient;
+  try {
+    if (!attempt.ownerTeamId) throw new Error("Queued Run lacks an immutable owner");
+    client = await runCloudClient(attempt.userId, attempt.ownerTeamId);
+  } catch {
+    return await failClaim(attempt, "Run worker could not open the owner's Cloud session");
+  }
   let lost = false;
   let renewing = false;
   const timer = setInterval(() => {
@@ -98,13 +106,17 @@ async function processClaim(attempt: ClaimedRunAttempt): Promise<string> {
     return applied ? "succeeded" : "fenced";
   } catch (error) {
     if (error instanceof RunPending) return "pending";
-    // Raw provider/database errors must never enter durable receipts.
-    const applied = await finishRunAttempt({ ...attempt, status: "failed", error: "Run source/setup, recipe, or Cloud operation failed" });
-    if (!applied) await cancelClaimedRunAttempt(attempt);
-    return applied ? "failed" : "fenced";
+    return await failClaim(attempt, "Run source/setup, recipe, or Cloud operation failed");
   } finally {
     clearInterval(timer);
   }
+}
+
+/** Raw provider/database errors must never enter durable receipts. */
+async function failClaim(attempt: ClaimedRunAttempt, error: string): Promise<string> {
+  const applied = await finishRunAttempt({ ...attempt, status: "failed", error });
+  if (!applied) await cancelClaimedRunAttempt(attempt);
+  return applied ? "failed" : "fenced";
 }
 
 /** Protected cron is the durable trigger; after() only reduces first-run latency. */
