@@ -65,6 +65,8 @@ extension IconName {
     nonisolated public static let browserIncognito = IconName("browser.incognito")
     nonisolated public static let browserNew = IconName("browser.new")
     nonisolated public static let browserStop = IconName("browser.stop")
+    nonisolated public static let browserToolbarDownloads = IconName("browser.toolbar.downloads")
+    nonisolated public static let browserToolbarExtensions = IconName("browser.toolbar.extensions")
     nonisolated public static let browserprofileBadge = IconName("browserprofile.badge")
     nonisolated public static let browserprofileDot = IconName("browserprofile.dot")
     nonisolated public static let checkboxOff = IconName("checkbox.off")
