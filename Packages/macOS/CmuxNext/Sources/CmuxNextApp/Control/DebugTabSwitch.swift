@@ -8,10 +8,18 @@ import CmuxNextSettings
 /// selection (`applySelection`) to the Core Animation commit (cx-8w027.25, scripts/cmux-next/perf-gate.py).
 @MainActor
 enum DebugTabSwitch {
-    private static let timer = SwitchFrameTimer(owner: "debug.tab_switch")
+    static let timer = SwitchFrameTimer(owner: "debug.tab_switch")
     static var isRecording: Bool { timer.isRecording }
     static func began(_ owner: AnyObject) { timer.began(ObjectIdentifier(owner)) }
     static func shown(_ owner: AnyObject, in window: NSWindow?) { timer.shown(ObjectIdentifier(owner), in: window) }
+}
 
-    static func handle(_ params: [String: JSONValue]) -> JSONValue { timer.handle(params, key: "switches") }
+extension SwitchFrameTimer {
+    /// A debug socket method over this timer (`debug.tab_switch`, `debug.new_workspace`): `action`
+    /// `start` or `stop` (else a read), then whether it records and its samples under `key`.
+    func handle(_ params: [String: JSONValue], key: String) -> JSONValue {
+        let action = params["action"]?.stringValue
+        if action == "start" { start() } else if action == "stop" { stop() }
+        return ["recording": .bool(isRecording), key: .array(samples.map { .object($0.mapValues { JSONValue.number($0) }) })]
+    }
 }
