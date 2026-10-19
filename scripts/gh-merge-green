@@ -802,11 +802,12 @@ fi
 vp_flagged_files() {
   sed -E 's/\x1b\[[0-9;]*m//g; s#[^[:space:]'"'"'"(]*/(merged|base)/(webviews|config)/#\2/#g' | grep -oE '[A-Za-z0-9_./-]+\.(tsx|ts|jsx|js|mjs|cjs|css|md|json)' | LC_ALL=C sort -u || true
 }
-# Files outside webviews/ that its vp check loads (vite.config.ts imports
-# ../config/vite-plus/check). Listed only when the tree has them.
+# Files outside webviews/ that its vp check loads: vite.config.ts imports
+# ../config/vite-plus/check and resolves ../Resources/markdown-viewer through
+# its dev-server plugins. Listed only when the tree has them.
 web_shared_paths() {
   local path
-  for path in config/vite-plus; do
+  for path in config/vite-plus Resources/markdown-viewer; do
     git -C "$repo_dir" cat-file -e "$1:$path" 2>/dev/null && printf '%s\n' "$path"
   done
   return 0
