@@ -857,10 +857,21 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
   return false;
 }
 
+/// RowFrame redraws only when a prop it or its row's renderer reads changed. `children` is left out:
+/// it is a new element every render, built from `row` and the content props passed beside it
+/// (`contentType` and the rest), so comparing every other prop is enough. The callbacks are stable
+/// across snapshots (VirtualTranscript and the pane hold them), so a streaming snapshot that changes
+/// only the latest row leaves every other mounted row alone.
+function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
+  const keys = Object.keys(next);
+  if (keys.length !== Object.keys(previous).length) return false;
+  return keys.every((key) => key === "children" || Object.is(previous[key], next[key]));
+}
+
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
-function RowFrame({
+const RowFrame = React.memo(function RowFrame({
   row,
   kind,
   joinsPrevious,
@@ -874,12 +885,14 @@ function RowFrame({
   report,
   enter,
   onEntered,
+  older,
+  onOlderShown,
   active,
   selected,
   tabStop,
   onFocus,
   onRowKeyDown,
-  onCopy,
+  onCopyRow,
   copyable,
   children,
 }: {
@@ -899,25 +912,47 @@ function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
+  /// The row came in on a page of older history and has not been in view yet: it fades in once,
+  /// the first time it comes into view (OlderRowFade).
+  older: OlderRowFade | undefined;
+  onOlderShown: (id: string) => void;
   active: boolean;
   selected: boolean;
   tabStop: boolean;
-  onFocus: () => void;
-  onRowKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
-  onCopy?: () => Promise<void>;
+  onFocus: (id: string) => void;
+  onRowKeyDown: (index: number, event: React.KeyboardEvent<HTMLElement>) => void;
+  onCopyRow: (id: string) => Promise<void>;
   copyable: boolean;
+  /// What the child row draws from, compared instead of `children` (a new element every render).
+  contentType: unknown;
+  controls?: string;
+  onToggleActivity: (id: string) => void;
+  onOpenDiff?: OpenDiff;
+  githubRepository?: string;
   children: React.ReactNode;
 }) {
   acpmuxPerf.span("row.renders", 1);
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
+  const [olderFade] = useState(older);
   const [copied, setCopied] = useState(false);
-  const rowTabStop = rovingTabStopProps(tabStop && !copyable, onRowKeyDown);
-  const copyTabStop = rovingTabStopProps(tabStop && copyable, onRowKeyDown);
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
+    [index, onRowKeyDown],
+  );
+  const rowTabStop = rovingTabStopProps(tabStop && !copyable, handleKeyDown);
+  const copyTabStop = rovingTabStopProps(tabStop && copyable, handleKeyDown);
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || !olderFade) return;
+    return olderFade.watch(node, () => onOlderShown(row.id));
+    // Only the first mount fades.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useLayoutEffect(() => {
@@ -941,7 +976,7 @@ function RowFrame({
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}`}
+      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -950,7 +985,7 @@ function RowFrame({
       aria-posinset={index + 1}
       aria-setsize={setSize}
       style={{ transform: `translateY(${top}px)` }}
-      onFocus={onFocus}
+      onFocus={() => onFocus(row.id)}
     >
       {copyable && (
         <button
@@ -961,7 +996,7 @@ function RowFrame({
           title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={async () => {
             try {
-              await onCopy?.();
+              await onCopyRow(row.id);
               setCopied(true);
               window.setTimeout(() => setCopied(false), 1200);
             } catch {
@@ -975,7 +1010,7 @@ function RowFrame({
       {children}
     </article>
   );
-}
+}, sameRowFrame);
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
@@ -1035,6 +1070,60 @@ function settleFollowBottom(node: HTMLElement, latest: number): boolean {
 const SCROLL_LEAD_STEPS = 2;
 /// More new rows than this in one update are a load (a session switch, older history), not live rows.
 const LIVE_ROWS_PER_UPDATE = 3;
+
+/// Rows from a page of older history fade in once, the first time they come into view: a page
+/// lands above the view (prefetched well before the top), so the fade waits for the reader to
+/// scroll the row in at the top edge. Opacity only (conversation.css `.acpmux-row--older`), so
+/// nothing measured moves; Reduce Motion draws the row in full ink at once.
+class OlderRowFade {
+  private readonly pending = new Set<string>();
+  private readonly waiting = new Map<Element, () => void>();
+  private intersections: IntersectionObserver | undefined;
+  constructor(private readonly root: () => HTMLElement | null) {}
+  add(id: string) {
+    this.pending.add(id);
+  }
+  has(id: string) {
+    return this.pending.has(id);
+  }
+  shown(id: string) {
+    this.pending.delete(id);
+  }
+  clear() {
+    this.pending.clear();
+  }
+  /// Starts the row's fade when it first intersects the view; returns the unwatch.
+  watch(node: HTMLElement, shown: () => void): () => void {
+    if (typeof IntersectionObserver === "undefined") {
+      shown();
+      return () => {};
+    }
+    this.intersections ??= new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const target = entry.target as HTMLElement;
+          target.dataset.olderShown = "true";
+          this.intersections?.unobserve(target);
+          this.waiting.get(target)?.();
+          this.waiting.delete(target);
+        }
+      },
+      { root: this.root() },
+    );
+    this.waiting.set(node, shown);
+    this.intersections.observe(node);
+    return () => {
+      this.waiting.delete(node);
+      this.intersections?.unobserve(node);
+    };
+  }
+  disconnect() {
+    this.intersections?.disconnect();
+    this.intersections = undefined;
+    this.waiting.clear();
+  }
+}
 /// How far around the last mounted range a row whose drawn height changed is looked for; farther
 /// (a jump), the whole transcript is placed again.
 const DRAWN_SEARCH_ROWS = 64;
@@ -1258,21 +1347,36 @@ export function VirtualTranscript({
   const knownRows = useRef<Set<string> | null>(null);
   const knownFor = useRef<AcpmuxRow[] | null>(null);
   const enteringRows = useRef(new Set<string>());
-  if (knownRows.current === null) knownRows.current = new Set(rows.map((row) => row.id));
+  const olderRows = useRef<OlderRowFade | undefined>(undefined);
+  olderRows.current ??= new OlderRowFade(() => ref.current);
+  // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
+  if (sessionChanged) olderRows.current.clear();
+  // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
+  if (knownRows.current === null || sessionChanged) knownRows.current = new Set(rows.map((row) => row.id));
   // Scroll frames render the same rows: only a new row list can bring new rows.
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
     const previous = knownFor.current ?? [];
     let from = 0;
     while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
+    // A page of older history lands above the first row that was already there (a date divider
+    // moves up to the page's first turn, so the first known row, not the first row): those rows fade
+    // in as they are first seen, and never take a live row's entrance.
+    const oldFirst = rows.findIndex((row) => knownRows.current!.has(row.id));
     const arrived: AcpmuxRow[] = [];
-    for (let index = from; index < rows.length; index += 1)
-      if (!knownRows.current.has(rows[index]!.id)) arrived.push(rows[index]!);
-    for (const row of arrived) knownRows.current.add(row.id);
+    for (let index = from; index < rows.length; index += 1) {
+      const row = rows[index]!;
+      if (knownRows.current.has(row.id)) continue;
+      if (index < oldFirst) olderRows.current.add(row.id);
+      else arrived.push(row);
+      knownRows.current.add(row.id);
+    }
     if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
+  const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
+  useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
     (id, version, drawnHeight) => {
       // Zero is a row not laid out (hidden, or no layout at all), not a height.
@@ -1421,6 +1525,12 @@ export function VirtualTranscript({
   }, []);
   /// The footer of the turn the pointer is over (a turnSummary row's id).
   const pointedTurn = useRef<string | undefined>(undefined);
+  /// Pointerover bubbles from every markdown descendant: moving between spans inside the same row
+  /// does not scan for its turn's footer again.
+  const pointedRow = useRef<string | undefined>(undefined);
+  // The rows the cached footer was found in: a footer can appear, or stop being the last turn's,
+  // while the pointer rests on the same row.
+  const pointedRows = useRef<AcpmuxRow[] | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
@@ -1650,6 +1760,22 @@ export function VirtualTranscript({
     [copyRows, effectiveTranscriptRange, focusRow, rows, selectedRowIds],
   );
   const rowFocus = useCallback((id: string) => setActiveRowId(id), []);
+  // Rows get stable callbacks that read the latest rows and selection, so a snapshot does not hand
+  // every memoized RowFrame a new function.
+  const copyRowsRef = useRef(copyRows);
+  copyRowsRef.current = copyRows;
+  const selectedRowIdsRef = useRef(selectedRowIds);
+  selectedRowIdsRef.current = selectedRowIds;
+  const copyRow = useCallback(async (rowId: string) => {
+    const selected = selectedRowIdsRef.current;
+    await copyRowsRef.current(selected.includes(rowId) ? selected : [rowId]);
+  }, []);
+  const rowKeyDownRef = useRef(rowKeyDown);
+  rowKeyDownRef.current = rowKeyDown;
+  const handleRowKeyDown = useCallback(
+    (index: number, event: React.KeyboardEvent<HTMLElement>) => rowKeyDownRef.current(index, event),
+    [],
+  );
   const activeVisible = rows.slice(range.first, range.last).some((row) => row.id === effectiveActiveRowId);
   const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
@@ -2100,6 +2226,10 @@ export function VirtualTranscript({
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
+    const rowId = row?.dataset.rowId;
+    if (rowId === pointedRow.current && rows === pointedRows.current) return;
+    pointedRow.current = rowId;
+    pointedRows.current = rows;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
     let footer: string | undefined;
     for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
@@ -2169,17 +2299,20 @@ export function VirtualTranscript({
                       report={reportDrawn}
                       enter={enteringRows.current.has(row.id)}
                       onEntered={onEntered}
+                      older={olderRows.current!.has(row.id) ? olderRows.current : undefined}
+                      onOlderShown={onOlderShown}
                       active={effectiveActiveRowId === row.id}
                       selected={selectedRows.has(absoluteIndex)}
                       tabStop={tabStopId === row.id}
-                      onFocus={() => rowFocus(row.id)}
-                      onRowKeyDown={(event) => rowKeyDown(absoluteIndex, event)}
+                      onFocus={rowFocus}
+                      onRowKeyDown={handleRowKeyDown}
                       copyable={transcriptHasFloatingCopy(row)}
-                      onCopy={() =>
-                        copyRows(
-                          selectedRows.has(absoluteIndex) && selectedRowIds.length > 0 ? selectedRowIds : [row.id],
-                        )
-                      }
+                      onCopyRow={copyRow}
+                      contentType={Component}
+                      controls={controls}
+                      onToggleActivity={onToggleActivity}
+                      onOpenDiff={onOpenDiff}
+                      githubRepository={githubRepository}
                     >
                       <Component
                         row={row}
@@ -2296,6 +2429,12 @@ function DefaultComposerChips({
   return (
     <ComposerPickers
       snapshot={startsChat ? newTabChipSnapshot(snapshot, picker.catalog) : snapshot}
+      // A New Tab pick is held once acpmux's actions are connected and the chat has a harness to
+      // start (start() sends chat.new first); before that a pick would reach nothing.
+      holdsModePick={
+        snapshot.switching !== undefined ||
+        (startsChat && !!snapshot.summary?.harness && window.cmuxAcpmuxActions?.["chat.new"] !== undefined)
+      }
       permissionAccess={permissionAccess}
       onModel={(modelId) => {
         start();
@@ -2690,6 +2829,7 @@ function AcpmuxPane() {
       prompts: promptCount,
     },
     snapshot.origin !== "remote" || snapshot.answersTrust === true,
+    snapshot.origin !== "remote" && snapshot.origin !== "peer",
   );
   trustRefused.current = trustAsk.refused;
   const individualPermission =
@@ -2761,7 +2901,7 @@ function AcpmuxPane() {
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls); with the panel hidden behind folder trust, it stays in the transcript.
-  const trustBlocked = Boolean(trustAsk.blocked);
+  const trustBlocked = trustAsk.holdsAsks;
   const panelAsks = useMemo(
     () => (trustBlocked ? new Set<string>() : groupAskedCalls(snapshot.permissionGroups)),
     [trustBlocked, snapshot.permissionGroups],
@@ -4834,6 +4974,12 @@ function AcpmuxPane() {
   }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
+  // The folders the host lists as projects (no chat folders): the most recent project is one of them.
+  // The daemon's list (removals win) once it has answered, else the page's own.
+  const newTabKnownProjects = useMemo(
+    () => (directProjects.length > 0 ? directProjects.map((project) => project.cwd) : (newTab?.projects ?? [])),
+    [directProjects, newTab?.projects],
+  );
   const newTabProjects = useMemo(() => {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
@@ -4895,13 +5041,17 @@ function AcpmuxPane() {
     chooseProject,
     chooseFolder,
   ]);
-  const toggleActivity = (id: string) =>
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  // Stable: memoized transcript rows compare it.
+  const toggleActivity = useCallback(
+    (id: string) =>
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
@@ -4975,17 +5125,21 @@ function AcpmuxPane() {
     </ArtifactContext.Provider>
   );
   const toolCards = useToolCards();
-  // Folder trust is the first gate in the bottom stack. While it is being read or answered,
-  // permission and secret cards stay out of the tree so the user never has two different asks
-  // competing for the same answer. A trusted receipt is not blocked and can sit above the next ask.
-  const trustPending = Boolean(trustAsk.blocked);
+  // Folder trust is the first gate in the bottom stack. While its question is open (or after Don't
+  // trust), permission and secret cards stay out of the tree so the user never has two different
+  // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards
+  // keep their place (no blink on a chat switch). A trusted receipt can sit above the next ask.
+  const trustPending = trustAsk.holdsAsks;
+  // A secret is the one ask held while the trust read is in flight: a value typed into it must
+  // never go before the folder is known to need no trust answer first.
+  const secret = trustAsk.blocked ? undefined : snapshot.secret;
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
   );
   const hasBottomAsk = Boolean(
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
-    (!trustPending && (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
+    (!trustPending && (hasPermissionGroups || individualPermission || secret || toolCards.length > 0)),
   );
   const asks = hasBottomAsk ? (
     <div className="acpmux-permission acpmux-asks-stack">
@@ -5016,7 +5170,7 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {!trustPending && (individualPermission || snapshot.secret || toolCards.length > 0) && (
+      {!trustPending && (individualPermission || secret || toolCards.length > 0) && (
         <>
           <ToolCards
             cards={toolCards}
@@ -5034,12 +5188,12 @@ function AcpmuxPane() {
               focusComposer={() => composerHandle.current?.focus()}
             />
           )}
-          {snapshot.secret && (
+          {secret && (
             <SecretCard
-              key={snapshot.secret.secretId}
-              ask={snapshot.secret}
+              key={secret.secretId}
+              ask={secret}
               agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-              onAnswer={answerSecret(snapshot.secret)}
+              onAnswer={answerSecret(secret)}
             />
           )}
         </>
@@ -5068,7 +5222,11 @@ function AcpmuxPane() {
             {
               id: "chat-permission",
               label: t("permission.allowChat"),
-              onRemove: () => void callNative("chat.permission_chat.revoke", {}),
+              // A grant shown from the chat's last read until its refresh lands: removable once it is read.
+              onRemove: () =>
+                snapshot.permissionGroups?.ready === false
+                  ? undefined
+                  : void callNative("chat.permission_chat.revoke", {}),
             },
           ]
         : []),
@@ -5526,6 +5684,7 @@ function AcpmuxPane() {
               location={newTab.location}
               lastAgent={newTab.lastAgent}
               home={newTab.home}
+              knownProjects={newTabKnownProjects}
               {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
               // The field takes keys from its first render (the host's buffer hands them over at
               // once); only a submit waits for acpmux (`whenHandshaken`).

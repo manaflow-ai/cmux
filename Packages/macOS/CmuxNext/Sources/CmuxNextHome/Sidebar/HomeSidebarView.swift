@@ -63,7 +63,6 @@ public final class HomeSidebarView: NSView {
         compose.owner = self
         addSubview(compose)
         noteLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        noteLabel.textColor = .secondaryLabelColor
         noteLabel.lineBreakMode = .byTruncatingTail
         noteLabel.isHidden = true
         noteLabel.setAccessibilityIdentifier("cmux.home.sidebar.note")
@@ -159,6 +158,7 @@ public final class HomeSidebarView: NSView {
     /// selection is neutral grey, never the system blue.
     func applyColors() {
         list.unreadColor = performWithTheme { Palette.accent }
+        noteLabel.textColor = performWithTheme { Palette.textSecondary }
         // The menu ring and an active filter's glyph: the label colour, not the system accent.
         list.selectionColor = .labelColor
         layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
