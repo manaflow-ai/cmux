@@ -117,6 +117,17 @@ test("base reds, branch names and compile fixes are internal work", () => {
   );
 });
 
+// A subject that starts with a brand keeps its casing ("macOS", not "MacOS"), and notes that
+// already carry "MacOS" (published before this rule) are not internal work.
+test("a title that starts with a brand keeps the brand's casing", () => {
+  expect(readableChange("fix: macOS 26 window shadows match the system")).toMatchObject({
+    title: "macOS 26 window shadows match the system",
+    internal: false,
+  });
+  expect(readableChange("MacOS 26 window shadows match the system").internal).toBe(false);
+  expect(readableChange("iPhone pairing shows the Mac's name").title).toBe("iPhone pairing shows the Mac's name");
+});
+
 // The page reads notes published before the pipeline's rules (scripts/cmux-next/release-notes.py
 // summary_entry and short_title) the same way the pipeline reads new ones: every subject of the
 // medium span and of the 50 nightlies the gallery shows.
@@ -125,6 +136,8 @@ test("the page and the pipeline read every subject of the span alike", () => {
     ...new Set([
       ...(span as ReleaseNotes[]).flatMap((n) => n.changes),
       ...(nightlies as ReleaseNotes[]).flatMap((n) => changeItems(n).map((c) => c.title)),
+      "fix: macOS 26 window shadows match the system",
+      "iPhone pairing shows the Mac's name",
     ]),
   ];
   const script = `

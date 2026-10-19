@@ -87,6 +87,30 @@ test("every one of the 50 published nightlies shows clean on the page and the ca
   }
 });
 
+test("a summary line that starts with a brand passes, as the pipeline published it", () => {
+  const { notes, previous } = at("3917159104301");
+  const fixed = withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]);
+  const branded: ReleaseNotes = {
+    ...fixed,
+    summary: [...(fixed.summary ?? []), { group: "fixed", title: "MacOS 26 window shadows match the system" }],
+  };
+  expect(checkNightlyNotes(branded, previous)).toEqual([]);
+});
+
+// The page shows a multi-line description as written (model.ts readableItem), so a highlight
+// whose body opens with its title is not a title repeated as its description.
+test("a highlight whose multi-line body opens with its title passes", () => {
+  const { notes, previous } = at("3917159104301");
+  const fixed = withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]);
+  const highlighted: ReleaseNotes = {
+    ...fixed,
+    highlights: [
+      { id: "rapid-switch", title: "Rapid switch", body: "Rapid switch keys move between tabs.\nThey follow focus." },
+    ],
+  };
+  expect(checkNightlyNotes(highlighted, previous)).toEqual([]);
+});
+
 // The nightly job runs the check as `bun scripts/cmux-next/check-release-notes.ts NOTES PREVIOUS…`.
 test("the command fails with one annotation per defect, and passes clean notes", async () => {
   const { mkdtempSync, writeFileSync } = await import("node:fs");
