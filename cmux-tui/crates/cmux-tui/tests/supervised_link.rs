@@ -17,6 +17,10 @@ struct Daemon {
 
 impl Daemon {
     fn start() -> Self {
+        Self::with_mode("deny_all")
+    }
+
+    fn with_mode(mode: &str) -> Self {
         let home = cmux_unix_socket::short_test_dir("sl");
         let session = home.path().join("s.sock");
         let state = home.path().join("link");
@@ -44,7 +48,7 @@ impl Daemon {
             .env("HOME", home.path())
             .env("CMUX_TUI_CONFIG", home.path().join("config.json"))
             .env("CMUX_TUI_STATE_DIR", home.path().join("daemon"))
-            .env("CMUX_LINK_TOKEN_VERIFIER", "deny_all")
+            .env("CMUX_LINK_TOKEN_VERIFIER", mode)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(std::fs::File::create(home.path().join("daemon.log")).unwrap());
@@ -136,4 +140,61 @@ fn supervised_link_cannot_read_bootstrap_configuration_from_an_ordinary_pipe() {
         .unwrap();
     let _ = child.stdin.take().unwrap().write_all(b"{\"verifier\":\"control_plane\"}\n");
     assert!(!child.wait().unwrap().success());
+}
+
+#[test]
+fn supervised_link_requires_an_explicit_remote_entry_before_creating_state() {
+    let home = cmux_unix_socket::short_test_dir("slno");
+    let missing = home.path().join("missing");
+    let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .args(["--headless", "--supervised-link-state"])
+        .arg(&missing)
+        .env_clear()
+        .env("HOME", home.path())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("link.supervised.entry_required"));
+    assert!(!missing.exists());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn supervised_link_exits_when_its_daemon_is_killed_without_running_cleanup() {
+    use std::os::fd::{FromRawFd as _, OwnedFd};
+    let mut daemon = Daemon::start();
+    let pid = daemon.link_status()["pid"].as_u64().unwrap();
+    // Pin the actual child before stopping the daemon. A readable pidfd is
+    // exit evidence even before the system's orphan reaper runs.
+    // SAFETY: pidfd_open takes the known live pid and flags 0.
+    let raw = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+    assert!(raw >= 0, "{}", std::io::Error::last_os_error());
+    // SAFETY: pidfd_open returned a new descriptor, now owned here.
+    let fd = unsafe { OwnedFd::from_raw_fd(i32::try_from(raw).unwrap()) };
+    daemon.child.kill().unwrap();
+    daemon.child.wait().unwrap();
+    let mut poll = libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    // SAFETY: one initialized pollfd is writable for this call.
+    assert_eq!(unsafe { libc::poll(&raw mut poll, 1, 10_000) }, 1, "orphan link did not exit");
+}
+
+#[test]
+fn supervised_link_control_plane_mode_requires_the_owned_child_at_startup() {
+    let daemon = Daemon::with_mode("control_plane");
+    assert_eq!(daemon.link_status()["running"], true, "{}", daemon.log());
+    assert!(daemon.log().contains("mode control_plane: named by"), "{}", daemon.log());
+    let path = cmux_link::entry_path::remote_entry_socket_path(&daemon.session);
+    let mut stream = cmux_unix_socket::connect(&path).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let _ = stream.write_all(b"{\"link_peer\":{\"install\":\"inst_forged\",\"user\":\"user_forged\",\"team\":\"team_forged\"},\"check\":\"link_token\",\"check_issued_at_ms\":1792420000000}\n");
+    let mut byte = [0];
+    match stream.read(&mut byte) {
+        Ok(0) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+            ) => {}
+        result => panic!("a foreign process reached a checked entry: {result:?}"),
+    }
 }

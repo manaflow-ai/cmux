@@ -68,17 +68,18 @@ fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Keep the remote entry and its optional owned link alive with the daemon.
+pub(crate) struct DaemonLinkEntry {
+    _entry: cmux_tui_core::server::RemoteEntryServer,
+    _link: Option<supervision::SupervisedLink>,
+}
+
 /// Start the session daemon's remote entry next to `session_socket` when
 /// `enabled` (`--link-entry`): only the link may connect, and its gate
 /// ([`link_entry_gate`]) admits only the seven `fs-v1` ops. On a Cloud host
 /// this also installs the daemon's file owner (`cloud_fs`); elsewhere the
 /// admitted fs ops answer `fs.unavailable`. Every host also learns how it
 /// guards chats moved in (`agent-transfer-v1`).
-pub(crate) struct DaemonLinkEntry {
-    _entry: cmux_tui_core::server::RemoteEntryServer,
-    _link: Option<supervision::SupervisedLink>,
-}
-
 pub(crate) fn start_link_entry(
     enabled: bool,
     supervised_state: Option<&Path>,
@@ -92,18 +93,27 @@ pub(crate) fn start_link_entry(
     // config `main` took from the environment (G4); a real verifier is
     // refused until G1 and G2 hold. The mode is logged once (G3).
     let choice = cmux_link::token::daemon_verifier_choice();
-    let checks = cmux_link::token::StampChecks::at_daemon_start(choice.config);
+    let child = supervised_state
+        .filter(|_| enabled)
+        .map(|state| supervision::SupervisedLink::start(state, session_socket, choice.config))
+        .transpose()?;
+    let process = child.as_ref().map(supervision::SupervisedLink::process);
+    let checks = match &process {
+        Some(process) => {
+            cmux_link::token::StampChecks::at_supervised_daemon_start(choice.config, process)
+        }
+        None => cmux_link::token::StampChecks::at_daemon_start(choice.config),
+    };
     eprintln!("{}", cmux_link::token::mode_log_line(choice, &checks));
     if !enabled {
         return Ok(None);
     }
     let checks = checks?;
-    let child = supervised_state
-        .map(|state| supervision::SupervisedLink::start(state, session_socket, choice.config))
-        .transpose()?;
-    let verifier: LinkVerifier = Arc::new(|stream: &std::os::unix::net::UnixStream| {
-        cmux_link::caller::verify(stream).map_err(std::io::Error::from)
-    });
+    let verifier: LinkVerifier =
+        Arc::new(move |stream: &std::os::unix::net::UnixStream| match &process {
+            Some(process) => process.verify(stream),
+            None => cmux_link::caller::verify(stream).map_err(std::io::Error::from),
+        });
     let path = cmux_link::entry_path::remote_entry_socket_path(session_socket);
     let entry = serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?;
     Ok(Some(DaemonLinkEntry { _entry: entry, _link: child }))

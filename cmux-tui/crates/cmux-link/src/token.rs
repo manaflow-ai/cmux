@@ -239,6 +239,18 @@ impl StampChecks {
         Self::decide(config, linux, CheckBinding::BUILT)
     }
 
+    /// The policy for an entry that verifies every connection against this
+    /// owned child. The caller must retain and use that same process handle
+    /// in its entry verifier; an unsupervised entry uses `at_daemon_start`.
+    #[cfg(unix)]
+    pub fn at_supervised_daemon_start(
+        config: VerifierConfig,
+        _child: &crate::caller::SupervisedChild,
+    ) -> Result<Self, VerifierRefused> {
+        let linux = cfg!(any(target_os = "linux", target_os = "android"));
+        Self::decide(config, linux, CheckBinding { link_child: true, ..CheckBinding::BUILT })
+    }
+
     fn decide(
         config: VerifierConfig,
         linux: bool,

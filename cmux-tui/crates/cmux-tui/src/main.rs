@@ -780,8 +780,15 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--ws-insecure-bind" => out.ws_insecure_bind = true,
             "--link-entry" => out.link_entry = true,
             "--supervised-link-state" => {
-                out.supervised_link_state =
-                    Some(args.next().ok_or("--supervised-link-state needs a value")?.into());
+                out.supervised_link_state = Some(
+                    args.next()
+                        .ok_or_else(|| {
+                            localization::catalog()
+                                .remote_client
+                                .option_needs_value("--supervised-link-state")
+                        })?
+                        .into(),
+                );
             }
             "--ws-allow-origin" => {
                 let origin = args.next().ok_or("--ws-allow-origin needs a value")?;
@@ -965,7 +972,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         return Err(format!("--agent-browser-provider is unsupported on {}", std::env::consts::OS));
     }
     if out.supervised_link_state.is_some() && !out.link_entry {
-        return Err("--supervised-link-state requires --link-entry".into());
+        return Err("link.supervised.entry_required".into());
     }
     Ok(out)
 }

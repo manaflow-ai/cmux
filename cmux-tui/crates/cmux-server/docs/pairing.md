@@ -128,6 +128,17 @@ header, which is marked sensitive.
 
 ## Protocol ownership
 
+An explicitly configured session daemon can own its link process with
+`--link-entry --supervised-link-state DIR`. `DIR` must already contain an
+initialized link identity; startup neither enrolls nor replaces one. The daemon
+starts its own binary and admits that child's PID and exact kernel start
+identity at the remote entry. Configuration and the lifetime lease travel over
+an inherited private socket. A failed child leaves the entry closed to new
+connections until the daemon restarts; it is not replaced by a registered PID.
+Existing daemon arguments keep their behavior when the option is absent.
+This supplies the supervised caller boundary; Cloud token verification and
+automatic Native peer publication remain separate, incomplete paths.
+
 General servers and Chief hosts use
 `cmux_server_core::pairing::enrollment` for the environment-bound begin request,
 RFC 7638 thumbprint, check words and pushed-result validation. The server's
