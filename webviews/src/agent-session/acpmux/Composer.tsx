@@ -988,8 +988,10 @@ export function Composer({
     ],
   );
   const suggestionKey = suggestion && `${snapshot.sessionId ?? ""}|${cwd}|${suggestion.number}`;
+  // Exactly empty, as the field draws its placeholder: a typed space hides the suggestion, so Tab
+  // must not take it then.
   const suggested =
-    suggestion && suggestionKey !== suggestionDismissed && !text.trim() && attachments.length === 0
+    suggestion && suggestionKey !== suggestionDismissed && text === "" && attachments.length === 0
       ? t(
           suggestion.kind === "failing"
             ? COMPOSER_LABELS.suggestFailing
