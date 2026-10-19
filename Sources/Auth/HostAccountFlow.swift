@@ -33,6 +33,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// and actions from ``planTier``. Menus gate on ``upgradeOffer`` instead.
     var isProUpgradeAvailable: Bool { true }
     var canManageBilling: Bool { billingPlanState.canManageBilling }
+    /// Who bills the signed-in account's personal plan, or nil while unknown.
+    var planBillingSource: AccountPlanBillingSource? {
+        guard hasLoadedBillingPlan, let source = billingPlanState.billingSource else { return nil }
+        switch source {
+        case .stripe: return .stripe
+        case .apple: return .appStore
+        case .unbilled: return .granted
+        }
+    }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
     /// The most recent plan request. Only it may write, so an older request
@@ -318,7 +327,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 for: identityID,
                 isPro: details.isPro,
                 canManageBilling: details.canManageBilling,
-                tier: details.tier
+                tier: details.tier,
+                billingSource: details.billingSource
             )
             analytics.notePlan(accountID: identityID, isPaid: details.isPro)
             return true

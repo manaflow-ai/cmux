@@ -1,4 +1,5 @@
 import CmuxProductAnalytics
+import CmuxSSHClipboardTrust
 import AppKit
 import CmuxAgentChat
 import CmuxCloudMachines
@@ -563,6 +564,7 @@ class TabManager: ObservableObject {
     let pullRequestProbeService: PullRequestProbeService
 
     private let managedDevicePolicy: ManagedDevicePolicy
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
 
     /// Picks how the automatic first-launch welcome reaches the new terminal.
     /// Tests replace it to exercise each delivery without depending on the host shell.
@@ -611,10 +613,12 @@ class TabManager: ObservableObject {
         closeTabWarningDefaults: UserDefaults = .standard,
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
-        cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil
+        cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.managedDevicePolicy = managedDevicePolicy
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.cloudWorkspaceSelection = cloudWorkspaceSelection ?? CloudWorkspaceSelectionState(scopeProvider: { nil })
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
@@ -949,11 +953,13 @@ class TabManager: ObservableObject {
     var isFindVisible: Bool {
         selectedTerminalPanel?.searchState != nil ||
             focusedBrowserPanel?.searchState != nil ||
-            focusedMarkdownPanel?.searchState != nil
+            focusedMarkdownPanel?.searchState != nil ||
+            focusedTextFilePreviewPanel?.isTextFindBarVisible == true
     }
 
     var canUseSelectionForFind: Bool {
-        selectedTerminalPanel?.hasSelection() == true
+        selectedTerminalPanel?.hasSelection() == true ||
+            focusedTextFilePreviewPanel?.canUseSelectionForFind == true
     }
 
     @discardableResult
@@ -985,24 +991,30 @@ class TabManager: ObservableObject {
             // hidden but the shortcut was handled.
             return browserPanel.searchState != nil || browserPanel.isDiffViewerFindOwner
         }
-        guard let markdownPanel = focusedMarkdownPanel else { return false }
-        markdownPanel.startFind()
-        return markdownPanel.searchState != nil
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.startFind()
+            return markdownPanel.searchState != nil
+        }
+        guard let filePreviewPanel = focusedTextFilePreviewPanel else { return false }
+        return filePreviewPanel.startFind()
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
-        }
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
 #if DEBUG
-        cmuxDebugLog(
-            "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panel.id.uuidString.prefix(5))"
-        )
+            cmuxDebugLog(
+                "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5))"
+            )
 #endif
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("search_selection")
+            return
+        }
+        focusedTextFilePreviewPanel?.useSelectionForFind()
     }
 
     func findNext() {
@@ -1015,7 +1027,11 @@ class TabManager: ObservableObject {
             browserPanel.findNext()
             return
         }
-        focusedMarkdownPanel?.findNext()
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.findNext()
+            return
+        }
+        focusedTextFilePreviewPanel?.findNext()
     }
 
     func findPrevious() {
@@ -1028,7 +1044,11 @@ class TabManager: ObservableObject {
             browserPanel.findPrevious()
             return
         }
-        focusedMarkdownPanel?.findPrevious()
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.findPrevious()
+            return
+        }
+        focusedTextFilePreviewPanel?.findPrevious()
     }
 
     @discardableResult
@@ -1167,7 +1187,11 @@ class TabManager: ObservableObject {
             browserPanel.hideFind()
             return
         }
-        focusedMarkdownPanel?.hideFind()
+        if let markdownPanel = focusedMarkdownPanel {
+            markdownPanel.hideFind()
+            return
+        }
+        focusedTextFilePreviewPanel?.hideFind()
     }
 
     func makeWorkspaceForCreation(
@@ -1210,6 +1234,7 @@ class TabManager: ObservableObject {
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
             closeTabWarningDefaults: closeTabWarningDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
             fileContentChangeCoordinator: fileContentChangeCoordinator,
@@ -1231,6 +1256,7 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             tabDragTransferRegistry: tabDragTransferRegistry,
             settings: settings,
+            sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
             closeTabWarningDefaults: closeTabWarningDefaults,
             initialDetachedSurface: detachedSurface,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
@@ -2998,8 +3024,9 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let hasActiveProcess = plan.workspaces.contains(where: workspaceNeedsConfirmClose)
             || windowDockNeedsConfirmation
+        let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
         let showsBatchConfirmation: Bool
-        var dontAskAgain: CloseWarningKinds
+        let dontAskAgain: CloseWarningKinds
         if containsPinned {
             showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults)
                 .shouldConfirmCloseIncludingSafety(requiresConfirmation: true, source: .shortcut)
@@ -3007,15 +3034,23 @@ class TabManager: ObservableObject {
         } else if plan.willCloseWindow {
             // A batch that closes the whole window follows the window warning
             // policy. The tab warning must not suppress this prompt.
-            showsBatchConfirmation = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
+            let windowWarns = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWindow
                 || hasActiveProcess
-            dontAskAgain = .window
-            if hasActiveProcess { dontAskAgain.insert(.safety) }
+            showsBatchConfirmation = windowWarns || alwaysConfirm
+            dontAskAgain = Self.workspaceCloseDontAskAgain(
+                ordinary: hasActiveProcess ? [.window, .safety] : .window,
+                ordinaryWarns: windowWarns,
+                alwaysConfirm: alwaysConfirm
+            )
         } else {
-            showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
+            let workspaceWarns = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
                 || hasActiveProcess
-            dontAskAgain = .workspace
-            if hasActiveProcess { dontAskAgain.insert(.safety) }
+            showsBatchConfirmation = workspaceWarns || alwaysConfirm
+            dontAskAgain = Self.workspaceCloseDontAskAgain(
+                ordinary: hasActiveProcess ? [.workspace, .safety] : .workspace,
+                ordinaryWarns: workspaceWarns,
+                alwaysConfirm: alwaysConfirm
+            )
         }
         if showsBatchConfirmation {
             guard confirmClose(
@@ -3305,14 +3340,19 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
             || windowDockNeedsConfirmation
+        let alwaysConfirm = CloseTabWarningStore(defaults: closeTabWarningDefaults).alwaysConfirmsWorkspaceClose
+        let warnsWithoutAlwaysConfirm = needsCloseConfirmation
+            || shouldConfirmWorkspaceClose(
+                requiresConfirmation: needsCloseConfirmation,
+                source: source
+            )
         let showsCloseConfirmation = requiresConfirmation
-            && (needsCloseConfirmation
-                || shouldConfirmWorkspaceClose(
-                    requiresConfirmation: needsCloseConfirmation,
-                    source: source
-                ))
-        var dontAskAgain: CloseWarningKinds = .workspace
-        if needsCloseConfirmation { dontAskAgain.insert(.safety) }
+            && (warnsWithoutAlwaysConfirm || alwaysConfirm)
+        let dontAskAgain = Self.workspaceCloseDontAskAgain(
+            ordinary: needsCloseConfirmation ? [.workspace, .safety] : .workspace,
+            ordinaryWarns: warnsWithoutAlwaysConfirm,
+            alwaysConfirm: alwaysConfirm
+        )
         if showsCloseConfirmation,
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
@@ -3365,6 +3405,21 @@ class TabManager: ObservableObject {
     private func shouldConfirmWorkspaceClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
         AppCatalogSection().warnBeforeClosingWorkspace.value(in: closeTabWarningDefaults)
             && shouldConfirmConfiguredClose(requiresConfirmation: requiresConfirmation, source: source)
+    }
+
+    /// What "Don't ask again" turns off on a workspace close prompt. When the
+    /// prompt shows only because of `app.alwaysConfirmWorkspaceClose`, it turns
+    /// off just that setting and leaves the ordinary workspace and window
+    /// warnings alone. When the ordinary warning would have asked too, it turns
+    /// off both, so the same close does not ask next time.
+    static func workspaceCloseDontAskAgain(
+        ordinary: CloseWarningKinds,
+        ordinaryWarns: Bool,
+        alwaysConfirm: Bool
+    ) -> CloseWarningKinds {
+        guard alwaysConfirm else { return ordinary }
+        guard ordinaryWarns else { return .alwaysConfirmWorkspace }
+        return ordinary.union(.alwaysConfirmWorkspace)
     }
 
     /// Applies the user-configured warning toggles without turning the
@@ -7105,6 +7160,7 @@ extension TabManager {
                 portOrdinal: ordinal,
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 fileContentChangeCoordinator: fileContentChangeCoordinator,
@@ -7141,6 +7197,7 @@ extension TabManager {
                 portOrdinal: ordinal,
                 tabDragTransferRegistry: tabDragTransferRegistry,
                 settings: settings,
+                sshClipboardWriteTrustStore: sshClipboardWriteTrustStore,
                 closeTabWarningDefaults: closeTabWarningDefaults,
                 agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
                 fileContentChangeCoordinator: fileContentChangeCoordinator,
