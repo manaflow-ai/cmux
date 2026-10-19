@@ -76,6 +76,7 @@ public import Foundation
             complete(
                 candidates: candidates,
                 protectionSpace: challenge.protectionSpace,
+                previousFailureCount: challenge.previousFailureCount,
                 candidatePicker: candidatePicker,
                 registerCancelPrompt: registerCancelPrompt,
                 completionHandler: completionHandler
@@ -90,11 +91,14 @@ public import Foundation
     private func complete(
         candidates: [BrowserClientCertificateCredentialCandidate],
         protectionSpace: URLProtectionSpace,
+        previousFailureCount: Int,
         candidatePicker: CandidatePicker?,
         registerCancelPrompt: @escaping PromptCancellationRegistration,
         completionHandler: @escaping Completion
     ) {
-        let preferredCandidates = candidates.filter(\.isPreferred)
+        // After a failed attempt the server may be rejecting the preferred identity,
+        // so let the user pick again; the new choice replaces the preference.
+        let preferredCandidates = previousFailureCount == 0 ? candidates.filter(\.isPreferred) : []
         if preferredCandidates.count == 1, let preferredCandidate = preferredCandidates.first {
             completionHandler(.useCredential, preferredCandidate.credential)
             return
