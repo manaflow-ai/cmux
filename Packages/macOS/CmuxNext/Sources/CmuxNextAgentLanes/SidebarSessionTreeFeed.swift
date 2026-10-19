@@ -145,6 +145,12 @@ final class SidebarPullRequestStore {
     /// Asks again for each of `asks` (a folder, or a pull request's `https://` URL) whose answer is
     /// missing or older than `freshness`.
     func refresh(_ asks: Set<String>) {
+        refresh(asks, onlyInFlight: false)
+    }
+
+    /// `onlyInFlight` is the recheck: it reads again only the open or draft pull requests, since a
+    /// folder without one or a merged or closed one changes only with a lane or a workspace.
+    private func refresh(_ asks: Set<String>, onlyInFlight: Bool) {
         shown = asks
         // Drop what the tree no longer shows (closed workspaces, ended sessions).
         let kept = asks.union(asking)
@@ -155,13 +161,13 @@ final class SidebarPullRequestStore {
         if freshness > .zero, asks.contains(where: inFlight) {
             recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
                 guard let self else { return }
-                refresh(shown)
+                refresh(shown, onlyInFlight: true)
             }
         } else {
             recheck.cancel()
         }
         let stale = asks.filter { key in
-            !asking.contains(key) && !isSettled(key) && asked[key].map { ContinuousClock.now - $0 >= wait(key) } ?? true
+            !asking.contains(key) && !isSettled(key) && (!onlyInFlight || inFlight(key)) && asked[key].map { ContinuousClock.now - $0 >= wait(key) } ?? true
         }
         let urls = stale.filter { $0.hasPrefix("https://") }.sorted()
         for folder in stale.subtracting(urls).sorted() { ask(folder) }
