@@ -12,8 +12,9 @@ public enum HomeFirstRunAction: Sendable, Equatable {
 
 /// The empty Chief conversation's first-run panel: things to do now, each a
 /// row with its shortcut (open a terminal, start an agent), then the user's
-/// agents at a glance, most urgent first, each opening its tab, then a
-/// one-line keyboard hint. Labels and actions only, no lines about what the
+/// agents at a glance, most urgent first, each opening its tab, then the
+/// "Switching" card with the core switching keys (`HomeFirstRunSwitchCard`,
+/// hidden for good by its Hide button). Labels and actions only, no lines about what the
 /// Chief is. Hidden once the conversation has a message
 /// (`HomeNativeTranscriptView.updateFirstRun`).
 final class HomeFirstRunView: NSView {
@@ -24,7 +25,10 @@ final class HomeFirstRunView: NSView {
     /// One row per listed agent (`setAgents`), the status word at the trailing edge.
     private(set) var agentRows: [HomeFirstRunRow] = []
     private(set) var agents: [HomeAgentGlance] = []
-    let hint = ChromeLabel(labelWithString: "")
+    /// The core switching keys; out of the layout while hidden.
+    let switchCard = HomeFirstRunSwitchCard()
+    private lazy var cardHeight = switchCard.heightAnchor.constraint(equalToConstant: 0)
+    private lazy var cardWidth = switchCard.widthAnchor.constraint(equalToConstant: Self.maxWidth)
     private let stack = NSStackView()
     private var scale: CGFloat = 1
     private var colors: Colors?
@@ -45,10 +49,10 @@ final class HomeFirstRunView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        hint.font = .systemFont(ofSize: 12)
-        hint.alignment = .center
-        hint.isSelectable = false
-        hint.isHidden = true
+        switchCard.isHidden = true
+        switchCard.translatesAutoresizingMaskIntoConstraints = false
+        cardHeight.isActive = true
+        cardWidth.isActive = true
         agentsHeader.font = .systemFont(ofSize: 12, weight: .medium)
         agentsHeader.isSelectable = false
         agentsHeader.lineBreakMode = .byTruncatingTail
@@ -101,7 +105,7 @@ final class HomeFirstRunView: NSView {
     private func arrange() {
         for view in stack.arrangedSubviews { stack.removeArrangedSubview(view); view.removeFromSuperview() }
         let listed: [NSView] = agentRows.isEmpty ? [] : [agentsHeader] + agentRows
-        for view in [terminal, agent] + listed + [hint] as [NSView] { stack.addArrangedSubview(view) }
+        for view in [terminal, agent] + listed + [switchCard] as [NSView] { stack.addArrangedSubview(view) }
         applySpacing()
     }
 
@@ -112,8 +116,8 @@ final class HomeFirstRunView: NSView {
     /// does (hidden arranged views leave the stack's layout).
     private func fitAgentRows() {
         let row = HomeFirstRunRow.height * scale, gap = 6 * scale, group = 14 * scale
-        let hint = self.hint.isHidden ? 0 : group + ceil(self.hint.intrinsicContentSize.height)
-        let base = 2 * row + gap + hint
+        let card = switchCard.isHidden ? 0 : group + cardHeight.constant
+        let base = 2 * row + gap + card
         let header = group + ceil(agentsHeader.intrinsicContentSize.height)
         var shown = agentRows.count
         while shown > 0, base + header + CGFloat(shown) * (gap + row) > bounds.height { shown -= 1 }
@@ -135,7 +139,7 @@ final class HomeFirstRunView: NSView {
     func applyScale(_ scale: CGFloat) {
         guard self.scale != scale else { return }
         self.scale = scale
-        hint.font = .systemFont(ofSize: 12 * scale)
+        switchCard.applyScale(scale)
         agentsHeader.font = .systemFont(ofSize: 12 * scale, weight: .medium)
         applySpacing()
         for row in rows { row.applyScale(scale) }
@@ -143,13 +147,13 @@ final class HomeFirstRunView: NSView {
         needsLayout = true
     }
 
-    /// The rows' shortcuts and the tab hint's keys, as the registry shows
-    /// them (cmux.json overrides included); nil hides one.
-    func setShortcuts(terminal: String?, agent: String?, tabs: String?) {
+    /// The rows' shortcuts and the Switching card's keys, as the live
+    /// binding table has them (cmux.json and keybindings.json included); nil
+    /// hides a row's shortcut, nil `switching` hides the card.
+    func setShortcuts(terminal: String?, agent: String?, switching: HomeSwitchKeys?) {
         self.terminal.shortcut = terminal
         self.agent.shortcut = agent
-        hint.stringValue = tabs.map(HomeStrings.firstRunTabsHint) ?? ""
-        hint.isHidden = tabs == nil
+        switchCard.apply(switching)
         needsLayout = true
     }
 
@@ -165,7 +169,7 @@ final class HomeFirstRunView: NSView {
 
     private func applyStoredColors() {
         guard let colors else { return }
-        hint.textColor = colors.tertiary
+        switchCard.applyColors(primary: colors.primary, tertiary: colors.tertiary, fill: colors.fill, border: colors.border)
         agentsHeader.textColor = colors.tertiary
         for row in [terminal, agent] {
             row.applyColors(text: colors.primary, quiet: colors.tertiary, fill: colors.fill, hover: colors.hover, border: colors.border)
@@ -186,6 +190,9 @@ final class HomeFirstRunView: NSView {
         let width = max(0, min(Self.maxWidth * scale, bounds.width - 48 * scale))
         for row in rows { row.width = width }
         if headerWidth.constant != width { headerWidth.constant = width }
+        if cardWidth.constant != width { cardWidth.constant = width }
+        let card = switchCard.height(for: width)
+        if cardHeight.constant != card { cardHeight.constant = card }
         fitAgentRows()
         let size = stack.fittingSize
         stack.frame = CGRect(x: (bounds.width - width) / 2, y: max(0, (bounds.height - size.height) / 2),
