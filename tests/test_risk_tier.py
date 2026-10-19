@@ -109,6 +109,47 @@ class ClassifyTests(unittest.TestCase):
         rust = "cmux-tui/crates/cmux-pty/src/lib.rs"
         self.assertEqual(self.tier("docs/x.md", NEXT + "CmuxNextSidebar/A.swift", rust, lines={rust: 200}), "high")
 
+    def test_audit_rust_test_modules_and_tests_v2_are_tests(self):
+        # #21888 graded high on agent_tools_tests.rs; 265 such files sit under cmux-tui/.
+        self.assertEqual(self.big("cmux-tui/crates/acpmux/src/agent_tools_tests.rs"), "low")
+        self.assertEqual(self.big("cmux-tui/crates/acpmux/src/hub/tests.rs"), "low")
+        self.assertEqual(self.tier("tests_v2/test_sidebar.py"), "low")
+
+    def test_audit_merge_gate_helpers_are_high_at_any_size(self):
+        for path in (
+            "scripts/ci/merge_freeze.py", "scripts/ci/main_fix_evidence.py",
+            "scripts/ci/vercel_merge_gate.py", "scripts/merge-main.sh",
+            "scripts/cmux-next/check-no-godfiles.sh",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+
+    def test_audit_nested_release_and_signing_scripts_are_high(self):
+        for path in (
+            "backend/scripts/deploy-worker.sh", "scripts/ci/signing-keychain.sh",
+            "scripts/ci/lib/notary-auth.sh", "scripts/cmux-next/promote-nightly-next.mjs",
+            "scripts/ci/nightly_next_feed_rollback.py", ".github/workflows/cmux-tui-nightly.yml",
+            ".github/workflows/signing-keychain-macos.yml",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+        self.assertEqual(self.tier("scripts/ci/release-notes-draft.py"), "low")
+
+    def test_audit_optchat_backend_is_runtime(self):
+        path = "Native/OptChat/optchat-chief/src/brain/control.rs"
+        self.assertEqual(self.big(path), "high")
+        self.assertEqual(self.tier(path), "medium")
+
+    def test_audit_more_vendored_pins_are_high(self):
+        for path in ("homebrew-cmux", "ghostty.h", ".xcode-version"):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "high")
+
+    def test_audit_spec_prose_is_docs_but_spec_data_is_a_contract(self):
+        # #21950 changed 8 lines of cmux-tui/spec/commands.md and graded high.
+        self.assertEqual(self.tier("cmux-tui/spec/commands.md"), "low")
+        self.assertEqual(self.tier("cmux-tui/spec/commands.json"), "high")
+
     def test_large_medium_change_becomes_high_but_tests_and_generated_do_not_count(self):
         ui = NEXT + "CmuxNextSidebar/A.swift"
         grade = risk.classify([ui], {ui: 1500})
@@ -189,6 +230,12 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.missing_evidence("medium", body), [])
         body = "## Proof\nNot UI: only the store's queue ordering changes, nothing renders differently\n"
         self.assertEqual(risk.missing_evidence("medium", body), [])
+
+    def test_a_demo_or_video_heading_holds_proof(self):
+        for heading in ("Demo", "Video", "Recording"):
+            body = f"## {heading}\n![after](https://github.com/user-attachments/assets/1)\n"
+            with self.subTest(heading=heading):
+                self.assertEqual(risk.missing_evidence("medium", body), [])
 
     def test_a_bare_link_is_not_proof(self):
         body = "## Proof\nCI only, see https://example.com/runs/1\n"
