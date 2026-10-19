@@ -3,7 +3,9 @@ import type { AcpmuxRow } from "../model";
 /// Copy source text rather than rendered Markdown, including rows outside the virtual viewport.
 export function transcriptCopyText(row: AcpmuxRow): string {
   const parts: string[] = [];
-  if (row.text?.trim()) parts.push(row.text.trim());
+  // Another session's message copies as its words, never the envelope around them.
+  const text = row.message ? row.message.body : row.text;
+  if (text?.trim()) parts.push(text.trim());
   if (row.shell) {
     if (row.shell.command.trim()) parts.push(`$ ${row.shell.command.trim()}`);
     if (row.shell.output.trim()) parts.push(row.shell.output.trim());

@@ -10,7 +10,15 @@ export function editableTurns(rows: readonly AcpmuxRow[], family: string | undef
   let through: number | undefined;
   for (const row of rows) {
     if (row.kind === "turnSummary" && row.seq !== undefined) through = row.seq;
-    else if (row.kind === "user" && through !== undefined && row.text && !row.failed && !row.queued && !row.pending)
+    else if (
+      row.kind === "user" &&
+      through !== undefined &&
+      row.text &&
+      !row.message &&
+      !row.failed &&
+      !row.queued &&
+      !row.pending
+    )
       seqs.set(row.id, through);
   }
   return seqs;

@@ -31,11 +31,19 @@ export function ChatFindScope({
     },
     [findRef],
   );
-  // A match in a turn's closed "Worked for" opens it, so the transcript draws the row. Before
-  // paint, so the transcript scrolls to the match in the same frame.
+  // A match in a turn's closed "Worked for" opens it, so the transcript draws the row (and one in
+  // a received message opens that line). Before paint, so the transcript scrolls to the match in the same frame.
   const target = find.open ? find.matches[find.active] : undefined;
   useLayoutEffect(() => {
-    if (!target || !shown || shown.some((row) => isFindRow(row, target.rowId))) return;
+    if (!target || !shown) return;
+    // A match in another session's message opens its line, and the group that folds it away.
+    if (rows[target.rowIndex]?.message) {
+      const group = shown.find((row) => row.lines?.includes(target.rowId));
+      if (group) openFold(group.id);
+      openFold(target.rowId);
+      return;
+    }
+    if (shown.some((row) => isFindRow(row, target.rowId))) return;
     const user = rows
       .slice(0, target.rowIndex + 1)
       .reverse()

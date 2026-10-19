@@ -14,6 +14,7 @@ import type {
   QueuedPrompt,
   StartSource,
 } from "./model";
+import { agentMessage } from "./conversation/receivedMessages";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
@@ -1792,6 +1793,8 @@ export class AcpmuxDirectClient {
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
+        // Another session's message: its received line, never the person's bubble.
+        const message = agentMessage(msg);
         // A newer prompt means any steer before it was read; a second steer can come in the same step.
         if (msg.steer !== true) this.landSteer();
         const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
@@ -1803,6 +1806,7 @@ export class AcpmuxDirectClient {
           kind: "user",
           text: String(msg.text ?? ""),
           ...(received ? { received } : {}),
+          ...(message ? { message } : {}),
           ...(steer ? { steer } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length

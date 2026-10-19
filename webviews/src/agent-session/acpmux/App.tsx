@@ -245,6 +245,8 @@ import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
 import { sideQuestion } from "./aside/sideQuestion.experiment";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
+import { ReceivedGroup, ReceivedMessage } from "./conversation/ReceivedMessage";
+import { RECEIVED_GROUP, RECEIVED_MESSAGE, drawnKind, groupReceived } from "./conversation/receivedMessages";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
 
@@ -752,6 +754,36 @@ const OfferResultRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 
+/// Another session's message, which opens to the sender's words, and received lines folded
+/// together (conversation/ReceivedMessage.tsx).
+const ReceivedMessageRow = memo(
+  function ReceivedMessageRow({ row, expanded, onToggleActivity }: RowProps) {
+    return row.message ? (
+      <ReceivedMessage
+        message={row.message}
+        open={expanded}
+        onToggle={() => onToggleActivity(row.id)}
+        onOpen={openOfferChat}
+      />
+    ) : null;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+const ReceivedGroupRow = memo(
+  function ReceivedGroupRow({ row, expanded, onToggleActivity }: RowProps) {
+    return <ReceivedGroup row={row} open={expanded} onToggle={() => onToggleActivity(row.id)} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.expanded === b.expanded &&
+    a.onToggleActivity === b.onToggleActivity,
+);
+
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
   assistant: MessageRow,
@@ -769,6 +801,8 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
+  [RECEIVED_MESSAGE]: ReceivedMessageRow,
+  [RECEIVED_GROUP]: ReceivedGroupRow,
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
@@ -949,7 +983,7 @@ function RowFrame({
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
-const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
+const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : drawnKind(row));
 /// A row drawn as tool rows: tool calls and thoughts, or a background task's end.
 const isStepRow = (row: AcpmuxRow | undefined) =>
   row !== undefined && (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)));
@@ -2719,7 +2753,8 @@ function AcpmuxPane() {
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
-      return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
+      // Received lines in a row fold last, over the drawn rows.
+      return groupReceived(withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks), expanded);
     });
   }, [
     childRows,
