@@ -549,6 +549,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-stage-divider {
   height: 0;
   margin: 4px -6px;
+  border: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
 }
 .nt-suggest-chat[data-state="input"] .nt-suggest-state {

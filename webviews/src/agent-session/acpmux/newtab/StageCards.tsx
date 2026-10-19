@@ -59,7 +59,7 @@ export function EnvironmentCard({
       {others.map((project) => (
         <ProjectRow key={project.cwd} project={project} where={where} checked={false} onPick={onPick} />
       ))}
-      <div className="nt-stage-divider" role="separator" />
+      <hr className="nt-stage-divider" />
       <span className="nt-env-choose">
         <ProjectChooser
           inline

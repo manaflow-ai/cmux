@@ -147,7 +147,7 @@ test("the default New Tab is Claude Code desktop's layout: cards over the compos
     expect(rows[0]?.getAttribute("aria-pressed")).toBe("true");
     expect(rows[0]?.textContent).toContain("app");
     expect(rows.map((row) => row.textContent).join("|")).toContain("web");
-    expect(env.querySelector("[role=separator]")).toBeTruthy();
+    expect(env.querySelector("hr.nt-stage-divider")).toBeTruthy();
     expect(env.textContent).toContain("Choose environment");
     // The suggestions card: the chat that needs you, then the three create actions, as rows.
     const suggest = stage!.querySelector(".nt-suggest")!;
