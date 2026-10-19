@@ -219,6 +219,10 @@ pub struct SessionMeta {
     /// `total_cost_usd`), which the next turn's cost is measured from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_cost_usd: Option<f64>,
+    /// The pull requests this session's `gh pr create` calls printed (`hub/pull_requests.rs`),
+    /// once each, oldest first. A fork starts with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pull_requests: Vec<String>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
     /// for a session a person or client started. Never copied to a fork.
