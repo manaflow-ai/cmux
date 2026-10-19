@@ -4,7 +4,7 @@
 # Optional helper: merges only when the PR head's checks are green.
 # Into feat-cmux-next it applies a FAST gate by default (scripts/ci/merge_fast_gate.py):
 # it waits up to --wait seconds (default 2400) for path routing, the fast tier and the touched
-# compiles on the exact head, waits for lint and risk evidence (a red one is never waived),
+# compiles on the exact head, waits for lint and risk evidence (a red risk evidence is never waived),
 # and refuses a completed red in those, in the web, app size or crash families, or in a
 # full-gate lane (ci-status, Release compile, swift test). It also checks conflict markers and freezes. The full suites run after
 # the merge; the culprit bot and the base sheriff revert or fix forward.
