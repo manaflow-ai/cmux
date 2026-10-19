@@ -26,7 +26,7 @@ use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, parse_open_with};
 use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
-pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
+pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
 
 mod agent_open;
 mod call;

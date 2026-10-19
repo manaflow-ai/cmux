@@ -26510,6 +26510,530 @@
           }
         }
       }
+    },
+    "agentPane.error.cause.exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف قبل أن يصبح جاهزًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zaustavio se prije nego što je bio spreman"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "den stoppede, før den var klar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "es wurde beendet, bevor es bereit war"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "it stopped before it was ready"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "se detuvo antes de estar listo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il s'est arrêté avant d'être prêt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "si è fermato prima di essere pronto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備が整う前に停止しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាបានឈប់មុនពេលរួចរាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "준비되기 전에 멈췄습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "den stoppet før den var klar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zatrzymał się, zanim był gotowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ele parou antes de ficar pronto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "он остановился, не успев запуститься"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดทำงานก่อนพร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hazır olmadan durdu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "він зупинився, не встигнувши запуститися"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nó đã dừng trước khi sẵn sàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它在就绪前就停止了"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它在就緒前就停止了"
+          }
+        }
+      }
+    },
+    "agentPane.error.cause.noWebSocket": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُبلغ عن عنوان للدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nije prijavio adresu za chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "den oplyste ingen chatadresse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "es hat keine Chat-Adresse gemeldet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "it reported no chat address"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no informó ninguna dirección de chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il n'a signalé aucune adresse de discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "non ha indicato alcun indirizzo per la chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのアドレスを報告しませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាមិនបានរាយការណ៍អាសយដ្ឋានជជែកទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 주소를 알려 주지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "den oppga ingen chatadresse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nie podał adresu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ele não informou nenhum endereço de chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "он не сообщил адрес для чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้รายงานที่อยู่สำหรับแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bir sohbet adresi bildirmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "він не повідомив адресу для чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nó không báo địa chỉ trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它没有报告聊天地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它沒有回報聊天位址"
+          }
+        }
+      }
+    },
+    "agentPane.error.daemonFailedBecause": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux الوصول إلى acpmux: %1$@. سجله موجود في %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne može doći do acpmux: %1$@. Njegov zapisnik je na %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kan ikke nå acpmux: %1$@. Loggen findes på %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux erreicht acpmux nicht: %1$@. Das Protokoll liegt unter %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot reach acpmux: %1$@. Its log is at %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede conectar con acpmux: %1$@. Su registro está en %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas joindre acpmux : %1$@. Son journal se trouve dans %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non riesce a raggiungere acpmux: %1$@. Il suo log è in %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux から acpmux に接続できません: %1$@。ログは %2$@ にあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចភ្ជាប់ទៅ acpmux បានទេ៖ %1$@។ កំណត់ហេតុរបស់វានៅ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 acpmux에 연결할 수 없습니다: %1$@. 로그 위치: %2$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux når ikke acpmux: %1$@. Loggen ligger i %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie może połączyć się z acpmux: %1$@. Jego dziennik jest w %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não consegue acessar o acpmux: %1$@. O log está em %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не может связаться с acpmux: %1$@. Журнал находится в %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux เชื่อมต่อ acpmux ไม่ได้: %1$@ บันทึกอยู่ที่ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, acpmux'a ulaşamıyor: %1$@. Günlüğü %2$@ konumunda."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не може зв'язатися з acpmux: %1$@. Журнал розташовано в %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux không kết nối được với acpmux: %1$@. Nhật ký nằm tại %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法连接 acpmux：%1$@。日志位于 %2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法連線到 acpmux：%1$@。記錄檔位於 %2$@。"
+          }
+        }
+      }
+    },
+    "agentPane.error.daemonRestarting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُعاد تشغيل acpmux على الإصدار الجديد. ستتصل هذه الدردشة عند عودته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux se ponovo pokreće na novoj verziji. Ovaj chat se povezuje kad se vrati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux genstarter med den nye version. Denne chat forbinder, når den er tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux startet mit der neuen Version neu. Dieser Chat verbindet sich, sobald es zurück ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux is restarting on the new version. This chat connects when it is back."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux se está reiniciando con la nueva versión. Este chat se conecta cuando vuelva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux redémarre avec la nouvelle version. Cette discussion se connecte dès son retour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux si sta riavviando con la nuova versione. Questa chat si collega quando torna."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux を新しいバージョンで再起動しています。戻りしだい、このチャットは接続します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux កំពុងចាប់ផ្ដើមឡើងវិញលើកំណែថ្មី។ ការជជែកនេះនឹងភ្ជាប់ពេលវាត្រឡប់មកវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux가 새 버전으로 다시 시작하는 중입니다. 다시 실행되면 이 채팅이 연결됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux starter på nytt med den nye versjonen. Denne chatten kobler til når den er tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux uruchamia się ponownie w nowej wersji. Ten czat połączy się, gdy wróci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O acpmux está reiniciando na nova versão. Este chat se conecta quando ele voltar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux перезапускается в новой версии. Этот чат подключится, когда он вернётся."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux กำลังเริ่มใหม่ด้วยเวอร์ชันใหม่ แชทนี้จะเชื่อมต่อเมื่อกลับมาทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux yeni sürümle yeniden başlıyor. Bu sohbet geri geldiğinde bağlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux перезапускається в новій версії. Цей чат під'єднається, коли він повернеться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux đang khởi động lại với phiên bản mới. Cuộc trò chuyện này sẽ kết nối khi nó hoạt động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux 正在以新版本重启。恢复后此聊天会自动连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux 正在以新版本重新啟動。恢復後此聊天會自動連線。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

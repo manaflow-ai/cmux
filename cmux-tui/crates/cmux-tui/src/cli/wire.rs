@@ -23,17 +23,46 @@ const SESSION_JOURNAL_PROTOCOL_MINIMUM: u64 =
     cmux_tui_core::server::SESSION_JOURNAL_PROTOCOL_VERSION as u64;
 const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VERSION as u64;
 
+/// Runs one request, healing a dropped connection: a request whose
+/// connection failed is sent again on a new connection, with the same
+/// idempotency key for a mutation, so the daemon replays it instead of running
+/// it twice (plans/cmux-next/state-ownership.md, section 4). Streams are never
+/// resent. `mutation.outcome_unknown` is printed only after the last try.
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
+    if !plan.stream
+        && plan.operation.class() == OperationClass::Mutation
+        && plan.idempotency_key.is_none()
+    {
+        // One key for every try: a resend is the same mutation.
+        match random_idempotency_key() {
+            Ok(key) => plan.idempotency_key = Some(key),
+            Err(error) => {
+                eprintln!("cmux: {error}");
+                return 2;
+            }
+        }
+    }
+    let mut tries = retry::Tries::new(&plan);
+    loop {
+        let code = run_once(&global, plan.clone(), &tries);
+        if code != retry::AGAIN {
+            return code;
+        }
+        tries.wait_before_next();
+    }
+}
+
+fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
         eprintln!("cmux: streams require --jsonl, --quiet, or human output");
         return 2;
     }
-    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan) {
+    if let Err(error) = super::resolve::apply_global_route(global, &mut plan) {
         eprintln!("cmux: {error}");
         return 2;
     }
     #[cfg(unix)]
-    super::status::drop_caller_terminal_when_routed(&global, &mut plan);
+    super::status::drop_caller_terminal_when_routed(global, &mut plan);
     if let Err(error) =
         super::command::git::localize_commit_paths(&plan.operation, &mut plan.params)
     {
@@ -55,13 +84,19 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         request["id"].as_str().expect("locally built request IDs are strings").to_string();
     let key_report = KeyReport::new(request.get("idempotency_key").and_then(Value::as_str));
 
-    let (socket, socket_is_derived) = match resolve_socket_or_report(&global) {
+    let (socket, socket_is_derived) = match resolve_socket_or_report(global) {
         Ok(resolved) => resolved,
         Err(code) => return code,
     };
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
+            // An earlier try sent the request: its outcome is still unknown.
+            if tries.sent_before() {
+                eprintln!("transport closed before response");
+                key_report.finish(global.output);
+                return 3;
+            }
             // Only this socket was tried; nothing falls back to another one.
             let error = json!({
                 "code": "socket.unreachable",
@@ -75,7 +110,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
     if let Some(capability) = required_server_capability(&plan) {
-        match require_server_capability(&mut reader, &global, capability) {
+        match require_server_capability(&mut reader, global, capability) {
             Ok(()) => {}
             Err(exit_code) => return exit_code,
         }
@@ -86,7 +121,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     // A browser tab in a session a cmux app owns is the app's to render.
     #[cfg(unix)]
     if let Some(code) = super::frontend_browser::run_in_app(
-        &global,
+        global,
         &plan,
         &request,
         &mut reader,
@@ -104,7 +139,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             if let super::resolve::Failure::AppAction { action, target } = &failure {
                 let args = ["--target".to_owned(), target.clone()];
                 return match super::app::run_action(action, &args, super::app::ActionName::Any) {
-                    Ok(command) => super::app::run(&global, command),
+                    Ok(command) => super::app::run(global, command),
                     Err(error) => print_local_error(
                         &json!({"code":"usage.invalid","message":error.to_string(),"details":{},"retryable":false}),
                         global.output,
@@ -142,17 +177,24 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             return 0;
         }
         if refused_at_connect(&mut reader, &error) {
-            // A refused connection carried no request: nothing applied.
+            // A refused connection carried no request: nothing applied, so a
+            // session that is busy for a moment gets the request again.
+            if tries.may_retry(retry::Failure::Dropped) {
+                return retry::AGAIN;
+            }
             eprintln!("{}", hints::session_busy());
             return 3;
+        }
+        if tries.may_retry(retry::Failure::Dropped) {
+            return retry::AGAIN;
         }
         eprintln!("transport error: {error}");
         // Part of the request may have reached the daemon.
         key_report.finish(global.output);
         return 3;
     }
-    let code = run_response(&mut reader, &global, &plan, &request_id, &key_report);
-    if code != 0 {
+    let code = run_response(&mut reader, global, &plan, &request_id, &key_report, tries);
+    if code != 0 && code != retry::AGAIN {
         key_report.finish(global.output);
     }
     code
@@ -423,6 +465,7 @@ fn run_response(
     plan: &RequestPlan,
     request_id: &str,
     key_report: &KeyReport,
+    tries: &retry::Tries,
 ) -> i32 {
     let mut accepted_stream = false;
     let expose_stream_lifecycle = matches!(
@@ -438,12 +481,18 @@ fn run_response(
             Ok(Some(value)) => value,
             Ok(None) if plan.stream && accepted_stream => return 0,
             Ok(None) => {
+                if !accepted_stream && tries.may_retry(retry::Failure::Dropped) {
+                    return retry::AGAIN;
+                }
                 eprintln!("transport closed before response");
                 return 3;
             }
             Err(error) => {
                 if plan.stream && crate::shutdown_requested() {
                     return 0;
+                }
+                if !accepted_stream && tries.may_retry(retry::Failure::from_read_error(&error)) {
+                    return retry::AGAIN;
                 }
                 eprintln!("{error}");
                 return 3;
@@ -565,6 +614,10 @@ fn run_response(
                 return 1;
             }
             Some("refused") => {
+                // Refused at the connection limit: the request never ran.
+                if tries.may_retry(retry::Failure::Dropped) {
+                    return retry::AGAIN;
+                }
                 eprintln!("{}", hints::session_busy());
                 return 3;
             }
@@ -1040,6 +1093,7 @@ mod closed_view;
 mod hints;
 mod list_order;
 mod notify_desktop;
+mod retry;
 mod sanitize;
 mod socket;
 pub(super) use hints::connect_failure;

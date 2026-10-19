@@ -354,7 +354,8 @@ impl Brain {
             "subagent.auto_resume",
             json!({"id": id, "kind": format!("{kind:?}"), "attempts": attempts, "decision": format!("{decision:?}")}),
         );
-        (self.log)(&format!("subagent {id}: {note}"));
+        // WARN: the error journal (`cmux errors`) harvests host.log lines by level word.
+        (self.log)(&format!("WARN subagent {id}: {note}"));
         match decision {
             Decision::Report { .. } => {
                 if let Some(sub) = self.state.sub_mut(id) {
