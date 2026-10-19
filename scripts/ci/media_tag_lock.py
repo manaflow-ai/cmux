@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     held = sub.add_parser("hold")
     held.add_argument("--tag", required=True)
     held.add_argument("--lock-dir", type=Path, default=DEFAULT_LOCK_DIR)
-    held.add_argument("--wait", type=float, default=3600)
+    held.add_argument("--wait", type=float, default=7200)
     held.add_argument("--max-hold", type=float, default=3 * 3600)
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", args.tag):

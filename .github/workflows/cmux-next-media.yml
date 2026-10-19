@@ -213,6 +213,9 @@ jobs:
       # A pull request branched before the lock existed checks out a head
       # without the script; this step comes from the merge ref, so it takes
       # the script from that commit.
+      # A tour waits for its tag as long as the holder's job can run (this
+      # job's timeout-minutes): a merge tour holds feat-cmux-next for up to an
+      # hour warm and longer cold, and the holder lets go when its job ends.
       - name: Hold this tour's tag
         if: steps.scope.outputs.is_ui == 'true'
         run: |
@@ -223,7 +226,7 @@ jobs:
             git show "$GITHUB_SHA:$lock" > "$RUNNER_TEMP/media_tag_lock.py"
             lock="$RUNNER_TEMP/media_tag_lock.py"
           fi
-          python3 "$lock" hold --tag "$TOUR_TAG" --wait 1800
+          python3 "$lock" hold --tag "$TOUR_TAG" --wait 7200
 
       # Each tag's DerivedData is about 9 GiB and nothing else removes it: a
       # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).
