@@ -16,7 +16,9 @@ or unknown bead is skipped. Open
 pull requests on feat-cmux-next that name no bead get a task created from
 their title, with the pull request as its external reference, and the bead
 line of the PR's status comment links it back (a dispatch of pr-status.yml,
-so the line posts as github-actions and not under this token's account). The board is reached through BEADS_SSH_HOST
+so the line posts as github-actions and not under this token's account; with
+CMUX_CI_GITHUB_APP_ID_FILE and CMUX_CI_GITHUB_APP_KEY_FILE the dispatch itself
+runs as the org App, see scripts/ci/pr_status.py). The board is reached through BEADS_SSH_HOST
 (the host whose ~/agent-tasks holds the board) or, for tests, BEADS_BD_COMMAND
 (an executable run with bd's arguments); with neither set it refuses to run.
 State lives in BEAD_AUTOCLOSE_STATE: the latest merge handled, the pull
@@ -39,6 +41,9 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ci"))
+import pr_status  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
 BASES = ("feat-cmux-next", "main")
@@ -143,12 +148,11 @@ def beads_named(pull: dict, *, include_comments: bool = False) -> list[str]:
 
 
 def link_bead_on_pull_request(pull: dict, bead_id: str) -> None:
-    """The bead line of the PR's status comment (scripts/ci/pr_status.py)."""
-    args = ["gh", "workflow", "run", "pr-status.yml", "-R", REPO, "--ref", "main",
-            "-f", f"pr={pull['number']}", "-f", f"bead={bead_id}"]
-    result = subprocess.run(args, capture_output=True, text=True)
-    if result.returncode:
-        raise BoardUnreachable((result.stderr or result.stdout).strip())
+    """The bead line of the PR's status comment, through pr-status.yml (scripts/ci/pr_status.py)."""
+    try:
+        pr_status.dispatch(REPO, int(pull["number"]), bead=bead_id)
+    except (RuntimeError, ValueError) as error:
+        raise BoardUnreachable(str(error)) from error
 
 
 def handle(pull: dict, bead_id: str, dry_run: bool) -> str:

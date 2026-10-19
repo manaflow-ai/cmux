@@ -117,6 +117,12 @@ class PrStatusTests(unittest.TestCase):
         self.assertEqual(gh.writes, ["PATCH", "DELETE"])
         self.assertEqual(pr_status.parse(gh.comments[old]["body"]), {"checks": "red: web / lint"})
 
+    def test_a_comment_by_the_cmux_bot_app_is_the_same_status_comment(self):
+        gh = FakeGitHub()
+        first = gh.add(pr_status.render({"attribution": "CI passes"}), user="cmux-bot[bot]")
+        upsert(gh, "bead", "Bead: `cx-abc1`")
+        self.assertEqual(list(gh.comments), [first])
+
     def test_a_marker_at_the_end_of_a_legacy_comment_counts(self):
         gh = FakeGitHub()
         gh.add("**Merge receipt** for `abc`\n<!-- cmux:merge-receipt -->")
@@ -143,6 +149,44 @@ class PrStatusTests(unittest.TestCase):
         for bead, preview in (("cx-x`; @everyone", None), ("not-a-bead", None), (None, "abc"), (None, None)):
             with self.assertRaises(ValueError):
                 pr_status.field_text(bead, preview)
+
+
+class DispatchTests(unittest.TestCase):
+    def setUp(self):
+        self.runs = []
+
+    def run_gh(self, args, **kw):
+        self.runs.append((args, kw["env"].get("GH_TOKEN")))
+        return type("Done", (), {"returncode": 0, "stderr": "", "stdout": ""})()
+
+    def test_with_the_app_configured_the_dispatch_runs_as_the_app(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".id") as app_id:
+            app_id.write("5313868\n")
+            app_id.flush()
+            env = {"CMUX_CI_GITHUB_APP_ID_FILE": app_id.name, "CMUX_CI_GITHUB_APP_KEY_FILE": "/k.pem", "GH_TOKEN": "person"}
+            minted = []
+            pr_status.dispatch(REPO, 7, bead="cx-abc1", env=env, run=self.run_gh,
+                               mint=lambda i, k, r: minted.append((i, k, r)) or "app-token")
+        self.assertEqual(minted, [("5313868", "/k.pem", REPO)])
+        self.assertEqual(self.runs, [(["gh", "workflow", "run", "pr-status.yml", "-R", REPO, "--ref", "main",
+                                       "-f", "pr=7", "-f", "bead=cx-abc1"], "app-token")])
+
+    def test_a_configured_app_that_fails_never_falls_back_to_a_persons_login(self):
+        env = {"CMUX_CI_GITHUB_APP_ID_FILE": "/missing", "CMUX_CI_GITHUB_APP_KEY_FILE": "/k.pem", "GH_TOKEN": "person"}
+        with self.assertRaises(RuntimeError):
+            pr_status.dispatch(REPO, 7, bead="cx-abc1", env=env, run=self.run_gh)
+        self.assertEqual(self.runs, [])
+
+    def test_without_the_app_gh_uses_its_own_login(self):
+        pr_status.dispatch(REPO, 7, preview="a" * 40, env={}, run=self.run_gh)
+        self.assertEqual(self.runs[0][0][-2:], ["-f", "preview=" + "a" * 40])
+        self.assertIsNone(self.runs[0][1])
+
+    def test_a_bad_value_is_refused_before_anything_runs(self):
+        with self.assertRaises(ValueError):
+            pr_status.dispatch(REPO, 7, bead="not a bead", env={}, run=self.run_gh)
+        self.assertEqual(self.runs, [])
 
 
 if __name__ == "__main__":
