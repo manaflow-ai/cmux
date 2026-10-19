@@ -105,7 +105,8 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         };
         /// The bar's drawn length.
         probe.__length = (index: number) =>
-          document.querySelector<HTMLElement>(`[data-tick="${index}"] .acpmux-minimap__bar`)!.getBoundingClientRect().width;
+          document.querySelector<HTMLElement>(`[data-tick="${index}"] .acpmux-minimap__bar`)!.getBoundingClientRect()
+            .width;
         probe.__card = () => document.querySelector(".acpmux-minimap__card") !== null;
       },
       { to: top, count: COUNT },
@@ -171,7 +172,10 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       await page.evaluate(() => {
         const probe = window as any;
         probe.__frames = [];
-        document.addEventListener("pointerover", () => (probe.__over = performance.now()), { once: true, capture: true });
+        document.addEventListener("pointerover", () => (probe.__over = performance.now()), {
+          once: true,
+          capture: true,
+        });
         const step = () => {
           probe.__frames.push({ t: performance.now(), length: probe.__length(30), card: probe.__card() });
           if (probe.__frames.length < 60) requestAnimationFrame(step);
@@ -235,7 +239,11 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         const before = await page.evaluate(() => {
           const lit = (window as any).__lit() as string;
           const first = Number(lit.split(",")[0]);
-          return { lit, first, y: document.querySelector<HTMLElement>(`[data-tick="${first}"]`)!.getBoundingClientRect().top };
+          return {
+            lit,
+            first,
+            y: document.querySelector<HTMLElement>(`[data-tick="${first}"]`)!.getBoundingClientRect().top,
+          };
         });
         const frames = await page.evaluate(
           async ({ rows, key, total }) => {

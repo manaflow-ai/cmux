@@ -127,7 +127,15 @@ export function ThreadMinimap({
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
-  const live = useRef({ turns, tops: layout.tops, total: layout.totalHeight, marks, viewportHeight, onScreen, sessionId });
+  const live = useRef({
+    turns,
+    tops: layout.tops,
+    total: layout.totalHeight,
+    marks,
+    viewportHeight,
+    onScreen,
+    sessionId,
+  });
   useLayoutEffect(() => {
     live.current = { turns, tops: layout.tops, total: layout.totalHeight, marks, viewportHeight, onScreen, sessionId };
   });
@@ -282,7 +290,8 @@ export function ThreadMinimap({
       }
     }
     const first = turns[onScreen.first];
-    if (first) anchor.current = { key: first.key, firstKey: turns[0]!.key, y: top + onScreen.first * ROW_PITCH - scrolled };
+    if (first)
+      anchor.current = { key: first.key, firstKey: turns[0]!.key, y: top + onScreen.first * ROW_PITCH - scrolled };
   });
 
   // A rail longer than its room keeps the first prompt on screen in view while the reader scrolls.
