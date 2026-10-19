@@ -96,6 +96,7 @@ describe("generated VM API Cloud transport", () => {
     const x = fake(async (r) => {
       const url = new URL(r.url)
       if (r.method === "DELETE") return new Response(null, { status: 204 })
+      if (url.pathname === "/v1/snapshot-creations/by-key") return new Response(null, { status: 404 })
       if (url.pathname === "/v1/snapshots") {
         expect(url.searchParams.get("createdBy")).toBe("caller")
         expect(url.searchParams.get("labels")).toContain(`cmux/name=${slug}`)

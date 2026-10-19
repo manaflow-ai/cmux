@@ -107,9 +107,12 @@ it.each(["shared", "personal", "lost-capture"] as const)("runs a mixed %s Cloud 
         for (let i = 0; i < 6; i++) { await owner.fakeControl({ advance_ms: 400_000 }); await owner.alarm(); }
         const list = await owner.readOp(t.team, principal, "cloud.snapshot.list", { machine: apiMachine });
         expect(list).toMatchObject({ ok: true, value: { snapshots: [{ status: "creating" }] } });
-        expect((await owner.readOp(t.team, principal, "cloud.plan.get", {})).value.usage.saved).toBe(1);
+        const usage = await owner.readOp(t.team, principal, "cloud.plan.get", {});
+        if (!usage.ok || !list.ok) throw new Error("snapshot or usage read refused");
+        expect((usage.value as { usage: { saved: number } }).usage.saved).toBe(1);
         expect((await owner.fakeControl({})).pending).toBe(1);
-        const snapshotId = list.value.snapshots[0].id as string;
+        const snapshotId = (list.value as { snapshots: Array<{ id: string }> }).snapshots[0]?.id;
+        if (!snapshotId) throw new Error("snapshot row missing");
         saved = { snapshot: { id: snapshotId } };
         const source = [...vms.values()].find((v) => v.labels.cmux_next_machine === apiMachine);
         if (!source) throw new Error("missing source");
