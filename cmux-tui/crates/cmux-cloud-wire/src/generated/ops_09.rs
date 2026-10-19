@@ -4,6 +4,12 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRebuildResult {
+    pub retired: String,
+    pub epoch: i64,
+}
+
 wire_errors! {
     /// The error codes team_vm.rebuild declares.
     TeamVmRebuildError {
