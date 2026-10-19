@@ -31,6 +31,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// page's stylesheets stop their status loops. Static under Reduce Motion or
     /// `appearance.statusIndicator.animation: "static"` (`StatusIndicatorConfig.isStatic`).
     public let statusIndicators: String
+    /// `always`, `hover` or `never`: `data-picture-motion` on `<html>`, which a page's animated
+    /// Chief pictures follow (``ChiefPictureMotion/effective``: `never` under Reduce Motion).
+    public let pictureMotion: String
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -114,6 +117,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
         statusIndicators = Motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
+        pictureMotion = ChiefPictureMotion.effective.rawValue
     }
 
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators}`
@@ -124,7 +128,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
 
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
-                                     "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators]
+                                     "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
+                                     "pictureMotion": pictureMotion]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -229,6 +234,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           root.style.colorScheme = payload.colorScheme;
           if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
           if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
+          if (payload.pictureMotion) root.setAttribute('data-picture-motion', payload.pictureMotion);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
           if (!first) settled(payload);

@@ -313,7 +313,10 @@
               "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur"
+              "appearance.backgroundBlur",
+              "appearance.backgroundVideo",
+              "appearance.backgroundVideoOnBattery",
+              "appearance.backgroundAvoidPanes"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -1104,8 +1107,7 @@
             "rows" : [
               "phone.allowConnections",
               "phone.startSessions",
-              "phone.keepAwake",
-              "phone.cloudReplica"
+              "phone.keepAwake"
             ],
             "title" : {
               "key" : "settings.group.phone",
@@ -4016,7 +4018,7 @@
       },
       "help" : {
         "key" : "settings.phone.allowConnections.help",
-        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."
+        "text" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.allowConnections",
@@ -4167,57 +4169,6 @@
       "title" : {
         "key" : "settings.phone.keepAwake",
         "text" : "Keep Mac Awake for Your Phone"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "privacy",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.phone",
-        "text" : "Phone Access"
-      },
-      "help" : {
-        "key" : "settings.phone.cloudReplica.help",
-        "text" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "phone.cloudReplica",
-      "keywords" : [
-        "iphone",
-        "mobile",
-        "phone",
-        "cloud",
-        "offline",
-        "workspaces",
-        "sync",
-        "privacy"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "phone",
-        "cloudReplica"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "machines",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.phone.cloudReplica",
-        "text" : "Show This Mac's Workspaces on Your Phone While It's Off"
       },
       "validation" : "portable"
     },
@@ -8522,7 +8473,8 @@
         "dore-empyrean",
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
-        "file:/Users/Shared/Harbor.png"
+        "file:/Users/Shared/Harbor.png",
+        "collage:c-2f9a1b7c04de"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -9804,6 +9756,8 @@
         "system:",
         "file:relative.png",
         "file:",
+        "collage:",
+        "collage:../evil",
         "__not_a_backdrop__",
         1,
         true
@@ -11879,6 +11833,192 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "play",
+        "whenActive",
+        "still"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideo.play",
+            "text" : "Play"
+          },
+          "value" : "play"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideo.whenActive",
+            "text" : "Only While cmux Is Active"
+          },
+          "value" : "whenActive"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideo.still",
+            "text" : "Still Picture"
+          },
+          "value" : "still"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "play",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundVideo.help",
+        "text" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundVideo",
+      "keywords" : [
+        "video",
+        "wallpaper",
+        "aerial",
+        "motion",
+        "play",
+        "pause",
+        "battery"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundVideo"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.backgroundVideo",
+        "text" : "Video Background"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "play",
+        "pause"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideoOnBattery.play",
+            "text" : "Keep Playing"
+          },
+          "value" : "play"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideoOnBattery.pause",
+            "text" : "Pause"
+          },
+          "value" : "pause"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "play",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundVideoOnBattery.help",
+        "text" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundVideoOnBattery",
+      "keywords" : [
+        "video",
+        "battery",
+        "power",
+        "energy"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundVideoOnBattery"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.backgroundVideoOnBattery",
+        "text" : "On Battery"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundAvoidPanes.help",
+        "text" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundAvoidPanes",
+      "keywords" : [
+        "painting",
+        "crop",
+        "subject",
+        "framing",
+        "sidebar",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundAvoidPanes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.backgroundAvoidPanes",
+        "text" : "Keep Paintings Clear of Panes"
       },
       "validation" : "portable"
     },
@@ -26215,6 +26355,79 @@
     },
     {
       "accepts" : [
+        "always",
+        "hover",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPictures",
+        "text" : "Chief Pictures"
+      },
+      "help" : {
+        "key" : "settings.home.chiefPictureMotion.help",
+        "text" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPictureMotion",
+      "keywords" : [
+        "chief",
+        "avatar",
+        "picture",
+        "gif",
+        "animation",
+        "motion"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPictureMotion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPictureMotion",
+        "text" : "Animated Pictures"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -29318,7 +29531,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e6d508aefe157d2041d5d108b5014d2b7537d52185b2e68f4eb2d647bf74976e",
+  "schema_hash" : "86a8faf6f2dcdd2c106c02650d92bdc5e80b7642d01fb2bd3ff12a5e9b23d59a",
   "sections" : [
     {
       "id" : "general",
