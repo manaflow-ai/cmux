@@ -107,6 +107,136 @@ def canceled_end(connection, stream_id, **fields):
 
 
 class ResourceApiTests(unittest.TestCase):
+    def test_stream_terminal_result_remains_available(self) -> None:
+        for reason in ("completed", "canceled", "closed", "error", "gap"):
+            with self.subTest(reason=reason):
+                def handler(connection, _index):
+                    for request in frames(connection):
+                        stream_id = request["params"]["stream_id"]
+                        ok(connection, request, {"stream_id": stream_id})
+                        end = {
+                            "protocol": "cmux.protocol/2",
+                            "type": "stream_end",
+                            "stream_id": stream_id,
+                            "reason": reason,
+                            "recovery": "reopen the stream",
+                        }
+                        if reason == "error":
+                            end["error"] = {
+                                "code": "operation.failed",
+                                "message": "stream fixture failed",
+                                "details": {"fixture": True},
+                                "retryable": False,
+                            }
+                        send_frame(connection, end)
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path) as client:
+                        stream = client.session(SESSION).events()
+                        expected = (
+                            cmux.StreamError
+                            if reason in {"error", "gap"}
+                            else StopIteration
+                        )
+                        for _ in range(2):
+                            with self.assertRaises(expected) as raised:
+                                stream.next(timeout=1)
+                            if expected is cmux.StreamError:
+                                self.assertEqual(raised.exception.reason, reason)
+                                self.assertEqual(
+                                    raised.exception.recovery, "reopen the stream"
+                                )
+                                self.assertIs(raised.exception.error, stream.end.error)
+                        self.assertIs(iter(stream), stream)
+                        with self.assertRaises(expected):
+                            next(stream)
+
+    def test_stream_end_preserves_buffered_items_and_timeout_validation(self) -> None:
+        def handler(connection, _index):
+            for request in frames(connection):
+                stream_id = request["params"]["stream_id"]
+                ok(connection, request, {"stream_id": stream_id})
+                for sequence in (1, 2):
+                    send_frame(
+                        connection,
+                        {
+                            "protocol": "cmux.protocol/2",
+                            "type": "stream_item",
+                            "stream_id": stream_id,
+                            "sequence": str(sequence),
+                            "item": {"kind": "fixture.event"},
+                        },
+                    )
+                send_frame(
+                    connection,
+                    {
+                        "protocol": "cmux.protocol/2",
+                        "type": "stream_end",
+                        "stream_id": stream_id,
+                        "reason": "completed",
+                    },
+                )
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path) as client:
+                stream = client.session(SESSION).events()
+                self.assertTrue(stream._state.end_event.wait(1))
+                self.assertEqual(stream._state.queued_messages, 2)
+                self.assertGreater(stream._state.queued_bytes, 0)
+                for timeout in (True, "1"):
+                    with self.subTest(timeout=timeout):
+                        with self.assertRaises(TypeError):
+                            stream.next(timeout=timeout)
+                for timeout in (0, -1, float("inf"), float("nan")):
+                    with self.subTest(timeout=timeout):
+                        with self.assertRaises(ValueError):
+                            stream.next(timeout=timeout)
+                self.assertEqual(next(stream).sequence, "1")
+                self.assertEqual(stream.next(timeout=1).sequence, "2")
+                self.assertEqual(stream._state.queued_messages, 0)
+                self.assertEqual(stream._state.queued_bytes, 0)
+                with self.assertRaises(StopIteration):
+                    next(stream)
+
+    def test_stream_end_wakes_both_waiting_readers(self) -> None:
+        readers_ready = threading.Barrier(3)
+        release_end = threading.Event()
+
+        def handler(connection, _index):
+            for request in frames(connection):
+                stream_id = request["params"]["stream_id"]
+                ok(connection, request, {"stream_id": stream_id})
+                release_end.wait(2)
+                send_frame(
+                    connection,
+                    {
+                        "protocol": "cmux.protocol/2",
+                        "type": "stream_end",
+                        "stream_id": stream_id,
+                        "reason": "completed",
+                    },
+                )
+
+        def read(stream):
+            readers_ready.wait(timeout=2)
+            try:
+                stream.next(timeout=1)
+            except (StopIteration, cmux.TimeoutError) as error:
+                return type(error)
+            self.fail("ended stream returned an item")
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path) as client:
+                stream = client.session(SESSION).events()
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    results = [executor.submit(read, stream) for _ in range(2)]
+                    readers_ready.wait(timeout=2)
+                    release_end.set()
+                    self.assertEqual(
+                        [result.result(timeout=2) for result in results],
+                        [StopIteration, StopIteration],
+                    )
+
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
 
