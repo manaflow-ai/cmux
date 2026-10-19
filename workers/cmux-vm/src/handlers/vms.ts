@@ -327,8 +327,8 @@ const FORK_INCOMPLETE_MESSAGE =
 
 /**
  * Fork = snapshot + create + delete the snapshot. Not atomic:
- * - snapshot fails: nothing is made; the error is the snapshot's (409 when the
- *   source is neither running nor paused).
+ * - snapshot acquisition is journaled before I/O. Unknown outcomes hold both
+ *   quotas; retries recover the same intermediate, even after source deletion.
  * - snapshot succeeds, create fails: 503 ForkIncomplete naming the snapshot,
  *   which stays in the ownership table for the caller's tenant (and expires
  *   upstream after a day unused). With an Idempotency-Key the key remembers

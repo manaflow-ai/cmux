@@ -126,8 +126,14 @@ Source-allowlisted credentials
 can control only their original derived capture; general snapshot access stays
 subject to its own allowlist. Service labels and the original service actor apply
 to capture controls. Legacy uncertain snapshot requests fail closed; their old
-records contain no reliable capture identity. VM fork's separate snapshot stage
-still needs this recovery protocol.
+records contain no reliable capture identity. Fork intermediates use this same
+capture journal, with a destination VM ID and VM quota reserved before capture.
+VM creation status can therefore be pending before VM allocation has begun.
+An unresolved capture also holds a snapshot slot. Retry the original fork to
+continue; reconcile records existing effects without sending a capture or VM
+create. VM creation cancellation fences both stages, deleting only an exactly
+verified intermediate before releasing quota. The VM write credential receives
+authority for that fork snapshot only, without general snapshot write access.
 
 Rate limits, quota reservations and idempotency keys live in one Durable
 Object per tenant (`src/limits/`). Every mutation (create, start, stop,
@@ -185,8 +191,8 @@ protected records; that version refuses them and needs current software for reco
 An uncertain send or failed grow retains the VM and its quota reservation.
 Use the original intent to recover it, or cancel with its handle. A fork that
 retained its snapshot but has not admitted a VM allocation reports unresolved;
-retry the original fork with its handle. Interrupted snapshot acquisition is a
-separate recovery gap; a VM creation handle does not prove a snapshot's outcome.
+retry the original fork with its handle. Interrupted snapshot acquisition stays pending under the same handle; an
+absent provider lookup does not prove the snapshot was never taken.
 
 ## Grow an existing VM
 

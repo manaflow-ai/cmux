@@ -26,7 +26,6 @@ import {
   type UpstreamClientService,
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
-import { upstreamName } from "./naming.ts";
 
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),

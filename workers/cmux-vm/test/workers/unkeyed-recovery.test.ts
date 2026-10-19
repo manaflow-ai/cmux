@@ -167,7 +167,7 @@ it("discovers a service fork's retained snapshot before VM admission and resumes
   expect(first.status).toBe(503); const key = await handle(first);
   expect(allocations()).toHaveLength(0);
   const page = await h.request("/v1/vm-creations", serviceHeaders); expect(page.status).toBe(200);
-  expect(await page.json()).toMatchObject({ items: [{ creationKey: key, state: "unresolved", id: null }] });
+  expect(await page.json()).toMatchObject({ items: [{ creationKey: key, state: "pending", id: expect.stringMatching(/^vm_/) }] });
   expect((await h.request(`/v1/vms/${source.vmId}`, headers(), { method: "DELETE" })).status).toBe(204);
   const retry = await h.request(`/v1/vms/${source.vmId}/fork`, { ...serviceHeaders, "idempotency-key": key }, { method: "POST", body });
   expect(retry.status).toBe(201); expect(await retry.json()).toMatchObject({ creationKey: key });

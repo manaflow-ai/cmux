@@ -5,6 +5,27 @@ import { IDEMPOTENCY_TTL_MS } from "../../src/limits/ledger.ts";
 import { durableObjectLimitsLayer, TenantLimits } from "../../src/limits/service.ts";
 import { newSnapshotId, newVmId, TenantId, VmId, VmCreationKey } from "../../src/lib/ids.ts";
 
+it("retains fork capture identity, quota and cancellation through native RPC", async () => {
+  const tenant = TenantId.make(crypto.randomUUID()), vmId = newVmId(), now = Date.now();
+  const limits = await Effect.runPromise(Effect.provide(TenantLimits, durableObjectLimitsLayer(env.TENANT_LIMITS)));
+  const stub = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant));
+  await stub.begin("fork", "request", now);
+  await stub.reserve("vm", 1, 0, now, "fork-slot");
+  const progress = { phase: "capturing" as const, vmId, sourceVmId: newVmId(), snapshotId: newSnapshotId(), captureKey: "child",
+    reservationId: "fork-slot", createdBy: "key:owner", createdAt: new Date(now).toISOString(),
+    receipt: { id: vmId, displayName: null, labels: {}, idleTimeoutSeconds: 300 } };
+  expect(await stub.advance("fork", progress, now + 1)).toBe(true);
+  const reloaded = env.TENANT_LIMITS.get(env.TENANT_LIMITS.idFromName(tenant));
+  expect((await Effect.runPromise(limits.inspect(tenant, "fork")))?.progress).toEqual(progress);
+  expect(await reloaded.reserve("vm", 1, 0, now + IDEMPOTENCY_TTL_MS * 3, "other")).toEqual({ ok: false });
+  expect(await reloaded.cancelCreation("fork", vmId)).toBe("accepted");
+  expect(await reloaded.settleCancellation("fork", vmId)).toBe(false);
+  await reloaded.snapshotCapture({ op: "fence", key: "child", expectedId: null, createdBy: "key:owner", labels: {} }, now + 2);
+  expect(await reloaded.settleCancellation("fork", vmId)).toBe(true);
+  expect((await Effect.runPromise(limits.inspect(tenant, "fork")))?.progress).toMatchObject({ phase: "capturing", cancelled: true });
+  expect(await reloaded.advance("fork", { phase: "done", vmId }, now + 3)).toBe(false);
+});
+
 it("persists generated history and permanent replay through native RPC serialization", async () => {
   const tenant = TenantId.make(crypto.randomUUID()), now = Date.now();
   const limits = await Effect.runPromise(Effect.provide(TenantLimits, durableObjectLimitsLayer(env.TENANT_LIMITS)));

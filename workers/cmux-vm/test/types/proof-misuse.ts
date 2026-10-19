@@ -1,4 +1,4 @@
-import { UpstreamSnapshots as importSnapshots } from "../../src/upstream/snapshots.ts";
+import { UpstreamSnapshots } from "../../src/upstream/snapshots.ts";
 import { authorizedSnapshotCapture, forkSnapshotAccess } from "../../src/proofs/snapshot-capture.ts";
 import { pendingVmCreation, cancellingVmCreation } from "../../src/proofs/vm-creation.ts";
 /**
@@ -240,7 +240,7 @@ captures.recoverCapture(captured, { scope: captureScope, capture: captureProof }
 
 // Fork delegation cannot turn a general VM write key into snapshot write authority.
 export const forkSnapshotMisuse = (principal: Principal, first: import("../../src/lib/ids.ts").SnapshotId, second: import("../../src/lib/ids.ts").SnapshotId) => Effect.gen(function* () {
-  const snapshots = yield* importSnapshots;
+  const snapshots = yield* UpstreamSnapshots;
   yield* name(principal, first, second, (caller, a, b) => Effect.gen(function* () {
     const scope = keyHasScope(caller, "vm:write");
     if (scope === null) return;
