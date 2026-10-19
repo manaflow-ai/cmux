@@ -146,6 +146,10 @@ it("quarantines an older unjournaled fork claim after its former expiry", async 
   await ledger.begin(await digest(["key", "old-fork"]), await digest(["forkVm", source.vmId, null, null, null, null, null]), 0);
   const response = await h.request(`/v1/vms/${source.vmId}/fork`, { ...bearer(token), "idempotency-key": "old-fork" }, { method: "POST", body: {} });
   expect(response.status).toBe(409);
+  await ledger.begin("unrelated", "request", Date.now());
+  const retry = await h.request(`/v1/vms/${source.vmId}/fork`, { ...bearer(token), "idempotency-key": "old-fork" }, { method: "POST", body: {} });
+  expect(retry.status).toBe(409);
+  expect((await ledger.inspect(await digest(["key", "old-fork"])))?.progress.phase).toBe("pending");
   expect(captures()).toHaveLength(0);
   expect(allocations()).toHaveLength(0);
 });

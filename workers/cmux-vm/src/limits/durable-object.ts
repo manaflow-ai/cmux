@@ -38,6 +38,7 @@ export class TenantLimitsObject extends DurableObject {
   settleCancellation(key: string, vmId: string): Promise<boolean> { return this.ledger.settleCancellation(key, vmId); }
 
   inspect(key: string): Promise<IdempotencyRecord | null> { return this.ledger.inspect(key); }
+  quarantineForkClaim(key: string, nowMs: number): Promise<boolean> { return this.ledger.quarantineForkClaim(key, nowMs); }
 
   async settleCreation(key: string, vmId: string, nowMs: number): Promise<boolean> {
     try { await this.ledger.settleCreation(key, vmId, nowMs); return true; }

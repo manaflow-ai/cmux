@@ -26,6 +26,7 @@ import {
 export class LimitsUnavailable extends Data.TaggedError("LimitsUnavailable")<{ readonly cause: unknown }> {}
 
 export interface TenantLimitsService {
+  readonly quarantineForkClaim: (tenantId: TenantId, key: string) => Effect.Effect<boolean, LimitsUnavailable>;
   readonly snapshotCapture: (tenantId: TenantId, command: SnapshotCaptureCommand) => Effect.Effect<SnapshotCaptureResult, LimitsUnavailable>;
   readonly beginCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<boolean, LimitsUnavailable>;
   readonly rejectCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<void, LimitsUnavailable>;
@@ -52,6 +53,7 @@ export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimi
 
 /** The ledger operations, whether a Durable Object stub or an in-process ledger. */
 interface LedgerHandle {
+  quarantineForkClaim(key: string, nowMs: number): Promise<boolean>;
   snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult>;
   beginCreateSend(key: string, vmId: string, token: string): Promise<boolean>;
   rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean>;
@@ -79,6 +81,7 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     );
   const confirmed = (value: boolean) => value ? Effect.void : Effect.fail(new LimitsUnavailable({ cause: "creation write was not confirmed" }));
   return {
+    quarantineForkClaim: (tenantId, key) => call((ledger, now) => ledger.quarantineForkClaim(key, now))(tenantId),
     snapshotCapture: (tenantId, command) => call((ledger, now) => ledger.snapshotCapture(command, now))(tenantId),
     beginCreateSend: (tenantId, key, vmId, token) => call((ledger) => ledger.beginCreateSend(key, vmId, token))(tenantId),
     rejectCreateSend: (tenantId, key, vmId, token) => call((ledger) => ledger.rejectCreateSend(key, vmId, token))(tenantId).pipe(Effect.flatMap(confirmed)),
@@ -116,6 +119,7 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
     makeService((tenantId): LedgerHandle => {
       const stub = namespace.get(namespace.idFromName(tenantId));
       return {
+        quarantineForkClaim: (key, nowMs) => decoded(Schema.Boolean)(stub.quarantineForkClaim(key, nowMs)),
         snapshotCapture: (command, nowMs) => decoded(SnapshotCaptureResult)(stub.snapshotCapture(command, nowMs)),
         beginCreateSend: (key, vmId, token) => decoded(Schema.Boolean)(stub.beginCreateSend(key, vmId, token)),
         rejectCreateSend: (key, vmId, token) => decoded(Schema.Boolean)(stub.rejectCreateSend(key, vmId, token)),

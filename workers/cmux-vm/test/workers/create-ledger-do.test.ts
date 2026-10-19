@@ -24,6 +24,13 @@ it("retains fork capture identity, quota and cancellation through native RPC", a
   expect(await reloaded.settleCancellation("fork", vmId)).toBe(true);
   expect((await Effect.runPromise(limits.inspect(tenant, "fork")))?.progress).toMatchObject({ phase: "capturing", cancelled: true });
   expect(await reloaded.advance("fork", { phase: "done", vmId }, now + 3)).toBe(false);
+  await reloaded.begin("legacy", "old", 0);
+  expect(await Effect.runPromise(limits.quarantineForkClaim(tenant, "legacy"))).toBe(true);
+  await reloaded.begin("sweep", "unrelated", now + IDEMPOTENCY_TTL_MS * 3);
+  expect(await reloaded.begin("legacy", "old", now + IDEMPOTENCY_TTL_MS * 3)).toEqual({ state: "in_progress" });
+  await reloaded.begin("live-claim", "busy", now);
+  expect(await Effect.runPromise(limits.quarantineForkClaim(tenant, "live-claim"))).toBe(false);
+  expect((await Effect.runPromise(limits.inspect(tenant, "live-claim")))?.progress.phase).toBe("claimed");
 });
 
 it("persists generated history and permanent replay through native RPC serialization", async () => {

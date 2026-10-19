@@ -359,8 +359,10 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
         // An older fork may have sent its snapshot while still merely "claimed".
         // Never turn that missing capture receipt into permission to take another one.
         if (principal.resourceAllowlist === null) {
-          const prior = yield* limits.inspect(principal.tenantId, yield* scopedCreationKey(principal, effectiveKey)).pipe(Effect.mapError(() => unavailable()));
-          if (prior?.progress.phase === "claimed" || prior?.progress.phase === "pending")
+          const priorKey = yield* scopedCreationKey(principal, effectiveKey);
+          const prior = yield* limits.inspect(principal.tenantId, priorKey).pipe(Effect.mapError(() => unavailable()));
+          if ((prior?.progress.phase === "claimed" || prior?.progress.phase === "pending")
+            && (yield* limits.quarantineForkClaim(principal.tenantId, priorKey).pipe(Effect.mapError(() => unavailable()))))
             return yield* Effect.fail(conflict("This fork has no durable capture receipt; its earlier outcome needs reconciliation"));
         }
         return yield* creationResult(principal, effectiveKey, idempotent(

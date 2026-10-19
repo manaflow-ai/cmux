@@ -38,5 +38,12 @@ try {
   const record = await current.inspect("fork");
   assert.equal(record?.progress.phase === "capturing" && record.progress.cancelled, true);
   assert.equal((await current.reserve("vm", 1, 0, 200_000_000, "released")).ok, true);
+  await current.begin("legacy", "old-request", 0);
+  assert.equal(await current.quarantineForkClaim("legacy", 200_000_000), true);
+  await old.abandon("legacy", 200_000_000);
+  await old.begin("sweep-again", "unrelated", 200_000_000);
+  assert.deepEqual(await old.begin("legacy", "old-request", 200_000_000), { state: "in_progress" });
+  await current.begin("live", "busy", 200_000_000);
+  assert.equal(await current.quarantineForkClaim("live", 200_000_000), false);
   console.log("fork capture compatibility: previous ledger cannot expire pending or cancelled forks; quota stays held until the child is fenced");
 } finally { unlinkSync(fixture); }

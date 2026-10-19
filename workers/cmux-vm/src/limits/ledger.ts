@@ -155,6 +155,17 @@ export class TenantLedger {
     return readRecord(await this.storage.get(`idem:${key}`)) ?? null;
   }
 
+  /** A legacy fork claim may already have sent a snapshot without retaining its identity. */
+  async quarantineForkClaim(key: string, nowMs: number): Promise<boolean> {
+    return this.storage.transaction(async (storage) => {
+      const record = readRecord(await storage.get(`idem:${key}`));
+      if (record?.progress.phase === "pending") return true;
+      if (record?.progress.phase !== "claimed" || record.leaseUntilMs > nowMs) return false;
+      await putRecord(storage, `idem:${key}`, { ...record, progress: { phase: "pending" }, leaseUntilMs: 0 });
+      return true;
+    });
+  }
+
   /** Called only after ownership has committed, including a lost completion receipt. */
   async settleCreation(key: string, vmId: string, nowMs: number): Promise<void> {
     await this.storage.transaction(async (storage) => {
