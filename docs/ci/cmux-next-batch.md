@@ -8,6 +8,7 @@ Open a PR into `feat-cmux-next` and let the queue land it. You don't stack, reba
 - It's by a batch author (the `CMUX_NEXT_BATCH_AUTHORS` variable, default `teamleaderleo`), or anyone else labels it `batch-queue`.
 - It has none of the labels `hold`, `exploration`, `needs a call`, `default call`, `do-not-merge` or `wip`.
 - Its head commit is less than 5 days old.
+- GitHub doesn't report it as conflicting with feat-cmux-next. One that does waits for its owner to merge feat-cmux-next, instead of taking a batch slot.
 - It doesn't change `.github/workflows/`. Those PRs land by hand.
 - No check is red outside the heavy tier, except web formatting (`web / react-apps-check`, `web / Web status`) on a PR that changes `webviews/`. Before landing such a PR, the queue runs `bun run check:fix` (formatter and lint autofix) on its head in `regen-linux` and pushes the fix to its branch. That push happens only for a batch author's PR; an opted-in PR by anyone else keeps its red check. gh-merge-green then waits for the rerun.
 - Pending checks are fine. The heavy tier is swift test, the Release and scheme compiles, daemon tests, generated files and the cmux-tui wait. The batch runs it once on the stack, so the PR's own copy may be red or still running.
