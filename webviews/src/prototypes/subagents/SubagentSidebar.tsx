@@ -4,7 +4,16 @@
 // select it; the Limits button opens the session's limit panel; `settings` shows the defaults.
 import { useMemo, useState } from "react";
 import { LimitLine, LimitsPanel, LimitsSettings } from "./limits";
-import { buildForest, childrenOf, deepestRunningPath, descendants, HARNESS_LABEL, pathTo, STATE_LABEL, type AgentNode } from "./hierarchy";
+import {
+  buildForest,
+  childrenOf,
+  deepestRunningPath,
+  descendants,
+  HARNESS_LABEL,
+  pathTo,
+  STATE_LABEL,
+  type AgentNode,
+} from "./hierarchy";
 import { GlassCircle, HarnessMark, MacWindow, Phone, Shimmer, StatusMark, type Platform } from "./parts";
 import {
   ColumnsView,
@@ -96,7 +105,9 @@ export function SubagentSidebar({
           key={root.id}
           session={root}
           platform={platform}
-          finished={childrenOf(nodes, root.id).filter((node) => node.state === "done" || node.state === "stopped").length}
+          finished={
+            childrenOf(nodes, root.id).filter((node) => node.state === "done" || node.state === "stopped").length
+          }
         />
       )}
     </div>
@@ -169,8 +180,8 @@ function AgentDetail({ node, nodes }: { node: AgentNode; nodes: readonly AgentNo
       <header className="sa-detail-header">
         <h1>{node.name}</h1>
         <p className="sa-muted">
-          <HarnessMark harness={node.harness} size={14} /> {HARNESS_LABEL[node.harness]} · {STATE_LABEL[node.state]} · started by{" "}
-          {node.startedBy} · level {node.depth}
+          <HarnessMark harness={node.harness} size={14} /> {HARNESS_LABEL[node.harness]} · {STATE_LABEL[node.state]} ·
+          started by {node.startedBy} · level {node.depth}
         </p>
       </header>
       <div className="sa-bubble">{node.task}</div>

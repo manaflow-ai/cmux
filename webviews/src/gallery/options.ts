@@ -89,7 +89,8 @@ export function applyOptions(
     const value = values[option.id];
     if (value === undefined || !optionAccepts(option, value)) {
       if (!(option.id in next))
-        next[option.id] = option.kind === "choice" && option.numeric ? Number(option.defaultValue) : option.defaultValue;
+        next[option.id] =
+          option.kind === "choice" && option.numeric ? Number(option.defaultValue) : option.defaultValue;
       continue;
     }
     next[option.id] = option.kind === "toggle" ? value === "on" : option.numeric ? Number(value) : value;

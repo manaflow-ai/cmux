@@ -436,7 +436,8 @@ export function validateEntries(entries: readonly GalleryEntry[]): string[] {
       for (const [name, variant] of Object.entries(entry.variants)) {
         const value = (variant as { props?: Record<string, unknown> }).props?.[option.id];
         if (value === undefined) continue;
-        const encoded = option.kind === "toggle" ? (value === true ? "on" : value === false ? "off" : undefined) : String(value);
+        const encoded =
+          option.kind === "toggle" ? (value === true ? "on" : value === false ? "off" : undefined) : String(value);
         if (encoded === undefined || !optionAccepts(option, encoded))
           problems.push(`${entry.id}#${name}: prop ${option.id} is not one of the option's values`);
       }

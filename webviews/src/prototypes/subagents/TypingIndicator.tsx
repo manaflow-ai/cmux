@@ -31,7 +31,17 @@ function Dots() {
   );
 }
 
-function Indicator({ design, phase, elapsed, name }: { design: TypingDesign; phase: TypingPhase; elapsed: number; name: string }) {
+function Indicator({
+  design,
+  phase,
+  elapsed,
+  name,
+}: {
+  design: TypingDesign;
+  phase: TypingPhase;
+  elapsed: number;
+  name: string;
+}) {
   const word = phase === "tool" ? "Checking the agents" : phase === "streaming" ? "Writing" : "Thinking";
   if (phase === "done") return null;
   switch (design) {
@@ -66,7 +76,8 @@ export function TypingIndicator({ platform, design, phase, who = "chief", elapse
   const name = who === "chief" ? "Chief" : "Claude";
   const text = phase === "streaming" ? ANSWER.slice(0, 96) : phase === "done" ? `${ANSWER}.` : "";
   const streamingTail =
-    phase === "streaming" && (design === "caret" ? <span className="sa-caret sa-caret-inline" aria-hidden="true" /> : null);
+    phase === "streaming" &&
+    (design === "caret" ? <span className="sa-caret sa-caret-inline" aria-hidden="true" /> : null);
   const reply =
     who === "chief" && platform === "iphone" ? (
       text ? (
@@ -79,7 +90,9 @@ export function TypingIndicator({ platform, design, phase, who = "chief", elapse
       <p className="sa-prose">
         {text}
         {streamingTail}
-        {phase === "streaming" && design !== "caret" && design !== "composer" && <span className="sa-stream-fade" aria-hidden="true" />}
+        {phase === "streaming" && design !== "caret" && design !== "composer" && (
+          <span className="sa-stream-fade" aria-hidden="true" />
+        )}
       </p>
     ) : null;
   const composerLine =

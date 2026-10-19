@@ -6,7 +6,16 @@
 import type { ReactNode } from "react";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import type { StatusGlyphName } from "../../ui/statusGlyphs.generated";
-import { buildForest, childrenOf, descendants, HARNESS_LABEL, STATE_LABEL, type AgentNode, type AgentState, type Harness } from "./hierarchy";
+import {
+  buildForest,
+  childrenOf,
+  descendants,
+  HARNESS_LABEL,
+  STATE_LABEL,
+  type AgentNode,
+  type AgentState,
+  type Harness,
+} from "./hierarchy";
 
 export type Platform = "mac" | "iphone";
 
@@ -127,7 +136,13 @@ export function Phone({
 }
 
 /** A glass circle button of the iOS toolbar (44 pt), with an SF-Symbol-like glyph. */
-export function GlassCircle({ glyph, label }: { glyph: "back" | "menu" | "more" | "compose" | "close"; label: string }) {
+export function GlassCircle({
+  glyph,
+  label,
+}: {
+  glyph: "back" | "menu" | "more" | "compose" | "close";
+  label: string;
+}) {
   const paths: Record<typeof glyph, string> = {
     back: "M14 5 7 12l7 7",
     menu: "M5 8h14M5 12h14M5 16h14",
@@ -138,7 +153,14 @@ export function GlassCircle({ glyph, label }: { glyph: "back" | "menu" | "more" 
   return (
     <button type="button" className="sa-glass" aria-label={label}>
       <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-        <path d={paths[glyph]} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d={paths[glyph]}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </button>
   );
@@ -147,8 +169,22 @@ export function GlassCircle({ glyph, label }: { glyph: "back" | "menu" | "more" 
 /** A small chevron, rotated when open. */
 export function Chevron({ open }: { open: boolean }) {
   return (
-    <svg className="sa-chevron" data-open={open || undefined} viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
-      <path d="M4 2.5 7.5 6 4 9.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      className="sa-chevron"
+      data-open={open || undefined}
+      viewBox="0 0 12 12"
+      width="10"
+      height="10"
+      aria-hidden="true"
+    >
+      <path
+        d="M4 2.5 7.5 6 4 9.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

@@ -25,7 +25,13 @@ export type ThinkingStepsProps = {
 type Step = { title: string; kind: "thought" | "tool"; detail: string; seconds: number; state: "done" | "running" };
 
 const STEPS: Step[] = [
-  { title: "Reading the outbox code", kind: "tool", detail: "Read Sources/Sync/OutboxStore.swift (412 lines)", seconds: 2, state: "done" },
+  {
+    title: "Reading the outbox code",
+    kind: "tool",
+    detail: "Read Sources/Sync/OutboxStore.swift (412 lines)",
+    seconds: 2,
+    state: "done",
+  },
   {
     title: "Considering where to persist",
     kind: "thought",
@@ -44,10 +50,23 @@ const STEPS: Step[] = [
   },
   { title: "Editing OutboxStore.swift", kind: "tool", detail: "+84 −12", seconds: 4, state: "done" },
   { title: "Running swift test --filter Outbox", kind: "tool", detail: "14 passed", seconds: 11, state: "done" },
-  { title: "Planning the conflict rules", kind: "thought", detail: "Last writer wins per field; deletes win over edits.", seconds: 5, state: "running" },
+  {
+    title: "Planning the conflict rules",
+    kind: "thought",
+    detail: "Last writer wins per field; deletes win over edits.",
+    seconds: 5,
+    state: "running",
+  },
 ];
 
-export function ThinkingSteps({ platform, design, expanded = false, steps = false, phase = "working", label = "step" }: ThinkingStepsProps) {
+export function ThinkingSteps({
+  platform,
+  design,
+  expanded = false,
+  steps = false,
+  phase = "working",
+  label = "step",
+}: ThinkingStepsProps) {
   const [open, setOpen] = useState(expanded);
   const [stepsOn, setStepsOn] = useState(steps);
   const visible = phase === "working" ? STEPS : STEPS.map((step) => ({ ...step, state: "done" as const }));
@@ -61,7 +80,12 @@ export function ThinkingSteps({ platform, design, expanded = false, steps = fals
         <span className="sa-muted">{total}s</span>
       </button>
     ) : stepsOn ? (
-      <button type="button" className="sa-think-line sa-think-done" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      <button
+        type="button"
+        className="sa-think-line sa-think-done"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
         <span>
           Thought for {total}s · {visible.length} steps
         </span>
@@ -200,10 +224,16 @@ function StepList({ steps }: { steps: Step[] }) {
       {steps.map((step) => (
         <li key={step.title} data-kind={step.kind} data-state={step.state}>
           <span className="sa-step-mark">
-            {step.state === "running" ? <StatusMark state="running" /> : <span className="sa-step-dot" data-kind={step.kind} />}
+            {step.state === "running" ? (
+              <StatusMark state="running" />
+            ) : (
+              <span className="sa-step-dot" data-kind={step.kind} />
+            )}
           </span>
           <span className="sa-step-text">
-            <span className="sa-step-title">{step.state === "running" ? <Shimmer>{step.title}</Shimmer> : step.title}</span>
+            <span className="sa-step-title">
+              {step.state === "running" ? <Shimmer>{step.title}</Shimmer> : step.title}
+            </span>
             <span className="sa-step-detail" data-kind={step.kind}>
               {step.detail}
             </span>

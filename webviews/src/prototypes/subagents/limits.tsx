@@ -58,11 +58,21 @@ function Stepper({
     <div className="sa-stepper">
       <span className="sa-stepper-label">{label}</span>
       <span className="sa-stepper-controls">
-        <button type="button" aria-label={`Lower ${label}`} disabled={value <= min} onClick={() => onChange(Math.max(min, value - step))}>
+        <button
+          type="button"
+          aria-label={`Lower ${label}`}
+          disabled={value <= min}
+          onClick={() => onChange(Math.max(min, value - step))}
+        >
           −
         </button>
         <output aria-live="polite">{value}</output>
-        <button type="button" aria-label={`Raise ${label}`} disabled={value >= max} onClick={() => onChange(Math.min(max, value + step))}>
+        <button
+          type="button"
+          aria-label={`Raise ${label}`}
+          disabled={value >= max}
+          onClick={() => onChange(Math.min(max, value + step))}
+        >
           +
         </button>
       </span>
@@ -79,7 +89,15 @@ const SOURCE_LABEL: Record<AgentNode["limitsSource"], string> = {
 };
 
 /** The panel under the header: raise this session's limits (the person path, `_acpmux/subsession/limits`). */
-export function LimitsPanel({ session, platform, finished }: { session: AgentNode; platform: Platform; finished: number }) {
+export function LimitsPanel({
+  session,
+  platform,
+  finished,
+}: {
+  session: AgentNode;
+  platform: Platform;
+  finished: number;
+}) {
   const [limits, setLimits] = useState(session.limits);
   const changed = limits.width !== session.limits.width || limits.depth !== session.limits.depth;
   return (
@@ -143,7 +161,9 @@ export function LimitsSettings({ platform }: { platform: Platform }) {
   return (
     <section className="sa-settings" data-platform={platform} aria-label="Subagent settings">
       <h2>Subagents</h2>
-      <p className="sa-muted">Agents can start subagents, which can start their own. These limits apply to every new session.</p>
+      <p className="sa-muted">
+        Agents can start subagents, which can start their own. These limits apply to every new session.
+      </p>
       <div className="sa-settings-group">
         <Stepper label="Subagents per agent" value={width} step={10} min={1} max={CEILING.width} onChange={setWidth} />
         <Stepper label="Depth" value={depth} step={1} min={1} max={CEILING.depth} onChange={setDepth} />
@@ -155,8 +175,8 @@ export function LimitsSettings({ platform }: { platform: Platform }) {
         </label>
       </div>
       <p className="sa-muted sa-small">
-        Past a limit the start is refused and the agent is told how to get more: close a finished subagent, or ask you to
-        raise the session’s limit. Changes apply at once.
+        Past a limit the start is refused and the agent is told how to get more: close a finished subagent, or ask you
+        to raise the session’s limit. Changes apply at once.
       </p>
     </section>
   );

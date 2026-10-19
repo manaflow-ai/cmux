@@ -3,8 +3,28 @@
 // compact chips, cards, one summary line, a nested tree, or tool rows, each with live state. A
 // click opens the child in place, with its parent as the back target.
 import { useMemo, useState } from "react";
-import { ago, buildForest, childrenOf, descendants, HARNESS_LABEL, stateCounts, STATE_LABEL, type AgentNode, type AgentState } from "./hierarchy";
-import { Chevron, GlassCircle, HarnessMark, MacWindow, Phone, SessionList, Shimmer, StatusMark, type Platform } from "./parts";
+import {
+  ago,
+  buildForest,
+  childrenOf,
+  descendants,
+  HARNESS_LABEL,
+  stateCounts,
+  STATE_LABEL,
+  type AgentNode,
+  type AgentState,
+} from "./hierarchy";
+import {
+  Chevron,
+  GlassCircle,
+  HarnessMark,
+  MacWindow,
+  Phone,
+  SessionList,
+  Shimmer,
+  StatusMark,
+  type Platform,
+} from "./parts";
 import "./subagents.css";
 
 export type InlineDesign = "chips" | "cards" | "line" | "tree" | "toolrows";
@@ -26,7 +46,13 @@ function finish(node: AgentNode): AgentNode {
     : node;
 }
 
-export function ConversationSubagents({ platform, design, count, phase = "live", opened = false }: ConversationSubagentsProps) {
+export function ConversationSubagents({
+  platform,
+  design,
+  count,
+  phase = "live",
+  opened = false,
+}: ConversationSubagentsProps) {
   const nodes = useMemo(() => {
     const forest = buildForest({ children: count, depth: 3 });
     return phase === "finished" ? forest.map(finish) : forest;
@@ -37,7 +63,15 @@ export function ConversationSubagents({ platform, design, count, phase = "live",
   const transcript = open ? (
     <ChildView child={open} parent={parent} nodes={nodes} onBack={() => setOpen(null)} platform={platform} />
   ) : (
-    <Transcript platform={platform} parent={parent} kids={kids} nodes={nodes} design={design} onOpen={setOpen} phase={phase} />
+    <Transcript
+      platform={platform}
+      parent={parent}
+      kids={kids}
+      nodes={nodes}
+      design={design}
+      onOpen={setOpen}
+      phase={phase}
+    />
   );
   if (platform === "iphone")
     return (
@@ -65,7 +99,11 @@ export function ConversationSubagents({ platform, design, count, phase = "live",
       </Phone>
     );
   return (
-    <MacWindow title={parent.workspace} sidebarWidth={220} sidebar={<SessionList nodes={nodes} current={(open ?? parent).id} />}>
+    <MacWindow
+      title={parent.workspace}
+      sidebarWidth={220}
+      sidebar={<SessionList nodes={nodes} current={(open ?? parent).id} />}
+    >
       <div className="sa-chat" data-platform="mac">
         {transcript}
       </div>
@@ -94,8 +132,8 @@ function Transcript({
     <>
       <div className="sa-bubble sa-bubble-user">{parent.task}. Split it up and run the parts at once.</div>
       <p className="sa-prose">
-        I’ll map the sync code first, then run the queue, conflict rules and tests as separate subagents so they
-        work at the same time.
+        I’ll map the sync code first, then run the queue, conflict rules and tests as separate subagents so they work at
+        the same time.
       </p>
       <SpawnBlock design={design} kids={kids} nodes={nodes} onOpen={onOpen} platform={platform} />
       {phase === "live" ? (
@@ -103,7 +141,9 @@ function Transcript({
           <Shimmer>Waiting on {kids.filter((kid) => kid.state === "running").length} subagents</Shimmer>
         </p>
       ) : (
-        <p className="sa-prose">All {kids.length} subagents finished. The outbox now survives a restart; reconnect replays it in order.</p>
+        <p className="sa-prose">
+          All {kids.length} subagents finished. The outbox now survives a restart; reconnect replays it in order.
+        </p>
       )}
     </>
   );
@@ -162,7 +202,13 @@ function SpawnBlock({
               const sub = descendants(nodes, kid.id);
               const done = sub.filter((node) => node.state === "done").length;
               return (
-                <button key={kid.id} type="button" className="sa-card" data-state={kid.state} onClick={() => onOpen(kid)}>
+                <button
+                  key={kid.id}
+                  type="button"
+                  className="sa-card"
+                  data-state={kid.state}
+                  onClick={() => onOpen(kid)}
+                >
                   <span className="sa-card-top">
                     <StatusMark state={kid.state} />
                     <span className="sa-row-title">{kid.name}</span>
@@ -172,7 +218,8 @@ function SpawnBlock({
                     {kid.state === "running" ? <Shimmer>{kid.lastEvent}</Shimmer> : kid.lastEvent}
                   </span>
                   <span className="sa-card-foot sa-muted">
-                    {sub.length > 0 ? `${done}/${sub.length} subagents done` : HARNESS_LABEL[kid.harness]} · {ago(kid.elapsed)}
+                    {sub.length > 0 ? `${done}/${sub.length} subagents done` : HARNESS_LABEL[kid.harness]} ·{" "}
+                    {ago(kid.elapsed)}
                   </span>
                   {sub.length > 0 && (
                     <span className="sa-progress" aria-hidden="true">
@@ -189,7 +236,12 @@ function SpawnBlock({
     case "line":
       return (
         <div className="sa-spawn" data-design="line">
-          <button type="button" className="sa-spawn-line" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+          <button
+            type="button"
+            className="sa-spawn-line"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+          >
             <span className="sa-stacked-marks" aria-hidden="true">
               {kids.slice(0, 6).map((kid) => (
                 <StatusMark key={kid.id} state={kid.state} label={false} />
@@ -206,7 +258,9 @@ function SpawnBlock({
                 <button key={kid.id} type="button" className="sa-spawn-item" onClick={() => onOpen(kid)}>
                   <StatusMark state={kid.state} />
                   <span className="sa-row-title">{kid.name}</span>
-                  <span className="sa-muted sa-ellipsis">{kid.state === "running" ? <Shimmer>{kid.lastEvent}</Shimmer> : kid.lastEvent}</span>
+                  <span className="sa-muted sa-ellipsis">
+                    {kid.state === "running" ? <Shimmer>{kid.lastEvent}</Shimmer> : kid.lastEvent}
+                  </span>
                 </button>
               ))}
               {rest > 0 && <div className="sa-more sa-more-static">and {rest} more</div>}
@@ -229,7 +283,12 @@ function SpawnBlock({
     case "toolrows":
       return (
         <div className="sa-spawn" data-design="toolrows">
-          <button type="button" className="sa-toolrow" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+          <button
+            type="button"
+            className="sa-toolrow"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+          >
             <PeopleGlyph />
             <span>
               Started {kids.length} subagents{counts.running ? `, ${counts.running} running` : ""}
@@ -268,17 +327,28 @@ function InlineTreeRow({
   return (
     <>
       <div className="sa-inline-tree-row" style={{ paddingInlineStart: level * 16 }}>
-        <button type="button" className="sa-disclosure" aria-label={open ? "Collapse" : "Expand"} disabled={!kids.length} onClick={() => setOpen((value) => !value)}>
+        <button
+          type="button"
+          className="sa-disclosure"
+          aria-label={open ? "Collapse" : "Expand"}
+          disabled={!kids.length}
+          onClick={() => setOpen((value) => !value)}
+        >
           {kids.length > 0 && <Chevron open={open} />}
         </button>
         <button type="button" className="sa-inline-tree-open" onClick={() => onOpen(node)}>
           <StatusMark state={node.state} />
           <span className="sa-row-title">{node.name}</span>
-          <span className="sa-muted sa-ellipsis">{node.state === "running" ? <Shimmer>{node.lastEvent}</Shimmer> : node.lastEvent}</span>
+          <span className="sa-muted sa-ellipsis">
+            {node.state === "running" ? <Shimmer>{node.lastEvent}</Shimmer> : node.lastEvent}
+          </span>
           {kids.length > 0 && <span className="sa-count">{kids.length}</span>}
         </button>
       </div>
-      {open && kids.slice(0, 4).map((kid) => <InlineTreeRow key={kid.id} node={kid} nodes={nodes} level={level + 1} onOpen={onOpen} />)}
+      {open &&
+        kids
+          .slice(0, 4)
+          .map((kid) => <InlineTreeRow key={kid.id} node={kid} nodes={nodes} level={level + 1} onOpen={onOpen} />)}
     </>
   );
 }
@@ -288,7 +358,13 @@ function PeopleGlyph() {
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
       <circle cx="6" cy="5.5" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
       <circle cx="11.5" cy="6" r="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M1.5 13.5c.6-2.4 2.3-3.6 4.5-3.6s3.9 1.2 4.5 3.6M10.5 10c1.9 0 3.3.9 4 3" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path
+        d="M1.5 13.5c.6-2.4 2.3-3.6 4.5-3.6s3.9 1.2 4.5 3.6M10.5 10c1.9 0 3.3.9 4 3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -322,9 +398,15 @@ function ChildView({
         <span className="sa-muted">Task from {parent.name}</span>
         {child.task}
       </div>
-      <p className="sa-prose">I read the call sites first, then I’ll split the edit and the check into two subagents.</p>
-      {kids.length > 0 && <SpawnBlock design="chips" kids={kids} nodes={nodes} onOpen={() => undefined} platform={platform} />}
-      <p className="sa-prose sa-muted">{child.state === "running" ? <Shimmer>{child.lastEvent}</Shimmer> : child.lastEvent}</p>
+      <p className="sa-prose">
+        I read the call sites first, then I’ll split the edit and the check into two subagents.
+      </p>
+      {kids.length > 0 && (
+        <SpawnBlock design="chips" kids={kids} nodes={nodes} onOpen={() => undefined} platform={platform} />
+      )}
+      <p className="sa-prose sa-muted">
+        {child.state === "running" ? <Shimmer>{child.lastEvent}</Shimmer> : child.lastEvent}
+      </p>
     </>
   );
 }

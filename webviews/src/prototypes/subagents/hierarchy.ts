@@ -74,12 +74,48 @@ export const KIND_LABEL: Record<AgentKind, string> = {
 
 /** Top-level sessions (what the user started), one per workspace task. */
 const ROOTS: { name: string; task: string; workspace: string; harness: Harness; state: AgentState }[] = [
-  { name: "Ship offline sync", task: "Make the iOS app work offline and sync on reconnect", workspace: "cnx-ios", harness: "claude", state: "running" },
-  { name: "Audit fetch helper", task: "Retries, errors, timeouts and tests for src/net", workspace: "cmux", harness: "codex", state: "running" },
-  { name: "Port sidebar to Rust", task: "Move the sidebar store into the daemon", workspace: "cmux-tui", harness: "claude", state: "waiting" },
-  { name: "Fix flaky CI", task: "Find why cmux-tui.yml fails 1 in 8 runs", workspace: "cmux", harness: "codex", state: "done" },
-  { name: "Release notes 0.64", task: "Draft the changelog from merged PRs", workspace: "cmux", harness: "opencode", state: "done" },
-  { name: "Billing page polish", task: "Tighten the Cloud billing page", workspace: "web", harness: "pi", state: "failed" },
+  {
+    name: "Ship offline sync",
+    task: "Make the iOS app work offline and sync on reconnect",
+    workspace: "cnx-ios",
+    harness: "claude",
+    state: "running",
+  },
+  {
+    name: "Audit fetch helper",
+    task: "Retries, errors, timeouts and tests for src/net",
+    workspace: "cmux",
+    harness: "codex",
+    state: "running",
+  },
+  {
+    name: "Port sidebar to Rust",
+    task: "Move the sidebar store into the daemon",
+    workspace: "cmux-tui",
+    harness: "claude",
+    state: "waiting",
+  },
+  {
+    name: "Fix flaky CI",
+    task: "Find why cmux-tui.yml fails 1 in 8 runs",
+    workspace: "cmux",
+    harness: "codex",
+    state: "done",
+  },
+  {
+    name: "Release notes 0.64",
+    task: "Draft the changelog from merged PRs",
+    workspace: "cmux",
+    harness: "opencode",
+    state: "done",
+  },
+  {
+    name: "Billing page polish",
+    task: "Tighten the Cloud billing page",
+    workspace: "web",
+    harness: "pi",
+    state: "failed",
+  },
 ];
 
 /** Child tasks by depth: depth 1 splits the job, deeper levels split a part. */
@@ -114,7 +150,19 @@ const SPLITS: { name: string; kind: AgentKind; event: string }[][] = [
 ];
 
 const HARNESS_CYCLE: Harness[] = ["claude", "codex", "claude", "opencode", "codex", "pi"];
-const STATE_CYCLE: AgentState[] = ["running", "done", "running", "queued", "done", "waiting", "done", "failed", "running", "done", "stopped"];
+const STATE_CYCLE: AgentState[] = [
+  "running",
+  "done",
+  "running",
+  "queued",
+  "done",
+  "waiting",
+  "done",
+  "failed",
+  "running",
+  "done",
+  "stopped",
+];
 
 export type ForestOptions = {
   /** Children of each node on the first level of the focused root (the width). */
@@ -269,6 +317,9 @@ export function ago(seconds: number): string {
 /** The deepest running (or waiting) agent's path in a root's family: the default selection. */
 export function deepestRunningPath(nodes: readonly AgentNode[], rootId = "s1"): AgentNode[] {
   const live = descendants(nodes, rootId).filter((node) => node.state === "running" || node.state === "waiting");
-  const best = live.reduce<AgentNode | undefined>((pick, node) => (!pick || node.depth > pick.depth ? node : pick), undefined);
+  const best = live.reduce<AgentNode | undefined>(
+    (pick, node) => (!pick || node.depth > pick.depth ? node : pick),
+    undefined,
+  );
   return pathTo(nodes, best?.id ?? rootId);
 }

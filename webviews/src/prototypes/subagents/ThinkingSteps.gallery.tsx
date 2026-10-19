@@ -48,12 +48,33 @@ export default componentEntry<ThinkingStepsProps>({
     },
   ],
   variants: {
-    minimized: { note: "The default: one shimmering line, the current step's title.", props: { platform: "mac", design: "side" } },
-    "side-open": { note: "Tap the line: the steps open in a column right of the transcript (iPhone: a sheet).", props: { platform: "mac", design: "side", expanded: true } },
-    "inline-open": { note: "The steps open in place, under the line.", props: { platform: "mac", design: "inline", expanded: true } },
-    "card-open": { note: "The steps open in a small card that floats over the transcript.", props: { platform: "mac", design: "card", expanded: true } },
-    rail: { note: "Original: a step rail in the turn's gutter; a dot per step (filled thought, ring tool).", props: { platform: "mac", design: "rail" } },
-    "finished-steps-off": { note: "Finished with Steps off (default): no steps line at all.", props: { platform: "mac", design: "side", phase: "finished" } },
-    "finished-steps-on": { note: "Finished with Steps on: one quiet line, Thought for 38s · 7 steps.", props: { platform: "mac", design: "inline", phase: "finished", steps: true } },
+    minimized: {
+      note: "The default: one shimmering line, the current step's title.",
+      props: { platform: "mac", design: "side" },
+    },
+    "side-open": {
+      note: "Tap the line: the steps open in a column right of the transcript (iPhone: a sheet).",
+      props: { platform: "mac", design: "side", expanded: true },
+    },
+    "inline-open": {
+      note: "The steps open in place, under the line.",
+      props: { platform: "mac", design: "inline", expanded: true },
+    },
+    "card-open": {
+      note: "The steps open in a small card that floats over the transcript.",
+      props: { platform: "mac", design: "card", expanded: true },
+    },
+    rail: {
+      note: "Original: a step rail in the turn's gutter; a dot per step (filled thought, ring tool).",
+      props: { platform: "mac", design: "rail" },
+    },
+    "finished-steps-off": {
+      note: "Finished with Steps off (default): no steps line at all.",
+      props: { platform: "mac", design: "side", phase: "finished" },
+    },
+    "finished-steps-on": {
+      note: "Finished with Steps on: one quiet line, Thought for 38s · 7 steps.",
+      props: { platform: "mac", design: "inline", phase: "finished", steps: true },
+    },
   },
 });
