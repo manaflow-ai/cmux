@@ -61,6 +61,8 @@ struct PendingIntent {
 /// and lifts the overlay (`DaemonStore+Intents.swift`).
 struct IntentLog {
     private(set) var entries: [PendingIntent] = []
+    /// The models Cmd-N's pending creates show (``DaemonStore/provisionalWorkspaces``).
+    var workspaceModels = ProvisionalWorkspaceModels()
     /// Closes the daemon's surface of a creation the person closed first (``DaemonCreations/onClose(_:)``).
     var closeCancelled: ((ClientTransactionID, SurfaceID) -> Void)?
     /// Recently settled transactions (bounded), so a late echo, reply or

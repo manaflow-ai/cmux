@@ -51,9 +51,17 @@ public struct ProvisionalWorkspace: Sendable, Hashable {
 
 /// The one model and screen of each pending workspace create, by key: every overlay restore shows
 /// the same objects, and the daemon's workspace takes the model over in place.
-@MainActor struct ProvisionalWorkspaceModels {
+struct ProvisionalWorkspaceModels {
     var workspaces: [String: WorkspaceModel] = [:]
     var screens: [String: ScreenModel] = [:]
+}
+
+extension DaemonStore {
+    /// The models of Cmd-N's pending workspace creates (kept with the intent log they belong to).
+    var provisionalWorkspaces: ProvisionalWorkspaceModels {
+        get { intentLog.workspaceModels }
+        set { intentLog.workspaceModels = newValue }
+    }
 }
 
 /// The overlay of `Intent.createWorkspace`. Undone exactly. Three states, by what the confirmed
