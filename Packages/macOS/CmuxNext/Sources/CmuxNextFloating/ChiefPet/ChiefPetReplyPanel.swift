@@ -52,7 +52,7 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         field.isBordered = false
         field.drawsBackground = false
         field.fill = { .clear }
-        field.font = .systemFont(ofSize: 15)
+        field.font = .systemFont(ofSize: TypeScale.title)
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         field.delegate = self
