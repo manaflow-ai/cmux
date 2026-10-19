@@ -39,13 +39,8 @@ When installed with `scripts/install-git-hooks.sh --namespace-fix`, the
 pre-push hook runs the fixer and stops so changed files can be reviewed,
 staged, and committed. CI keeps the non-mutating lint as the backstop.
 
-Claude Code and Codex also have repo-local post-edit hooks in
-`.claude/settings.json` and `.codex/hooks.json`. They pass only edited
-`Packages/**/*.swift` files to `scripts/ci/lint-swift-post-edit.sh`, which runs
-the same fixer without blocking the edit. A clean scoped check is silent; a
-repair is printed, and a fixer failure is an advisory warning. The hook is
-best-effort so an unavailable Python interpreter or an incomplete edit never
-turns an agent edit into a failed tool call.
+Claude Code and Codex post-edit hooks (`.claude/settings.json`, `.codex/hooks.json`)
+run the same fixer on edited `Packages/**/*.swift` files; they print repairs and never fail an edit.
 
 ## Area instructions
 
@@ -84,16 +79,21 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
   A bug-fix PR body names that command, its failure on the base and its pass on the head,
   then an `### Observed / Not run` section: what you ran and saw, then what you only read
-  or didn't run. `gh-merge-green` warns when a fix PR lacks it; it does not block.
+  or didn't run.
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
-  Ordinary PRs use the normal fast, path-routed coverage by default. Add `full-ci` only for a
-  user-requested or agreed broad validation plan, naming the extra lanes and why
-  ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)); never add it merely for a fresh
-  rerun, queue movement, cache warming, or extra confidence.
+  Add `full-ci` only for an agreed broad validation plan, naming the extra lanes and why
+  ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)); never for a rerun or extra confidence.
 - Keep branches current locally with `scripts/merge-main.sh`; follow
   [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
+- `gh pr merge` saying "base branch policy prohibits the merge" means the token lacks the `workflow`
+  scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow`, or merge with
+  `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
+- Never hand-edit or hand-merge generated files (`settings-schema.json`, `settings-schema.sources.sha256`,
+  strings tables). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21970, #21985).
+- Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
+  macOS tours are only for native/AppKit UI or real end-to-end flows.
 - Every `feat-cmux-next` PR gets a `risk:low|medium|high` label from its paths, and the
   `risk evidence` check stays red until the description has that tier's evidence
   ([risk tiers](docs/ci/risk-tiers.md)). Low: green CI. Medium (UI): a screenshot under
@@ -106,23 +106,22 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   and the fix misses the next cut. Never add `risk:waived`; only a maintainer does.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
-- Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
-  first; a second model is not a review gate. Wait for checks relevant to the
-  change; disclose skipped verification on the PR. `main` is nightly: fix forward,
-  do not revert.
-- App/runtime/UI merges require the user’s explicit approval after dogfood **or a direct merge directive**
-  (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Follow
-  [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
-  Notify with `cmux notify` when a socket is available.
+- **Merge bar:** a PR merges once a [review subagent](skills/cmux-review/SKILL.md) passed it (the
+  owner's own subagent counts) and no red is caused by the PR. Reds that also fail on the base, and
+  pending or queued checks, never block; disclose skipped verification on the PR. There is no needs-green rule.
+- A red on every PR is a base red: fix it first in its own PR, which merges at once. Two fixes that
+  are each red on the other's red get combined into one PR. A base lint red also skips the tests
+  after it in the same job (#22197), which is why it goes first.
 - Classify each non-green check on the current head before changing source: a changed-file
   defect (fix it), a base finding (the same failure on a recent base run: link it in a PR
   comment; it does not block), a wrapper such as `Web status` (follow its root check), or a
   cancelled or infrastructure run (rerun the same SHA). A push supersedes earlier CI and review
   results. Gallery captures and full webview sweeps are advisory
   ([check progression](docs/contributor-verification.md#pr-check-progression)).
-- The normal merge path is `gh-merge-green`. It refuses a PR that touches a path an open
-  `merge-freeze` issue freezes, or when the freeze state can't be read; only the freeze owner's
-  `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
+- Merge the exact head: `gh-merge-green OWNER/REPO#N --squash`, or when it refuses only on base reds,
+  `gh pr merge N --squash --match-head-commit SHA`. Either way, don't merge a path an open
+  `merge-freeze` issue freezes without its `freeze-ok` label ([merge freezes](docs/ci/merge-freeze.md)).
+  `main` is nightly: fix forward, do not revert.
 
 ## Implementation rules by task
 
