@@ -42,6 +42,9 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// The agent's context was emptied (`/clear`, `/compact`): its next
+    /// prompt is told every forum rule again (`hub/forum.rs`).
+    pub(super) forum_retell: AtomicBool,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
