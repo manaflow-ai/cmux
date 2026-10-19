@@ -189,8 +189,9 @@ enum TabGroupHandlers {
                 let surviving = ordered.filter { $0.groupID != CmuxNextTabs.TabGroupID(group.rawValue) }
                 let collapsed = Set(controller.stripModel.groups.filter(\.isCollapsed).map(\.id))
                 let hidden = Set(surviving.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id))
-                if let next = FocusAfterClose.tab(selected: selected, old: ordered.map(\.id),
-                                                  surviving: surviving.map(\.id), shown: Set(surviving.map(\.id)).subtracting(hidden)) {
+                let opener = Dictionary(uniqueKeysWithValues: controller.openerRelations().map { (CmuxNextTabs.TabID($0.key), CmuxNextTabs.TabID($0.value)) })
+                if let next = FocusAfterClose.tab(selected: selected, old: ordered.map(\.id), surviving: surviving.map(\.id),
+                                                  shown: Set(surviving.map(\.id)).subtracting(hidden), opener: opener) {
                     controller.select(next)
                 }
             }

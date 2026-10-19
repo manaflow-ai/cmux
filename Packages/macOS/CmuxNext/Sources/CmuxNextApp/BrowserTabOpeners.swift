@@ -116,6 +116,24 @@ final class BrowserTabOpeners {
         if !onNewTabPageAtEnd { forgetAll() }
     }
 
+    /// Each tab's opener among `order` (a pane's tabs, including one that
+    /// is closing), for the close successor (`FocusAfterClose.tab`). A
+    /// tab whose opener is not in `order` takes that opener's own opener,
+    /// as `FixOpeners` would; nothing is changed.
+    func relations(among order: [SurfaceID]) -> [SurfaceID: SurfaceID] {
+        let present = Set(order)
+        var result: [SurfaceID: SurfaceID] = [:]
+        for tab in order {
+            var seen: Set<SurfaceID> = [tab]
+            var parent = openerOf[tab]
+            while let current = parent, !present.contains(current), seen.insert(current).inserted {
+                parent = openerOf[current]
+            }
+            if let parent, present.contains(parent), parent != tab { result[tab] = parent }
+        }
+        return result
+    }
+
     func forgetAll() {
         openerOf.removeAll()
     }

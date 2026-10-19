@@ -44,15 +44,42 @@ public nonisolated enum FocusAfterClose {
     /// strip order before the close, `shown` the tabs that survive and are
     /// not hidden (a collapsed group's members are hidden). When no shown
     /// tab survives, the first surviving tab (its group then expands).
-    public static func tab<ID: Hashable>(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>) -> ID? {
+    ///
+    /// `opener` maps a link tab to the tab that opened it (live relations
+    /// only, among `old`). A closed tab in that tree goes back to its
+    /// family first, in Chrome's order (`DetermineNewSelectedIndex`): its
+    /// next child, else a sibling (the next tab with its opener), else its
+    /// opener. Only shown, surviving tabs count. Tabs without relations
+    /// (terminals, agents, a browser tab after an unrelated switch) keep
+    /// next-else-previous.
+    public static func tab<ID: Hashable>(selected: ID?, old: [ID], surviving: [ID], shown: Set<ID>,
+                                         opener: [ID: ID] = [:]) -> ID? {
         let live = Set(surviving)
         guard let selected else { return surviving.first(where: shown.contains) ?? surviving.first }
         if live.contains(selected) { return selected }
         let visible = { (id: ID) in live.contains(id) && shown.contains(id) }
+        if let family = openerFamily(of: selected, in: old, opener: opener, where: visible) { return family }
         return neighbor(of: selected, in: old, preferNext: true, where: visible)
             ?? surviving.first(where: shown.contains)
             ?? neighbor(of: selected, in: old, preferNext: true, where: live.contains)
             ?? surviving.first
+    }
+
+    /// Chrome's opener step for a closed tab: the next child of `closed`,
+    /// else the next tab with the same opener, else the opener. "Next" is
+    /// Chrome's `GetIndexOfNextWebContentsOpenedBy`: the nearest after
+    /// `closed`, else the nearest before it. nil when none qualifies.
+    static func openerFamily<ID: Hashable>(of closed: ID, in old: [ID], opener: [ID: ID],
+                                           where qualifies: (ID) -> Bool) -> ID? {
+        guard !opener.isEmpty, let index = old.firstIndex(of: closed) else { return nil }
+        func openedBy(_ parent: ID) -> ID? {
+            old[(index + 1)...].first { opener[$0] == parent && qualifies($0) }
+                ?? old[..<index].last { opener[$0] == parent && qualifies($0) }
+        }
+        if let child = openedBy(closed) { return child }
+        guard let parent = opener[closed] else { return nil }
+        if let sibling = openedBy(parent) { return sibling }
+        return qualifies(parent) ? parent : nil
     }
 
     // MARK: Workspaces
