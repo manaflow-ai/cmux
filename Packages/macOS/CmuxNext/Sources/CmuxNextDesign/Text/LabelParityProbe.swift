@@ -48,6 +48,7 @@ public struct LabelParityProbe {
 
     public func measure() -> Report {
         var report = Report()
+        report.rows.append(Self.experiments())
         let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 600, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -88,6 +89,9 @@ public struct LabelParityProbe {
                 }
             }
         }
+        var end = Self.experiments()
+        end["name"] = "exp end"
+        report.rows.insert(end, at: 1)
         return report
     }
 
@@ -329,6 +333,76 @@ public struct LabelParityProbe {
             }
         }
         return Ink(box: box, amount: amount)
+    }
+}
+#endif
+
+#if DEBUG
+/// PROBE ONLY (perf-polish cx-8w027.26.1): line widths of the 10.5 pt two-line case in TextKit 1
+/// and TextKit 2, limited and unlimited, and the stock field's own answer.
+extension LabelParityProbe {
+    static func experiments() -> [String: String] {
+        let text = "Workspace notes 0123 quick brown fox jumps over the lazy dog again"
+        let font = NSFont.systemFont(ofSize: 10.5)
+        var out: [String: String] = ["name": "exp 10.5 t2"]
+        for strategy in [NSParagraphStyle.LineBreakStrategy(), .standard] {
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byWordWrapping
+            style.lineBreakStrategy = strategy
+            let attributed = NSAttributedString(string: text, attributes: [.font: font, .paragraphStyle: style])
+            let tag = strategy.isEmpty ? "plain" : "std"
+            for lines in [0, 2] {
+                // TextKit 1
+                let storage = NSTextStorage(attributedString: attributed)
+                let manager = NSLayoutManager()
+                let container = NSTextContainer(size: NSSize(width: 144, height: 1000))
+                container.lineFragmentPadding = 2
+                container.maximumNumberOfLines = lines
+                container.lineBreakMode = .byWordWrapping
+                manager.addTextContainer(container)
+                storage.addLayoutManager(manager)
+                manager.ensureLayout(for: container)
+                var tk1: [String] = []
+                manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, used, _, glyphs, _ in
+                    let chars = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+                    tk1.append("\(used.width)[\(chars.location)+\(chars.length)]")
+                }
+                out["tk1.\(tag).lines\(lines)"] = tk1.joined(separator: " ")
+                // TextKit 2
+                let content = NSTextContentStorage()
+                let layout = NSTextLayoutManager()
+                content.addTextLayoutManager(layout)
+                let container2 = NSTextContainer(size: NSSize(width: 144, height: 1000))
+                container2.lineFragmentPadding = 2
+                container2.maximumNumberOfLines = lines
+                container2.lineBreakMode = .byWordWrapping
+                layout.textContainer = container2
+                content.attributedString = attributed
+                layout.ensureLayout(for: layout.documentRange)
+                var tk2: [String] = []
+                layout.enumerateTextLayoutFragments(from: layout.documentRange.location, options: [.ensuresLayout]) { fragment in
+                    for line in fragment.textLineFragments {
+                        tk2.append("\(line.typographicBounds.width)[\(line.characterRange.location)+\(line.characterRange.length)]")
+                    }
+                    return true
+                }
+                out["tk2.\(tag).lines\(lines)"] = tk2.joined(separator: " ")
+            }
+        }
+        for lines in [0, 2] {
+            let field = NSTextField(wrappingLabelWithString: text)
+            field.font = font
+            field.maximumNumberOfLines = lines
+            field.preferredMaxLayoutWidth = 140
+            out["stock.lines\(lines)"] = "\(field.intrinsicContentSize.width)"
+            out["stock.cell.lines\(lines)"] = "\(field.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: 144, height: 1000)).width ?? -1)"
+            let label = ChromeLabel(wrappingLabelWithString: text)
+            label.font = font
+            label.maximumNumberOfLines = lines
+            label.preferredMaxLayoutWidth = 140
+            out["chrome.lines\(lines)"] = "\(label.intrinsicContentSize.width)"
+        }
+        return out
     }
 }
 #endif
