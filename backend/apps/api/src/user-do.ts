@@ -510,6 +510,10 @@ export class UserDO extends OwnerDO<UserState> {
     return grant && grant.revoked_at === null ? (inst.public_jwk as JsonWebKey) : null
   }
 
+  /** Live membership authority used only after the caller proves possession of its install key. */
+  protected tokenTeamMember = (team: string, user: string): Promise<string | null> =>
+    this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).memberRole(team, user)
+
   /** One-time challenge + ES256 signature by the install key + revocation check. */
   async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
     const engine = this.existing()
@@ -530,7 +534,7 @@ export class UserDO extends OwnerDO<UserState> {
     if (!ok) return { ok: false, code: "auth.forbidden", message: "bad signature" }
     // Membership is checked only after proof of possession; the nonce, not a request header, selects the team.
     if (row.team !== null && row.team !== state.user.personal_team) {
-      const role = await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(row.team)).memberRole(row.team, entity)
+      const role = await this.tokenTeamMember(row.team, entity)
       if (!role) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
     }
     // Re-read after all awaits: revocation, expiry or replacement may have committed during verification or membership lookup.
