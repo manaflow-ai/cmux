@@ -103,13 +103,13 @@ jobs:
           # The sample: the states this PR adds first (no base case has their id),
           # then the rest in order, 16 at most. A PR that touches a shared file
           # touches every entry, and the first 16 in order are then unrelated to
-          # it. The base keeps the sampled states and the ones this PR removes.
+          # it. The base keeps the sampled states, then the ones this PR removes.
           jq -s '(.[1] | map({key: .id, value: true}) | from_entries) as $base
             | ([.[0][] | select($base[.id] | not)] + [.[0][] | select($base[.id])]) | .[0:16]' \
             "$RUNNER_TEMP/head-all.json" "$RUNNER_TEMP/base-all.json" > "$RUNNER_TEMP/head.json"
           jq -s '(.[0] | map({key: .id, value: true}) | from_entries) as $head
             | (.[2] | map({key: .id, value: true}) | from_entries) as $all
-            | [.[1][] | select($head[.id] or ($all[.id] | not))] | .[0:16]' \
+            | ([.[1][] | select($head[.id])] + [.[1][] | select($all[.id] | not)]) | .[0:16]' \
             "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base-all.json" "$RUNNER_TEMP/head-all.json" > "$RUNNER_TEMP/base.json"
 
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
