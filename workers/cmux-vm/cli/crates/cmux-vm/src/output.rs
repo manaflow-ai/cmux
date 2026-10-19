@@ -70,7 +70,7 @@ impl<'a> Printer<'a> {
         }
         self.line(&format!(
             "{} reserved {} expires {}",
-            grant.code,
+            grant.code.as_str(),
             grant.device_id.as_str(),
             grant.expires_at.escape_debug()
         ))

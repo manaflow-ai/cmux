@@ -19,7 +19,7 @@ pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 use cmux_vm_client::raw::{ByteStream, Client, types};
@@ -487,7 +487,7 @@ fn json_requested(args: &[OsString]) -> bool {
 
 // Bound the file and serialize through generated public types so extra local
 // fields (including private keys) cannot enter an API request or an error.
-fn server_request<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T, CliError> {
+fn server_request<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, CliError> {
     let file =
         std::fs::File::open(path).map_err(|_| CliError::usage("could not read server request"))?;
     let mut bytes = Vec::new();
