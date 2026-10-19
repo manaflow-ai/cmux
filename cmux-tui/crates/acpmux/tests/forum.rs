@@ -783,8 +783,11 @@ async fn agents_rules_past_one_blocks_share_wait_for_later_prompts() {
 /// `hub` on a unix socket of its own, as the daemon listens; its path.
 async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
     // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
-    let path = std::path::PathBuf::from("/tmp")
-        .join(format!("acpmux-forum-{}-{}.sock", std::process::id(), uuid::Uuid::now_v7().simple()));
+    let path = std::path::PathBuf::from("/tmp").join(format!(
+        "acpmux-forum-{}-{}.sock",
+        std::process::id(),
+        uuid::Uuid::now_v7().simple()
+    ));
     let listener = acpmux::server::bind_unix(&path).await.unwrap();
     tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
     path
@@ -853,7 +856,8 @@ async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
     assert!(text.contains("information"), "{text}");
 
     let post_id = post["id"].as_str().unwrap();
-    let acked = ask(5, "tools/call", json!({"name": "ack", "arguments": {"postId": post_id}})).await;
+    let acked =
+        ask(5, "tools/call", json!({"name": "ack", "arguments": {"postId": post_id}})).await;
     assert_eq!(acked["isError"], false, "{acked}");
     let rule = app.rule("merges").await.unwrap();
     assert_eq!(rule["acks"][0]["sessionId"], id.as_str(), "{rule}");
