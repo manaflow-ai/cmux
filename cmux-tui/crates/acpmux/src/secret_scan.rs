@@ -1,6 +1,20 @@
 //! Secrets in text this daemon shows elsewhere (hq#2509): API keys, tokens,
 //! private keys and credentials a person pasted into a prompt, found and
-//! replaced by a typed mask such as `[github token]`.
+//! replaced by a mask naming what each one is, such as
+//! `[GitHub Personal Access Token]` or `[Slack Bot token]`.
+//!
+//! The rules are gitleaks' default set (MIT, `rules/secrets/gitleaks.toml`,
+//! pinned and refreshed by `rules/secrets/refresh.ts`), read with gitleaks'
+//! semantics: a rule's keywords gate it, its secret is its secret group or
+//! first non-empty group, a secret at or under the rule's entropy is not
+//! one, and the rule's and the global allowlists drop placeholders and
+//! examples. Each rule's mask is its label in `rules/secrets/labels.toml`,
+//! the noun phrase of its description. After them come a few rules of cmux's
+//! own for shapes gitleaks leaves to context (auth headers outside curl,
+//! credentials in URLs, truncated private keys, `NAME=value` secrets), and a
+//! high-entropy fallback modelled on detect-secrets' base64 plugin: no code
+//! is copied from either. Nothing here ever verifies a secret with its
+//! provider; that would send it off the machine.
 //!
 //! This is a destructive transform, not a visual cover: `mask` returns new
 //! text that no longer holds the secret, so a client or an acpmux peer that
@@ -8,121 +22,282 @@
 //! stays wherever it already was (the transcript, the store, and the
 //! summary's raw fields beside the lane).
 //!
-//! The lanes view's step line (`hub::views::lane`) is the first user. The
-//! module only reads text, so transcripts, notifications and the phone relay
-//! can share it.
-//!
-//! What it does not catch: a secret with no known shape that is shorter than
-//! 32 characters or not mixed-case alphanumeric (an 8-character password in
-//! prose), and a base64 run split by `/` into short pieces. What it leaves
-//! alone on purpose: git SHAs and other hex, UUIDs, file paths, and
-//! `data:...;base64,` payloads (an inline image is not a secret).
+//! What it leaves alone on purpose: git SHAs and other hex, UUIDs, file
+//! paths, and `data:...;base64,` payloads (an inline image is not a secret).
+//! What it misses: a secret with no known shape that is short or has no
+//! digit (an 8-letter password in prose).
 
+use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::LazyLock;
 
-use regex::Regex;
+use regex::bytes::{Regex, RegexBuilder};
+use serde::Deserialize;
 
-/// What a found secret looked like; its mask says so.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SecretKind {
-    PrivateKey,
-    AnthropicKey,
-    OpenAiKey,
-    StripeKey,
-    GithubToken,
-    SlackToken,
-    AwsKey,
-    GoogleKey,
-    Jwt,
-    AuthHeader,
-    UrlCredentials,
-    /// The value of `NAME=value` or `"name": "value"` where the name says
-    /// key, token, secret or password.
-    Assignment,
-    /// A long mixed-case alphanumeric run with a random-looking spread.
-    HighEntropy,
+/// One secret: the rule that found it, what it is, and its byte range.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Found {
+    /// The gitleaks rule id (`github-pat`), or `cmux-...` for cmux's own.
+    pub rule: &'static str,
+    /// What it is (`GitHub Personal Access Token`); its mask is `[label]`.
+    pub label: &'static str,
+    pub range: Range<usize>,
 }
 
-impl SecretKind {
-    /// The text that replaces it.
-    pub fn mask(self) -> &'static str {
-        match self {
-            Self::PrivateKey => "[private key]",
-            Self::AnthropicKey => "[anthropic key]",
-            Self::OpenAiKey => "[openai key]",
-            Self::StripeKey => "[stripe key]",
-            Self::GithubToken => "[github token]",
-            Self::SlackToken => "[slack token]",
-            Self::AwsKey => "[aws key]",
-            Self::GoogleKey => "[google key]",
-            Self::Jwt => "[jwt]",
-            Self::AuthHeader => "[auth token]",
-            Self::UrlCredentials => "[credentials]",
-            Self::Assignment | Self::HighEntropy => "[secret]",
+const GITLEAKS: &str = include_str!("../rules/secrets/gitleaks.toml");
+const LABELS: &str = include_str!("../rules/secrets/labels.toml");
+
+#[derive(Deserialize)]
+struct Config {
+    #[serde(default)]
+    allowlist: AllowConfig,
+    rules: Vec<RuleConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RuleConfig {
+    id: String,
+    regex: Option<String>,
+    #[serde(default)]
+    entropy: f64,
+    #[serde(default)]
+    keywords: Vec<String>,
+    #[serde(default)]
+    secret_group: usize,
+    /// A rule for one kind of file (`*.tf`): text has no path, so it never applies.
+    path: Option<String>,
+    #[serde(default)]
+    allowlists: Vec<AllowConfig>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct AllowConfig {
+    regexes: Vec<String>,
+    stopwords: Vec<String>,
+    paths: Vec<String>,
+    regex_target: Option<String>,
+    condition: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LabelsConfig {
+    labels: HashMap<String, String>,
+}
+
+/// What an allowlist regex is matched against.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Target {
+    Secret,
+    Match,
+    Line,
+}
+
+struct Allow {
+    regexes: Vec<Regex>,
+    stopwords: Vec<String>,
+    target: Target,
+    /// gitleaks' `condition = "AND"`: every check given must match. A path
+    /// check never does here (text has no path), so such a list never applies.
+    and: bool,
+    paths: bool,
+}
+
+impl Allow {
+    fn of(config: &AllowConfig) -> Option<Self> {
+        let regexes = config.regexes.iter().filter_map(|p| compile(p)).collect::<Vec<_>>();
+        let stopwords = config.stopwords.iter().map(|s| s.to_ascii_lowercase()).collect::<Vec<_>>();
+        if regexes.is_empty() && stopwords.is_empty() {
+            return None;
+        }
+        let target = match config.regex_target.as_deref() {
+            Some("match") => Target::Match,
+            Some("line") => Target::Line,
+            _ => Target::Secret,
+        };
+        let and = config.condition.as_deref().is_some_and(|c| c.eq_ignore_ascii_case("and"));
+        Some(Self { regexes, stopwords, target, and, paths: !config.paths.is_empty() })
+    }
+
+    fn allows(&self, secret: &[u8], whole: &[u8], line: &[u8]) -> bool {
+        let target = match self.target {
+            Target::Secret => secret,
+            Target::Match => whole,
+            Target::Line => line,
+        };
+        let regex =
+            (!self.regexes.is_empty()).then(|| self.regexes.iter().any(|re| re.is_match(target)));
+        let lower = secret.to_ascii_lowercase();
+        let stop = (!self.stopwords.is_empty()).then(|| {
+            self.stopwords.iter().any(|w| lower.windows(w.len()).any(|win| win == w.as_bytes()))
+        });
+        if self.and {
+            !self.paths && regex.unwrap_or(true) && stop.unwrap_or(true)
+        } else {
+            regex.unwrap_or(false) || stop.unwrap_or(false)
         }
     }
 }
 
-/// One secret: its kind and its byte range in the text.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Found {
-    pub kind: SecretKind,
-    pub range: Range<usize>,
-}
-
-/// A shape, and the capture group that is the secret (0 for the whole match;
-/// a group keeps a header name, a URL's scheme or a variable name visible).
 struct Rule {
-    kind: SecretKind,
+    id: String,
+    label: String,
     re: Regex,
+    /// The secret's capture group; 0 picks the first non-empty group, else the match.
     group: usize,
+    entropy: f64,
+    keywords: Vec<String>,
+    allow: Vec<Allow>,
 }
 
-/// Earlier rules win where matches overlap: a known shape names its kind
-/// better than the generic header, assignment or entropy rules.
-static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
-    use SecretKind::*;
-    [
-        (PrivateKey, r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?s:.*?)(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\z)", 0),
-        (AnthropicKey, r"\bsk-ant-[A-Za-z0-9_-]{16,}", 0),
-        (OpenAiKey, r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}", 0),
-        (StripeKey, r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}|\bwhsec_[A-Za-z0-9]{16,}", 0),
-        (GithubToken, r"\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{30,}", 0),
-        (SlackToken, r"\bxox[abposr]-[A-Za-z0-9-]{10,}|\bxapp-[0-9]+-[A-Za-z0-9-]{10,}", 0),
-        (AwsKey, r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b", 0),
-        (GoogleKey, r"\bAIza[0-9A-Za-z_-]{35}", 0),
-        (Jwt, r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}", 0),
-        (
-            AuthHeader,
+struct Rules {
+    rules: Vec<Rule>,
+    global: Vec<Allow>,
+    /// cmux's own: hex (git SHAs, hashes) and UUIDs are ids, not secrets, as the
+    /// value of a `NAME=value` whose name does not say secret or password
+    /// (`GIT_COMMIT=<sha>`). A rule that names a header or a key keeps them.
+    ids: Allow,
+}
+
+/// A Go RE2 pattern as the `regex` crate reads it: Go takes a `{` that
+/// starts no repetition (`{{ env }}`) as a literal, `regex` wants it escaped.
+fn translate(pattern: &str) -> String {
+    let bytes = pattern.as_bytes();
+    let mut out = String::with_capacity(pattern.len() + 8);
+    let (mut i, mut class) = (0, false);
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if c == '\\' && i + 1 < bytes.len() {
+            let len = 1 + pattern[i + 1..].chars().next().map_or(1, char::len_utf8);
+            out.push_str(&pattern[i..i + len]);
+            i += len;
+            continue;
+        }
+        match c {
+            '[' if !class => class = true,
+            ']' if class => class = false,
+            '{' if !class && !repetition(&pattern[i..]) => {
+                out.push_str("\\{");
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+        let len = pattern[i..].chars().next().map_or(1, char::len_utf8);
+        out.push_str(&pattern[i..i + len]);
+        i += len;
+    }
+    out
+}
+
+/// `{n}`, `{n,}` or `{n,m}` at the start of `rest`.
+fn repetition(rest: &str) -> bool {
+    let Some(end) = rest.find('}') else { return false };
+    let mut parts = rest[1..end].splitn(2, ',');
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    match (parts.next(), parts.next()) {
+        (Some(n), None) => digits(n),
+        (Some(n), Some(m)) => digits(n) && (m.is_empty() || digits(m)),
+        _ => false,
+    }
+}
+
+/// Go's classes (`\w`, `\s`, `\b`) are ASCII; so are these.
+fn compile(pattern: &str) -> Option<Regex> {
+    RegexBuilder::new(&translate(pattern)).unicode(false).size_limit(1 << 24).build().ok()
+}
+
+fn own(id: &str, label: &str, pattern: &str, group: usize) -> Rule {
+    Rule {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        re: compile(pattern).expect("constant pattern"), // crash-allow: constant pattern
+        group,
+        entropy: 0.0,
+        keywords: Vec::new(),
+        allow: Vec::new(),
+    }
+}
+
+/// gitleaks' rules in file order, then cmux's own, then gitleaks' `generic-*`,
+/// so a known shape names its kind where a generic match overlaps it.
+static RULES: LazyLock<Rules> = LazyLock::new(|| {
+    let config: Config = toml::from_str(GITLEAKS).expect("constant pattern"); // crash-allow: constant pattern
+    let labels: LabelsConfig = toml::from_str(LABELS).expect("constant pattern"); // crash-allow: constant pattern
+    let mut rules: Vec<Rule> = config
+        .rules
+        .iter()
+        .filter(|rule| rule.path.is_none())
+        .filter_map(|rule| {
+            let re = compile(rule.regex.as_deref()?)?;
+            Some(Rule {
+                label: labels
+                    .labels
+                    .get(&rule.id)
+                    .cloned()
+                    .unwrap_or_else(|| rule.id.replace('-', " ")),
+                id: rule.id.clone(),
+                re,
+                group: rule.secret_group,
+                entropy: rule.entropy,
+                keywords: rule.keywords.iter().map(|k| k.to_ascii_lowercase()).collect(),
+                allow: rule.allowlists.iter().filter_map(Allow::of).collect(),
+            })
+        })
+        .collect();
+    let generic: Vec<Rule> = rules.extract_if(.., |rule| rule.id.starts_with("generic")).collect();
+    rules.extend([
+        own(
+            "cmux-private-key",
+            "Private Key",
+            r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(?s:.*?)(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\z)",
+            0,
+        ),
+        own(
+            "cmux-auth-header",
+            "auth token",
             r"(?i)\b(?:proxy-)?authorization\s*[:=]\s*(?:bearer|basic|token|digest)\s+([A-Za-z0-9._~+/-]+=*)",
             1,
         ),
-        (AuthHeader, r"(?i)\bbearer\s+([A-Za-z0-9._~+/-]{16,}=*)", 1),
-        (AuthHeader, r#"(?i)\b(?:x-api-key|api-key|x-auth-token)["']?\s*[:=]\s*["']?([A-Za-z0-9._~+/-]{8,})"#, 1),
-        (UrlCredentials, r"\b[a-zA-Z][a-zA-Z0-9+.-]*://([^\s/?#@:]+:[^\s/?#@]+)@", 1),
-        (
-            Assignment,
-            r#"(?i)\b[a-z0-9_-]*(?:api[_-]?key|secret|token|passw(?:or)?d|credentials?|private[_-]?key|access[_-]?key)[a-z0-9_-]*["']?\s*[=:]\s*("[^"\s]{6,}"|'[^'\s]{6,}'|[^\s"',;]{6,})"#,
+        own("cmux-bearer", "auth token", r"(?i)\bbearer\s+([A-Za-z0-9._~+/-]{16,}=*)", 1),
+        own(
+            "cmux-api-key-header",
+            "auth token",
+            r#"(?i)\b(?:x-api-key|api-key|x-auth-token)["']?\s*[:=]\s*["']?([A-Za-z0-9._~+/-]{8,})"#,
             1,
         ),
-    ]
-    .into_iter()
-    .map(|(kind, pattern, group)| Rule { kind, re: Regex::new(pattern).expect("constant pattern"), group }) // crash-allow: constant pattern
-    .collect()
+        own("cmux-url-credentials", "credentials", r"\b[a-zA-Z][a-zA-Z0-9+.-]*://([^\s/?#@:]+:[^\s/?#@]+)@", 1),
+        own(
+            "cmux-assignment",
+            "secret",
+            r#"(?i)\b[a-z0-9_-]*(?:api[_-]?key|secret|token|passw(?:or)?d|credentials?|private[_-]?key|access[_-]?key)[a-z0-9_-]*["']?\s*[=:]\s*(?:"([^"\s]{6,})"|'([^'\s]{6,})'|([^\s"',;]{6,}))"#,
+            0,
+        ),
+    ]);
+    rules.extend(generic);
+    let global: Vec<Allow> = Allow::of(&config.allowlist).into_iter().collect();
+    let ids = Allow::of(&AllowConfig {
+        regexes: vec![
+            r"^[0-9a-fA-F]{7,128}$".into(),
+            r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$".into(),
+        ],
+        ..AllowConfig::default()
+    })
+    .expect("constant pattern"); // crash-allow: constant pattern
+    Rules { rules, global, ids }
 });
 
 static ENTROPY_CANDIDATE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[A-Za-z0-9+_-]{32,}=*").expect("constant pattern")); // crash-allow: constant pattern
+    LazyLock::new(|| compile(r"[A-Za-z0-9+_-]{32,}=*").expect("constant pattern")); // crash-allow: constant pattern
 static DATA_URI: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"data:[A-Za-z]+/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+").expect("constant pattern") // crash-allow: constant pattern
+    compile(r"data:[A-Za-z]+/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+").expect("constant pattern") // crash-allow: constant pattern
 });
 
-/// Bits per character; random base62 runs about 5, English words in
-/// camelCase about 4.
-fn entropy(s: &str) -> f64 {
+/// Shannon entropy in bits per byte, as gitleaks measures a secret.
+fn entropy(s: &[u8]) -> f64 {
     let mut counts = [0u32; 256];
-    for b in s.bytes() {
+    for &b in s {
         counts[b as usize] += 1;
     }
     let n = s.len() as f64;
@@ -132,54 +307,147 @@ fn entropy(s: &str) -> f64 {
 /// A run that reads as a random token: upper and lower case, at least three
 /// digits, and a spread no word or identifier has. Hex (git SHAs, hashes)
 /// and UUIDs lack one of the cases, so they never qualify.
-fn looks_random(s: &str) -> bool {
-    s.bytes().any(|b| b.is_ascii_uppercase())
-        && s.bytes().any(|b| b.is_ascii_lowercase())
-        && s.bytes().filter(u8::is_ascii_digit).count() >= 3
+fn looks_random(s: &[u8]) -> bool {
+    s.iter().any(u8::is_ascii_uppercase)
+        && s.iter().any(u8::is_ascii_lowercase)
+        && s.iter().filter(|b| b.is_ascii_digit()).count() >= 3
         && entropy(s) >= 4.3
 }
 
-/// A placeholder, not a value: `$TOKEN`, `${{ secrets.X }}`, `<your key>`.
+/// A placeholder or a reference, not a value: `$TOKEN`, `${TOKEN}`,
+/// `${{ secrets.X }}`, `<your key>`, `#{password}`, a mask (`[secret]`, or the
+/// `[Shopify` a later scan reads of `[Shopify private app access token]`),
+/// `process.env.TOKEN`, a `Password:` label. A value that only starts with
+/// `$` or `#` (`$up3rS3cret9`) is still a value.
 fn is_placeholder(value: &str) -> bool {
     let v = value.trim_matches(['"', '\'']);
-    v.starts_with(['$', '<', '[']) || v.chars().all(|c| c == '*' || c == 'x' || c == 'X')
+    v.starts_with('<')
+        || v.ends_with(':')
+        || v.chars().all(|c| c == '*' || c == 'x' || c == 'X')
+        || PLACEHOLDER.is_match(v.as_bytes())
+        || CODE_PATH.is_match(v.as_bytes())
 }
 
-/// An assignment's value that can be a secret: not a placeholder, not a path
-/// (`secret_scan::mask`), and with a letter and a digit, so a count
-/// (`max_tokens: 100000`) or a word (`token: expired`) is left alone.
-fn is_value(value: &str) -> bool {
-    let v = value.trim_matches(['"', '\'']);
-    !is_placeholder(v)
-        && !v.starts_with(':')
-        && v.bytes().any(|b| b.is_ascii_alphabetic())
-        && v.bytes().any(|b| b.is_ascii_digit())
+static PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
+    compile(r"^(?:\$\{\{.*|\$\{?(?:[A-Z_][A-Z0-9_]*|[a-z_][a-z0-9_]*)\}?|#\{[^}]*\}|\[[A-Za-z][A-Za-z .-]*\]?)$").expect("constant pattern") // crash-allow: constant pattern
+});
+
+/// `process.env.TOKEN`, `config.password`, `os.environ`: a name, not a value.
+static CODE_PATH: LazyLock<Regex> = LazyLock::new(|| {
+    compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+(?:\(\))?$")
+        .expect("constant pattern") // crash-allow: constant pattern
+});
+
+/// An assignment's value that can be a secret: not a placeholder, not a
+/// path (`secret_scan::mask`, `/en/docs`), not a call (`compute_secret(x)`),
+/// and with a letter and a digit, so a count (`max_tokens: 100000`) or a word
+/// (`token: expired`) is left alone. A name that says secret or password
+/// (`strong`) takes a word too when it is assigned (`password = open_sesame`)
+/// or quoted, but not a type (`password: String`) or the name again
+/// (`passwordLabel: "Password"`).
+fn is_value(value: &[u8], strong: bool, assigned: bool) -> bool {
+    let v = String::from_utf8_lossy(value);
+    let v = v.trim_matches(['"', '\'']);
+    let lower = v.to_ascii_lowercase();
+    let mixed = v.bytes().any(|b| b.is_ascii_alphabetic()) && v.bytes().any(|b| b.is_ascii_digit());
+    let word = strong && assigned && !lower.contains("passw") && !lower.contains("secret");
+    !is_placeholder(v) && !v.starts_with([':', '/']) && !v.contains('(') && (mixed || word)
+}
+
+/// An assignment whose name says secret or password (`GITHUB_SECRET=`,
+/// `password =`): its value is one even when it looks like an id or a word.
+fn strong_name(whole: &[u8]) -> bool {
+    let lower = whole.to_ascii_lowercase();
+    [&b"secret"[..], b"passw"].iter().any(|w| lower.windows(w.len()).any(|win| win == *w))
+}
+
+/// Whether a generic match's name says only "key": no secret, password,
+/// token, API, auth, credential or access word.
+fn names_only_a_key(name: &[u8]) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let words: [&[u8]; 8] =
+        [b"secret", b"passw", b"token", b"api", b"auth", b"cred", b"access", b"private"];
+    !words.iter().any(|w| lower.windows(w.len()).any(|win| win == *w))
+}
+
+/// The line of `text` around `range`.
+fn line_of(text: &[u8], range: &Range<usize>) -> Range<usize> {
+    let start = text[..range.start].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+    let end =
+        text[range.end..].iter().position(|&b| b == b'\n').map_or(text.len(), |i| range.end + i);
+    start..end
+}
+
+/// `range` widened to whole characters of `text`.
+fn on_chars(text: &str, mut range: Range<usize>) -> Range<usize> {
+    while !text.is_char_boundary(range.start) {
+        range.start -= 1;
+    }
+    while !text.is_char_boundary(range.end) {
+        range.end += 1;
+    }
+    range
 }
 
 /// Every secret in `text`, in order, with overlapping finds merged into one.
 pub fn find(text: &str) -> Vec<Found> {
+    let rules = &*RULES;
+    let bytes = text.as_bytes();
+    let lower = text.to_ascii_lowercase();
+    let data: Vec<Range<usize>> = DATA_URI.find_iter(bytes).map(|m| m.range()).collect();
+    let inside_data = |r: &Range<usize>| data.iter().any(|d| d.start <= r.start && r.end <= d.end);
     let mut all: Vec<(usize, Found)> = Vec::new();
-    for (order, rule) in RULES.iter().enumerate() {
-        for caps in rule.re.captures_iter(text) {
-            let Some(m) = caps.get(rule.group) else { continue };
-            if rule.kind == SecretKind::Assignment && !is_value(m.as_str()) {
-                continue;
-            }
-            // `sk-learn-preprocessing-pipelines` is a package, not a key: a key has digits and capitals.
-            let mixed = |s: &str| {
-                s.bytes().any(|b| b.is_ascii_digit()) && s.bytes().any(|b| b.is_ascii_uppercase())
+    for (order, rule) in rules.rules.iter().enumerate() {
+        if !rule.keywords.is_empty() && !rule.keywords.iter().any(|k| lower.contains(k.as_str())) {
+            continue;
+        }
+        for caps in rule.re.captures_iter(bytes) {
+            let Some(whole) = caps.get(0) else { continue };
+            let secret = match rule.group {
+                0 => (1..caps.len())
+                    .find_map(|g| caps.get(g).filter(|m| !m.is_empty()))
+                    .unwrap_or(whole),
+                g => match caps.get(g) {
+                    Some(m) if !m.is_empty() => m,
+                    _ => continue,
+                },
             };
-            if rule.kind == SecretKind::OpenAiKey && !mixed(m.as_str()) {
+            let s = secret.as_bytes();
+            if rule.entropy > 0.0 && entropy(s) <= rule.entropy {
                 continue;
             }
-            all.push((order, Found { kind: rule.kind, range: m.range() }));
+            let assignment = rule.id == "cmux-assignment";
+            let name = &whole.as_bytes()[..secret.start() - whole.start()];
+            let strong = assignment && strong_name(name);
+            let assigned = name.contains(&b'=') || name.ends_with(b"\"") || name.ends_with(b"'");
+            if assignment && !is_value(s, strong, assigned) {
+                continue;
+            }
+            let line = &bytes[line_of(bytes, &secret.range())];
+            if rule.allow.iter().chain(&rules.global).any(|a| a.allows(s, whole.as_bytes(), line)) {
+                continue;
+            }
+            // Only a bare `NAME=value`, or a generic match behind a name that says
+            // no more than "key" (a cache key), drops an id: a header's, a
+            // token's or an API key's hex is its secret.
+            let generic = rule.id.starts_with("generic");
+            let id_name = (assignment && !strong) || (generic && names_only_a_key(name));
+            if id_name && rules.ids.allows(s, whole.as_bytes(), line) {
+                continue;
+            }
+            let range = on_chars(text, secret.range());
+            if inside_data(&range) {
+                continue;
+            }
+            all.push((order, Found { rule: &rule.id, label: &rule.label, range }));
         }
     }
-    let data: Vec<Range<usize>> = DATA_URI.find_iter(text).map(|m| m.range()).collect();
-    for m in ENTROPY_CANDIDATE.find_iter(text) {
-        let inside_data = data.iter().any(|d| d.start <= m.start() && m.end() <= d.end);
-        if !inside_data && looks_random(m.as_str()) {
-            all.push((RULES.len(), Found { kind: SecretKind::HighEntropy, range: m.range() }));
+    for m in ENTROPY_CANDIDATE.find_iter(bytes) {
+        if !inside_data(&m.range()) && looks_random(m.as_bytes()) {
+            all.push((
+                rules.rules.len(),
+                Found { rule: "cmux-high-entropy", label: "secret", range: m.range() },
+            ));
         }
     }
     all.sort_by_key(|(order, f)| (f.range.start, *order));
@@ -195,13 +463,15 @@ pub fn find(text: &str) -> Vec<Found> {
     merged
 }
 
-/// `text` with every secret replaced by its kind's mask.
+/// `text` with every secret replaced by `[its label]`.
 pub fn mask(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut at = 0;
     for f in find(text) {
         out.push_str(&text[at..f.range.start]);
-        out.push_str(f.kind.mask());
+        out.push('[');
+        out.push_str(f.label);
+        out.push(']');
         at = f.range.end;
     }
     out.push_str(&text[at..]);
