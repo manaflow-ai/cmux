@@ -354,9 +354,8 @@ fn tmux_cursor_test4_resize() {
 fn tmux_utf8_test_capture() {
     let mut p = Pane::history(80, 24);
     p.tty(include_bytes!("fixtures/tmux/UTF-8-test.txt"));
-    let expected = normalize_text(&String::from_utf8_lossy(include_bytes!(
-        "fixtures/tmux/utf8-test.result"
-    )));
+    let expected =
+        normalize_text(&String::from_utf8_lossy(include_bytes!("fixtures/tmux/utf8-test.result")));
     assert_text_eq(&p.joined_all(), &expected);
 }
 
@@ -378,9 +377,8 @@ fn tmux_utf8_test_lines() {
     let mut p = Pane::history(80, 24);
     p.tty(include_bytes!("fixtures/tmux/UTF-8-test.txt"));
     let actual = p.joined_all();
-    let expected = normalize_text(&String::from_utf8_lossy(include_bytes!(
-        "fixtures/tmux/utf8-test.result"
-    )));
+    let expected =
+        normalize_text(&String::from_utf8_lossy(include_bytes!("fixtures/tmux/utf8-test.result")));
     let have = utf8_section_ids(&actual);
     let missing: Vec<String> =
         utf8_section_ids(&expected).into_iter().filter(|id| !have.contains(id)).collect();
@@ -718,10 +716,7 @@ fn tmux_input_raw_scroll_index() {
     let lines = p.all_lines();
     assert!(lines.iter().any(|l| l.starts_with('X')), "no X at column 0: {lines:?}");
     assert!(lines.iter().any(|l| l.starts_with('A')), "no A at column 0: {lines:?}");
-    assert!(
-        lines.iter().any(|l| l.chars().nth(1) == Some('Y')),
-        "no Y at column 1: {lines:?}"
-    );
+    assert!(lines.iter().any(|l| l.chars().nth(1) == Some('Y')), "no Y at column 1: {lines:?}");
 }
 
 #[test]
@@ -1123,7 +1118,8 @@ fn tmux_input_edit_decaln() {
 // ---------------------------------------------------------------------------
 // input-reflow-wide.sh
 
-const REFLOW_WIDE_TEXT: &str = "中文文档甲   中文文档乙   中文文档丙   中文文档丁   中文文档戊   中文文档己";
+const REFLOW_WIDE_TEXT: &str =
+    "中文文档甲   中文文档乙   中文文档丙   中文文档丁   中文文档戊   中文文档己";
 
 fn reflow_wide(style: &str) {
     let mut p = Pane::history(96, 18);
@@ -1334,8 +1330,7 @@ fn tmux_input_scroll_clear_history() {
 // input-lines-region.sh: IL/DL inside, outside and clamped to a region,
 // with and without synchronized output.
 
-const LINES_REGION_BASE: &str =
-    "111\x1b[2;1H222\x1b[3;1H333\x1b[4;1H444\x1b[5;1H555\x1b[6;1H666";
+const LINES_REGION_BASE: &str = "111\x1b[2;1H222\x1b[3;1H333\x1b[4;1H444\x1b[5;1H555\x1b[6;1H666";
 const LR_UNCHANGED: &str = "111\n222\n333\n444\n555\n666";
 const LR_L_2: &str = "111\n\n222\n333\n555\n666";
 const LR_M_2: &str = "111\n333\n444\n\n555\n666";
@@ -1347,9 +1342,7 @@ const LR_CLAMP: &str = "111\n222\n\n\n555\n666";
 fn lines_region(sync: bool, op: char, cup: &str, count: &str) -> String {
     let (begin, end) = if sync { ("\x1b[?2026h", "\x1b[?2026l") } else { ("", "") };
     let mut p = Pane::new(8, 6);
-    p.printf(&format!(
-        "{LINES_REGION_BASE}{begin}\x1b[2;4r\x1b[{cup}H\x1b[{count}{op}\x1b[r{end}"
-    ));
+    p.printf(&format!("{LINES_REGION_BASE}{begin}\x1b[2;4r\x1b[{cup}H\x1b[{count}{op}\x1b[r{end}"));
     p.capture()
 }
 
@@ -2096,9 +2089,8 @@ fn stress_orphan_payload(tag: &str) -> String {
     let mut s = String::new();
     s += &format!("OP{tag}-01|ECH-half|left{b}right\x1b[6D\x1b[1X\n");
     s += &format!("OP{tag}-02|EL-inside|left{b}right\x1b[6D\x1b[K\n");
-    s += &format!(
-        "OP{tag}-03|overwrite-leading|left{b}right\rOP{tag}-03|overwrite-leading|left!\n"
-    );
+    s +=
+        &format!("OP{tag}-03|overwrite-leading|left{b}right\rOP{tag}-03|overwrite-leading|left!\n");
     s += &format!("OP{tag}-04|right-edge|{}{b}Z\x1b[2D\x1b[1X\n", ".".repeat(60));
     s += &format!("OP{tag}-05|ERASED|left{b}right\r\x1b[2KOP{tag}-05|ERASED|left clear\n");
     s += &format!("SENT-{tag}|ORPHAN-PHASE|complete\n");
@@ -2113,9 +2105,8 @@ fn stress_payload() -> String {
         s += &format!("WIDE{i:02}|{a}|{b}|tail\n");
         s += &format!("COMB{i:02}|e\u{301}|zero\u{200B}\u{200D}|done\n");
         s += &format!("STYLE{i:02}|\x1b[1;31mred\x1b[0m|\x1b[4munder\x1b[0m\n");
-        s += &format!(
-            "LINK{i:02}|\x1b]8;;https://example.invalid/{i}\x07link{i}\x1b]8;;\x07|end\n"
-        );
+        s +=
+            &format!("LINK{i:02}|\x1b]8;;https://example.invalid/{i}\x07link{i}\x1b]8;;\x07|end\n");
         s += &format!("WRAP{i:02}|{i:064}\n");
         s += &format!("CRBS{i:02}|abcdef\rCRBS{i:02}|XYZ\n");
         s += &format!("BS{i:02}|abc\x08Z\n");
