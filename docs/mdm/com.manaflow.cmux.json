@@ -106,6 +106,28 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.subsessions.enabled" : {
+      "default" : true,
+      "description" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.",
+      "title" : "Let Agents Start Sub-sessions",
+      "type" : "boolean"
+    },
+    "agents.subsessions.maxChildren" : {
+      "default" : 50,
+      "description" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+      "maximum" : 1000,
+      "minimum" : 1,
+      "title" : "Open Sub-sessions per Session",
+      "type" : "number"
+    },
+    "agents.subsessions.maxDepth" : {
+      "default" : 10,
+      "description" : "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own.",
+      "maximum" : 100,
+      "minimum" : 1,
+      "title" : "Deepest Nesting",
+      "type" : "number"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -2337,12 +2359,6 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
-    },
-    "remoteHosting.enabled" : {
-      "default" : false,
-      "description" : "Your other computers on your private network can open this Mac's workspaces and terminals while cmux is running. Only devices signed in as you can connect.",
-      "title" : "Let Your Other Devices Use This Mac",
-      "type" : "boolean"
     },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",

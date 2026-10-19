@@ -466,24 +466,6 @@
               "key" : "settings.group.surfaces",
               "text" : "Surfaces"
             }
-          },
-          {
-            "key" : "settings.group.markdownViewer",
-            "rows" : [
-              "markdown.layout.width",
-              "markdown.layout.fullWidth",
-              "markdown.font.size",
-              "markdown.font.preset",
-              "markdown.font.lineHeight",
-              "markdown.spacing.paragraph",
-              "markdown.code.blockSize",
-              "markdown.tables",
-              "markdown.theme"
-            ],
-            "title" : {
-              "key" : "settings.group.markdownViewer",
-              "text" : "Markdown Viewer"
-            }
           }
         ],
         "id" : "appearance",
@@ -588,6 +570,18 @@
             "title" : {
               "key" : "settings.group.sessions",
               "text" : "Agent Sessions"
+            }
+          },
+          {
+            "key" : "settings.group.subsessions",
+            "rows" : [
+              "agents.subsessions.enabled",
+              "agents.subsessions.maxChildren",
+              "agents.subsessions.maxDepth"
+            ],
+            "title" : {
+              "key" : "settings.group.subsessions",
+              "text" : "Sub-sessions"
             }
           }
         ],
@@ -967,16 +961,6 @@
             "title" : {
               "key" : "settings.group.phone",
               "text" : "Phone Access"
-            }
-          },
-          {
-            "key" : "settings.group.remoteHosting",
-            "rows" : [
-              "remoteHosting.enabled"
-            ],
-            "title" : {
-              "key" : "settings.group.remoteHosting",
-              "text" : "Remote Hosting"
             }
           }
         ],
@@ -4042,36 +4026,36 @@
         true,
         false
       ],
-      "agent_refusal" : "network",
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.remoteHosting",
-        "text" : "Remote Hosting"
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
       },
       "help" : {
-        "key" : "settings.remoteHosting.enabled.help",
-        "text" : "Your other computers on your private network can open this Mac's workspaces and terminals while cmux is running. Only devices signed in as you can connect."
+        "key" : "settings.agents.subsessions.enabled.help",
+        "text" : "An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar."
       },
       "kept_on_reset_all" : false,
-      "key" : "remoteHosting.enabled",
+      "key" : "agents.subsessions.enabled",
       "keywords" : [
-        "remote",
-        "host",
-        "hosting",
-        "network",
-        "devices",
-        "share",
-        "server"
+        "subagent",
+        "sub-session",
+        "child",
+        "spawn",
+        "parallel",
+        "agents"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
       "path" : [
-        "remoteHosting",
+        "agents",
+        "subsessions",
         "enabled"
       ],
       "refuses" : [
@@ -4079,11 +4063,127 @@
         1,
         null
       ],
-      "section" : "machines",
+      "section" : "general",
       "summary" : null,
       "title" : {
-        "key" : "settings.remoteHosting.enabled",
-        "text" : "Let Your Other Devices Use This Mac"
+        "key" : "settings.agents.subsessions.enabled",
+        "text" : "Let Agents Start Sub-sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        1000,
+        500.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 50,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxChildren.help",
+        "text" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxChildren",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "width",
+        "children",
+        "parallel"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxChildren"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -998,
+        1999,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxChildren",
+        "text" : "Open Sub-sessions per Session"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        100,
+        50.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 10,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.maxDepth.help",
+        "text" : "How many levels of sub-sessions can start under a session. 1 lets a session start sub-sessions that cannot start their own."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.maxDepth",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "limit",
+        "depth",
+        "nesting",
+        "levels"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "maxDepth"
+      ],
+      "range" : {
+        "max" : 100,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -98,
+        199,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.maxDepth",
+        "text" : "Deepest Nesting"
       },
       "validation" : "portable"
     },
@@ -26287,7 +26387,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "5ec24abeb2481e3961a38216feb7276a586fb4576d4642706084b753d6e4c837",
+  "schema_hash" : "3a4cb3b1c51a3f95e77f2d026b6eb6cf94478bdb28429d3b12cfe9a5c2fbfcae",
   "sections" : [
     {
       "id" : "general",
