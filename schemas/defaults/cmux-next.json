@@ -458,6 +458,7 @@
     "setting.sidebar.cards.tips": true,
     "setting.sidebar.cmd9": "last",
     "setting.sidebar.density": "compact",
+    "setting.sidebar.detailedStatusIcons": false,
     "setting.sidebar.groupBy": "none",
     "setting.sidebar.groupByComputer": false,
     "setting.sidebar.hoverCards.delay": 1300,
