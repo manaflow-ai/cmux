@@ -1389,7 +1389,13 @@ jobs:
           fi
           # One named annotation per red check: the red steps' own annotations
           # all read "Process completed with exit code 1." (% escaped for ::error).
-          for check in "${failed[@]}"; do
+          # GitHub shows 10 per step, so past 10 the tenth says how many more.
+          for i in "${!failed[@]}"; do
+            if (( i == 9 && ${#failed[@]} > 10 )); then
+              echo "::error title=cmux-next check failed::$(( ${#failed[@]} - 9 )) more red checks; the job summary lists all ${#failed[@]}"
+              break
+            fi
+            check=${failed[i]}
             echo "::error title=cmux-next check failed::${check//%/%25}"
           done
           {
