@@ -571,6 +571,20 @@ Pass = every step holds on 3 consecutive runs; the stream heads match; no duplic
 
 ## 16. Decisions for Lawrence
 
+Status 2026-10-19 (coordinator): every item below uses its recommendation as the default.
+Default, Lawrence can override. The coordinator reports an override to this lane.
+
+| Item | Default in force |
+| --- | --- |
+| L1 | Mac workspace layout is owned by the Mac daemon; the cloud holds a read-only copy |
+| L2 | only `message.send` waits in the device outbox while the device has no network; every other op is refused offline (U5) |
+| L3 | retire `cnx-ios-api` and `TeamHub` after phase 6; the phone uses `cloud-api` for everything |
+| L4 | the host's cloud object stores the last 64 KiB of each terminal screen, with a per-host off switch |
+| L5 | keep WebRTC until WireGuard covers the same networks, then delete it |
+| L6 | the chief's fold-in agent moves `feat-cnx-ios` into `feat-cmux-next`; this lane does not do a second fold (section 14.1 is input for that agent) |
+| L7 | sidebar organization lives in the user's account (UserDO `sidebar` document) |
+
+
 - L1 Where a Mac workspace's layout lives. Options: `on the Mac that runs its terminals, with a read-only copy in the cloud (Cmd+D stays instant and works offline; the phone cannot rearrange a Mac workspace while the Mac is off)` or `in the cloud (the phone can rearrange it with the Mac off; every Mac layout change needs the network)`. Recommendation: on the Mac.
 - L2 Messages typed while the phone or Mac has no network. Options: `refuse Send and keep a draft (current rule U5)` or `queue only message sends in the device outbox and send them when the network returns (like Messages)`. Recommendation: queue message sends only.
 - L3 The cnx Worker and TeamHub. Options: `retire cnx-ios-api and TeamHub after phase 6 and move the phone to cloud-api for everything` or `keep cnx-ios-api as a separate service for the phone tunnel`. Recommendation: retire.
