@@ -2279,20 +2279,21 @@ pre.cv-math-source {
       opacity var(--agent-motion-in) var(--agent-ease-out),
       transform var(--agent-motion-in) var(--agent-ease-out);
   }
-  /* Only while working: hidden dots don't keep a compositor animation running. */
-  .acpmux-jump-latest[data-working] .acpmux-jump-latest__dots i {
+  /* Only while shown and working: hidden dots keep no compositor animation running. */
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
     animation: acpmux-jump-latest-dot calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite;
   }
-  .acpmux-jump-latest[data-working] .acpmux-jump-latest__dots i:nth-child(2) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(2) {
     animation-delay: calc(var(--agent-motion-in) * 1.5);
   }
-  .acpmux-jump-latest[data-working] .acpmux-jump-latest__dots i:nth-child(3) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(3) {
     animation-delay: calc(var(--agent-motion-in) * 3);
   }
 }
 /* Static status indicators (cx-sya4n): the dots hold still. Reduce Motion gets the same static
-   dots, swapped in without the morph, since both rules above sit under no-preference. */
-:root[data-status-indicators="static"] .acpmux-jump-latest__dots i {
+   dots, swapped in without the morph, since both rules above sit under no-preference. The selector
+   repeats the loop's [data-shown][data-working] so it outranks it. */
+:root[data-status-indicators="static"] .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
   animation: none;
 }
 @keyframes acpmux-jump-latest-dot {
