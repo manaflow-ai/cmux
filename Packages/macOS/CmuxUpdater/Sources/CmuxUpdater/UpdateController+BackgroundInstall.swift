@@ -51,6 +51,7 @@ extension UpdateController {
         if case .installing(let installing) = model.state, installing.isAutoUpdate {
             log.append("background install: installing the update Sparkle staged silently")
             model.setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+            driver.relaunchIsAutomatic = false
             installing.retryTerminatingApplication()
             armStagedInstallWatchdog()
             return

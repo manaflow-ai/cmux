@@ -18,9 +18,14 @@ extension UpdateDriver {
     func stageInBackground(_ reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         stagedInstall = { reply(.install) }
         stagedCancel = { reply(.skip) }
-        if installsWhenIdle || installsWhenStaged {
-            log.append("background install: staged, waiting for a safe idle relaunch")
+        if installsWhenStaged {
+            log.append("background install: staged, installing for the user's click")
             installStaged()
+            return
+        }
+        if installsWhenIdle {
+            log.append("background install: staged, waiting for a safe idle relaunch")
+            installStaged(automatic: true)
             return
         }
         log.append("background install: staged, waiting for the user")
@@ -46,16 +51,18 @@ extension UpdateDriver {
     }
 
     /// Sends the held install reply once; Sparkle installs and relaunches. False when this driver
-    /// holds no staged update.
+    /// holds no staged update. `automatic` marks an idle-policy install nobody clicked, whose
+    /// relaunch also waits for quiet input and a confirmed daemon mirror.
     @discardableResult
-    func installStaged() -> Bool {
+    func installStaged(automatic: Bool = false) -> Bool {
         guard let install = stagedInstall else { return false }
-        log.append("background install: installing staged update")
+        log.append("background install: installing staged update (automatic=\(automatic))")
         stagedInstall = nil
         stagedCancel = nil
         installsWhenStaged = false
         backgroundItem = nil
         setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+        relaunchIsAutomatic = automatic
         install()
         return true
     }
