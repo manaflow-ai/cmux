@@ -126,11 +126,9 @@ def real_move(x, y):
 
 def shown_terminal():
     """The focused pane's row (debug.surfaces) while it shows a terminal with a grid, and its text."""
-    for win in (rpc("debug.surfaces", {"text": True}) or {}).get("windows") or []:
-        for pane in win.get("panes") or []:
-            if pane.get("focused") and pane.get("grid"):
-                return pane
-    return None
+    rows = [pane for win in (rpc("debug.surfaces", {"text": True}) or {}).get("windows") or [] for pane in win.get("panes") or []
+            if pane.get("grid")]
+    return next((pane for pane in rows if pane.get("focused")), rows[0] if len(rows) == 1 else None)
 
 
 def cell(grid, column, row):
@@ -201,9 +199,12 @@ try:
     window = ((quiet_wait(lambda: (rpc("debug.focus") or {}).get("windows"), 60) or [{}])[0]).get("id")
     rpc("debug.window_frame", {"window": window, "frame": [40, 40, 1100, 680]})
     activate()
+    quiet_wait(lambda: (rpc("debug.surfaces") or {}).get("windows"), 60)
+    action("newTab")  # tab A: a terminal, whatever the first launch shows
     first = quiet_wait(lambda: shown_terminal(), 60)
     if not check(first is not None, "the first terminal shows"):
-        raise SystemExit
+        print("debug.surfaces:", json.dumps(rpc("debug.surfaces"))[:3000], flush=True)
+        raise RuntimeError("no terminal")
     print("pane row keys:", sorted(first.keys()), flush=True)
     action("terminal.sendText", {"text": f"clear; printf '{MARKERS['A']}\\n'\r"})
     quiet_wait(lambda: marker_row(shown_terminal() or {}, MARKERS["A"]) is not None, 15)
@@ -215,6 +216,8 @@ try:
     checks("A", "B")
     action("nextSurface")
     checks("B", "A")
+except RuntimeError as error:
+    check(False, f"stopped: {error}")
 finally:
     action("quitEndSessions")
     try:
