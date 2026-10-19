@@ -661,6 +661,79 @@ class BaseReds(unittest.TestCase):
         self.assertEqual(controller.base_probe_result["url"], "https://probe")
 
 
+    def test_a_base_red_job_excuses_only_the_tests_that_fail_on_the_base(self):
+        """A red swift test on the base must not excuse a stack that breaks another test."""
+        controller = self.controller()
+        steps = [{"name": "Set up job", "conclusion": "success"}, {"name": "Run tests", "conclusion": "failure"}]
+        job = {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}
+        controller.gh.api.return_value = {"jobs": [job]}
+
+        def failing(*tests):
+            text = "".join(f"2026-10-19T03:02:59.1Z \u2718 Test {name} recorded an issue at A.swift:1:2: x\n" for name in tests)
+            return subprocess.CompletedProcess([], 0, text, "")
+
+        controller.gh.gh.return_value = failing("alpha()")
+        base = set(controller.failed_jobs(1, detail=True))
+        controller.gh.gh.return_value = failing("alpha()", "beta()")
+        stack = set(controller.failed_jobs(2, detail=True))
+        self.assertIn("cmux-next swift test: test beta()", stack - base)
+        controller.gh.gh.return_value = failing("alpha()")
+        self.assertEqual(set(controller.failed_jobs(3, detail=True)) - base, set())
+        # Job-level names stay for gh-merge-green's lanes.
+        self.assertEqual(controller.failed_jobs(1), ["cmux-next swift test"])
+
+    def test_a_probe_stopped_before_its_run_is_found_cancels_it(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        deleted = []
+        controller.delete_branch = deleted.append
+
+        def find_run(workflow, branch, match, since):
+            controller.base_probe_stop.set()  # the batch ended while the probe looked for its run
+            return {"id": 5, "html_url": "https://probe"}
+
+        controller.find_run = find_run
+        controller.wait_run = mock.Mock()
+        controller.probe_base()
+        controller.wait_run.assert_not_called()
+        self.assertIn(("run", "cancel", "5"), [call.args[:3] for call in controller.gh.gh.call_args_list])
+        self.assertEqual(deleted, ["next-batch/local-1-base"])
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_probe_whose_rerun_does_not_finish_records_nothing(self):
+        controller = self.controller()
+        controller.push = lambda sha, ref: None
+        controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
+        states = iter([{"status": "completed", "conclusion": "failure"}, {"status": "in_progress"}])
+        controller.wait_run = lambda run_id, timeout: next(states)
+        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test: test flaky()"]
+        with mock.patch.object(nb.time, "sleep"):
+            controller.probe_base()
+        self.assertNotIn("failed", controller.base_probe_result)
+
+    def test_a_batch_that_raises_still_cleans_up(self):
+        controller = self.controller()
+        controller.args = Namespace(repo="o/r", dry_run=False, keep_branches=False, prs="7")
+        controller.reported = lambda pr, kinds: ""
+        controller.validations = []
+        controller.base_probe_result = {"branch": "next-batch/local-1-base", "run": 9}
+        controller.base_probe = mock.Mock(is_alive=lambda: True)
+        deleted = []
+        controller.delete_branch = deleted.append
+
+        def validate(prs, name):
+            controller.validations.append(nb.Validation(name=name, stack=nb.Stack(base="b", head="c"),
+                                                        branch="next-batch/local-1-1"))
+            raise RuntimeError("HTTP 502")
+
+        controller.validate = validate
+        with mock.patch.object(nb, "open_prs", return_value=[]), \
+                mock.patch.object(nb, "select", return_value=([pr(7)], {})):
+            with self.assertRaises(RuntimeError):
+                controller.run()
+        self.assertEqual(deleted, ["next-batch/local-1-1", "next-batch/local-1-base"])
+        self.assertIn(("run", "cancel", "9"), [call.args[:3] for call in controller.gh.gh.call_args_list])
+
 class TreeInputs(unittest.TestCase):
     def test_a_tree_input_outside_cmux_tui_counts_and_other_files_do_not(self):
         root = Path(tempfile.mkdtemp())
@@ -1060,6 +1133,31 @@ class LandingRetry(unittest.TestCase):
         self.assertTrue(outcome.startswith("landed"))
         self.assertIn("https://example.test/run/1", calls[-1][calls[-1].index("--override") + 1])
         self.assertEqual(calls[-1][calls[-1].index("--match-head-commit") + 1], pr(7).sha)
+
+    def test_each_override_is_checked_against_its_own_refusal(self):
+        """A lane that turns red while landing waits must be judged again, not waived."""
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r")
+        controller.run_url = "u"
+        controller.writer = nb.GitHub("o/r")
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40),
+                                   heavy_passed=["cmux-next swift test"])
+        tail = " on abc1234, not excused by feat-cmux-next (x)\n"
+        replies = iter([
+            "not green: 'cmux-next swift test'" + tail,  # waivable: retry with --override
+            "not green: 'web / Web status' is queued/" + tail,  # pending under the override
+            "not green: 'cmux app scheme compile (Debug)'" + tail,  # a new red: not waivable
+        ])
+        calls = []
+
+        def fake_run(command, **_):
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 1, "", next(replies))
+
+        with mock.patch.object(nb.subprocess, "run", fake_run), mock.patch.object(nb.time, "sleep"):
+            outcome = controller.merge_one(Path("/bin/true"), pr(7), validation)
+        self.assertTrue(outcome.startswith("not landed"))
+        self.assertEqual(["--override" in call for call in calls], [False, True, False])
 
     def test_waives_only_lanes_the_stack_passed(self):
         controller = nb.Controller.__new__(nb.Controller)
