@@ -37,6 +37,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserShowBookmarksBar = false
     /// `browser.builtInAdBlocker`; on when unset.
     public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
+    /// `browser.showAgentCursor`; on when unset.
+    public var browserShowAgentCursor = AgentCursorSetting().fallback
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = false, homeChannelsEnabled = false
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
@@ -128,7 +130,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
-    /// `appearance.focusIndicator`; "both" when unset or invalid.
+    /// `appearance.focusIndicator`; "tabs" when unset or invalid.
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
@@ -195,6 +197,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var freeModel = FreeModelSettings()
     /// `sessions.*`: what this Mac does while agents work (keep awake).
     public var sessions = SessionSettings()
+    /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
+    public var subsessions = SubsessionSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -228,14 +232,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (hints, hintsDiagnostic) = ModifierHoldHintsSetting().parse(root)
         snapshot.showModifierHoldHints = hints
         if let hintsDiagnostic { snapshot.diagnostics.append(hintsDiagnostic) }
-        let (engine, engineDiagnostic) = BrowserDefaultEngine.parse(root)
-        snapshot.browserDefaultEngine = engine
-        if let engineDiagnostic { snapshot.diagnostics.append(engineDiagnostic) }
-        let (newTabPage, newTabPageDiagnostic) = BrowserNewTabPage.parse(root)
-        snapshot.browserNewTabPage = newTabPage
-        if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
+        snapshot.take(BrowserDefaultEngine.parse(root), \.browserDefaultEngine)
+        snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
+        snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
@@ -340,12 +341,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
-        let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
-        snapshot.appTheme = appTheme
-        if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
-        let (chromeTheme, chromeThemeDiagnostic) = ChromeThemeSetting().parse(root)
-        snapshot.chromeTheme = chromeTheme
-        if let chromeThemeDiagnostic { snapshot.diagnostics.append(chromeThemeDiagnostic) }
+        snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.take(AppThemeSetting().parse(root), \.appTheme)
+        snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
         let (accent, accentDiagnostic) = AccentSetting().parse(root)
         snapshot.accent = accent

@@ -5,15 +5,15 @@ extension HoverCardSettings {
     /// `sidebar.hoverCards.enabled`: On by default. Off: no card opens on hover; Show Resource Usage still opens one.
     public nonisolated static let enabledPath = ["sidebar", "hoverCards", "enabled"]
     public nonisolated static let enabledDefault = true
-    /// `sidebar.hoverCards.delay`: Milliseconds the pointer rests before a card opens. 1300 is Chrome's tab hover card delay at the default tab width (tab_hover_card_controller.cc GetShowDelay: kMaximumTriggerDelay 800 ms plus kTabHoverCardAdditionalMaxWidthDelay 500 ms).
+    /// `sidebar.hoverCards.delay`: Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). While a card shows, or within 500 ms after it went, the next one opens at once.
     public nonisolated static let delayPath = ["sidebar", "hoverCards", "delay"]
-    public nonisolated static let delayDefault: Double = 1300
+    public nonisolated static let delayDefault: Double = 250
     public nonisolated static let delayRange: ClosedRange<Double> = 0...5000
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum HoverCardSettingsSchema {
-    /// Hover cards of sidebar workspace rows and tabs (Lawrence 2026-10-14: wait as long as Chrome does, and can be turned off).
+    /// Hover cards of sidebar workspace rows and tabs (Lawrence 2026-10-14: can be turned off; 2026-10-18: Chrome's 1300 ms was too slow, about a tooltip's delay now).
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [

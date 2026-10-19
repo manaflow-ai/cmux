@@ -28,6 +28,9 @@ public enum TerminalChannelEvent: Sendable, Hashable {
     case resized(TerminalReplay)
     case colorsChanged(TerminalColors)
     case scrollChanged(offset: UInt64, atBottom: Bool)
+    /// The terminal's shared-sizing state changed (`size-state`); `participant` is this view's id
+    /// in it, so the view can tell whether it sets the grid.
+    case sizeState(TerminalSizeState, participant: String?)
     case closed(TerminalChannelCloseReason)
 }
 
