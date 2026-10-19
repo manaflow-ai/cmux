@@ -638,7 +638,7 @@ export default agentPaneEntry({
       },
     },
     "long-thought-streaming": {
-      note: "A long thought still streaming shows in full (with the Debug toggle agentPane.debug.foldLongThoughts on, it folds only once done).",
+      note: "A long thought still streaming shows in full. With the Debug toggle agentPane.debug.foldLongThoughts on, it holds a seven-line viewport with its newest line in view (agentPane.debug.liveThoughtViewport) and folds once done.",
       snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
         isWorking: true,
       }),

@@ -99,6 +99,9 @@ public final class LayoutRootView: NSView {
         registerForDraggedTypes([LayoutTabDrag.pasteboardType])
         sync(snapshot())
         observe()
+        #if DEBUG
+        ScreenContentView.registerMotionSampler()
+        #endif
     }
 
     @available(*, unavailable)

@@ -236,8 +236,14 @@ extension SettingsSchema {
         "updates.meteredNetwork": .network,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
+        // What a new chat may do without asking: an agent must not widen its own approvals.
+        "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
+        // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
+        "notifications.dockBounce": .userOnly,
+        // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
+        "sessions.keepAwake": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

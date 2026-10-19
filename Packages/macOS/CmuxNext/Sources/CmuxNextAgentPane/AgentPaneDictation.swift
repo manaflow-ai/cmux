@@ -12,6 +12,9 @@ public nonisolated enum AgentPaneDictationCommand: Equatable, Sendable {
     case cancel
     /// The denied state's link: the System Settings privacy pane.
     case openSettings(DictationPermission)
+    /// Whether the chat's harness takes voice input (ACP `promptCapabilities.audio`): sessions
+    /// started from then on keep their audio for the prompt. The page says so whenever it changes.
+    case recordAudio(Bool)
 }
 
 /// The microphone the agent panes share: at most one listens at a time.
@@ -43,6 +46,9 @@ final class AgentPaneDictation {
     private var session: DictationSession?
     /// Delivers an update to the page (a script on the old host, an event on the page host).
     private let send: (DictationUpdate) -> Void
+    /// The chat's harness takes voice input (``AgentPaneDictationCommand/recordAudio(_:)``), so
+    /// every start, from the mic, its shortcut, the palette or the CLI, keeps the session's audio.
+    private var recordsAudio = false
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
@@ -105,6 +111,8 @@ final class AgentPaneDictation {
             session?.cancel()
         case .openSettings(let permission):
             if let url = Self.settingsURL(permission) { open(url) }
+        case .recordAudio(let on):
+            recordsAudio = on
         }
     }
 
@@ -185,7 +193,9 @@ final class AgentPaneDictation {
     private func start() {
         if let other = microphone.listening, other !== self { other.session?.stop() }
         microphone.listening = self
-        activeSession().start()
+        let session = activeSession()
+        session.recordsAudio = recordsAudio
+        session.start()
         if !phase.isStartable, sleepObserver == nil {
             sleepObserver = sleepNotifications.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.session?.stop() } // main-proof: observer on queue: .main
@@ -234,6 +244,9 @@ final class AgentPaneDictation {
             value["message"] = failureMessage(failure)
         default:
             break
+        }
+        if let audio = update.audio {
+            value["audio"] = ["mimeType": "audio/wav", "data": audio.base64EncodedString()] as [String: any Sendable]
         }
         return value
     }
