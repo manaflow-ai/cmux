@@ -304,14 +304,16 @@ fn notes_off_hides_and_refuses_remember() {
 
 #[test]
 fn the_chief_tool_list_is_unchanged() {
-    // Section 7.2: the Chief's own server keeps exactly its tools.
+    // Section 7.2: the Chief's own server keeps its own tools; agent memory
+    // adds none to it (the Chief's list grows on its own, e.g. `control`).
     let names: Vec<String> = optchat_chief::mcp::tool_list()
         .as_array()
         .unwrap()
         .iter()
         .map(|t| t["name"].as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(names, ["zoom", "date", "spawn", "tell"]);
+    assert_eq!(names[..4], ["zoom", "date", "spawn", "tell"]);
+    assert!(!names.iter().any(|n| n.starts_with("memory_")), "{names:?}");
 }
 
 /// A memory file written while a rebuild reads the sources: its mtime is
