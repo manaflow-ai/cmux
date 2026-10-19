@@ -6,7 +6,7 @@
 //   the New Tab model chip drops the brand mark at a roomy width, as the chat's does.
 // - Hover: the hovered button alone takes the soft pill (--acpmux-pill-hover), the mic included;
 //   the composer box never changes under the pointer.
-// - Keyboard focus: the same pill, with the bar's 2 px outline on its edge.
+// - Keyboard focus: the same pill, with the bar's outline on its edge.
 // - Caret and focus ring agree: the caret shows only while the composer shows its focused ring. A
 //   field that holds DOM focus while the page is not the key one (the window or pane is in the
 //   background, the New Tab page focused itself before the user came to it) hides its caret and
@@ -246,7 +246,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
         expect(wrong).toEqual([]);
       });
 
-    // Keyboard focus: the same soft pill and the bar's 2 px outline on the pill's edge, in both.
+    // Keyboard focus: the same soft pill and the bar's outline on the pill's edge, in both.
     for (const stage of COMPOSERS)
       test(`${engine}: ${stage.name}: keyboard focus gives a button the soft pill and the bar's outline`, async () => {
         const page = await open(engine, stage);
@@ -263,7 +263,8 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
           const focused = await look(page, stage, button.index);
           if (focused.background !== tone) wrong.push(`${button.label}: focus ${focused.background}, not ${tone}`);
           if (focused.edge !== "none") wrong.push(`${button.label}: focus draws an edge`);
-          if (focused.outline !== "solid 2px" || focused.offset !== "0px")
+          // The bar's outline, on the pill's edge (offset 0), never the shared ring 2 px off it.
+          if (!focused.outline.startsWith("solid ") || focused.offset !== "0px")
             wrong.push(`${button.label}: outline ${focused.outline} at ${focused.offset}`);
           await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         }

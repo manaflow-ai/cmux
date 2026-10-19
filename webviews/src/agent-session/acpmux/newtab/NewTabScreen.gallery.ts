@@ -5,12 +5,21 @@ import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { CATALOG, CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
+import { composerStatePlays } from "../composerStatePlays";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAOElEQVR42mNgoDZQTX79Hx+mSDNeQ4jVjNUQUjVjGIJNEh2QZAAuMJIMoDgQ6ZIWqJ+UqZKZyAEAwqPV6AATmH0AAAAASUVORK5CYII=";
 const OTHER_SITE_ICON =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPklEQVR42mNgoDZ4FcHzHx+mSDNeQ4jVjNUQUjVjGIJN8v/bqyiYJAPQNeMyZDgbQHEg0iUtUD8pUyUzkQMARpy6LDTJkq8AAAAASUVORK5CYII=";
+
+/// No chat yet, Claude Code starting on Medium: the model and reasoning chips both show.
+const reasoningChat = () =>
+  noChat([], {
+    catalog: CATALOG.map((entry) =>
+      entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
+    ),
+  });
 
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
@@ -184,12 +193,16 @@ export default agentPaneEntry({
     "reasoning-chip": {
       note: "Before any chat: the Reasoning chip names the level acpmux starts Claude Code on (Medium) and opens the reasoning menu on its own, apart from the model chip.",
       ready: newTab(),
-      snapshot: noChat([], {
-        catalog: CATALOG.map((entry) =>
-          entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
-        ),
-      }),
+      snapshot: reasoningChat(),
     },
+    // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
+    // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).
+    ...Object.fromEntries(
+      Object.entries(composerStatePlays(".nt-field")).map(([state, variant]) => [
+        `composer-${state}`,
+        { ...variant, ready: newTab(), snapshot: reasoningChat() },
+      ]),
+    ),
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
       ready: newTab(),
