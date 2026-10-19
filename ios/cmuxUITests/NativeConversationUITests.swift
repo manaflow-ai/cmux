@@ -439,6 +439,24 @@ final class NativeConversationUITests: XCTestCase {
     }
 
     @MainActor
+    func testNativeConversationLocalizedEmptyTask() throws {
+        for (language, locale, heading, sendLabel) in [
+            ("de", "de_DE", "Mit Codex arbeiten", "Nachricht senden"),
+            ("ar", "ar_SA", "العمل مع Codex", "إرسال رسالة"),
+        ] {
+            let app = makeFixtureApplication(scenario: "empty", language: language, locale: locale)
+            app.launch()
+            defer { app.terminate() }
+            try openDetail(in: app)
+            XCTAssertTrue(app.staticTexts[heading].waitForExistence(timeout: 5))
+            let send = app.buttons["ConversationSendButton"]
+            XCTAssertTrue(send.exists)
+            XCTAssertEqual(send.label, sendLabel)
+            capture(app, name: "native-localized-empty-\(language)")
+        }
+    }
+
+    @MainActor
     func testNativeConversationSecretQuestionUsesSecureField() throws {
         let app = makeFixtureApplication(scenario: "secret-question")
         app.launch()
@@ -522,9 +540,15 @@ final class NativeConversationUITests: XCTestCase {
     }
 
     @MainActor
-    private func makeFixtureApplication(scenario: String, lightMode: Bool = false, largeText: Bool = false) -> XCUIApplication {
+    private func makeFixtureApplication(
+        scenario: String,
+        lightMode: Bool = false,
+        largeText: Bool = false,
+        language: String = "en",
+        locale: String = "en_US"
+    ) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
         if lightMode { app.launchArguments += ["-AppleInterfaceStyle", "Light"] }
         if largeText {
             app.launchArguments += ["-UIPreferredContentSizeCategory", "UICTContentSizeCategoryAccessibilityXXXL"]
