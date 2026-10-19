@@ -20,8 +20,14 @@ extension DaemonService {
             return nil
         }
         store.intend(intent, transaction: transaction)
+        return await settle(label, transaction, ticket, on: connection) { try await body(connection) }
+    }
+
+    /// Sends an intent's command (`run`) and settles or rejects the intent by its outcome.
+    private func settle<T: Sendable>(_ label: String, _ transaction: ClientTransactionID, _ ticket: CommandTicket?,
+                                     on connection: DaemonConnection, _ run: () async throws -> T) async -> T? {
         do {
-            let value = try await body(connection)
+            let value = try await run()
             // Every event the daemon emitted before the reply. Nil when the
             // connection is gone: no event will come on it, and the next
             // connection's first snapshot holds the result.
@@ -38,6 +44,24 @@ extension DaemonService {
             await closeTicket(ticket, label: label, error: error)
             return nil
         }
+    }
+
+    /// ``intend(_:_:transaction:_:)`` in two steps, for a gesture that must show in its own frame
+    /// (Cmd-D, instant-new-surfaces): the intent is in the store's visible records when this
+    /// returns, before any suspension point, and the returned work sends `body` and settles or
+    /// rejects the intent. Not connected: nothing shows, and the work reports it and returns nil.
+    public func intendNow<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
+                                       _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> T) -> @MainActor () async -> T? {
+        let ticket = openTicket(label)
+        guard let connection else {
+            return { [self] in
+                logger.error("\(label, privacy: .public): not connected")
+                await closeTicket(ticket, label: label, error: DaemonError.notConnected)
+                return nil
+            }
+        }
+        store.intend(intent, transaction: transaction)
+        return { [self] in await settle(label, transaction, ticket, on: connection) { try await body(connection) } }
     }
 
     /// `intend` with a fresh transaction, for commands that do not carry
