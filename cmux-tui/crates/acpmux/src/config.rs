@@ -51,6 +51,7 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         "{} is not a state directory owned by this user",
         dir.display()
     );
+    refuse_extended_acl(&opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
         opened
             .set_permissions(std::fs::Permissions::from_mode(0o700))
@@ -78,11 +79,43 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
         "{} is not a state file owned by this user",
         path.display()
     );
+    refuse_extended_acl(&file, path)?;
     if metadata.mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("make {} owner-only", path.display()))?;
     }
     Ok(file)
+}
+
+/// macOS numeric chmod leaves extended ACL entries intact. Refuse them before
+/// trusting old state; accepting and merely deleting one would authenticate
+/// bytes another account may already have changed.
+#[cfg(target_os = "macos")]
+fn refuse_extended_acl(file: &std::fs::File, path: &Path) -> Result<()> {
+    use std::os::fd::AsRawFd;
+
+    type Acl = *mut core::ffi::c_void;
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> Acl;
+        fn acl_free(object: *mut core::ffi::c_void) -> libc::c_int;
+    }
+
+    // SAFETY: the descriptor is live; the returned ACL is released below.
+    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let error = std::io::Error::last_os_error();
+        // macOS reports ENOENT when the object has no extended ACL.
+        return if error.raw_os_error() == Some(libc::ENOENT) { Ok(()) } else { Err(error.into()) };
+    }
+    // SAFETY: `acl` came from acl_get_fd_np and is released exactly once.
+    unsafe { acl_free(acl) };
+    anyhow::bail!("{} has an extended ACL", path.display())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn refuse_extended_acl(_file: &std::fs::File, _path: &Path) -> Result<()> {
+    Ok(())
 }
 
 /// Windows: owner-only DACL on the directory and children, including a
