@@ -2807,7 +2807,8 @@ function AcpmuxPane() {
   const mentionsKey = JSON.stringify([
     startedOn,
     started.map((child) => [child.sessionId, child.title, child.named, child.state]),
-    otherIds.map((mention) => [mention.sessionId, mention.state]),
+    // Ids only: another session's state reaches its card through the hover store, never a redraw.
+    otherIds.map((mention) => mention.sessionId),
   ]);
   const startedMentions = useMemo<StartedMentions>(
     () => {

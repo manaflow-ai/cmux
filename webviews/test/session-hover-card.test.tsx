@@ -204,6 +204,7 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
   expect(card()).toBeNull();
   await act(async () => wait(SESSION_HOVER_DELAY));
   expect(card()?.getAttribute("role")).toBe("dialog");
+  expect(card()?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
   expect(card()?.textContent).toContain("Running");
   expect(card()?.textContent).toContain("cmux");
   expect(chip.getAttribute("aria-describedby")).toBe(card()?.id ?? "missing");
@@ -224,11 +225,24 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
   });
   const inside = card()!.querySelector<HTMLButtonElement>(".acpmux-session-hover")!;
   expect(dom.window.document.activeElement).toBe(inside);
+  // The pointer drifting off while focus is in the card keeps it.
+  await act(async () => {
+    pointer("pointerover");
+    pointer("pointerenter");
+    pointer("pointerout");
+    pointer("pointerleave");
+    await wait(400);
+  });
   expect(card()).not.toBeNull();
+  expect(dom.window.document.activeElement).toBe(inside);
+  // One Escape closes the card and hands focus back; the refocus does not show it again.
   await act(async () => {
     inside.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await wait(400);
   });
   expect(dom.window.document.activeElement).toBe(chip);
+  expect(card()).toBeNull();
+  expect(chip.hasAttribute("aria-describedby")).toBe(false);
 
   // A click on the card opens the session.
   await act(async () => {

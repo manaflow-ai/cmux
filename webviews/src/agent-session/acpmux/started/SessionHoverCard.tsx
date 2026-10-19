@@ -64,6 +64,8 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
   const [placed, setPlaced] = useState<HTMLElement | null>(null);
   const leave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inside = useRef<HTMLButtonElement | null>(null);
+  // Escape in the card hands focus back to the reference: that focus must not show the card again.
+  const returning = useRef(false);
   const cardId = useId();
   useEffect(() => {
     if (intent.shown) setPlaced(intent.shown);
@@ -76,11 +78,13 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
     leave.current = undefined;
   };
   // The pointer or focus left the reference or its card: the card goes after the grace, unless
-  // it comes back to either.
+  // it comes back to either, or focus is still on one of them (the pointer drifting off a card
+  // the keyboard opened).
   const go = () => {
     stay();
     leave.current = setTimeout(() => {
       leave.current = undefined;
+      if (ownsFocus(document.activeElement)) return;
       point(null);
     }, HOVER_INTENT.cardGrace);
   };
@@ -99,6 +103,10 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
     onPointerDown: now,
     onFocus: (event) => {
       stay();
+      if (returning.current) {
+        returning.current = false;
+        return;
+      }
       point(event.currentTarget, 0);
     },
     onBlur: (event) => {
@@ -123,6 +131,7 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
       open={intent.shown !== null}
       instant={intent.instant}
       interactive
+      ariaLabel={hover.store.get(sessionId)?.title}
       className="acpmux-session-hover-card"
       onPointerEnter={stay}
       onPointerLeave={go}
@@ -137,7 +146,9 @@ export function useSessionHover(sessionId: string): { trigger: SessionHoverTrigg
         }}
         onEscape={() => {
           now();
+          returning.current = true;
           placed.focus();
+          returning.current = false;
         }}
         onBlur={(event) => {
           if (!ownsFocus(event.relatedTarget)) go();
