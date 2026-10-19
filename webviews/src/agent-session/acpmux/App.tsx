@@ -1231,6 +1231,9 @@ export function VirtualTranscript({
   >(undefined);
   /// Estimated heights by row object, for the registry they were measured with.
   const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({ registry, heights: new WeakMap() });
+  // The chat type the host sends (appearance.fonts.chatSize and .ui): a change estimates every row again.
+  const chatSize = useHostChatSize();
+  const estimatedChatSize = useRef(chatSize);
   const measurementSession = useRef(sessionId);
   if (measurementSession.current !== sessionId) {
     // Row ids and versions are local to an acpmux session. A new session can reuse both, so
@@ -1463,8 +1466,10 @@ export function VirtualTranscript({
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
     const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
-    const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId;
-    if (rowHeights.current.registry !== registry) rowHeights.current = { registry, heights: new WeakMap() };
+    const resized = estimatedChatSize.current !== chatSize;
+    estimatedChatSize.current = chatSize;
+    const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || resized;
+    if (rowHeights.current.registry !== registry || resized) rowHeights.current = { registry, heights: new WeakMap() };
     const rowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth));
     const last = lastEstimate.current;
     const layout = layoutConversation(
@@ -1477,7 +1482,7 @@ export function VirtualTranscript({
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, width, chatWidth]);
+  }, [rows, registry, sessionId, width, chatWidth, chatSize]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -5872,4 +5877,23 @@ function AcpmuxPane() {
     </ShortcutsContext.Provider>
   );
   return <SignInContext.Provider value={signIn}>{pane}</SignInContext.Provider>;
+}
+
+/** The chat's type as one key (`--cmux-font-chat-size` and `--cmux-font-ui`), so an unset value
+ * (`initial`, or none before the first theme) reads the same and only a real change re-estimates. */
+function useHostChatSize(): string {
+  const read = () => {
+    if (typeof document === "undefined") return "14|";
+    const style = document.documentElement.style;
+    const size = Number.parseFloat(style.getPropertyValue("--cmux-font-chat-size"));
+    const face = style.getPropertyValue("--cmux-font-ui").trim();
+    return `${Number.isFinite(size) ? size : 14}|${face === "initial" ? "" : face}`;
+  };
+  const [size, setSize] = useState(read);
+  useEffect(() => {
+    const update = () => setSize(read());
+    window.addEventListener("cmux-theme", update);
+    return () => window.removeEventListener("cmux-theme", update);
+  }, []);
+  return size;
 }

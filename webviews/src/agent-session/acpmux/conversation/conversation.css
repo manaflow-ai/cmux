@@ -28,14 +28,16 @@
      them share one column: 720px, widening with a wide pane to an 800px cap as Codex and Claude
      desktop do, centered, never nearer the pane's sides than the page edge (--page-edge, #20121).
      model.ts transcriptColumn mirrors it. */
-  --cv-font-size: 14px;
-  --cv-line-height: 22.75px;
+  --cv-font-size: var(--cmux-font-chat-size, 14px);
+  /* 22.75px at 14px: the line follows the chat size (appearance.fonts.chatSize). */
+  --cv-line-height: calc(var(--cv-font-size) * 1.625);
   --cv-column: clamp(720px, 62.5%, 800px);
   --cv-edge: var(--page-edge, 18px);
   /* Resolved where it is used: 100% is the pane's width there. */
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
-  --cv-font: system-ui;
-  --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* The faces follow appearance.fonts (--cmux-font-*, WebTheme.swift); unset, today's. */
+  --cv-font: var(--cmux-font-ui, system-ui);
+  --cv-mono: var(--cmux-font-code, ui-monospace, "SF Mono", Menlo, monospace);
   /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
      Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);

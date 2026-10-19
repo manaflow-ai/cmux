@@ -87,15 +87,16 @@ const MONO_STACK = `ui-monospace, "SF Mono", Menlo, monospace`;
 const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] as const;
 
 /**
- * Code in the pane draws in the terminal's face, as on the diff, markdown and editor pages. The host
- * applies the shared web theme (`window.cmuxTheme`, its `terminal.fontFamily`) just before the pane's
- * own on every theme change (AgentPaneTheme.swift `script`); without a named face the stylesheets'
- * mono stack applies.
+ * Code in the pane draws in the code face (`appearance.fonts.code`), else the terminal's, as on the
+ * diff, markdown and editor pages. The host applies the shared web theme (`window.cmuxTheme`, its
+ * `codeFontFamily` and `terminal.fontFamily`) just before the pane's own on every theme change
+ * (AgentPaneTheme.swift `script`); without a named face the stylesheets' mono stack applies.
  */
 function applyTerminalCodeFont(root: HTMLElement): void {
-  const host = (window as { cmuxTheme?: { current?: { terminal?: { fontFamily?: unknown } } | null } }).cmuxTheme;
-  const family = host?.current?.terminal?.fontFamily;
-  const face = typeof family === "string" ? family.trim() : "";
+  type Current = { codeFontFamily?: unknown; terminal?: { fontFamily?: unknown } };
+  const current = (window as { cmuxTheme?: { current?: Current | null } }).cmuxTheme?.current;
+  const named = (family: unknown) => (typeof family === "string" ? family.trim() : "");
+  const face = named(current?.codeFontFamily) || named(current?.terminal?.fontFamily);
   for (const variable of CODE_FONT_VARIABLES) {
     if (face) root.style.setProperty(variable, `${JSON.stringify(face)}, ${MONO_STACK}`);
     else root.style.removeProperty(variable);

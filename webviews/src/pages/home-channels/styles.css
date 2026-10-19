@@ -24,7 +24,7 @@
   --agent-border: var(--page-separator);
   --agent-page-bg: transparent;
   --agent-danger: var(--hc-danger);
-  --cv-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --cv-font: var(--cmux-font-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif);
   --cv-para-after: 4px;
   --cv-column: none;
 }
