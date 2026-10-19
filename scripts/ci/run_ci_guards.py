@@ -95,6 +95,9 @@ GROUP_TERM = re.compile(
 GROUP_EXPRESSION = re.compile(
     rf"(?:{GROUP_TERM.pattern})(?:\s*\|\|\s*(?:{GROUP_TERM.pattern}))*"
 )
+# The prefix every workflow-guard-tests step carries so a red guard does not
+# skip the rest of its group.
+KEEP_GOING = re.compile(r"!cancelled\(\)\s*&&\s*(.+)")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
@@ -164,6 +167,13 @@ def step_groups(condition: str) -> tuple[set[str], bool]:
         return set(), False
     if wrapped.startswith("${{") and wrapped.endswith("}}"):
         expression = wrapped[3:-2].strip()
+        # `!cancelled() && <groups>` keeps a group running past a red step in
+        # CI; a local run already runs every step, so only the groups count.
+        keep_going = KEEP_GOING.fullmatch(expression)
+        if keep_going:
+            expression = keep_going.group(1).strip()
+            if expression.startswith("(") and expression.endswith(")"):
+                expression = expression[1:-1].strip()
         if GROUP_EXPRESSION.fullmatch(expression):
             return set(GROUP_CONDITION.findall(expression)), False
     return set(GROUP_CONDITION.findall(condition)), True

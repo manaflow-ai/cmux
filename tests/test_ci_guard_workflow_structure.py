@@ -78,7 +78,7 @@ def test_agent_chat_uses_a_pinned_local_compiler_and_runs_tests_once() -> None:
         # 8822e0897f27 (cx-034r) deleted the agent-chat unit tests; the step runs the behavior tests.
         "Run agent-chat tests",
     ]
-    assert all(step["if"] == "${{ matrix.group == 'preflight-agent-chat' }}" for step in chat_steps)
+    assert all(step["if"] == "${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}" for step in chat_steps)
     assert chat_steps[0]["run"].splitlines() == [
         "bun install --frozen-lockfile",
         "./node_modules/.bin/tsc --noEmit",
@@ -97,7 +97,7 @@ def test_python_syntax_check_uses_the_cheap_quality_lane() -> None:
         for step in workflow["jobs"]["workflow-guard-tests"]["steps"]
         if step.get("name") == "Validate Python test harness syntax"
     )
-    assert step["if"] == "${{ matrix.group == 'quality-determinism' }}"
+    assert step["if"] == "${{ !cancelled() && matrix.group == 'quality-determinism' }}"
 def test_ci_group_has_one_authoritative_dag_owner() -> None:
     workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["workflow-guard-tests"]
