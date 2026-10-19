@@ -279,7 +279,19 @@ const vmResource = (request: Request, parts: ReadonlyArray<string>, principal: P
       if (Option.isSome(identityRow)) {
         const identityId = parseIdentityId(identityRow.value.cmuxId);
         if (Option.isSome(identityId)) {
-          yield* name(principal, (caller) => name(identityId.value, (identity) => name(owned.vm.value, (vm) => tenantOwnsIdentity(caller, identity).pipe(Effect.flatMap((identityOwns) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((vmOwns) => identityOwns === null || vmOwns === null ? Effect.void : upstream.forwardGrant(identityOwns, vmOwns, { request: new Request("https://vm.test", { method: "DELETE" }), template: "/v5/identities/{identity}/permissions/vm/{vm}", operation: "revokeVmGrant" }).pipe(Effect.asVoid))))))));
+          yield* name(principal, (caller) => name(identityId.value, (identity) => name(owned.vm.value, (vm) =>
+            tenantOwnsIdentity(caller, identity).pipe(
+              Effect.flatMap((identityOwns) => identityOwns === null ? Effect.void :
+                tenantOwnsVm(caller, vm).pipe(
+                  Effect.flatMap((vmOwns) => vmOwns === null ? Effect.void : upstream.forwardGrant(identityOwns, vmOwns, {
+                    request: new Request("https://vm.test", { method: "DELETE" }),
+                    template: "/v5/identities/{identity}/permissions/vm/{vm}",
+                    operation: "revokeVmGrant",
+                  }).pipe(Effect.asVoid)),
+                ),
+              ),
+            ),
+          )));
         }
       }
     }
@@ -363,17 +375,19 @@ const identityResource = (request: Request, parts: ReadonlyArray<string>, princi
   if (Option.isNone(row)) return notFound();
   const parsed = parseIdentityId(row.value.cmuxId);
   if (Option.isNone(parsed)) return notFound();
-  const result = yield* name(principal, (caller) => name(parsed.value, (identity) => tenantOwnsIdentity(caller, identity).pipe(Effect.map((owns) => owns === null ? null : { owns, identity }))));
-  if (result === null) return notFound();
-  const tail = parts.slice(1);
-  if (tail[0] === "permissions" && tail[1] === "vm") return yield* identityPermission(request, tail.slice(2), principal, result.owns, parsed.value, ownership, identities, upstream, audit, now);
-  if (tail[0] === "tokens") return yield* identityToken(request, tail.slice(1), principal, result.owns, parsed.value, identities, upstream, audit, now);
-  const response = yield* upstream.forwardIdentity(result.owns, { request, template: "/v5/identities/{id}", operation: `identity.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
-  if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "identity", row.value.cmuxId, now).pipe(Effect.ignore);
-  return copyResponse(response);
+  return yield* name(principal, (caller) => name(parsed.value, (identity) => Effect.gen(function* () {
+    const owns = yield* tenantOwnsIdentity(caller, identity);
+    if (owns === null) return notFound();
+    const tail = parts.slice(1);
+    if (tail[0] === "permissions" && tail[1] === "vm") return yield* identityPermission(request, tail.slice(2), principal, caller, owns, parsed.value, ownership, identities, upstream, audit, now);
+    if (tail[0] === "tokens") return yield* identityToken(request, tail.slice(1), principal, owns, parsed.value, identities, upstream, audit, now);
+    const response = yield* upstream.forwardIdentity(owns, { request, template: "/v5/identities/{id}", operation: `identity.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+    if (request.method === "DELETE" && response.ok) yield* ownership.markDeleted(principal.tenantId, "identity", row.value.cmuxId, now).pipe(Effect.ignore);
+    return copyResponse(response);
+  })));
 });
 
-const identityPermission = <C, R extends IdentityId>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, ownership: OwnershipStoreService, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
+const identityPermission = <C, R>(request: Request, parts: ReadonlyArray<string>, principal: Principal, caller: Named<C, Principal>, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, ownership: OwnershipStoreService, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   if (request.method === "POST" && principal.resourceAllowlist !== null) return forbidden("A key limited to specific resources cannot grant identity access");
   if (parts.length === 0 && request.method === "GET") {
     const grants = yield* identities.listGrants(principal.tenantId, identityId);
@@ -387,20 +401,19 @@ const identityPermission = <C, R extends IdentityId>(request: Request, parts: Re
   if (Option.isNone(vmRow)) return notFound();
   const vmParsed = parseVmId(vmRow.value.cmuxId);
   if (Option.isNone(vmParsed)) return notFound();
-  const vmOwns = yield* name(principal, (caller) => name(vmParsed.value, (vm) => tenantOwnsVm(caller, vm)));
-  if (vmOwns === null) return notFound();
   const template = parts.length === 0 ? "/v5/identities/{id}/permissions/vm" : `/v5/identities/{id}/permissions/vm/${encodeURIComponent(resolvedVmId)}`;
-  const response = yield* upstream.forwardGrant(identityProof, vmOwns, { request, template: template.replace("{id}", "{identity}").replace(resolvedVmId, "{vm}"), operation: `identity.permission.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
+  const response = yield* name(vmParsed.value, (vm) => tenantOwnsVm(caller, vm).pipe(Effect.flatMap((vmOwns) => vmOwns === null ? Effect.succeed(notFound()) : upstream.forwardGrant(identityProof, vmOwns, { request, template: template.replace("{id}", "{identity}").replace(resolvedVmId, "{vm}"), operation: `identity.permission.${request.method.toLowerCase()}` }).pipe(Effect.map(copyResponse), Effect.mapError((failure) => providerError(failure.status))))));
+  if (response.status === 404) return response;
   if (response.ok && request.method === "POST") {
     const data = yield* Effect.promise(() => parseJson(response));
     yield* identities.recordGrant({ id: stringField(data, "id") ?? idFrom("vmp-"), tenantId: principal.tenantId, identityCmuxId: identityId, vmCmuxId: vmParsed.value, upstreamId: vmRow.value.upstreamId, allowedLinuxUsers: Array.isArray(data?.allowedLinuxUsers) ? data.allowedLinuxUsers.filter((value): value is string => typeof value === "string") : null, grantedAt: now, grantedBy: principal.tenantId }).pipe(Effect.ignore);
   }
   if (response.ok && request.method === "DELETE") yield* identities.revokeGrant(principal.tenantId, identityId, vmParsed.value, now).pipe(Effect.ignore);
   yield* audit.append({ tenantId: principal.tenantId, actor: actorRef(principal.actor), ownerActor: null, action: `v5.identity.permission.${request.method.toLowerCase()}`, cmuxId: identityId, outcome: response.ok ? "ok" : `HTTP_${response.status}`, at: now }).pipe(Effect.ignore);
-  return copyResponse(response);
+  return response;
 });
 
-const identityToken = <C, R extends IdentityId>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
+const identityToken = <C, R>(request: Request, parts: ReadonlyArray<string>, principal: Principal, identityProof: TenantOwnsResource<C, R>, identityId: IdentityId, identities: IdentityStoreService, upstream: CompatUpstreamService, audit: AuditStoreService, now: Date) => Effect.gen(function* () {
   const tokenPath = parts[0] === undefined ? "/v5/identities/{id}/tokens" : `/v5/identities/{id}/tokens/${encodeURIComponent(parts[0])}`;
   const response = yield* upstream.forwardIdentity(identityProof, { request, template: tokenPath, operation: `identity.token.${request.method.toLowerCase()}` }).pipe(Effect.mapError((failure) => providerError(failure.status)));
   if (response.ok && request.method === "POST") {

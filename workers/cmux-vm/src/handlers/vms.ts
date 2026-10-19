@@ -81,7 +81,7 @@ export const toVm = (
 /** Provider failures on an existing VM: 404 means the VM is gone; 409 is the given conflict; the rest is ours. */
 const onVm =
   (conflictMessage: string) =>
-  (error: UpstreamError): NotFound | Conflict | ServiceUnavailable =>
+  (error: UpstreamError): BadRequest | NotFound | Conflict | ServiceUnavailable =>
     error.unsupported !== undefined ? badRequest(error.unsupported) : error.status === 404 ? vmNotFound() : error.status === 409 ? conflict(conflictMessage) : unavailable();
 
 /** Provider failures reading a VM: 404 means it is gone; anything else is ours. */
@@ -627,8 +627,7 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
             for (const grant of grants) {
               const identity = parseIdentityId(grant.identityCmuxId);
               if (Option.isSome(identity)) {
-                const identityOwns = yield* tenantOwnsIdentity(caller, identity).pipe(Effect.mapError(() => unavailable()));
-                if (identityOwns !== null) yield* compatUpstream.forwardGrant(identityOwns, proofs.owns, { request: new Request("https://vm.test", { method: "DELETE" }), template: "/v5/identities/{identity}/permissions/vm/{vm}", operation: "v1.vm.delete.revokeGrant" }).pipe(Effect.ignore);
+                yield* name(identity.value, (namedIdentity) => tenantOwnsIdentity(caller, namedIdentity).pipe(Effect.flatMap((identityOwns) => identityOwns === null ? Effect.void : compatUpstream.forwardGrant(identityOwns, proofs.owns, { request: new Request("https://vm.test", { method: "DELETE" }), template: "/v5/identities/{identity}/permissions/vm/{vm}", operation: "v1.vm.delete.revokeGrant" }).pipe(Effect.asVoid)))).pipe(Effect.mapError(() => unavailable()));
               }
             }
             yield* identityStore.revokeGrantsForVm(caller.value.tenantId, vm.value, now).pipe(Effect.mapError(() => unavailable()));
