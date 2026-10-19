@@ -465,6 +465,23 @@ def red_fast_checks(pr: PullRequest) -> list[str]:
                    if status == "completed" and conclusion in RED and name not in HEAVY_CHECKS | fixable})
 
 
+# Never waived by an override label: risk evidence judges the PR's own description and merge freeze its
+# own paths, and neither runs on the stack, so the batch can't judge them for it.
+NEVER_WAIVED = frozenset({"risk evidence", "merge freeze"})
+
+
+def freeze_check(repo: str, number: int, env: dict[str, str]) -> tuple[int, str]:
+    """merge_freeze.py's verdict right before the merge: 0 clear, 1 frozen, 2 unreadable (never clear).
+
+    A freeze opened after the PR's own `merge freeze` check ran still stops it here."""
+    try:
+        done = subprocess.run([sys.executable, str(TOOLS_ROOT / "scripts/ci/merge_freeze.py"), "check", "--repo", repo,
+                               "--pr", str(number), "--base", BASE], capture_output=True, text=True, env=env, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 2, str(error)
+    return (done.returncode if done.returncode in (0, 1) else 2), (done.stdout + done.stderr).strip()[-300:]
+
+
 def red_format_checks(pr: PullRequest) -> list[str]:
     return sorted({name for name, status, conclusion in pr.checks
                    if status == "completed" and conclusion in RED and name in FORMAT_CHECKS})
@@ -593,6 +610,9 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
     if pr.number in coordinator_prs():
         return "coord-2 lands it (listed in its merge-ready file)"
     red = red_fast_checks(pr)
+    never = sorted(name for name in red if name.lower() in NEVER_WAIVED)
+    if never:
+        return "red check " + ", ".join(never)
     # A trusted `queue: known base red` lets the batch judge it: a job red on
     # feat-cmux-next itself never counts against the stack.
     if red and OVERRIDE_BASE_RED not in trusted_labels(pr):
@@ -1631,18 +1651,32 @@ class Controller:
     def merge_one(self, pr: PullRequest, validation: Validation) -> str:
         """Squash-merge the exact head this batch validated through GitHub's merge API.
 
-        The batch already ran every tier on the stack, so nothing is re-judged here: GitHub refuses a head
-        that moved, a conflict or a branch rule, and that refusal is reported and the PR waits for the next
-        batch. (feat-cmux-next's bar is the batch plus the review gate, not main's needs-green helper.)"""
-        passed = ", ".join(validation.heavy_passed) or "no heavy-tier job"
-        try:
-            self.writer.api(f"repos/{self.args.repo}/pulls/{pr.number}/merge", method="PUT", body={
-                "sha": pr.sha, "merge_method": "squash",
-                "commit_message": (f"Landed by the cmux-next batch queue ({self.run_url}): stack "
-                                   f"{validation.stack.head[:12]}, heavy tier passed: {passed}.")})
-        except RuntimeError as error:
-            return f"not landed: GitHub refused to merge {self.args.repo}#{pr.number}: {str(error)[-200:]}"
-        return "landed"
+        The batch already ran every tier on the stack, so checks aren't re-judged here. Merge freezes are,
+        right before the merge, since one may have opened after the PR's own check ran. GitHub's default
+        squash body is kept, with every commit's Co-authored-by trailer. A transient GitHub error (5xx, or
+        "Base branch was modified" while GitHub recomputes after the previous merge) is retried once and
+        never marks the PR refused; a real refusal (the head moved, a conflict) does, and the PR waits for
+        a push."""
+        code, detail = freeze_check(self.args.repo, pr.number, getattr(self.writer, "env", None) or dict(os.environ))
+        if code == 1:
+            return f"not landed: frozen ({detail})"
+        if code != 0:
+            return f"not landed: the merge freeze state is unreadable ({detail})"
+        path = f"repos/{self.args.repo}/pulls/{pr.number}/merge"
+        for attempt in (1, 2):
+            try:
+                self.writer.api(path, method="PUT", body={"sha": pr.sha, "merge_method": "squash"})
+                return "landed"
+            except RuntimeError as error:
+                text = str(error)
+                transient = "Base branch was modified" in text or re.search(r"HTTP 5\d\d", text)
+                if transient and attempt == 1:
+                    time.sleep(15)
+                    continue
+                if transient:
+                    return f"not landed: GitHub was busy ({text[-160:]}); the next batch tries again"
+                return f"not landed: GitHub refused to merge {self.args.repo}#{pr.number}: {text[-200:]}"
+        return "not landed"
 
     def after_landing(self) -> None:
         """Merges by the job token start no push workflows; start the base ones.
