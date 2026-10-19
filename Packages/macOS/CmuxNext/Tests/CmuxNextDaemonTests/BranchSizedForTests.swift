@@ -35,7 +35,7 @@ struct BranchSizedForTests {
             var phoneEvents = phone.events.makeAsyncIterator()
 
             // The phone only attached: the Mac keeps the grid, and the phone is told.
-            let glance = await Self.notice(in: &phoneEvents) { $0 != nil }
+            let glance = await Self.notice(in: &phoneEvents) { notice, _ in notice != nil }
             #expect(glance == TerminalSizeNotice(ownerName: "Studio", ownerKind: "mac", sameDevice: false,
                                                  cols: 100, rows: 30, mode: "latest", reason: "latest"),
                     "the phone's attach took the grid or the phone was not told: \(String(describing: glance))")
@@ -44,16 +44,16 @@ struct BranchSizedForTests {
 
             // The phone takes over: the grid is the phone's, the Mac is told, the phone's notice clears.
             phone.takeOver(reporting: CellSize(cols: 50, rows: 20), setLatest: false)
-            let macTold = await Self.notice(in: &macEvents) { $0 != nil }
+            let macTold = await Self.notice(in: &macEvents) { notice, _ in notice != nil }
             #expect(macTold == TerminalSizeNotice(ownerName: "Pocket", ownerKind: "iphone", sameDevice: false,
                                                   cols: 50, rows: 20, mode: "latest", reason: "latest"),
                     "the Mac was not told the phone sets the grid: \(String(describing: macTold))")
-            let phoneCleared = await Self.notice(in: &phoneEvents) { $0 == nil }
+            let phoneCleared = await Self.notice(in: &phoneEvents) { notice, _ in notice == nil }
             #expect(phoneCleared == nil)
 
             // The Mac takes it back (a focus click or Take over is this claim): its notice clears.
             mac.claimGeometry(reporting: CellSize(cols: 100, rows: 30))
-            let macCleared = await Self.notice(in: &macEvents) { $0 == nil }
+            let macCleared = await Self.notice(in: &macEvents) { notice, _ in notice == nil }
             #expect(macCleared == nil)
 
             // Fit everyone: the phone's smaller screen sets the grid, and no claim can move it.
@@ -81,21 +81,14 @@ struct BranchSizedForTests {
         }
     }
 
-    /// The first size state whose notice matches `wanted`; `.some(nil)` is a cleared notice.
-    /// Returns the matched notice, or a sentinel notice naming the end of the stream.
+    /// The first size state whose notice (and state) matches `wanted`; `.some(nil)` is a cleared
+    /// notice. Returns the matched notice, or a sentinel notice naming the end of the stream.
     private static func notice(
         in events: inout AsyncStream<TerminalChannelEvent>.Iterator,
-        where wanted: (TerminalSizeNotice?) -> Bool
-    ) async -> TerminalSizeNotice? {
-        await notice(in: &events) { notice, _ in wanted(notice) }
-    }
-
-    /// Like ``notice(in:where:)``, matching on the size state too (its policy).
-    private static func notice(
-        in events: inout AsyncStream<TerminalChannelEvent>.Iterator,
+        isolation: isolated (any Actor)? = #isolation,
         where wanted: (TerminalSizeNotice?, TerminalSizeState) -> Bool
     ) async -> TerminalSizeNotice? {
-        while let event = await events.next() {
+        while let event = await events.next(isolation: isolation) {
             switch event {
             case .sizeState(let state, let participant):
                 let notice = state.notice(for: participant)
