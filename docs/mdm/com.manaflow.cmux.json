@@ -2711,7 +2711,7 @@
     },
     "phone.cloudReplica" : {
       "default" : false,
-      "description" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. No folders, titles or terminal output. Turning this off deletes the copy.",
+      "description" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy.",
       "title" : "Show This Mac's Workspaces on Your Phone While It's Off",
       "type" : "boolean"
     },

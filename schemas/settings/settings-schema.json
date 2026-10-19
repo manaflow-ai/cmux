@@ -4188,7 +4188,7 @@
       },
       "help" : {
         "key" : "settings.phone.cloudReplica.help",
-        "text" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. No folders, titles or terminal output. Turning this off deletes the copy."
+        "text" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy."
       },
       "kept_on_reset_all" : false,
       "key" : "phone.cloudReplica",
@@ -29318,7 +29318,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "256dba292c560cd95e3ce234bc2e251818529b9fe5f03491a34f322ce9ff3098",
+  "schema_hash" : "9989d4acc39a68b97c8c4c91b4bea8c9253be5bcaf57e0cd2b132c357ffa920b",
   "sections" : [
     {
       "id" : "general",

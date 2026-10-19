@@ -754,7 +754,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. No folders, titles or terminal output. Turning this off deletes the copy.</string>
+			<string>cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy.</string>
 			<key>pfm_name</key>
 			<string>phone.cloudReplica</string>
 			<key>pfm_title</key>
