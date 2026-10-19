@@ -37,6 +37,8 @@ public final class OnboardingModel {
     /// else Done.
     public var primaryTitle: String {
         if step == .importData, importer.phase == .idle { return OnboardingStrings.findBrowsers }
+        if step == .importData, importer.explainingAccess != nil { return OnboardingStrings.continueTitle }
+        if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
         return OnboardingStrings.done
     }
@@ -51,12 +53,21 @@ public final class OnboardingModel {
         case .importData where importer.phase == .idle:
             importer.detect()
             return
+        case .importData where importer.explainingAccess != nil:
+            importer.continueAccess()
+            return
         case .importData where importer.canStart:
             importer.start()
             return
         default:
             finish(completed: true)
         }
+    }
+
+    /// The footer's Skip: Skip Importing on the Keychain explainer, where it
+    /// leaves without reading anything.
+    public var skipTitle: String {
+        step == .importData && importer.isConfirmingPasswords ? OnboardingStrings.skipImporting : OnboardingStrings.skip
     }
 
     /// Skip (Escape): ends the window; a running import finishes.

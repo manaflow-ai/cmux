@@ -53,12 +53,14 @@ final class OnboardingFooter: NSView {
             heightAnchor.constraint(equalToConstant: 40),
         ])
         let model = context.model
-        loop = RenderLoop { [weak next] in
+        loop = RenderLoop { [weak next, weak skip] in
             let title = model.primaryTitle
             if next?.title != title {
                 next?.title = title
                 (next as? OnboardingAccentButton)?.refreshAppearance()
             }
+            // Skip Importing on the Keychain explainer.
+            (skip as? OnboardingTextButton)?.setPlainTitle(model.skipTitle)
         }
     }
 

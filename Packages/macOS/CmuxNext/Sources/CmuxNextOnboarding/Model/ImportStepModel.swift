@@ -3,7 +3,10 @@ import Foundation
 public import Observation
 
 /// Import step: detect browsers, check the profiles to bring and which of
-/// bookmarks, history, sign-ins (cookies) and passwords. With passwords
+/// bookmarks, history, sign-ins (cookies) and passwords. A browser whose
+/// profile folder cmux has no grant for is listed by name; Allow Access
+/// explains the grant (`explainingAccess`), then Continue opens the open
+/// panel at that folder, and only a granted folder is read. With passwords
 /// checked, Import first asks for consent (`confirmingPasswords`): it names
 /// each browser profile and the Keychain item macOS will ask about, and
 /// nothing is read until the user confirms. Import then runs it in place, row
@@ -18,6 +21,8 @@ public final class ImportStepModel {
         case idle
         case detecting
         case ready
+        /// Explaining the folder grant for one browser, before the open panel.
+        case explainingAccess(ImportBrowser)
         /// Waiting for the user to agree to the password import (or skip it).
         case confirmingPasswords
         case importing(ImportProgress?)
@@ -38,6 +43,12 @@ public final class ImportStepModel {
 
     public private(set) var phase: Phase = .idle
     public private(set) var sources: [BrowserSource] = []
+    /// Browsers on this Mac whose profile folder has no grant yet (nothing in it was read).
+    public private(set) var awaitingAccess: [ImportBrowser] = []
+    /// The open panel is up for the browser being explained.
+    public private(set) var requestingAccess = false
+    /// The last open panel ended without the browser's folder.
+    public private(set) var accessNotGranted = false
     /// Selected profile ids (`BrowserSourceProfile.id`).
     public private(set) var selectedProfiles: Set<String> = []
     /// What to bring from every selected profile.
@@ -69,6 +80,72 @@ public final class ImportStepModel {
     public private(set) var passwordStore = false
     /// Profiles whose passwords the user agreed to import, on the consent screen.
     public private(set) var passwordConsent: Set<String> = []
+
+    /// Allow Access on a browser that has no grant: the explainer, nothing opened yet.
+    public func askAccess(_ browser: ImportBrowser) {
+        guard canEditSelection || isFinished, awaitingAccess.contains(browser) else { return }
+        accessNotGranted = false
+        phase = .explainingAccess(browser)
+    }
+
+    /// Cancel on the explainer: back to the list.
+    public func cancelAccess() {
+        guard explainingAccess != nil else { return }
+        accessRequest += 1
+        requestingAccess = false
+        accessNotGranted = false
+        phase = .ready
+    }
+
+    /// Continue on the explainer: the open panel at the browser's folder; a
+    /// grant looks for browsers again, so its profiles join the list.
+    public func continueAccess() {
+        guard let browser = explainingAccess, !requestingAccess else { return }
+        requestingAccess = true
+        accessNotGranted = false
+        accessRequest += 1
+        let request = accessRequest
+        task = Task { [weak self, services] in
+            let granted = await services.requestFolderAccess(for: browser)
+            guard let self, self.accessRequest == request else { return }
+            self.requestingAccess = false
+            guard self.explainingAccess == browser else { return }
+            if granted { self.redetect() } else { self.accessNotGranted = true }
+        }
+    }
+
+    /// The folder a grant for `browser` must pick.
+    public func folderPath(_ browser: ImportBrowser) -> URL? { services.accessFolder(for: browser) }
+
+    /// The browser the grant explainer is up for.
+    public var explainingAccess: ImportBrowser? {
+        if case .explainingAccess(let browser) = phase { browser } else { nil }
+    }
+
+    /// Which open panel may still act: Cancel and a new panel move it on.
+    @ObservationIgnored private var accessRequest = 0
+
+    private var isFinished: Bool {
+        if case .finished = phase { true } else { false }
+    }
+
+    /// Import Passwords from CSV…: shown when a listed profile has saved
+    /// passwords this build cannot read (export only), the Keychain
+    /// confirmation did not finish, or an import could not read them. The
+    /// CSV is the browser's own export and needs no Keychain.
+    public var offersPasswordCSV: Bool {
+        let exportOnly = profiles.contains {
+            if case .unsupported = $0.availability(of: .passwords) { true } else { false }
+        }
+        switch phase {
+        case .idle, .detecting, .importing, .explainingAccess: return false
+        case .confirmingPasswords: return authorizationDenied
+        case .finished(let summary): return exportOnly || summary.batches.contains { $0.passwordError != nil }
+        case .ready, .cancelled, .failed: return exportOnly
+        }
+    }
+
+    public func importPasswordsFromCSV() { services.importPasswordsFromCSV(into: mergeTarget) }
 
     /// The kinds every profile row is shown for.
     public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .cookies]
@@ -106,14 +183,19 @@ public final class ImportStepModel {
         // Never under a running import: its rows and summary would be lost.
         guard !isImporting else { return }
         endAuthorization()
+        accessRequest += 1
+        requestingAccess = false
+        accessNotGranted = false
         task?.cancel()
         phase = .detecting
         task = Task { [weak self, services] in
             let found = await services.detectBrowsers()
+            let awaiting = await services.browsersAwaitingAccess()
             let chromiumPasswords = found.contains { $0.profiles.contains { $0.availability(of: .passwords).isImportable } }
             let store = chromiumPasswords ? await services.canImportPasswords() : false
             guard let self, !Task.isCancelled else { return }
             sources = Self.edgeFirst(found)
+            awaitingAccess = awaiting
             // Checked like the rest the first time it is offered; Import asks before anything is read.
             if store, !passwordStore, presetKinds?.contains(.passwords) ?? true { kinds.insert(.passwords) }
             if !store { kinds.remove(.passwords) }
@@ -339,6 +421,7 @@ public final class ImportStepModel {
 
     public func cancel() {
         endAuthorization()
+        if explainingAccess != nil { cancelAccess() }
         guard let task else { return }
         task.cancel()
         self.task = nil
