@@ -74,6 +74,8 @@ public struct SessionStateMirror: Sendable, Hashable {
         case tab(ResourceID)
         case terminal(ResourceID)
         case closed
+        /// A stash (`stash-v1`): the mirror keeps none, so readers list the stashes again.
+        case stash
     }
 
     /// Applies one ordered batch of changes in place.
@@ -148,6 +150,8 @@ public struct SessionStateMirror: Sendable, Hashable {
         case .screenGroupRemoved(let id):
             guard let old = screenGroups.removeValue(forKey: id) else { return }
             touched.insert(.workspace(old.workspaceID))
+        case .stash:
+            touched.insert(.stash)
         case .sidebarBatch:
             // The sidebar document has its own mirror (SessionStateStore.onSidebarBatch).
             break

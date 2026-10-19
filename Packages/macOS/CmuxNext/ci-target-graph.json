@@ -211,10 +211,12 @@
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar",
+        "CmuxNextStash",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
+        "CmuxNextTerminalGeometry",
         "CmuxNextUpdater",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming"
@@ -269,6 +271,7 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextTabs",
         "CmuxNextTasks",
+        "CmuxNextTerminalGeometry",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -998,6 +1001,17 @@
       "packages": [
         "CmuxAgentBrands"
       ]
+    },
+    "CmuxNextStash": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextStash",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextHistory"
+      ],
+      "packages": []
     },
     "CmuxNextTabs": {
       "kind": "regular",

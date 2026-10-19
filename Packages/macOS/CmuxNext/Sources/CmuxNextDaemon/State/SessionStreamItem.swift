@@ -16,6 +16,8 @@ public enum SessionStateChange: Sendable, Hashable {
     case statusRemoved(ResourceID)
     case screenGroup(StateScreenGroup)
     case screenGroupRemoved(String)
+    /// A stash (`stash-v1`) was stored, changed or removed; readers list the stashes again.
+    case stash(String)
     /// The `sidebar_item` / `sidebar_section` changes of one batch, raw
     /// (`sidebar-doc-v1`): the client mirror applies them with the Rust reducer.
     case sidebarBatch(SidebarDocBatch)
@@ -243,6 +245,7 @@ enum SessionWire {
             case ("state_delete", "workspace_status"): change = .statusRemoved(rid)
             case ("state_upsert", "screen_group"): change = .screenGroup(try c.decode(StateScreenGroup.self, forKey: .value))
             case ("state_delete", "screen_group"): change = .screenGroupRemoved(id)
+            case ("state_upsert", "stash"), ("state_delete", "stash"): change = .stash(id)
             default: change = nil
             }
         }
