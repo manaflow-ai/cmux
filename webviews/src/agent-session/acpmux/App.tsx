@@ -2629,7 +2629,7 @@ function AcpmuxPane() {
         ? {
             list: async (sessionId) => {
               const client = directClient.current;
-              if (!client) throw new Error("acpmux is not connected");
+              if (!client) throw new Error("acpmux.notConnected");
               return readChatAccounts(await client.routes(sessionId));
             },
             set: async (sessionId, routeId) => {

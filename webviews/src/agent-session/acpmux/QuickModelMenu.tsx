@@ -88,7 +88,14 @@ export function QuickModelMenu({
       <MenuButton className="acpmux-picker-button" aria-haspopup="menu" buttonRef={trigger} {...chip}>
         {children}
       </MenuButton>
-      <MenuPopup side="top" align="start" label={t("picker.model")} className="acpmux-quick-menu" onKeyDown={keyDown}>
+      <MenuPopup
+        side="top"
+        align="start"
+        label={t("picker.model")}
+        className="acpmux-quick-menu"
+        // ui-allow: 1 to 9 pick a model in place and a letter opens the full picker searching for it, as in Claude Code's model menu.
+        onKeyDown={keyDown}
+      >
         <MenuGroup label={t("picker.modelThisSession")}>
           <MenuRadioGroup value={current ?? ""} onValueChange={pick}>
             {models.map((choice, index) => (
