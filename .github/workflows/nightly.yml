@@ -6446,6 +6446,8 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha || needs.decide.outputs.head_sha }}
+          # The pushed nightly-next head (HEAD_SHA can be an older resolved build commit).
+          TIP_SHA: ${{ needs.decide.outputs.head_sha }}
           RESULTS: ${{ toJSON(needs) }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
@@ -6476,7 +6478,11 @@ jobs:
                 const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
                   { owner, repo, run_id: context.runId, per_page: 100 });
                 const build = jobs.find((job) => job.name === 'build-nightly-app');
-                replaced = Boolean(build) && !build.runner_name && !(build.steps || []).length;
+                const neverStarted = Boolean(build) && !build.runner_name && !(build.steps || []).length;
+                // A build cancelled while queued for a runner never started either;
+                // only a newer push (the ref moved past this tip) replaces it.
+                const { data: ref } = await github.rest.git.getRef({ owner, repo, ref: 'heads/nightly-next' });
+                replaced = neverStarted && ref.object.sha !== process.env.TIP_SHA;
               } catch (error) {
                 core.warning(`Could not read this run's jobs (${error.message}); reporting the cancelled build.`);
               }
