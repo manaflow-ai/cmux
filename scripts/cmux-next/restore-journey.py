@@ -91,7 +91,7 @@ web server, pid file and chat folder live in --out (the fake chats themselves st
 tag's acpmux home). The app is left running after the last
 relaunch (the caller quits it and releases the slot).
 """
-import argparse, atexit, glob, hashlib, http.server, json, os, re, shlex, signal, socket, subprocess, sys, threading, time
+import argparse, atexit, glob, hashlib, http.server, json, os, plistlib, re, shlex, signal, socket, subprocess, sys, threading, time
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -138,12 +138,6 @@ SIDEBAR_WIDTH = 312  # points: neither layout's default (208, 240), inside the 1
 FONT_STEPS = 2  # Cmd-+ steps on the counter's terminal
 PIDFILE = os.path.join(opts.out, f"counter-{RUN}.pid")
 
-
-def counter_pid():
-    try:
-        return int(open(PIDFILE).read().strip())
-    except (OSError, ValueError):
-        return None
 
 
 def say(*parts):
@@ -369,28 +363,16 @@ class App:
             if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
                 procs.append((int(parts[0]), int(parts[1]), parts[2]))
         roots = {pid for pid, _, args in procs if args.startswith(self.bundle + "/") and pid != os.getpid()}
-        # Terminal hosts run from a copy of the daemon's executable under HOME (host_exe.rs), with
-        # launchd as their parent: on a capture slot every host under the slot's own HOME, and the
-        # host above each program the journey started (the seeded agents, the counter).
-        home = self.env.get("HOME", "")
-        if "/cmux-capture/slots/" in home:
-            roots |= {pid for pid, _, args in procs if "--bootstrap-stdio" in args and args.startswith(home + "/")}
-        parent = {pid: ppid for pid, ppid, _ in procs}
-        argv = {pid: args for pid, _, args in procs}
-        # Only from programs still running as the journey started them, and only to a host of
-        # this app (run from its bundle or the slot's HOME): a reused pid never leads elsewhere.
-        known = [e.get("pid") for e in agent_events()] + [counter_pid()]
-        ours = lambda args: args.startswith(self.bundle + "/") or ("/cmux-capture/slots/" in home and args.startswith(home + "/"))
-        for pid in known:
-            if not ("rj_fake_cli_agent.py" in argv.get(pid, "") or (pid and pid == counter_pid())):
-                continue
-            seen = 0
-            while isinstance(pid, int) and pid > 1 and seen < 20:
-                if "--bootstrap-stdio" in argv.get(pid, ""):
-                    if ours(argv[pid]):
-                        roots.add(pid)
-                    break
-                pid, seen = parent.get(pid), seen + 1
+        # Terminal hosts run from a copy of the daemon's executable (host_exe.rs) with launchd as
+        # their parent and a bare `cmux-tui` argv[0]; each names its owner, this app's bundle id.
+        try:
+            with open(os.path.join(self.bundle, "Contents", "Info.plist"), "rb") as f:
+                bundle_id = plistlib.load(f).get("CFBundleIdentifier") or ""
+        except (OSError, plistlib.InvalidFileException):
+            bundle_id = ""
+        if bundle_id:
+            owner = f"--owner {bundle_id}:"
+            roots |= {pid for pid, _, args in procs if "--bootstrap-stdio" in args and owner in args}
         doomed, grew = set(roots), True
         while grew:
             more = {pid for pid, ppid, _ in procs if ppid in doomed and pid not in doomed and pid != os.getpid()}
