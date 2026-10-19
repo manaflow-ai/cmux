@@ -104,6 +104,12 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
+- Classify each non-green check on the current head before changing source: a changed-file
+  defect (fix it), a base finding (the same failure on a recent base run: link it in a PR
+  comment; it does not block), a wrapper such as `Web status` (follow its root check), or a
+  cancelled or infrastructure run (rerun the same SHA). A push supersedes earlier CI and review
+  results. Gallery captures and full webview sweeps are advisory
+  ([check progression](docs/contributor-verification.md#pr-check-progression)).
 - The normal merge path is `gh-merge-green`. It refuses a PR that touches a path an open
   `merge-freeze` issue freezes, or when the freeze state can't be read; only the freeze owner's
   `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
