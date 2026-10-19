@@ -1,7 +1,7 @@
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { name } from "@gdp-ts/core";
 import { Clock, Effect, Option } from "effect";
-import { CreatedAccessToken, AccessTokenList, SshAccess, type CreateAccessTokenRequest } from "../access-tokens/api.ts";
+import { AccessToken, CreatedAccessToken, AccessTokenList, SshAccess, type CreateAccessTokenRequest } from "../access-tokens/api.ts";
 import { AccessTokenStore, AccessTokens, type AccessTokenRecord, type AccessTokenScope } from "../access-tokens/tokens.ts";
 import { AccessTokenId } from "../access-tokens/tokens.ts";
 import { FILES_LINUX_USER_UNSUPPORTED } from "../access-tokens/policy.ts";
@@ -20,7 +20,7 @@ const scopeSet = (scopes: ReadonlyArray<AccessTokenScope>) => new Set(scopes);
 const issuerScope = (scope: AccessTokenScope): "vm:exec" | "vm:terminal" | "vm:files" | "vm:write" =>
   scope === "exec" || scope === "ssh" ? "vm:exec" : scope === "pty" ? "vm:terminal" : scope === "files:read" || scope === "files:write" ? "vm:files" : "vm:write";
 
-const view = (record: AccessTokenRecord) => ({
+const view = (record: AccessTokenRecord) => new AccessToken({
   id: record.id,
   principal: record.principal,
   vmIds: record.vmIds,

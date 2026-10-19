@@ -80,7 +80,7 @@ acceptsCallerA(accessProofA);
 
 declare const accessEvidence: AccessTokenEvidence;
 // @ts-expect-error scope decisions require the verifier's branded proof, not the envelope
-accessEvidence.scopes;
+void accessEvidence.scopes;
 declare const fileProof: KeyHasScope<"file-caller", "vm:files">;
 // @ts-expect-error a file proof must carry an explicit Linux user
 const missingFileUser: KeyHasScope<"file-caller", "vm:files"> = { ...fileProof, linuxUser: undefined };
