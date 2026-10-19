@@ -277,3 +277,20 @@ the governor TOML itself dates to October 1. This is a real configuration
 change to correlate with workload pressure, but the governor does not explain
 the WindowServer watchdog by itself; the storage timeouts and cmux resident
 resource fan-out remain the stronger mechanisms.
+
+## Native verification update (2026-10-19)
+
+The isolated test build completed successfully with
+`./scripts/test-unit.sh -derivedDataPath
+$HOME/Library/Developer/Xcode/DerivedData/cmux-pr21423-tests build-for-testing`.
+That compiled the `cmux` app target and `cmuxTests` at the repair head. The
+native `SessionPersistenceResumeBindingTests` selection then executed **21
+tests in one suite**, all passing. The run emitted existing AppKit/Swift
+deprecation and concurrency warnings, but no repair-related compile or test
+failure. The host's CoreSimulator framework is older than the installed Xcode;
+that warning is irrelevant to this macOS destination.
+
+The broad static `--affected` recipe is not a clean release gate because it
+also selects the unrelated expired `conversation-sidebar-release` feature flag
+(`reviewBy 2026-10-18`). All other 15 selected checks passed. That flag was not
+changed as part of this repair.
