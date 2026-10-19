@@ -15,6 +15,11 @@
  * holding uid 1000", so a rename keeps the provider's own surfaces landing in
  * the same home as cmux's terminals instead of splitting the machine between
  * two near-identical accounts.
+ *
+ * `ubuntu` stays a second name for the same account (devboxUbuntuAliasCommand):
+ * the Freestyle docs, SDK examples and editor URLs name `ubuntu`, so
+ * `ssh <vm>+ubuntu@...`, `exec({ linuxUser: "ubuntu" })` and an identity grant
+ * for `ubuntu` must land in the work user's home, with its groups and sudo.
  */
 
 /** The work user: uid 1000 on every cmux Cloud machine. */
@@ -69,5 +74,50 @@ find ${home} -type d -exec chmod g-w,o-w {} +
 test -d ${home}
 sudo -n -u ${user} sudo -n true
 echo work-user-ok
+`.trim();
+}
+
+/** The base image's account name, kept as a second name for the work user. */
+export const DEVBOX_UBUNTU_ALIAS = "ubuntu";
+
+/**
+ * Makes `ubuntu` a second name for the work user: same uid, primary group,
+ * home, shell, password field, supplementary groups and passwordless sudo.
+ * The alias comes after the work user in /etc/passwd, so uid 1000 still
+ * resolves to `cmux` (prompt, `whoami`, file owners). `/home/ubuntu` links to
+ * the work home for scripts that name the path. Idempotent, and it re-syncs
+ * the groups, so it runs after every layer that adds the work user to a group
+ * and is safe to run again on a running machine.
+ */
+export function devboxUbuntuAliasCommand(): string {
+  const user = DEVBOX_WORK_USER;
+  const alias = DEVBOX_UBUNTU_ALIAS;
+  const home = DEVBOX_WORK_HOME;
+  return `
+set -e
+[ "$(getent passwd ${DEVBOX_WORK_UID} | cut -d: -f1)" = ${user} ]
+if ! getent passwd ${alias} >/dev/null 2>&1; then
+  useradd --non-unique --uid ${DEVBOX_WORK_UID} --gid ${user} --no-create-home --home-dir ${home} --shell "$(getent passwd ${user} | cut -d: -f7)" ${alias}
+fi
+[ "$(id -u ${alias})" = ${DEVBOX_WORK_UID} ]
+usermod -p "$(getent shadow ${user} | cut -d: -f2)" ${alias}
+groups="$(id -nG ${user} | tr ' ' '\\n' | grep -vx ${user} | paste -sd, -)"
+usermod -G "$groups" ${alias}
+printf '${user} ALL=(ALL) NOPASSWD:ALL\\n${alias} ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/91-cmux-work-user
+chmod 0440 /etc/sudoers.d/91-cmux-work-user
+visudo -cq
+if [ ! -L /home/${alias} ]; then
+  rmdir /home/${alias} 2>/dev/null || true
+  test ! -e /home/${alias}
+  ln -s ${home} /home/${alias}
+fi
+# Prove the contract rather than trusting the steps above.
+[ "$(getent passwd ${DEVBOX_WORK_UID} | cut -d: -f1)" = ${user} ]
+[ "$(getent passwd ${alias} | cut -d: -f6)" = ${home} ]
+[ "$(id -nG ${alias} | tr ' ' '\\n' | grep -vx ${user} | sort | paste -sd, -)" = "$(id -nG ${user} | tr ' ' '\\n' | grep -vx ${user} | sort | paste -sd, -)" ]
+[ "$(readlink -f /home/${alias})" = ${home} ]
+[ "$(sudo -n -u ${alias} sh -c 'echo $HOME')" = ${home} ]
+sudo -n -u ${alias} sudo -n true
+echo ubuntu-alias-ok
 `.trim();
 }
