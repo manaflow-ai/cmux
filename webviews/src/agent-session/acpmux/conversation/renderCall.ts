@@ -3,12 +3,16 @@
 // `cmux.render`, `cmux/render`). An ended turn draws each as a render card (RenderCard.tsx).
 // A harness with no render tool writes the page in a ```cmux-render fence instead (renderFence).
 import type { AcpmuxActivity } from "../model";
+import { labOn } from "../labs";
+import { REACT_MARKER } from "./renderFrameDoc";
 import { documentName } from "./artifactPreview";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type RenderCall = {
   html: string;
+  /// Stable tool or fence identity inside its transcript row, when available.
+  id?: string;
   /// The card's heading, when the call names one.
   title?: string;
 };
@@ -47,6 +51,8 @@ export const RENDER_FENCE = "cmux-render";
 
 /// The page a reply's fence renders, or nil for every other fence. Its heading is the page's <title>.
 export function renderFence(lang: string, code: string): RenderCall | undefined {
+  if (labOn("liveRender") && lang.toLowerCase() === "cmux-react" && code.trim())
+    return { html: REACT_MARKER + "\n" + code };
   if (lang.toLowerCase() !== RENDER_FENCE || !code.trim()) return undefined;
   const title = documentName({ kind: "html", lang: "html", code });
   return title ? { html: code, title } : { html: code };

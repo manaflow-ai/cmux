@@ -58,7 +58,8 @@ public nonisolated struct AgentPaneGitDiffOptions: Equatable, Sendable {
 
 /// A read of the chat session's repository that the pane asks for:
 /// `git.diff` with `{cwd, scope, include_patch, paths?, context_lines?}`, `git.status` with
-/// `{cwd}`, or `file.search` with `{cwd or path, query, limit?}`. The App
+/// `{cwd}`, `file.search` with `{cwd or path, query, limit?}`, or `file.list` with `{cwd, path?}`
+/// (one folder's children, for the chat's Files view: Lucas 2026-10-19). The App
 /// runs it as the session host's resource operation (`git.diff`,
 /// `git.status`, `git.files.search`) with `cwd` as its `path`; it reads the
 /// repository and changes nothing.
@@ -67,6 +68,8 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
     case status(cwd: String)
     /// Files under `cwd` whose path matches `query`, best first.
     case filesSearch(cwd: String, query: String, limit: Int)
+    /// The immediate children of `folder`, the chat's folder or one inside it.
+    case filesList(cwd: String, folder: String)
     /// One turn's changes: checkpoint `from` against `to`, or the working tree.
     case checkpointDiff(cwd: String, from: String, to: String?, includePatch: Bool, options: AgentPaneGitDiffOptions = .init())
 
@@ -82,6 +85,7 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
         case .diff: "git.diff"
         case .status: "git.status"
         case .filesSearch: "git.files.search"
+        case .filesList: "git.files.list"
         case .checkpointDiff: "git.checkpoint.diff"
         }
     }
@@ -90,7 +94,8 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
     /// relative path against its own directory, not the chat's.
     public var cwd: String {
         switch self {
-        case .diff(let cwd, _, _, _), .status(let cwd), .filesSearch(let cwd, _, _), .checkpointDiff(let cwd, _, _, _, _): cwd
+        case .diff(let cwd, _, _, _), .status(let cwd), .filesSearch(let cwd, _, _), .filesList(let cwd, _),
+             .checkpointDiff(let cwd, _, _, _, _): cwd
         }
     }
 
@@ -134,6 +139,13 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
             default: return nil
             }
             self = .filesSearch(cwd: cwd, query: query, limit: limit)
+        case "file.list":
+            // A folder the chat's own folder holds, never one outside it.
+            let folder = (params?["path"] as? String) ?? cwd
+            let parts = folder.split(separator: "/", omittingEmptySubsequences: false).dropFirst()
+            guard folder.hasPrefix("/"), !folder.contains("\u{0}"), folder == cwd || folder.hasPrefix(cwd.hasSuffix("/") ? cwd : cwd + "/"),
+                  !parts.contains(where: { $0 == "." || $0 == ".." }) else { return nil }
+            self = .filesList(cwd: cwd, folder: folder)
         case "git.diff":
             guard let raw = params?["scope"] as? String, let scope = AgentPaneGitScope(rawValue: raw) else { return nil }
             guard let options = AgentPaneGitDiffOptions(params: params) else { return nil }

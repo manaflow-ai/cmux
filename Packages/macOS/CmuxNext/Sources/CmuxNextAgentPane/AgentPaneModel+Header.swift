@@ -35,6 +35,15 @@ public struct AgentPaneHeaderHooks {
     /// Asks for the chat folder's pull request again (`pane.tabState {refresh: true}` at a turn's
     /// end, cx-ncc.77.1); the answer is pushed with the header state.
     public var refreshPullRequest: (@MainActor () -> Void)?
+    /// The side column's tiles page (`pane.action {id: "here:<action>"}`, `agentChat.sideColumn`): opens
+    /// Files' tree or Changes' diff as a tab in the page's own pane, with the folder the page names.
+    /// Whether it opened (an unknown action, or no folder on this Mac, opens nothing).
+    public var openHere: (@MainActor (_ action: String, _ cwd: String?) -> Bool)?
+    /// The header's thread title (`pane.rename`): the chat's tab takes the name; whether it did.
+    public var rename: (@MainActor (String) -> Bool)?
+    /// Thread details' Open in (`folder.openIn`): with nil, the apps the chat's folder can open in
+    /// (`[{id, name}]`); with an app id, the folder opens there and the list comes back.
+    public var openIn: (@MainActor (String?) -> [[String: String]])?
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -92,6 +101,10 @@ extension AgentPaneModel {
 
     /// The header's [+] New tab / Hide tabs (`pane.action {id: "sideTabs"}`), answered with `{shown}`.
     static let sideTabsAction = "sideTabs"
+    /// The side column's tiles (`pane.action {id: "here:files"}`): the view opens in the page's own pane.
+    static let herePrefix = "here:"
+    /// What the tiles open in their own pane: Files' tree and Changes' diff.
+    static let hereActions: Set<String> = ["files", "openDiffViewer"]
     /// The header's Preview (`pane.action {id: "preview", url}`), ``AgentPaneRequest/preview(url:toggle:)``.
     public static let previewAction = "preview"
 
@@ -116,6 +129,15 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.setQuickActions")
             }
             return AgentPaneReply.success()
+        case .paneAction(let id, let cwd, _) where id.hasPrefix(Self.herePrefix):
+            // Only the side column's tiles page (a New Tab page opened as the column) opens a view in
+            // its own pane, and only Files and Changes.
+            let action = String(id.dropFirst(Self.herePrefix.count))
+            guard newTab?.surfaces == true, Self.hereActions.contains(action), let here = header?.openHere,
+                  here(action, cwd) else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action \(id)")
+            }
+            return AgentPaneReply.success(["ran": true])
         case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
                 return header?.respond(toOther: id, session: newTab == nil ? sessionId : nil) ?? AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
@@ -157,6 +179,18 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.newHere")
             }
             return AgentPaneReply.success()
+        case .renameChat(let name):
+            // A refusal (a tab that can't take a name) answers so: the page puts the old name back.
+            guard newTab == nil, let rename = header?.rename, rename(name) else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.rename")
+            }
+            return AgentPaneReply.success()
+        case .openFolderIn(let app):
+            // The chat's own folder, as its tab knows it, on this Mac only; the page names no path.
+            guard newTab == nil, !remoteChat, let openIn = header?.openIn else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: folder.openIn")
+            }
+            return AgentPaneReply.success(["apps": openIn(app)])
         default:
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request")
         }

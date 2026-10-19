@@ -1,0 +1,77 @@
+/* Cleaner chat variants for comparison (Lucas 2026-10-17). Each is its own switch on <html>, off
+   by default, so today's look is untouched until one is picked; the dev server turns one on with
+   `?data-chat-<name>=<value>`, or all of them with `?sleek` (dev.tsx). Theme tokens only. */
+
+/* data-chat-bubble="soft": the prompt bubble keeps its fill and loses its outline, with rounder
+   corners and a little more room at the sides (the same 8px top and bottom, so heights hold). */
+:root[data-chat-bubble="soft"] .cv-user__bubble {
+  border-radius: 16px;
+  padding-inline: 14px;
+  box-shadow: none;
+}
+
+/* data-chat-code="slim": a 32px header that names the language in a quiet 12px label, no glyph;
+   a softer card with a fainter ring and 12px corners. model.ts measures the slimmer chrome. */
+:root[data-chat-code="slim"] .cv-codeblock,
+:root[data-chat-code="slim"] .cv-edit-diff {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--cv-fg) 4.5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-fg) 7%, transparent);
+}
+:root[data-chat-code="slim"] .cv-codeblock__header {
+  height: 32px;
+  padding: 0 6px 0 14px;
+  gap: 6px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+}
+:root[data-chat-code="slim"] .cv-codeblock__header > svg:first-child {
+  display: none;
+}
+:root[data-chat-code="slim"] .cv-codeblock__actions {
+  gap: 0;
+  color: var(--cv-text-muted);
+}
+:root[data-chat-code="slim"] .cv-codeblock__action {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+/* The code's own 8px inset plus this 6px puts its first column under the label's 14px. */
+:root[data-chat-code="slim"] .cv-codeblock__body {
+  margin: 0 1px 12px 6px;
+}
+
+/* data-chat-files="quiet": the edited-files card on the code card's softer ring and corners, file
+   names in the interface font a step down from the answer, View changes as a plain text button. */
+:root[data-chat-files="quiet"] .acpmux-edited {
+  border-radius: 12px;
+  background: transparent;
+}
+:root[data-chat-files="quiet"] .acpmux-edited::after {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 8%, transparent);
+}
+:root[data-chat-files="quiet"] .acpmux-edited-head:not(:last-child) {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+:root[data-chat-files="quiet"] .acpmux-edited-path {
+  font-family: inherit;
+}
+:root[data-chat-files="quiet"] .acpmux-edited-file {
+  color: color-mix(in srgb, var(--agent-text) 82%, transparent);
+}
+:root[data-chat-files="quiet"] .acpmux-review-changes {
+  box-shadow: none;
+  color: var(--agent-muted);
+}
+:root[data-chat-files="quiet"] .acpmux-review-changes:hover {
+  color: var(--agent-text);
+}
+
+/* data-chat-inline-code="soft": inline code on a fainter fill, a half step smaller, tighter. */
+:root[data-chat-inline-code="soft"] {
+  --cv-code-bg: color-mix(in srgb, var(--cv-fg) 7%, transparent);
+  --cv-code-size: 12.5px;
+  --cv-code-radius: 4px;
+  --cv-code-padding: 0.5px 4px;
+}

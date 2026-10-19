@@ -6,7 +6,8 @@ import CmuxNextSettings
 /// The App's side of an agent pane's reply links (D4, D6): the settings, and the favicon and
 /// title of a linked page from what cmux already holds. A favicon comes only from an open browser
 /// tab of the same site whose icon the favicon loader has cached for that tab's profile; nothing
-/// is fetched, and a tab of an incognito workspace is never read.
+/// is fetched, and a tab of an incognito workspace is never read. The one fetch: a Thread details
+/// source's site icon (labs `sourceIcons`), through the favicon loader, without cookies.
 @MainActor
 struct AgentReplySites {
     let services: AppServices
@@ -17,6 +18,7 @@ struct AgentReplySites {
             guard let services else { return [:] }
             return AgentReplySites(services: services).sites(for: urls)
         }
+        links.favicon = { url in await BrowserFaviconLoader.shared.favicon(at: url, profile: .default).flatMap(Self.png) }
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {

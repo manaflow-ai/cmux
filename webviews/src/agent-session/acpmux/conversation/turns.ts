@@ -356,6 +356,7 @@ function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {
                   version,
                   at: row.at,
                   kind: RENDER,
+                  renderLive: row.renderLive,
                   items: [item],
                 },
               ]
@@ -422,7 +423,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 /// The client's empty "typing" placeholder gives way to it.
 function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveRuns = false): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing");
-  const rows = liveRuns ? codexRuns(drawn) : drawn;
+  const rows = notesBetweenSteps(liveRuns ? codexRuns(drawn) : drawn);
   const last = rows.at(-1);
   if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
   const answering = last.kind === "assistant";
@@ -435,6 +436,18 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveR
   if (last.kind === "activity")
     return [status, ...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }];
   return [status, ...rows];
+}
+
+/// A running turn's text that something followed is a note between steps, not the answer (the
+/// answer is the last text, as `answerAt` reads it once the turn ends): marked `settled`, as its copy
+/// in an open "Worked for" is, so the brain thought style draws it as a thought line
+/// (thoughtStyle.ts) while the turn runs too. Its version moves, so the row draws again.
+function notesBetweenSteps(rows: AcpmuxRow[]): AcpmuxRow[] {
+  return rows.map((row, index) =>
+    row.kind === "assistant" && index < rows.length - 1 && !row.settled
+      ? { ...row, settled: true, version: row.version * 2 + 1 }
+      : row,
+  );
 }
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text

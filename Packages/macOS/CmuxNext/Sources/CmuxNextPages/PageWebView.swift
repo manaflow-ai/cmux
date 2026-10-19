@@ -70,7 +70,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var onOpenExternal: ((URL) -> Void)?
     /// The modifier keys of the click whose link ``onOpenExternal`` is opening (Shift-Command: the other browser).
     public internal(set) var externalLinkModifiers: NSEvent.ModifierFlags = []
-    /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
+    /// Decides subframe navigations and main-frame navigations outside the page's origin (``PageNavigation``).
     public var onNavigate: ((PageNavigation) -> PageNavigation.Policy)?
     /// The page's web content crashed. `reloading` is false once it crashed more often than
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
@@ -467,17 +467,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     // MARK: WKNavigationDelegate
 
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
-        let url = action.request.url
-        switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
-                                     mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
+        switch PageNavigation.policy(for: action.request.url, page: descriptor, userClicked: action.navigationType == .linkActivated,
+                                     mainFrame: action.targetFrame?.isMainFrame ?? true,
+                                     targetFrameURL: action.targetFrame?.request.url,
+                                     sourceFrameURL: action.sourceFrame.request.url, hook: onNavigate) {
         case .allow:
             return .allow
         case .openExternal:
-            // A page whose host routes nothing itself (Settings, What's New, Cloud, Keybindings...)
-            // opens the link through the shared rule; Shift-Command asks for the other browser.
+            // Hosts without a router use the shared rule; Shift-Command asks for the other browser.
             externalLinkModifiers = action.modifierFlags
             let other = LinkRouter.isOtherTarget(action.modifierFlags)
-            if let url { (onOpenExternal ?? { LinkRouter.shared.open($0, otherTarget: other) })(url) }
+            if let url = action.request.url { (onOpenExternal ?? { LinkRouter.shared.open($0, otherTarget: other) })(url) }
             return .cancel
         case .cancel:
             return .cancel
