@@ -87,7 +87,12 @@ BUDGET = {
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
-KNOWN = {}
+KNOWN = {
+    # 3-6 of 50 new workspace rows commit a frame late on the mini (commit p99 34-39 ms at 33-70
+    # workspaces; feat-cmux-next runs 39292677937, 39296303954, 39300730843). The row is drawn
+    # from the press (walks 0); the list's commit of the insert is what runs long.
+    ("new_workspaces", "late_rows"): (8, "cx-zf6um"),
+}
 FRAME_BUDGET_MS = 1000 / 60
 # Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
 TAB_APPLY_BUDGET_MS = 4
@@ -102,7 +107,8 @@ ALLOW = re.compile(r"//\s*perf-gate-ok:\s*\S")
 CAPTURE = re.compile(r"CGWindowListCreateImage|CGDisplayCreateImage|SCScreenshotManager|\.renderSnapshot\(\)"
                      r"|\.compositedSnapshot\(|\.childWindowsSnapshot\(|\.floatingWindowsSnapshot\(\)|\.writeSnapshot\(to")
 CAPTURE_FILES = re.compile(r"/CmuxNextDesign/Windows/(NSWindow\+Snapshot|WindowFrame)\.swift$"
-                           r"|/CmuxNextApp/Control/Debug[^/]*\.swift$|/CmuxNextApp/Focus/DebugPaletteCapture\.swift$")
+                           r"|/CmuxNextApp/Control/Debug[^/]*\.swift$|/CmuxNextApp/Focus/DebugPaletteCapture\.swift$"
+                           r"|/CmuxNextApp/Popups/DebugPopups\.swift$")
 FLUSH = re.compile(r"\bCATransaction\.flush\(")
 
 failures, warnings, report = [], [], {"checks": [], "phases": {}}
@@ -767,9 +773,13 @@ class Gate:
             warn(f"new workspace row press to drawn p99 {p99(applies):.2f} ms (over {NEW_ROW_BUDGET_MS:.1f} ms)", scenario)
         if self.frames_ok(scenario):
             late = [row for row in rows if row["late_vsyncs"] > 0]
-            check(not late, f"every new workspace row commits in the first frame after it is drawn ({len(late)} later"
-                            + (f": {[(r['workspaces_before'], round(r['apply_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
-                               "(workspaces before, apply ms, frames missed)" if late else "") + ")", scenario)
+            if self.full and not late:
+                self.ratchet(scenario, {"late_rows": 0}, {"late_rows": 0})
+            # A known count of late rows (KNOWN) is a warning naming its bead; more is a failure.
+            check(not late or not self.unknown([("late_rows", len(late), 0)], scenario),
+                  f"every new workspace row commits in the first frame after it is drawn ({len(late)} later"
+                  + (f": {[(r['workspaces_before'], round(r['apply_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
+                     "(workspaces before, apply ms, frames missed)" if late else "") + ")", scenario)
 
     def split(self, scenario="split"):
         app = self.app

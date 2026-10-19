@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
 use serde_json::{Map, Value, json};
 
-use super::command::{RequestPlan, WireOperation};
+use super::command::{RequestPlan, ResponseView, WireOperation};
 use super::{GlobalArgs, UsageError};
 
 /// Public id prefixes a session qualifier may stand in front of.
@@ -301,7 +301,20 @@ pub(super) fn run_all_sessions(global: &GlobalArgs, plan: RequestPlan) -> i32 {
             }
         }
     }
-    let code = super::wire::print_local_success(&join(results), global.output);
+    let code = if let ResponseView::AgentRoster(_) = plan.view {
+        let mut terminals = Vec::new();
+        for (session, socket) in session_sockets() {
+            if let Ok(Some(Value::Array(list))) =
+                list_on(&socket, &session, ResourceOperation::TerminalList, &json!({}))
+            {
+                terminals.extend(list);
+            }
+        }
+        let roster = super::wire::agent_roster_across(plan.view, join(results), &terminals);
+        super::wire::print_result(global, &plan, roster)
+    } else {
+        super::wire::print_local_success(&join(results), global.output)
+    };
     if failed && code == 0 { 1 } else { code }
 }
 
