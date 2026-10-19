@@ -78,7 +78,7 @@ import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
-import { audioAttachment, type ComposerAttachment } from "./attachments";
+import { audioAttachment, type ComposerAttachment, recordingLeftOutNotice } from "./attachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
@@ -3459,12 +3459,9 @@ function AcpmuxPane() {
     attach: (audio) => {
       const recording = audioAttachment(audio, translate("dictation.recording"));
       if (recording) composerHandle.current?.attach(recording);
-      else directClient.current?.notice(translate("dictation.recordingTooLong"));
+      else directClient.current?.notice(translate(recordingLeftOutNotice("tooLarge")));
     },
-    omitted: (reason) =>
-      directClient.current?.notice(
-        translate(reason === "tooLong" ? "dictation.recordingTooLong" : "dictation.recordingNarrowband"),
-      ),
+    omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
   });
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
