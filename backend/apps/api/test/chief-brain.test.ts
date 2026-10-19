@@ -162,4 +162,31 @@ describe("Chief brain on Durable Objects", { timeout: 120_000 }, () => {
     expect(reply.thread_root).toBe(sent.value.message_id)
     expect(reply.reply_to).toMatchObject({ message_id: sent.value.message_id })
   })
+  it("ends its typing when it skips a turn, so a client's Thinking line does not stay", async () => {
+    const limits = env as unknown as { CHIEF_BRAIN_DAILY_TURNS?: string }
+    const saved = limits.CHIEF_BRAIN_DAILY_TURNS
+    limits.CHIEF_BRAIN_DAILY_TURNS = "1"
+    try {
+      const { token, chief } = await ownerWithChief("brain-skip-typing")
+      expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true })).status).toBe(200)
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "sk-1", parts: [{ type: "text", text: "first" }] }, "sk-1")).ok).toBe(true)
+      await chiefReplies(token, chief.main_conversation, chief.id, 1)
+
+      // Over the daily limit: no turn and no reply, but the socket sees the chief's typing go off.
+      const socket = await connect(chief.main_conversation, token)
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "sk-2", parts: [{ type: "text", text: "second" }] }, "sk-2")).ok).toBe(true)
+      const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
+      const off = (f: any) => f.t === "conversation-typing" && f.participant === chief.id && f.on === false
+      for (let i = 0; i < 20 && !socket.frames.some(off); i++) {
+        await fireAlarm(conv)
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      expect(socket.frames.findIndex(off), JSON.stringify(socket.frames.map((f) => [f.t, f.on]))).toBeGreaterThanOrEqual(0)
+      expect(socket.frames.some((f) => f.t === "conversation-typing" && f.participant === chief.id && f.on === true)).toBe(false)
+      expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)).toHaveLength(1)
+      socket.ws.close()
+    } finally {
+      saved === undefined ? delete limits.CHIEF_BRAIN_DAILY_TURNS : (limits.CHIEF_BRAIN_DAILY_TURNS = saved)
+    }
+  })
 })
