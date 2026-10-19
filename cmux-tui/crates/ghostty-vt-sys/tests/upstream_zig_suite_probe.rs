@@ -30,7 +30,8 @@ fn run(filter: Option<&str>) {
             eprintln!("ZIGSUITE {line}");
         }
     }
-    assert!(out.status.success(), "zig test-lib-vt failed:\n{text}");
+    let summary: Vec<&str> = text.lines().filter(|l| l.contains("passed") || l.contains("failed") || l.contains("skipped") || l.contains("leaked")).collect();
+    panic!("ZIGSUMMARY status={:?}\n{}", out.status.code(), summary.join("\n"));
 }
 
 #[test]
