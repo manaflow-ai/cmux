@@ -452,8 +452,32 @@ jobs:
           # fails the run too, which keeps it out of the next run's "since".
           # Each push is a plain push: it fails rather than overwrite a commit pushed meanwhile.
           repair="$(git rev-parse HEAD)"
+          # The areas whose inputs changed (autofix-areas.sh reads input paths).
           areas() { scripts/cmux-next/autofix-areas.sh | sed -n 's/=true$//p' | sort; }
-          repaired="$(git diff --name-only "$HEAD_SHA" "$repair" | areas)"
+          # The areas that build each file the repair wrote (base-autofix.sh's outputs). A file built from
+          # several areas names them all; one this list doesn't know is "unknown", which never re-applies.
+          output_areas() {
+            local path
+            while IFS= read -r path; do
+              case "$path" in
+                Packages/macOS/CmuxNext/ci-target-graph.json) echo graph ;;
+                */generated/strings.json) echo strings; echo webviews ;;
+                cmux-tui/bindings/*) echo sdk ;;
+                plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json)
+                  echo actions; echo shortcuts; echo apphost ;;
+                schemas/settings/settings-schema.json|schemas/settings-export/*|docs/mdm/*) echo settings ;;
+                schemas/defaults/cmux-next.json) echo settings; echo actions ;;
+                web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
+                cmux-tui/crates/cmux-app-host/generated/*) echo apphost; echo actions ;;
+                scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
+                clients/ts/cloud/*|cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;
+                webviews/*) echo webviews ;;
+                cmux-tui/*|Native/OptChat/*) echo fmt ;;
+                *) echo "unknown:$path" ;;
+              esac
+            done | sort -u
+          }
+          repaired="$(git diff --name-only "$HEAD_SHA" "$repair" | output_areas)"
           base="$HEAD_SHA"
           for attempt in 1 2 3 4 5; do
             if "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
@@ -464,6 +488,11 @@ jobs:
             tip="$(git rev-parse FETCH_HEAD)"
             if [[ "$tip" == "$base" ]]; then
               echo "::error::the push was rejected but feat-cmux-next did not move; see the push output above." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+            unknown="$(grep '^unknown:' <<<"$repaired" | sed 's/^unknown://' | tr '\n' ' ' || true)"
+            if [[ -n "${unknown// }" ]]; then
+              echo "::error::feat-cmux-next moved to ${tip:0:12}, and no area is known to build ${unknown% }; the newer run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
               exit 1
             fi
             overlap="$(comm -12 <(git diff --name-only "$HEAD_SHA" "$tip" | areas) <(echo "$repaired") | tr '\n' ' ')"
