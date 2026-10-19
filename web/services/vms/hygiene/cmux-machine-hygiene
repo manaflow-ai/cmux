@@ -292,6 +292,14 @@ else
   build_evidence=0; : > "$build_cwds_file"
 fi
 
+# Another user's processes are invisible without root, so every checkout in
+# their home would look idle: there, keep the age rule and leave incremental
+# caches alone.
+liveness_reclaim=1
+if [ "$(id -u)" != 0 ] && [ ! -O "$home_dir" ]; then
+  liveness_reclaim=0; build_evidence=0
+fi
+
 # True when a listed path equals the path or lies under it. The path goes
 # through the environment: awk -v would interpret backslashes in it.
 listed_under() {
@@ -498,7 +506,7 @@ clean_project_artifacts() {
       markers="$(artifact_marker "$name")"
       has_marker "$project" "$markers" || continue
       checkout="$(checkout_of "$project" "$root")"
-      if [ "$checkout" != "$project" ] && ! in_use "$checkout"; then
+      if [ "$liveness_reclaim" = 1 ] && [ "$checkout" != "$project" ] && ! in_use "$checkout"; then
         # Nothing works in this checkout: liveness says go, after a short settle.
         idle_for_hours "$dir" "$settle_hours" || continue
       else
