@@ -187,7 +187,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
       deps: () => {
         const set = this.config().compactor_model
         const name = compactorModel(this.env, set, this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE)
-        return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : "medium", prompt: "cmux", agent: AGENT, record: (_c: CallRecord) => undefined }
+        // Haiku at high (Lawrence, 2026-10-18: the compactor is Haiku 5.5 at high); Workers AI models stay at medium.
+        return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : isClaude(name) ? "high" : "medium", prompt: "cmux", agent: AGENT, record: (_c: CallRecord) => undefined }
       },
       onBuilt: () => undefined,
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_brain.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
