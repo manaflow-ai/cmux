@@ -374,6 +374,16 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
+    // Leo 2026-10-18: the empty prompt mid-turn teaches its keys, as Claude's "↵ to send, ⌘↵ to
+    // queue for later" does.
+    "working-hint-steer": {
+      note: "A turn running for an agent that steers: the empty prompt says ↵ queues and ⌘↵ steers.",
+      snapshot: steering(true),
+    },
+    "working-hint-interrupt": {
+      note: "The same for an agent that cannot steer: the empty prompt says ↵ queues and ⌘↵ interrupts.",
+      snapshot: steering(false),
+    },
     "working-stop": {
       note: "Play: stop a running turn; the circular control returns to Send after the host acknowledges cancellation.",
       snapshot: chat(working, { isWorking: true }),
