@@ -205,11 +205,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
 
             // One node at its model index (drops resolve by it, whatever the drawn order).
-            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace])) {
+            // `depth`: the session tree's (`treeOrder`).
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), depth: Int = 0) {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
-                    let content = o.rowContent(ws, machine: machineLabel)
+                    var content = o.rowContent(ws, machine: machineLabel)
+                    content.treeDepth = depth
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -275,7 +277,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         y += h + m.rowSpacing
                         return
                     }
-                    for (childIndex, member) in members.enumerated() {
+                    let drawn = Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents)
+                    for (position, (childIndex, depth)) in drawn.enumerated() {
+                        let member = members[childIndex]
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
                         guard case let .workspace(ws) = member else {
                             guard case let .item(item) = member else { continue }
@@ -285,18 +289,19 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             rows.append(SidebarRow(
                                 key: .item(item.id), y: y, height: h, section: section.id,
                                 group: group.id, siblingIndex: childIndex, parentIndex: index,
-                                isLastInGroup: childIndex == members.count - 1,
+                                isLastInGroup: position == drawn.count - 1,
                                 isCollapsed: false, childCount: 0, groupColor: group.color, content: content
                             ))
                             y += h + m.rowSpacing
                             continue
                         }
-                        let content = o.rowContent(ws, machine: machineLabel)
+                        var content = o.rowContent(ws, machine: machineLabel)
+                        content.treeDepth = depth
                         let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
-                            isLastInGroup: childIndex == members.count - 1,
+                            isLastInGroup: position == drawn.count - 1,
                             isCollapsed: false, childCount: 0, groupColor: group.color,
                             tabDisclosure: disclosure(ws), content: content
                         ))
@@ -324,7 +329,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
-                for (index, entry) in nodes.enumerated() { emit(index, entry) }
+                let drawn = Self.treeOrder(Self.workspaceIDs(nodes.map { $0.node }), parents: o.sessionTree?.parents)
+                for (index, depth) in drawn { emit(index, nodes[index], depth: depth) }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
             }
