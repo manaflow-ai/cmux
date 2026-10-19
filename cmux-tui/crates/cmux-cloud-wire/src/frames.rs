@@ -67,6 +67,10 @@ pub struct EventFrame {
     pub at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effects: Option<Effects>,
+    /// Every other field (`t`, fields of a newer owner), so a relay passes
+    /// the frame on unchanged.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 /// The last frame of every request: the write barrier.
@@ -99,11 +103,16 @@ pub struct SnapshotRows {
 pub struct SnapshotFrame {
     pub stream: String,
     pub seq: u64,
+    #[serde(default)]
     pub state: Value,
     #[serde(default)]
     pub decided: Vec<DecidedKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rows: Option<SnapshotRows>,
+    /// Every other field (`t`, the conversation's `threads` root stats,
+    /// fields of a newer owner), so a relay passes the frame on unchanged.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 /// Owner to client. `result` and `reject` carry the value for the caller;

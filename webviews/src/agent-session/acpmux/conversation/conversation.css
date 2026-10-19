@@ -1015,6 +1015,35 @@ pre.cv-math-source {
   margin-top: 3px;
   margin-left: 2px;
 }
+/* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
+   to one line and give way at the line's end, never wrapping it to a second. */
+.cv-worked__count {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+  margin-left: 2px;
+  white-space: nowrap;
+}
+.cv-worked__open {
+  all: unset;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: pointer;
+}
+.cv-worked__open:hover {
+  text-decoration: underline;
+}
+.cv-worked__open:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+}
+.cv-worked__label {
+  flex: none;
+}
 /* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
 @keyframes cv-thinking-sweep {
   from {

@@ -15,7 +15,8 @@
 //     history) and from then on saves, watches (`changes` for that path) and resolves links for it;
 //   - `cmux.markdown.openLink {path, href, kind, target?}` opens what the page does not show
 //     itself: `kind` "external" (http(s): a cmux browser tab), "file" (another file, `target` its
-//     resolved path: the file viewer) or "mail" (mailto:/tel:: the system handler);
+//     resolved path: the file viewer), "mail" (mailto:/tel:: the system handler) or "app" (a cmux
+//     link, `cmux://workspace/ws_…` and the other deep links: opened inside cmux, never the system);
 //   - `cmux.markdown.resolveLinks {from, paths}` answers `{links: {[path]: ResolvedLink}}` for
 //     relative link targets (decoded, no fragment) of the file `from`: whether each exists, its
 //     absolute path and kind. The page batches and caches the calls;
