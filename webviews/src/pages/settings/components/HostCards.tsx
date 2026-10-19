@@ -166,7 +166,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           <span className="backdrop-frame">
             {/* Encoded twice: the app decodes the URL path before splitting it on "/", then decodes
               the one segment, so a system: or file: id with slashes stays one segment. */}
-            <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+            {/* An aerial macOS has not downloaded has no frame to show yet: an empty tile. */}
+            {pending && choice?.video ? (
+              <span className="backdrop-thumb backdrop-none" />
+            ) : (
+              <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+            )}
             {pending && <Icon name="icloud.and.arrow.down" className="backdrop-download" />}
           </span>
         )}
@@ -358,7 +363,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                   </button>
                 </div>
               ) : (
-                tile(choice.id, choice.title, choice.attribution, choice)
+                tile(choice.id, choice.title, choice.attribution, {
+                  video: choice.video,
+                  pending: choice.downloaded === false,
+                })
               ),
             )}
           </div>
