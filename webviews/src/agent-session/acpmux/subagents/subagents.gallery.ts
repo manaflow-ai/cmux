@@ -215,6 +215,11 @@ export default agentPaneEntry({
     "agent-session/acpmux/summary/SubagentStatusList.tsx#SubagentStatusList",
   ],
   variants: {
+    "agents-pill": {
+      note: "The agents pill while two of four subagents run (after Codex's phone app). It opens Active and Completed, a dot per agent in the color its name has in the open group; a click on an agent opens it.",
+      height: 640,
+      snapshot: MIXED,
+    },
     running: {
       note: "Four subagents started together, all still working.",
       snapshot: chat(
