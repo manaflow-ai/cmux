@@ -278,16 +278,8 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
         Op::Unpin { items } => unpin(tx, items),
         Op::ItemAdd { item, to } => add_item(tx, item, to, mint),
         Op::ItemRemove { id } => {
-            let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-            let children: Vec<ItemId> = tx
-                .doc
-                .list(&item.section, Some(id.as_str()))
-                .map(|child| child.id.clone())
-                .collect();
-            for child in children {
-                tx.remove_item(&child);
-            }
-            tx.remove_item(id);
+            tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
+            remove_tree(tx, id);
             Ok(())
         }
         Op::ItemUpdate { id, patch } => update_item(tx, id, patch),
@@ -325,9 +317,6 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
                     }
                 }
             };
-            if target.parent.is_some() {
-                return Err(Refusal::Nesting);
-            }
             tx.doc.section(&target.section).ok_or(Refusal::UnknownSection)?;
             tx.put_item(Item::new(
                 &id,
@@ -372,11 +361,14 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
             if !group.body.is_group() {
                 return Err(Refusal::InvalidValue);
             }
+            // Its items (workspaces and nested groups) move up into its own
+            // parent, at its place.
             let section = group.section.clone();
+            let parent = group.parent.clone();
             let children: Vec<ItemId> =
                 tx.doc.list(&section, Some(id.as_str())).map(|child| child.id.clone()).collect();
             if !children.is_empty() {
-                let to = Target { section, after: Some(id.clone()), ..Target::default() };
+                let to = Target { section, parent, after: Some(id.clone()), ..Target::default() };
                 place(tx, &children, &to)?;
             }
             tx.remove_item(id);
@@ -553,39 +545,27 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
         return Err(Refusal::ProviderOwned);
     }
     let target_machine = section.kind.machine().map(str::to_string);
-    let mut parent_machine = None;
     if let Some(parent) = &to.parent {
         let group = tx.doc.item(parent).ok_or(Refusal::UnknownItem)?;
-        if !group.body.is_group() || group.parent.is_some() || group.section != to.section {
+        if !group.body.is_group() || group.section != to.section {
             return Err(Refusal::Nesting);
         }
         if moved_set.contains(parent) {
             return Err(Refusal::InvalidTarget);
         }
-        parent_machine = tx
-            .doc
-            .list(&group.section, Some(parent.as_str()))
-            .filter(|child| !moved_set.contains(&child.id))
-            .find_map(|child| child.body.workspace().map(|r| r.session_id.clone()));
-    }
-    let mut moved_machine: Option<String> = None;
-    for id in &moved {
-        let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-        if to.parent.is_some() && item.body.is_group() {
+        // A group into itself or one of its own groups.
+        if moved.iter().any(|id| tx.doc.is_within(parent, id)) {
             return Err(Refusal::Nesting);
         }
-        if let Some(machine) = tx.doc.item_machine(item) {
-            if target_machine.as_ref().is_some_and(|target| *target != machine)
-                || parent_machine.as_ref().is_some_and(|group| *group != machine)
-            {
-                return Err(Refusal::CrossMachine);
-            }
-            if to.parent.is_some() {
-                match &moved_machine {
-                    Some(previous) if *previous != machine => return Err(Refusal::CrossMachine),
-                    _ => moved_machine = Some(machine),
-                }
-            }
+    }
+    // The depth is checked with the other invariants (`too_deep`); the
+    // machine is refused here, before any row moves.
+    for id in &moved {
+        tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
+        if let Some(target) = &target_machine
+            && tx.doc.machines_of(id).iter().any(|machine| machine != target)
+        {
+            return Err(Refusal::CrossMachine);
         }
     }
     let (low, high) = neighbors(tx.doc, to, &moved_set)?;
@@ -633,15 +613,27 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             Ok(())
         })?;
     }
-    // A moved group's children follow it to its section.
+    // A moved group's items (nested groups' items too) follow it to its
+    // section.
     for (group, old_section) in groups {
-        let children: Vec<ItemId> =
-            tx.doc.list(&old_section, Some(group.as_str())).map(|child| child.id.clone()).collect();
-        for child in children {
-            tx.edit_item(&child, |item| {
-                item.section = to.section.clone();
-                Ok(())
-            })?;
+        let mut pending = vec![group];
+        let mut seen: HashSet<ItemId> = HashSet::new();
+        while let Some(parent) = pending.pop() {
+            if !seen.insert(parent.clone()) {
+                continue;
+            }
+            let children: Vec<ItemId> = tx
+                .doc
+                .list(&old_section, Some(parent.as_str()))
+                .map(|child| child.id.clone())
+                .collect();
+            for child in children {
+                tx.edit_item(&child, |item| {
+                    item.section = to.section.clone();
+                    Ok(())
+                })?;
+                pending.push(child);
+            }
         }
     }
     Ok(())
@@ -689,19 +681,25 @@ fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     place(tx, &moving, &Target::end(PINNED_SECTION_ID))
 }
 
+/// Back to the machine section: a workspace or a one-machine group to the
+/// end of its machine's section; a group with workspaces of several
+/// machines splits, each workspace to its own machine section
+/// ([`rehome_in_machine_section`]).
 fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     for id in ids {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-        let machine = tx.doc.item_machine(item).ok_or(Refusal::NoMachine)?;
-        if tx
-            .doc
-            .section(&item.section)
-            .is_some_and(|section| section.kind.machine() == Some(machine.as_str()))
+        let machines = tx.doc.machines_of(id);
+        if machines.is_empty() {
+            return Err(Refusal::NoMachine);
+        }
+        if machines.len() == 1
+            && tx.doc.section(&item.section).is_some_and(|section| {
+                section.kind.machine().is_some_and(|machine| machines.contains(machine))
+            })
         {
             continue;
         }
-        let section = ensure_machine_section(tx, &machine);
-        place(tx, std::slice::from_ref(id), &Target::end(&section))?;
+        rehome_in_machine_section(tx, id)?;
     }
     Ok(())
 }
@@ -754,13 +752,32 @@ fn close(tx: &mut Tx, refs: &[WorkspaceRef]) {
             continue;
         }
         tx.remove_item(&item.id);
-        if let Some(parent) = &item.parent
-            && tx.doc.list_len(&item.section, Some(parent.as_str())) == 0
-            && tx.doc.item(parent).is_some()
-        {
-            tx.remove_item(parent);
-        }
+        remove_emptied_groups(tx, &item);
     }
+}
+
+/// After `removed` left its parent: the groups it leaves empty go, the
+/// nearest first, then each group above that the removal empties.
+pub(super) fn remove_emptied_groups(tx: &mut Tx, removed: &Item) {
+    let mut parent = removed.parent.clone();
+    for _ in 0..=MAX_GROUP_DEPTH {
+        let Some(id) = parent else { return };
+        let Some(group) = tx.doc.item(&id).cloned() else { return };
+        if tx.doc.list_len(&group.section, Some(id.as_str())) > 0 {
+            return;
+        }
+        tx.remove_item(&id);
+        parent = group.parent;
+    }
+}
+
+/// Remove `id` and every item under it.
+pub(super) fn remove_tree(tx: &mut Tx, id: &str) {
+    let below: Vec<ItemId> = tx.doc.descendants(id).iter().map(|item| item.id.clone()).collect();
+    for child in below.iter().rev() {
+        tx.remove_item(child);
+    }
+    tx.remove_item(id);
 }
 
 fn update_item(tx: &mut Tx, id: &str, patch: &ItemPatch) -> Result<(), Refusal> {
@@ -921,22 +938,40 @@ fn remove_section(tx: &mut Tx, id: &str) -> Result<(), Refusal> {
     }
     let top: Vec<ItemId> = tx.doc.list(id, None).map(|item| item.id.clone()).collect();
     for item_id in top {
-        let Some(item) = tx.doc.item(&item_id) else { continue };
-        match tx.doc.item_machine(item) {
-            Some(machine) => {
-                let target = ensure_machine_section(tx, &machine);
-                place(tx, std::slice::from_ref(&item_id), &Target::end(&target))?;
-            }
-            None => {
-                let children: Vec<ItemId> =
-                    tx.doc.list(id, Some(item_id.as_str())).map(|child| child.id.clone()).collect();
-                for child in children {
-                    tx.remove_item(&child);
-                }
-                tx.remove_item(&item_id);
-            }
-        }
+        rehome_in_machine_section(tx, &item_id)?;
     }
     tx.remove_section(id);
+    Ok(())
+}
+
+/// Move `id` to the end of its machine's section. A group with workspaces
+/// of several machines (a Cloud group) cannot go to one machine section:
+/// its workspaces go to the end of their own machine sections, and the
+/// groups go. An item with no machine goes, with every item under it.
+pub(super) fn rehome_in_machine_section(tx: &mut Tx, id: &str) -> Result<(), Refusal> {
+    let machines = tx.doc.machines_of(id);
+    match machines.len() {
+        0 => remove_tree(tx, id),
+        1 => {
+            let machine = machines.into_iter().next().unwrap_or_default();
+            let target = ensure_machine_section(tx, &machine);
+            place(tx, &[id.to_string()], &Target::end(&target))?;
+        }
+        _ => {
+            let workspaces: Vec<(ItemId, String)> = tx
+                .doc
+                .descendants(id)
+                .iter()
+                .filter_map(|item| {
+                    item.body.workspace().map(|r| (item.id.clone(), r.session_id.clone()))
+                })
+                .collect();
+            for (workspace, machine) in workspaces {
+                let target = ensure_machine_section(tx, &machine);
+                place(tx, std::slice::from_ref(&workspace), &Target::end(&target))?;
+            }
+            remove_tree(tx, id);
+        }
+    }
     Ok(())
 }
