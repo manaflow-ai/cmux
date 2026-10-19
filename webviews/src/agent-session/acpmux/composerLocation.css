@@ -689,6 +689,12 @@
     pointer-events: none;
   }
 }
+/* The New Tab row (.nt-pickers) has no fit hook: its mic leaves at the same step. Its chips can
+   only shrink to the model's 56 px floor, so under it the actions cluster ran into the mode chip
+   (agent-pane.narrow new-tab at 280 px). A listening mic stays. */
+@container composer (max-width: 340px) {
+  .nt-pickers .acpmux-composer-actions .acpmux-mic:not([aria-pressed="true"]) { display: none; }
+}
 /* A listening mic stays in any row: its waveform shows the dictation and a click stops it. */
 .acpmux-composer-bar .acpmux-fit-mic[data-fit-part="mic"]:has(.acpmux-mic[aria-pressed="true"]) {
   position: static;
