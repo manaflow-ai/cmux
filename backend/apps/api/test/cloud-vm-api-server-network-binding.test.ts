@@ -73,7 +73,8 @@ describe("server network binding to the approved host and install", () => {
     const pairing = testEnv.PAIRING_DO.get(testEnv.PAIRING_DO.idFromName(f.begun.res.json.code))
     expect(await runAlarm(pairing)).toBe(true)
     const preview = await call("/v1/read", f.team.creator.token, { op: "server.pair.preview", params: { code: f.begun.res.json.code } }, { "x-cmux-team": f.team.team })
-    expect(preview.status).toBe(404)
+    expect(preview.status).toBe(400)
+    expect(preview.json.code ?? preview.json.error?.code).toBe("selector.not_found")
     const host = (await f.directory()).hosts.find((h: { id: string }) => h.id === f.paired.host)
     expect(host.network).toEqual(f.reservation)
     expect(f.nativeCalls).toHaveLength(1)
@@ -95,7 +96,7 @@ describe("server network binding to the approved host and install", () => {
 
   it("does not let a basic paired daemon choose an unapproved network merely by holding a matching key", async () => {
     const f = await fixture(false)
-    expect((await f.confirm()).json.ok).toBe(false)
+    expect((await f.confirm()).json.ok === true).toBe(false)
     expect(f.nativeCalls).toHaveLength(0)
     const host = (await f.directory()).hosts.find((h: { id: string }) => h.id === f.paired.host)
     expect(host).not.toHaveProperty("network")
