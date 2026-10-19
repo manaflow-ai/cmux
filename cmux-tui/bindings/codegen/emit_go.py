@@ -49,6 +49,7 @@ _ACRONYMS = {
 }
 
 _SPECIAL_METHODS = {
+    "identify",  # Preserve the existing zero-argument API; raw/identify.go adds explicit options.
     "send",
     "subscribe",
     "attach-surface",

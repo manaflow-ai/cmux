@@ -226,7 +226,7 @@ public final class AgentTurnStateStore {
     }
 
     /// The records by session id; not observed itself (a reader observes the record it reads).
-    @ObservationIgnored private var sessions: [String: Session] = [:]
+    @ObservationIgnored var sessions: [String: Session] = [:]
     /// Bumped by every turn state change of any session: for a reader that
     /// follows all of them (one read, no walk).
     public private(set) var stateRevision: UInt64 = 0

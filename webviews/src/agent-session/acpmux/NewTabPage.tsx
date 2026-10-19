@@ -21,7 +21,7 @@ import {
   homePath,
   listed,
   projectLabel,
-  sessionEntry,
+  normalizedSessionEntry,
   sessionMark,
   type AcpmuxSessionEntry,
 } from "./sessionList";
@@ -171,17 +171,20 @@ export function recentSessions(
   count = RECENT_COUNT,
   fold = true,
 ): AcpmuxSessionEntry[] {
+  // Snapshots already carry normalized entries from the direct client. Keep their identity so a
+  // New Tab render does not allocate and normalize every recent chat again. Gallery and older
+  // callers may still provide raw summaries, so retain the normalization fallback for those.
   const all = sessions
-    .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
-    .filter(listed);
+    .map((session) => normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
+    // A chat nothing was sent in yet (a New Tab's chip pick starts one) is no recent chat.
+    .filter((entry) => listed(entry) && !entry.unsent);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
-  const order = (entries: AcpmuxSessionEntry[]) =>
-    entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  if (!fold) return order(all).slice(0, count);
+  const ordered = all.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  if (!fold) return ordered.slice(0, count);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.
-  const shown = order(all.filter((entry) => !entry.spawnedBy)).slice(0, count);
+  const shown = ordered.filter((entry) => !entry.spawnedBy).slice(0, count);
   const parents = new Set(shown.map((entry) => entry.sessionId));
-  return order(all.filter((entry) => !folded(entry, parents))).slice(0, count);
+  return ordered.filter((entry) => !folded(entry, parents)).slice(0, count);
 }
 
 /// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.

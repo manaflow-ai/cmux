@@ -4,7 +4,7 @@
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
 import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
-import { folded, listed, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
+import { listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
@@ -324,7 +324,7 @@ export function recentChatCards(
   // Every session's, an archived one's too: its transcript must not come back as a device chat.
   const agents = new Set(
     sessions.flatMap((session) => {
-      const id = sessionEntry(session as Parameters<typeof sessionEntry>[0]).agentSessionId;
+      const id = normalizedSessionEntry(session as Parameters<typeof normalizedSessionEntry>[0]).agentSessionId;
       return id ? [id] : [];
     }),
   );
@@ -342,7 +342,9 @@ export function recentChatCards(
       state: "idle",
     }));
   const cards = [...live, ...fill];
-  return fold ? cards.map((card) => withChildren(card, sessions, device, now, t)) : cards;
+  if (!fold) return cards;
+  const children = indexChildren(sessions, device, now, t);
+  return cards.map((card) => withChildren(card, children));
 }
 
 function liveChatCards(
@@ -366,23 +368,26 @@ function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): Ch
   };
 }
 
-/// `card` with the chats its agent started: sessions naming it (`spawnedBy`) and device chats
-/// whose `parent` is its session or chat key, newest first.
-function withChildren(
-  card: ChatCard,
+/// Child rows indexed once per snapshot, so each visible card does not rescan every session.
+type ChildCard = { parent: string; at: number; card: ChatCard };
+
+function indexChildren(
   sessions: AcpmuxSnapshot["sessions"],
   device: DeviceChat[],
   now: number,
   t: Translate,
-): ChatCard {
-  const parents = new Set([card.sessionId, card.chatKey].filter((id): id is string => Boolean(id)));
-  const own = sessions
-    .map((session) => sessionEntry(session as Parameters<typeof sessionEntry>[0]))
-    .filter((session) => listed(session) && folded(session, parents))
-    .map((session) => ({ at: session.updatedAt ?? 0, card: sessionCard(session, now, t) }));
-  const indexed = device
-    .filter((chat) => chat.parent && parents.has(chat.parent))
-    .map((chat) => ({
+): Map<string, ChildCard[]> {
+  const indexed = new Map<string, ChildCard[]>();
+  for (const raw of sessions) {
+    const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
+    if (!session.spawnedBy || !listed(session) || sessionMark(session, false) === "input") continue;
+    const child = { parent: session.spawnedBy, at: session.updatedAt ?? 0, card: sessionCard(session, now, t) };
+    indexed.set(session.spawnedBy, [...(indexed.get(session.spawnedBy) ?? []), child]);
+  }
+  for (const chat of device) {
+    if (!chat.parent) continue;
+    const child = {
+      parent: chat.parent,
       at: chat.updatedAt,
       card: {
         sessionId: chat.key,
@@ -392,7 +397,17 @@ function withChildren(
         age: ageLabel(chat.updatedAt, now, t),
         state: "idle",
       } satisfies ChatCard,
-    }));
-  const children = [...own, ...indexed].sort((a, b) => b.at - a.at).map((child) => child.card);
+    };
+    indexed.set(chat.parent, [...(indexed.get(chat.parent) ?? []), child]);
+  }
+  return indexed;
+}
+
+function withChildren(card: ChatCard, indexed: Map<string, ChildCard[]>): ChatCard {
+  const parents = [...new Set([card.sessionId, card.chatKey].filter((id): id is string => Boolean(id)))];
+  const children = parents
+    .flatMap((parent) => indexed.get(parent) ?? [])
+    .sort((a, b) => b.at - a.at)
+    .map((child) => child.card);
   return children.length > 0 ? { ...card, children } : card;
 }

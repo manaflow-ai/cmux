@@ -44,6 +44,10 @@ export type AcpmuxSessionEntry = {
   forkSeq?: number;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
+  /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
+   *  the person, and no turn running or waiting): a New Tab's chip pick starts such a session before
+   *  its first prompt. */
+  unsent?: boolean;
   /** Its last turn completed: its harness profile runs here (signed in, routed). */
   worked?: boolean;
   /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
@@ -153,9 +157,24 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     spawnedBy: text(session.spawnedBy),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
+    unsent:
+      session.lastPrompt === null &&
+      !(typeof session.turnCount === "number" && session.turnCount > 0) &&
+      // A first prompt waiting in the queue, a turn, or the person (a permission, an answer) is sent.
+      !(Number(session.queued) > 0) &&
+      !(Number(session.pendingPermissions) > 0) &&
+      session.inputSince == null &&
+      // Running or waiting is a first turn under way; any other state (an agent gone away) is not.
+      session.status !== "running" &&
+      session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
   };
+}
+
+/** Reuses a direct-client entry while retaining compatibility with raw summary fixtures/callers. */
+export function normalizedSessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
+  return typeof session.displayTitle === "string" ? (session as AcpmuxSessionEntry) : sessionEntry(session);
 }
 
 function lifecycleReceipt(value: unknown): LifecycleReceipt | undefined {

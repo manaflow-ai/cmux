@@ -31,8 +31,8 @@
 #   would share one build database. Downloaded packages and binary artifacts
 #   stay warm in SwiftPM's own content-addressed cache. A caller that passes a
 #   path owns it and keeps it. CI uses a worker/workspace/toolchain-specific
-#   Release path on owned runners; stale explicit modules there are cleared
-#   with the same one-time recovery as check-cmux-scheme-compile.sh.
+#   Release path on owned runners; the binary-module guard and the one-time
+#   stale-module recovery keep it correct as in check-cmux-scheme-compile.sh.
 set -euo pipefail
 
 # xcodebuild compiles the app: fleet or GitHub runner only.
@@ -80,6 +80,13 @@ build() {
     build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
+if (( kept_path )); then
+  # A binary target's headers changed since the last build there: build cold
+  # (scripts/ci/swiftpm-binary-module-guard.sh, xcode_binary_module_guard).
+  # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+  source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
+  xcode_binary_module_guard "$repo_root/Packages/macOS/CmuxNext" "$derived_data" -scheme CmuxNextApp
+fi
 status=0
 build || status=$?
 if (( status && kept_path )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then

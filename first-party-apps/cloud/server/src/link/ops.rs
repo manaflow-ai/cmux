@@ -306,7 +306,7 @@ pub(crate) fn begin_connect<C: ControlPlane>(
             return Err(error);
         }
     };
-    if !info.services.iter().any(|s| s == "daemon") {
+    if !info.has_service("daemon") {
         return Err(CloudError::new(
             codes::FORBIDDEN,
             "This Mac may not reach the machine's cmux daemon (team policy)",

@@ -30,6 +30,16 @@ struct SplitMotion {
         return nil
     }
 
+    /// Where a held pane's host sits this frame: a pane that grows (a close's neighbour taking the
+    /// space) keeps its final size and moves with its spring rect's leading edges, so its content,
+    /// laid out once, slides with the edge that moves and is uncovered where it grows; it never
+    /// jumps to its final place under a reveal, nor reflows when the spring ends. A shrinking pane
+    /// keeps its final frame (Cmd-D, above).
+    static func placed(held: CGRect, shown: CGRect) -> CGRect {
+        guard held.width >= shown.width - 0.5, held.height >= shown.height - 0.5 else { return held }
+        return CGRect(origin: shown.origin, size: held.size)
+    }
+
     /// The part of a pane cell the person sees: inside the pane padding, as
     /// the content at rest.
     static func visible(_ cell: CGRect, padding: CGFloat) -> CGRect {

@@ -107,7 +107,6 @@ extension DaemonStore {
         overlayLifted = true
         liftOverlay()
         let result = body()
-        nameDaemonSplits()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: awaitsRecords) {
             intentSettlements.append((intent.transaction, .applied))
         }
@@ -135,16 +134,6 @@ extension DaemonStore {
         return !ProvisionalSplit.daemonPlaces(provisional, in: self)
     }
 
-    /// A pending split whose pane the daemon's layout now places names the daemon's split after
-    /// its own, before the intent can settle.
-    private func nameDaemonSplits() {
-        for entry in intentLog.entries {
-            if case .splitPane(let target, _, _, let provisional) = entry.kind {
-                ProvisionalSplit.nameDaemonSplit(provisional, target: target, in: self)
-            }
-        }
-    }
-
     /// The pane model of a split that left the log (settled or refused) is no longer provisional.
     private func releaseSettledProvisionalPanes() {
         guard !provisionalPanes.isEmpty else { return }
@@ -170,8 +159,6 @@ extension DaemonStore {
     /// snapshot.
     func beginConnection() {
         snapshotBarrier = 0
-        // A new daemon generation numbers its splits anew: no split keeps an old name.
-        for screen in screensByHandle.values { screen.clearSplitNames() }
         if appliedSequence != 0 { appliedSequence = 0 }
         intentLog.connectionReplaced()
     }
