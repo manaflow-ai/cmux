@@ -89,7 +89,12 @@ def rpc(method, params=None, timeout=60):
 
 
 def action(name, **params):
-    return rpc("action.run", {"action": name, **params})
+    started = time.monotonic()
+    reply = rpc("action.run", {"action": name, **params})
+    took = time.monotonic() - started
+    if took > 0.5:
+        print(f"slow reply: {name} {took:.2f} s {json.dumps(reply)[:400]}", flush=True)
+    return reply
 
 
 def settle(seconds):
@@ -473,7 +478,37 @@ def perf():
     type_into("yellow", "\x03")
 
 
-LAYOUTS = {"close": close_layouts, "row": row, "grid": grid, "strip": strip, "springs": springs, "splits": splits, "perf": perf}
+def perf_busy_first():
+    """perf with the busy terminal's zoom first: is a live resize of a terminal under heavy output
+    what slows the daemon (every later reply slow), or another pane's zoom next to it."""
+    first_terminal("red")
+    split("red", "right", "green")
+    split("green", "right", "blue", "webkit")
+    split("red", "down", "yellow")
+    for color in ("red", "green"):
+        type_into(color, "seq 1 400 | paste -sd ' ' -\r")
+    type_into("yellow", "yes\r")
+    settle(0.5)
+    focus("yellow")
+    record("perf-zoom-busy", toggle, pixels=False)
+    record("perf-unzoom-busy", toggle, pixels=False)
+    focus("green")
+    record("perf-zoom-green", toggle, pixels=False)
+    record("perf-unzoom-green", toggle, pixels=False)
+    focus("blue")
+    record("perf-zoom-webkit", toggle, pixels=False)
+    record("perf-unzoom-webkit", toggle, pixels=False)
+    focus("red")
+    record("perf-split-red", lambda: action("splitRight"), pixels=False)
+    focus("green")
+    record("perf-close-green", lambda: action("closePane"), pixels=False)
+    type_into("yellow", "\x03")
+    settle(2)
+    focus("red")
+    print("after ctrl-c, a focus took", json.dumps(action("pane.focus", target=f"pane:{ids.get('red')}"))[:120], flush=True)
+
+
+LAYOUTS = {"perf-busy-first": perf_busy_first, "close": close_layouts, "row": row, "grid": grid, "strip": strip, "springs": springs, "splits": splits, "perf": perf}
 
 
 def main():
