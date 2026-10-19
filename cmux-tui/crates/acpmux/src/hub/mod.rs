@@ -18,6 +18,7 @@ mod complete;
 mod cursor_ext;
 mod fork;
 mod fork_at;
+pub mod forum;
 mod handoff;
 mod harness_view;
 mod harness_watch;
@@ -237,6 +238,8 @@ pub struct Hub {
     pub config: RwLock<Config>,
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
+    /// The forum log (`forum.rs`, `hub/forum.rs`).
+    pub(super) forum: crate::forum::Forum,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
@@ -337,10 +340,12 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let forum = forum::open(&config.store);
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
             mailbox,
+            forum,
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,

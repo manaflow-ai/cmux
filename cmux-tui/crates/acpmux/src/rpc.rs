@@ -351,6 +351,11 @@ pub mod method {
     pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
     /// Sets a session's limits: the person, or an ancestor session.
     pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
+    /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):
+    /// post a rule by key, read the current rules, ack one.
+    pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
+    pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
+    pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.

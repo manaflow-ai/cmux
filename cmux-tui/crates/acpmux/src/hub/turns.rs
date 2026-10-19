@@ -340,6 +340,10 @@ impl Hub {
                     json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
                 );
         }
+        // The current forum rules this session was not given yet (`forum.rs`).
+        if let Some(rules) = self.forum_context(session).await {
+            blocks.push(rules);
+        }
         session.stderr_tail.lock().unwrap().clear();
         let turn_seq = self
             .append(
