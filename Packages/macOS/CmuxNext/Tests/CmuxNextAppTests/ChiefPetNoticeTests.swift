@@ -42,8 +42,9 @@ import Testing
             controller.sync(true)
         }
 
-        func deliver(_ id: UInt64, surface: UInt64, title: String, level: String = "info", alerts: Bool = true) throws {
-            let wire = #"{"notification":\#(id),"title":"\#(title)","body":"","level":"\#(level)","surface":\#(surface),"source":"agent"}"#
+        func deliver(_ id: UInt64, surface: UInt64, title: String, level: String = "info", alerts: Bool = true,
+                     source: String = "agent", reply: Bool = false) throws {
+            let wire = #"{"notification":\#(id),"title":"\#(title)","body":"","level":"\#(level)","surface":\#(surface),"source":"\#(source)","reply":\#(reply)}"#
             let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
             store.apply(.notification(notification))
             let located = try #require(service.locate(surface: SurfaceID(rawValue: surface), in: store))
@@ -86,6 +87,20 @@ import Testing
         #expect(notice.kind == .needsYou)
         #expect(notice.reply == .type, "a terminal takes a typed reply")
         #expect(notice.surface == 1)
+    }
+
+    /// Only an agent's notice, or one whose poster asked for a reply (`notify --reply`), takes typed
+    /// text, as a banner does: an OSC 9/777 line from a remote shell or a log must not open a box that
+    /// types into whatever runs there.
+    @Test func onlyAgentsAndAskedForRepliesTakeTypedText() throws {
+        let harness = Harness()
+        defer { harness.controller.sync(false) }
+        try harness.deliver(5, surface: 1, title: "printed by tail -f", source: "terminal")
+        #expect(harness.controller.feed.front?.reply == .openTab)
+        try harness.deliver(6, surface: 2, title: "asked for a reply", source: "cli", reply: true)
+        #expect(harness.controller.feed.front?.reply == .type)
+        try harness.deliver(7, surface: 1, title: "Claude needs approval", level: "warning")
+        #expect(harness.controller.feed.front?.reply == .type)
     }
 
     @Test func whatWouldNotAlertStaysOffThePet() throws {
