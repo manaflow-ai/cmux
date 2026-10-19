@@ -7,7 +7,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded } from "../errors.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
-import { CreatedByCaller, describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders, InvalidRequest } from "./common.ts";
+import { CreatedByCaller, describe, DisplayName, GroupCreateHeaders, GroupCreationKeyHeaders, GroupTeamHeaders, InvalidRequest } from "./common.ts";
 
 const MAX_RETENTION_SECONDS = 365 * 24 * 60 * 60;
 const RetentionSeconds = Schema.Int.pipe(Schema.between(60, MAX_RETENTION_SECONDS));
@@ -69,6 +69,7 @@ export class SnapshotList extends Schema.Class<SnapshotList>("SnapshotList")({
 export class SnapshotCreationStatus extends Schema.Class<SnapshotCreationStatus>("SnapshotCreationStatus")({
   state: Schema.Literal("pending", "committed", "deleted"), id: SnapshotId, receipt: SnapshotSummary,
   cancellation: Schema.optional(Schema.Literal("requested", "completed")),
+  retryCreate: Schema.optional(Schema.Boolean).annotations({ description: "True only when admission needs the original create request retried with its original key; false for an uncertain capture send." }),
 }) {}
 export class SnapshotCreationList extends Schema.Class<SnapshotCreationList>("SnapshotCreationList")({
   items: Schema.Array(SnapshotCreationStatus), nextCursor: Schema.NullOr(Schema.String),
@@ -105,6 +106,9 @@ export class SnapshotsGroupDefinition extends HttpApiGroup.make("snapshots")
   .add(HttpApiEndpoint.get("listSnapshotCreations", "/v1/snapshot-creations")
     .setHeaders(GroupTeamHeaders).setUrlParams(CreationListParams).addSuccess(SnapshotCreationList).addError(Forbidden).addError(QuotaExceeded)
     .annotateContext(describe("List snapshot captures, newest first", "snapshot:read", "Reads retained public intent only. Current service labels apply; resource-allowlisted keys cannot list. Filtered empty pages may have a nextCursor.")))
+  .add(HttpApiEndpoint.get("getSnapshotCreationByKey", "/v1/snapshot-creations/by-key")
+    .setHeaders(GroupCreationKeyHeaders).addSuccess(SnapshotCreationStatus).addError(NotFound).addError(Conflict).addError(QuotaExceeded)
+    .annotateContext(describe("Inspect a capture by its original Idempotency-Key", "snapshot:read", "Read only; never contacts the provider or requires the source VM. Legacy uncertain records return 409; unknown keys return 404.")))
   .add(HttpApiEndpoint.get("getSnapshotCreation", "/v1/snapshot-creations/:snapshotId")
     .setHeaders(GroupTeamHeaders).setPath(SnapshotPath).addSuccess(SnapshotCreationStatus).addError(NotFound).addError(QuotaExceeded)
     .annotateContext(describe("Inspect a snapshot capture", "snapshot:read", "Read only; never contacts the provider.")))

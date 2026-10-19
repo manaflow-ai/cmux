@@ -38,6 +38,8 @@ export interface RawCloudDriver {
   state(id: string): Promise<string | null>
   /** A snapshot by its slug (Freestyle `GET /v5/snapshots/{slug}`), or null. */
   findSnapshot(slug: string): Promise<{ readonly id: string; readonly sourceVmId: string | null } | null>
+  /** VM API only: resume the exact capture key before requiring its source. False never admits new capture work. */
+  resumeSnapshot?(slug: string, tag: VmTag, allowSend: boolean): Promise<{ readonly id: string } | null>
   /** Snapshot a running or paused VM under `slug` (Freestyle `POST /v5/vms/{id}/snapshot`). */
   createSnapshot(vmId: string, slug: string): Promise<{ readonly id: string }>
   /** Delete a snapshot (Freestyle `DELETE /v5/snapshots/{id}`; 404 is success). */
@@ -251,10 +253,18 @@ export class GuardedCloudDriver {
     return { state: found.state !== undefined ? found.state : await this.raw.state(found.id), gone: false }
   }
 
+  async recoverSnapshot(vmName: string, tag: VmTag, slug: string): Promise<{ id: string } | null> {
+    this.guard(vmName)
+    this.guardSnapshot(slug)
+    return this.raw.resumeSnapshot?.(slug, tag, false) ?? null
+  }
+
   /** Snapshots our VM under `vmName` as `slug`; a snapshot already under the slug must come from that VM (a retry). */
   async snapshot(vmName: string, tag: VmTag, slug: string): Promise<{ id: string }> {
     this.guard(vmName)
     this.guardSnapshot(slug)
+    const resumed = await this.raw.resumeSnapshot?.(slug, tag, true)
+    if (resumed) return resumed
     const vm = await this.raw.find(vmName)
     if (!vm) throw new DriverError("cloud.provider.vm_missing", "snapshot: no VM under the recorded name", true)
     if (!ours(vm.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)

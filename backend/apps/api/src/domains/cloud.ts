@@ -358,6 +358,13 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   const rev = state.rev + 1
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
+  const retainedCapture = l.transport === "vm-api" && l.op === "snapshot" && !r.ok && r.snapshot_outcome !== "deleted"
+  if (retainedCapture) {
+    const attempts = l.attempts + 1
+    const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "snapshot capture is still being confirmed" }
+    return { ok: true, state: next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + retryDelayMs(attempts) } } }),
+      value: { applied: true, final: false }, writes: [upsertLedger({ ...l, attempts, error, updated_at: ctx.now }, stored.n)] }
+  }
   if ((l.op === "snapshot" || l.op === "snapshot_delete") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return snapshotResult(state, stored, r, ctx)
   if ((l.op === "pause" || l.op === "start" || l.op === "resize") && (r.ok || r.final === true || l.attempts + 1 >= MAX_ATTEMPTS)) return powerResult(state, stored, machine, r, ctx)
   if (!r.ok) {

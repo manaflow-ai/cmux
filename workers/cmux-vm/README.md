@@ -107,7 +107,9 @@ public snapshot IDs. A key permanently identifies one capture: use a new key
 for a new point in time. Omitted-key requests are separate captures, and retained
 failures return `pendingSnapshotId`. `GET /v1/snapshot-creations` lists capture
 receipts newest first, including pending unkeyed requests; it never contacts the
-provider or returns caller keys. `GET /v1/snapshot-creations/ID` is read only.
+provider or returns caller keys. `GET /v1/snapshot-creations/ID` is read only. Callers that retained their key can
+use `GET /v1/snapshot-creations/by-key` with the original `Idempotency-Key`
+header for an exact lookup without scanning history or contacting the provider.
 `POST /v1/snapshot-creations/ID/reconcile` records an exactly verified capture,
 even after its source is deleted; it never captures again. `POST .../cancel`
 fences future sends before deleting a verified capture. An unknown capture stays

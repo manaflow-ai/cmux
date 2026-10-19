@@ -160,6 +160,34 @@ describe("generated VM API Cloud transport", () => {
     expect(x.calls.some((r) => r.method === "POST")).toBe(false);
   });
 
+  it("resumes incomplete admission with the receipt's original source and labels", async () => {
+    const x = fake(async (r) => {
+      const path = new URL(r.url).pathname;
+      if (path.startsWith("/v1/snapshot-creations")) return json({ id: SNAPSHOT, state: "pending", retryCreate: true, receipt: snapshot() });
+      expect(path).toBe(`/v1/vms/${ID}/snapshots`);
+      expect(r.headers.get("idempotency-key")).toBe(`cloud-snapshot:${slug}`);
+      expect(await r.json()).toEqual({ displayName: slug, labels: labels(slug) });
+      return json(snapshot(), 201);
+    });
+    expect(await x.guarded.snapshot(name, { team, machine }, slug)).toEqual({ id: SNAPSHOT });
+    expect(x.calls.filter((r) => r.method === "POST" && new URL(r.url).pathname.endsWith("/snapshots"))).toHaveLength(1);
+  });
+  it("does not admit capture work during cleanup-only recovery", async () => {
+    const x = fake((r) => {
+      expect(new URL(r.url).pathname).toMatch(/^\/v1\/snapshot-creations/);
+      return json({ id: SNAPSHOT, state: "pending", retryCreate: true, receipt: snapshot() });
+    });
+    await expect(x.guarded.recoverSnapshot(name, { team, machine }, slug)).rejects.toThrow("still being confirmed");
+    expect(x.calls.some((r) => new URL(r.url).pathname.endsWith("/snapshots"))).toBe(false);
+  });
+  it("accepts deletion only from a verified terminal receipt and rejects a changed source", async () => {
+    const deleted = fake(() => json({ id: SNAPSHOT, state: "deleted", receipt: snapshot() }));
+    await expect(deleted.guarded.snapshot(name, { team, machine }, slug)).rejects.toMatchObject({ final: true, outcome: "deleted" });
+    const changed = fake((r) => json({ id: SNAPSHOT, state: new URL(r.url).pathname.endsWith("reconcile") ? "committed" : "pending",
+      receipt: { ...snapshot(), sourceVmId: new URL(r.url).pathname.endsWith("reconcile") ? `vm_${"2".repeat(26)}` : ID } }));
+    await expect(changed.guarded.snapshot(name, { team, machine }, slug)).rejects.toMatchObject({ final: false, outcome: "pending" });
+  });
+
   it("writes UTF-8 bytes and root exec stdin without putting content in query strings", async () => {
     const x = fake(async (r) => {
       if (r.method === "PUT") {

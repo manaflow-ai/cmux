@@ -383,6 +383,22 @@ describe("capture controls", () => {
     expect(pendingSnapshotId).toMatch(SNAPSHOT_ID);
     return { vmId, token, headers, id: pendingSnapshotId };
   };
+  it("distinguishes resumable admission from an uncertain provider send", async () => {
+    const { vmId } = h.addVm(TENANT_A);
+    const token = await h.addKey(TENANT_A, ["snapshot:read", "snapshot:write"]);
+    const headers = { ...bearer(token), "idempotency-key": "admission-retry" };
+    h.setBilling(TENANT_A, false);
+    expect((await create(vmId, headers)).status).toBe(402);
+    expect(await (await h.request("/v1/snapshot-creations/by-key", headers)).json()).toMatchObject({ state: "pending", retryCreate: true });
+    h.setBilling(TENANT_A, true);
+    h.upstream.faults.lostSnapshotResponses = 1;
+    expect((await create(vmId, headers)).status).toBe(503);
+    expect(await (await h.request("/v1/snapshot-creations/by-key", headers)).json()).toMatchObject({ state: "pending", retryCreate: false });
+    const other = await h.addKey(TENANT_B, ["snapshot:read"]);
+    expect((await h.request("/v1/snapshot-creations/by-key", { ...bearer(other), "idempotency-key": "admission-retry" })).status).toBe(404);
+    expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
+  });
+
   it("looks up a keyed capture without source access or a provider request", async () => {
     const { vmId, id, headers } = await pending("cloud-snapshot:base");
     expect((await h.request(`/v1/vms/${vmId}`, headers, { method: "DELETE" })).status).toBe(204);

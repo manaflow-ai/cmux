@@ -38,6 +38,7 @@ const status = <C, S>(caller: Named<C, Principal>, snapshot: Named<S, SnapshotId
   const row = yield* (yield* SnapshotStore).inspect(caller.value.tenantId, snapshot.value).pipe(Effect.mapError(() => retained(snapshot.value)));
   if (Option.isSome(row) && (!carriesRequiredLabels(caller.value, row.value.labels) || row.value.createdBy !== record.intent.createdBy)) return yield* Effect.fail(snapshotNotFound());
   return new SnapshotCreationStatus({ id: snapshot.value, receipt: receiptOf(record),
+    retryCreate: record.state === "claimed" || (record.state === "pending" && (record.dispatch?.state === "ready" || record.dispatch?.state === "rejected")),
     state: record.state === "cancelled" || (Option.isSome(row) && row.value.deleted) ? "deleted" : record.state === "committed" ? "committed" : "pending",
     ...(record.state === "cancelling" ? { cancellation: "requested" as const } : record.state === "cancelled" ? { cancellation: "completed" as const } : {}),
   });
@@ -130,6 +131,13 @@ const withCapture = <A, E, R>(rawId: string, f: <C, S>(caller: Named<C, Principa
     const id = parseSnapshotId(rawId); if (Option.isNone(id)) return yield* Effect.fail(snapshotNotFound());
     return yield* name(id.value, (snapshot) => f(caller, snapshot, scope));
   }));
+
+export const inspectSnapshotCaptureByKey = (key: string) => withCaller("snapshot:read", "read", (caller) => Effect.gen(function* () {
+  const found = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "inspect", key: yield* digest(["key", key]) }).pipe(Effect.mapError(() => unavailable()));
+  if (found.state === "legacy" || found.state === "legacyDone") return yield* Effect.fail(new Conflict({ message: "This legacy capture has no recoverable operation record" }));
+  if (found.state !== "record") return yield* Effect.fail(snapshotNotFound());
+  return yield* name(found.record.intent.id, (snapshot) => authorizedSnapshotCapture(caller, snapshot).pipe(Effect.flatMap((proof) => status(caller, snapshot, proof))));
+}));
 
 export const inspectSnapshotCapture = (rawId: string) => withCaller("snapshot:read", "read", (caller) => Effect.gen(function* () {
   const id = parseSnapshotId(rawId); if (Option.isNone(id)) return yield* Effect.fail(snapshotNotFound());
