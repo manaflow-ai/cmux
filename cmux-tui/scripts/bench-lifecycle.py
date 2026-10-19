@@ -105,6 +105,8 @@ def main():
     ap.add_argument("--root-dir", default=None)
     ap.add_argument("--label", default="run")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--background", type=int, default=0,
+                    help="extra idle workspaces (one terminal each) that make the session larger")
     ap.add_argument("--spans", action="store_true", help="set CMUX_TUI_DEBUG_SPANS and keep the file")
     args = ap.parse_args()
 
@@ -132,7 +134,8 @@ def main():
         [args.bin, "--headless", "--session", f"lc{os.getpid()}", "--socket", sock, "--state", state],
         stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True,
     )
-    result = {"label": args.label, "platform": platform.platform(), "rounds": args.rounds, "ops": {}}
+    result = {"label": args.label, "platform": platform.platform(), "rounds": args.rounds,
+              "background": args.background, "ops": {}}
     try:
         deadline = time.time() + 30
         while True:
@@ -149,6 +152,8 @@ def main():
                 raise RuntimeError("daemon socket never appeared")
             time.sleep(0.1)
 
+        for k in range(args.background):
+            must(c.call("new-workspace", name=f"bg{k}", cols=80, rows=24), "new-workspace")
         base = must(c.call("new-workspace", name="base", cols=120, rows=40), "new-workspace")
         base_pane, _ = pane_of(c, base["surface"])
         sized = {"cols": 80, "rows": 24}

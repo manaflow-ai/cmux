@@ -619,6 +619,71 @@ Phase 1, slice 3 (2026-10-19):
   `generation` (one more per change; keep the highest when several threads call). `tests/ownership_vectors.rs` checks both rules on every step
   of every vector.
 
+Phase 3, slice 1 (2026-10-19): the HostDO replica, backend side.
+
+- `GET /v1/wire/host/<host>` (scope `host`, also for wire tickets). TeamDO names the role from the
+  host record (`hostReplicaRole`): the install that enrolled the host is the publisher, the owner's
+  other sessions and installs are readers, anyone else gets 403. A chief token gets 403 too (no
+  chief needs the replica yet; the Mac mini Chief uses the conversation socket, section 10.1). An
+  install token without an expiry gets 403. Team-shared hosts come with the TeamDO reach policy
+  (section 9), not here.
+- `backend/apps/api/src/host-replica/store.ts`: per stream the last published snapshot (decided keys
+  stripped: they answer one client) and every event after it, in the host's `seq`. Events append
+  only at `head + 1`; a gap or an over-full tail asks the host for one new snapshot. The tail is
+  never trimmed by itself (a snapshot plus every later event is the only consistent answer): past
+  1,000 events or 8 MiB it asks for a snapshot, at twice that it stops appending. Snapshot 1 MiB,
+  512 streams per host, one event 256 KiB, stream names `host:<h>/...` or `doc:ws_...`, at most
+  96 printable ASCII characters.
+- `backend/apps/api/src/host-replica/wire.ts`: the publisher sends `publish {stream, snapshot |
+  event}` and answers forwarded frames with their `to`; on connect it gets `welcome {heads}` (where
+  to resume). Readers use the ordinary client frames: `subscribe {stream, after_seq?, pending?}`
+  answers `owner.status {status, since, cached_seq}` and then the events after the cursor when the
+  tail has all of them, else the snapshot and the whole tail. `op` and `snapshot.request` with
+  pending keys go to the online host with the reader's principal; offline, an op gets
+  `reject owner_unreachable` (retryable) and `request-settled ok:false` at once (U5). An op in
+  flight when the publisher closes or is replaced gets the same refusal (the replica records each
+  forwarded op until its `request-settled`; 64 per reader socket). Online means the current
+  publisher's socket is open (its id is stored; a socket that vanished without a close counts as
+  offline), and frames from a replaced publisher are ignored. A cursor ahead of the replica gets
+  `owner.status` with the lower `cached_seq` and nothing else, so a reader never goes back.
+  Presence changes go to every subscribed reader as `owner.status`. A reader subscribes at most 30
+  times in 10 s. Sockets register in the user's UserDO (instant revocation, chief archive) and close
+  at token expiry by alarm.
+- A host that leaves its owner loses its replica (slice 1b): when TeamDO commits `host.remove`,
+  `server.revoke`, or a member cleanup that orphans the member's hosts, it queues the host in its
+  own SQL (`team-host-replica-drop.ts`, backoff per host) and calls `HostDO.dropReplica`. HostDO
+  forgets every stored stream and closes every replica socket (4403). A removed or revoked host is
+  also tombstoned (later upgrades get 410; the same install enrolls again under a new id). An
+  orphaned host is not: it keeps its id, and its former owner may enroll it again after rejoining.
+  The alarm retries a failed call; a replayed op queues nothing. `hostReplicaRole` gives an orphaned
+  host, or a principal that is no longer a team member, no role. Known gap: an upgrade whose role
+  was checked just before an orphaning can still open after the drop (no tombstone to stop it); it
+  lives until its token expires or the install is revoked. A host epoch on the record would close
+  it, when a reassign op exists. Tests: `test/host-replica.test.ts` (host removed) and
+  `test/team-member-remove.test.ts` (owner left the team).
+- Test: `backend/apps/api/test/host-replica.test.ts` drives the real Worker sockets (403 for a
+  stranger; publish, live read, gap request, forwarded op and its settle, an op in flight refused
+  when the host goes away, offline status, resume from the replica with the host off, offline
+  refusal, a cursor ahead of the replica, another host's stream refused, heads on reconnect).
+- The daemon publisher (slice 2, `cmux-tui-cloud-conversations/src/host_replica.rs` and
+  `cmux-tui-core/src/server/cloud_host_replica.rs`, capability `cloud-host-replica-v1`): the
+  verified app leases its install token (`cloud-host-replica-set`); the daemon enrolls the host,
+  publishes `host:<h>/session` (the `list-workspaces` tree) and runs forwarded ops through its own
+  command path. Only `workspace.rename` with fixed fields runs (remote relay default deny), only for
+  the token's user, never for a principal with `agent`; the cloud key is namespaced per user in
+  the daemon's idempotency store. The seq never goes back in one daemon, and a stream the replica
+  does not hold starts at the wall clock (ms), so a reader's cursor from before a purge or a restart
+  is always behind. The off switch L4 is `cloud-host-replica-clear {purge: true}`: the publisher
+  sends `replica.purge`, HostDO refuses the ops in flight, forgets every stream and answers
+  `replica.purged`. A host the cloud removed (410, 4403) stays off for that install until the app
+  clears the replica; close 4000 (another socket of the install) waits for a new lease.
+  Deliberate first step: each event carries the whole tree in `effects.state` (O(tree) per
+  change, the cost section 1 names); diffs per workspace come when the tree has per-object revisions.
+  Open: an owner-callable `host.replica.purge` op, so the owner can delete the cloud copy while
+  the Mac is off; the Swift app's lease caller and the L4 toggle in Settings.
+- Next slice: the Swift lease caller and L4 toggle, and the phone's reader through
+  `OwnershipMirror` (after the cnx-ios fold-in).
+
 Each phase deletes what it replaces in the same change (no twins). Each phase lands on
 `feat-cmux-next` in small slices as soon as its slice is green (Lawrence, 2026-10-18: "cut our
 stuff into the main feature branch ASAP so there is no drift"); no phase lives on a side branch

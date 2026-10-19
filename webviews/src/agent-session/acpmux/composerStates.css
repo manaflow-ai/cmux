@@ -23,17 +23,65 @@
   /* The composer's surface (Leo 10-14), New Tab's box and the chat composer alike, derived from the
      theme's opaque page color: in a light theme the page lifted toward white, so the composer is
      lighter than the page (near white, as Aside's and ChatGPT's are); in a dark theme one small step
-     toward the text, as the theme's elevated surface. Solid, so it sits as chrome over a wallpaper. */
-  --acpmux-composer-surface: light-dark(
+     toward the text, as the theme's elevated surface. Solid on an opaque window; over art or a
+     see-through window it is glass (below). */
+  --acpmux-composer-solid: light-dark(
     color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, var(--cmux-tone-light)),
     color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
   );
+  --acpmux-composer-surface: var(--acpmux-composer-solid);
   /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
      none in a dark one, where a drop shadow on a dark page shows nothing. */
   --acpmux-composer-shadow: var(--elevation-1);
   /* One step past hover, for the press. */
   --acpmux-composer-press: color-mix(in srgb, var(--agent-text) 20%, var(--agent-page-bg, var(--acpmux-base)));
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
+}
+
+/* Over art or a see-through window (data-cmux-see-through, desktop.ts) the composer is glass, like
+   iOS's (Leo 2026-10-18, replacing the solid surface of 10-14): its surface at 60% so the art shows
+   through the window's tint, and a top-lit rim. The prompt is primary text, which the window's tint
+   floor already keeps at 4.5:1 over the art. Reduce Transparency keeps it solid. */
+:root[data-cmux-see-through] .acpmux-shell {
+  --acpmux-composer-surface: color-mix(in srgb, var(--acpmux-composer-solid) 60%, transparent);
+  --acpmux-composer-rim: inset 0 1px 0 light-dark(
+    color-mix(in srgb, var(--cmux-tone-light) 60%, transparent),
+    color-mix(in srgb, var(--cmux-tone-light) 12%, transparent)
+  );
+}
+/* Under a see-through card nothing may hide beneath it: the tray's tuck would show as a band
+   through the card's top. */
+:root[data-cmux-see-through]:not([data-reduce-transparency])[data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
+  > :is(.acpmux-composer-strip, .acpmux-composer-queue) {
+  mask: linear-gradient(black calc(100% - var(--acpmux-tray-tuck, 0px)), transparent 0);
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-cmux-see-through][data-top-strip="tray"] :is(.acpmux-composer, .nt-composer)
+    > :is(.acpmux-composer-strip, .acpmux-composer-queue) {
+    mask: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-cmux-see-through] .acpmux-shell {
+    --acpmux-composer-surface: var(--acpmux-composer-solid);
+  }
+}
+:root[data-reduce-transparency][data-cmux-see-through] .acpmux-shell {
+  --acpmux-composer-surface: var(--acpmux-composer-solid);
+}
+/* The rim is a layer of its own only on glass: an opaque card keeps its one ring and one shadow. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-cmux-see-through]:not([data-reduce-transparency])
+    :is(.acpmux-composer-box, .acpmux-composer-box:has(:focus-visible), .nt-box) {
+    box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
+  }
+  /* Under the default strip, a strip or a queue, the ring goes round strip and card as one on the
+     card's ::before layer (composerLocation.css), so the card adds only the rim and the shadow.
+     (0,7,0) here outranks the rule above whatever the stylesheet order. */
+  :root[data-cmux-see-through]:not([data-reduce-transparency]):not([data-top-strip])
+    .acpmux-composer:has(> .acpmux-composer-strip, > .acpmux-composer-queue) > .acpmux-composer-box {
+    box-shadow: var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
+  }
 }
 
 :root[data-theme="dark"] .acpmux-shell {
