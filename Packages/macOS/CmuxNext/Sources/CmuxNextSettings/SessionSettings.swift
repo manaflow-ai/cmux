@@ -7,6 +7,8 @@
 /// works on adapter power unless the user picks otherwise; phone access is off until turned on.
 public nonisolated struct SessionSettings: Sendable, Equatable {
     public var keepAwake = SessionSettings.keepAwakeDefault
+    /// `sessions.allowFullAccess`: an agent may be switched into a mode that skips approvals.
+    public var allowsFullAccess = SessionSettings.allowFullAccessDefault
     /// `phone.allowConnections`: the phone listener runs.
     public var allowsPhone = SessionSettings.allowConnectionsDefault
     /// `phone.startSessions`: phones may create workspaces and terminals.
@@ -20,6 +22,7 @@ public nonisolated struct SessionSettings: Sendable, Equatable {
         var settings = Self()
         if var reader = ConfigFieldReader(root, at: ["sessions"], diagnostics: &diagnostics) {
             if let value = reader.choice("keepAwake", SessionKeepAwakeSetting.self) { settings.keepAwake = value }
+            if let value = reader.bool("allowFullAccess") { settings.allowsFullAccess = value }
             diagnostics += reader.diagnostics
         }
         if var reader = ConfigFieldReader(root, at: ["phone"], diagnostics: &diagnostics) {
