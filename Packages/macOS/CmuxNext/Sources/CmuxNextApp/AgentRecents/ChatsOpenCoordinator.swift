@@ -28,7 +28,9 @@ enum ChatOpenRoute: Equatable {
         switch plan.action {
         case .needsFolder(let reason): return .needsFolder(reason: reason)
         case .adopt(var adopt, let cwd, _):
-            if watch, ["claude", "codex"].contains(adopt.harness) { adopt.watch = true }
+            // Only Claude Code and Codex chats are watched; a daemon without `family` names the
+            // profile after its family.
+            if watch, ["claude", "codex"].contains(plan.family ?? adopt.harness) { adopt.watch = true }
             return openTab(adopt).map { .reveal(tab: $0) }
                 ?? .newWorkspace(name: chat.title, cwd: cwd, seed: AgentPaneSeed(cwd: cwd, adopt: adopt, pastChat: chat.key),
                                  command: nil, env: [:])
