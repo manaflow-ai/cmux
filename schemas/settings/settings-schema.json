@@ -295,10 +295,7 @@
               "appearance.backdropArt",
               "appearance.background",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur",
-              "appearance.backgroundVideo",
-              "appearance.backgroundVideoOnBattery",
-              "appearance.backgroundAvoidPanes"
+              "appearance.backgroundBlur"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -516,6 +513,7 @@
               "agentPane.showContextUsage",
               "agentPane.showDictation",
               "agentPane.zoom",
+              "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -587,7 +585,8 @@
               "notifications.suppressWhileTypingSeconds",
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
-              "notifications.dockBadge"
+              "notifications.dockBadge",
+              "notifications.dockBounce"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -11299,192 +11298,6 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "play",
-        "whenActive",
-        "still"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideo.play",
-            "text" : "Play"
-          },
-          "value" : "play"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideo.whenActive",
-            "text" : "Only While cmux Is Active"
-          },
-          "value" : "whenActive"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideo.still",
-            "text" : "Still Picture"
-          },
-          "value" : "still"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "play",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundVideo.help",
-        "text" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundVideo",
-      "keywords" : [
-        "video",
-        "wallpaper",
-        "aerial",
-        "motion",
-        "play",
-        "pause",
-        "battery"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundVideo"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.backgroundVideo",
-        "text" : "Video Background"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "play",
-        "pause"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideoOnBattery.play",
-            "text" : "Keep Playing"
-          },
-          "value" : "play"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.backgroundVideoOnBattery.pause",
-            "text" : "Pause"
-          },
-          "value" : "pause"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "play",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundVideoOnBattery.help",
-        "text" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundVideoOnBattery",
-      "keywords" : [
-        "video",
-        "battery",
-        "power",
-        "energy"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundVideoOnBattery"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.backgroundVideoOnBattery",
-        "text" : "On Battery"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.backgroundAvoidPanes.help",
-        "text" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.backgroundAvoidPanes",
-      "keywords" : [
-        "painting",
-        "crop",
-        "subject",
-        "framing",
-        "sidebar",
-        "agent"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "backgroundAvoidPanes"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.appearance.backgroundAvoidPanes",
-        "text" : "Keep Paintings Clear of Panes"
       },
       "validation" : "portable"
     },
@@ -22438,79 +22251,6 @@
     },
     {
       "accepts" : [
-        "always",
-        "hover",
-        "never"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.always",
-            "text" : "Always"
-          },
-          "value" : "always"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.onHover",
-            "text" : "On Hover"
-          },
-          "value" : "hover"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.never",
-            "text" : "Never"
-          },
-          "value" : "never"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "hover",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefPictures",
-        "text" : "Chief Pictures"
-      },
-      "help" : {
-        "key" : "settings.home.chiefPictureMotion.help",
-        "text" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPictureMotion",
-      "keywords" : [
-        "chief",
-        "avatar",
-        "picture",
-        "gif",
-        "animation",
-        "motion"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPictureMotion"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "home",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.home.chiefPictureMotion",
-        "text" : "Animated Pictures"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -23289,6 +23029,77 @@
       "title" : {
         "key" : "settings.notifications.dockBadge",
         "text" : "Unread Count on Dock Icon"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOnce",
+            "text" : "Once"
+          },
+          "value" : "once"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceUntilActive",
+            "text" : "Until You Switch to cmux"
+          },
+          "value" : "untilActive"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "once",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.dockBounce.help",
+        "text" : "When a notification alerts while cmux isn't the active app."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.dockBounce",
+      "keywords" : [
+        "dock",
+        "bounce",
+        "attention",
+        "badge"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "dockBounce"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.dockBounce",
+        "text" : "Bounce Dock Icon"
       },
       "validation" : "portable"
     },
@@ -24677,6 +24488,82 @@
     },
     {
       "accepts" : [
+        "fullAccess",
+        "standard",
+        "ask"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.permissionFullAccess",
+            "text" : "Full Access"
+          },
+          "value" : "fullAccess"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionStandard",
+            "text" : "Harness Default"
+          },
+          "value" : "standard"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.permissionAsk",
+            "text" : "Ask Before Changes"
+          },
+          "value" : "ask"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "fullAccess",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agents.defaultPermissionMode.help",
+        "text" : "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.defaultPermissionMode",
+      "keywords" : [
+        "permission",
+        "mode",
+        "full access",
+        "ask",
+        "approval",
+        "yolo",
+        "bypass",
+        "agent",
+        "new chat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "defaultPermissionMode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.defaultPermissionMode",
+        "text" : "Permission Mode for New Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -25467,7 +25354,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "8344a0ba03713ae0349d5a37587df81da49b73740197e0a1db934d62efdcd1ea",
+  "schema_hash" : "b5a8a5f821bff8f0f2b9ac6f60d01e2b243d10a1263d54e6c60312d8e17774dc",
   "sections" : [
     {
       "id" : "general",
