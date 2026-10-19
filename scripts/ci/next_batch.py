@@ -894,6 +894,7 @@ class Stack:
     regen: set[str] = field(default_factory=set)
     regenerated: list[str] = field(default_factory=list)
     error: str = ""
+    heads: dict[int, str] = field(default_factory=dict)  # the stack commit right after each PR merged
 
     def summary(self) -> dict:
         return {
@@ -1023,6 +1024,7 @@ def build_stack(worktree: Path, base_sha: str, prs: list[PullRequest], tools_roo
         merged = merge_pr(repo, pr, tools_root)
         if merged.ok:
             stack.included.append(pr)
+            stack.heads[pr.number] = repo.text("rev-parse", "HEAD")
             stack.resolved += [{"pr": f"#{pr.number}", **item} for item in merged.resolved]
             stack.regen |= merged.regen
             log(f"merged #{pr.number}" + (f" ({len(merged.resolved)} resolved)" if merged.resolved else ""))
@@ -1782,66 +1784,118 @@ class Controller:
 
     def waivable(self, line: str, validation: Validation) -> bool:
         """Whether every red lane in gh-merge-green's refusal is a heavy-tier
-        job the stack ran green, so --override waives only what the batch tested.
+        job the stack ran green. The line reads `not green: <lane>; <lane> on
+        <sha>, not excused by ...`; a lane is a quoted check or a cmux-next run
+        verdict, whose failed jobs then decide."""
+        return self.waived_jobs(line, validation) is not None
 
-        The line reads `not green: <lane>; <lane> on <sha>, not excused by ...`.
-        A lane is a quoted check (`'cmux-next swift test'`) or a cmux-next run
-        verdict (`cmux-next run <id> attempt <n> (<event>) is failure`), whose
-        failed jobs then decide."""
-        found = re.match(r"not green: (.+) on [0-9a-f]{7,40}, not excused by ", line)
-        if not found:
+    def same_tree(self, first: str, second: str) -> bool:
+        if first == second:
+            return True
+        try:
+            return self.git("rev-parse", f"{first}^{{tree}}", cwd=self.worktree) == \
+                self.git("rev-parse", f"{second}^{{tree}}", cwd=self.worktree)
+        except RuntimeError:
             return False
 
-        def passed(name: str) -> bool:
-            return name in HEAVY_CHECKS and any(job.endswith(name) for job in validation.heavy_passed)
+    def job_ids(self, run_url: str, names: list[str]) -> dict[str, int]:
+        """The passed job of `run_url` behind each name; {} when unreadable."""
+        found = re.search(r"/runs/(\d+)", run_url or "")
+        if not found:
+            return {}
+        try:
+            jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{found.group(1)}/jobs?per_page=100&filter=latest")["jobs"]
+        except RuntimeError:
+            return {}
+        ids = {name: next((job["id"] for job in jobs if job["name"].endswith(name) and job.get("conclusion") == "success"), None)
+               for name in names}
+        return ids if all(ids.values()) else {}
 
+    def waiver_validation(self, pr: PullRequest, validation: Validation) -> Validation | None:
+        """A run of the batch that tested exactly what this PR lands as: a stack
+        ending at this head (no later member could have made a job green) on a
+        base whose tree is what feat-cmux-next holds now (the base, or the base
+        plus the earlier members that landed)."""
+        base_now = self.current_base()
+        for candidate in [validation, *reversed(getattr(self, "validations", []))]:
+            included = candidate.stack.included
+            if not included or included[-1].number != pr.number or included[-1].sha != pr.sha:
+                continue
+            before = candidate.stack.heads.get(included[-2].number) if len(included) > 1 else candidate.stack.base
+            if before and self.same_tree(base_now, before):
+                return candidate
+        return None
+
+    def waived_jobs(self, line: str, validation: Validation) -> list[str] | None:
+        """The heavy jobs a refusal's red lanes come down to, when every one
+        passed on `validation`'s stack; None otherwise."""
+        found = re.match(r"not green: (.+) on [0-9a-f]{7,40}, not excused by ", line)
+        if not found:
+            return None
+        names: list[str] = []
         for lane in found.group(1).split("; "):
             quoted = re.fullmatch(r"'(.+)'", lane)
             verdict = re.fullmatch(r"cmux-next run (\d+) attempt \d+ \(\S+\) is failure", lane)
             if quoted:
-                if not passed(quoted.group(1)):
-                    return False
+                names.append(quoted.group(1))
             elif verdict:
                 try:
                     jobs = self.failed_jobs(int(verdict.group(1)))
                 except RuntimeError as error:  # unreadable: nothing is waived
                     log(f"could not read run {verdict.group(1)}: {error}")
-                    return False
-                if not jobs or not all(passed(job) for job in jobs):
-                    return False
+                    return None
+                if not jobs:
+                    return None
+                names += jobs
             else:
-                return False
-        return True
+                return None
+        passed = lambda name: name in HEAVY_CHECKS and any(job.endswith(name) for job in validation.heavy_passed)  # noqa: E731
+        return list(dict.fromkeys(names)) if all(passed(name) for name in names) else None
 
     def merge_one(self, helper: Path, pr: PullRequest, validation: Validation) -> str:
         ref = f"{self.args.repo}#{pr.number}"
         env = {**self.writer.env, "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
-        passed = ", ".join(validation.heavy_passed) or "no heavy-tier job"
-        reason = (f"cmux-next batch {self.run_url} validated this exact head in stack "
-                  f"{validation.stack.head[:12]}: these passed there: {passed}, and the fleet production build")
         deadline = time.monotonic() + 30 * 60
-        # Each --override call follows a refusal that waivable() just approved;
+        # Each --override call follows a refusal that the waiver just approved;
         # a later refusal is judged again, so a lane that turns red meanwhile is never waived unchecked.
-        override = False
+        reason = ""
         while True:
             # Trailing flags reach gh pr merge after gh-merge-green's own: GitHub
             # merges only the head this batch validated, never a newer push.
-            command = [str(helper), ref, *(["--override", reason] if override else []), "--squash",
+            command = [str(helper), ref, *(["--override", reason] if reason else []), "--squash",
                        "--match-head-commit", pr.sha]
             completed = subprocess.run(command, capture_output=True, text=True, env=env)
             output = (completed.stdout + completed.stderr).strip()
             if completed.returncode == 0:
-                return "landed" + (" (override: own heavy check red, batch green)" if override else "")
+                return "landed" + (" (override: own heavy check red, batch green)" if reason else "")
             line = next((item for item in output.splitlines() if item.startswith("not green")), output[-300:])
             pending = re.search(r"is (queued|in_progress|waiting|pending|requested)/", line) or "has not run" in line
-            if not override and self.waivable(line, validation):
-                override = True  # the batch ran that tier on this head's stack
+            # TODO(#22140): once gh-merge-green counts a passing run of the same job at
+            # the exact head as green, drop this --override retry; gh-merge-green decides alone.
+            if not reason and (waiver := self.override_reason(line, pr, validation)):
+                reason = waiver  # the batch ran that tier on exactly this head's tree
                 continue
-            override = False
+            reason = ""
             if pending and time.monotonic() < deadline:
                 time.sleep(120)
                 continue
             return f"not landed: {line}"
+
+    def override_reason(self, line: str, pr: PullRequest, validation: Validation) -> str:
+        """An auditable --override for a refusal whose red lanes are heavy jobs the
+        batch ran green on exactly this PR's tree, or "" when that isn't proven."""
+        if self.waived_jobs(line, validation) is None:
+            return ""
+        tested = self.waiver_validation(pr, validation)
+        names = self.waived_jobs(line, tested) if tested else None
+        if not names:
+            return ""
+        ids = self.job_ids(tested.heavy_url, names)
+        if not ids:
+            return ""
+        return (f"cmux-next batch {self.run_url} validated this exact head as the last PR of stack "
+                f"{tested.stack.head[:12]} on a base with the same tree as now; heavy run {tested.heavy_url} passed "
+                + ", ".join(f"{name} (job {ids[name]})" for name in names) + ", and the fleet production build")
 
     def after_landing(self) -> None:
         """Merges by the job token start no push workflows; start the base ones.
