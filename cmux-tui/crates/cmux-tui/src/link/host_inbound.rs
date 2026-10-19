@@ -70,7 +70,8 @@ where
     }
     let expected =
         Expected { host: me.host, epoch: me.epoch, service: hello.service, peer_key: &peer_key };
-    let peer = verifier.verify(token, &expected).map_err(|_| HostRefused::Token)?;
+    let verified = verifier.verify(token, &expected).map_err(|_| HostRefused::Token)?;
+    let peer = verified.peer;
     if peer_addr.ip() != IpAddr::V6(overlay_address(&peer.install)) {
         return Err(HostRefused::AddressMismatch);
     }
@@ -78,9 +79,14 @@ where
         Service::Daemon => {
             // The verifier accepted a control-plane token for this stream:
             // the entry records it as the install's good check.
-            hand_to_entry(stream, &peer, Some(StampCheck::LinkToken), me.session_socket)
-                .await
-                .map_err(HostRefused::Inbound)
+            hand_to_entry(
+                stream,
+                &peer,
+                Some(StampCheck::LinkToken { issued_at_ms: verified.issued_at_ms }),
+                me.session_socket,
+            )
+            .await
+            .map_err(HostRefused::Inbound)
         }
         Service::Ssh => {
             let mut sshd = tokio::net::TcpStream::connect(me.sshd)
