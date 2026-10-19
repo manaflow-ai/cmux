@@ -87,7 +87,6 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
     }
 
     @available(*, unavailable)
@@ -102,9 +101,14 @@ final class GroupLineView: NSView {
         needsDisplay = true
     }
 
+    /// Chrome's trimmed ends (`SidebarGroupLineShape.line`), redrawn at every size.
+    private let shape = CAShapeLayer()
+
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.width / 2
+        shape.frame = bounds
+        shape.path = SidebarGroupLineShape.line(width: bounds.width, height: bounds.height)
+        if layer?.mask !== shape { layer?.mask = shape }
     }
 
     override func updateLayer() {

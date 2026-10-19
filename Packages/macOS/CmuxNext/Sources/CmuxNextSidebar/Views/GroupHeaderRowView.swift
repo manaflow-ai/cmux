@@ -34,10 +34,15 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
     private let pill = CALayer()
-    /// `sidebar.groupLineJoinsHeader`: the members' line joins this bar at its left edge.
-    var joinsLine = false {
-        didSet { if joinsLine != oldValue { needsLayout = true } }
+    /// `sidebar.groupLineJoinsHeader`: how far below the bar this header draws its members' line
+    /// as part of the bar, one outline (`SidebarGroupLineShape.joined`); 0 draws the bar alone.
+    var joinedLineLength: CGFloat = 0 {
+        didSet { if joinedLineLength != oldValue { needsLayout = true } }
     }
+    /// The bar, in the header's coordinates (the bar layer runs down the line when joined).
+    private(set) var barFrame: NSRect = .zero
+    /// The bar's layer: the bar, or the bar and its joined line.
+    var barLayer: CALayer { pill }
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
@@ -161,7 +166,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The one ink every glyph on the header takes.
     var ink: NSColor? { name.textColor }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
-    var labelFrame: NSRect { pill.frame }
+    var labelFrame: NSRect { barFrame }
     /// The width the name needs to draw whole (`GroupLabelBandTests`).
     var titleIntrinsicWidth: CGFloat { Self.drawnWidth(name) }
     /// The width a header label needs to draw its text whole: its text in the font it draws in,
@@ -297,14 +302,22 @@ final class GroupHeaderRowView: SidebarRowView {
         count.frame = NSRect(x: (pinned ? pin.frame.maxX : name.frame.maxX) + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
         pill.isHidden = renaming
         // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
-        pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
-        pill.cornerRadius = min(SidebarStyle.groupHeaderCornerRadius, barHeight / 2)
-        // Joined to its members' line (`sidebar.groupLineJoinsHeader`), the corner over the line is
-        // square, so bar and line are one L shape (SidebarGroupLine.lines).
-        let joined = joinsLine && !collapsed && !isEmpty
-        let bottomLeft: CACornerMask = layer?.contentsAreFlipped() == true ? .layerMinXMaxYCorner : .layerMinXMinYCorner
-        let all: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        pill.maskedCorners = joined ? all.subtracting(bottomLeft) : all
+        barFrame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
+        let radius = min(SidebarStyle.groupHeaderCornerRadius, barHeight / 2)
+        // Joined to its members' line (`sidebar.groupLineJoinsHeader`), bar and line are one
+        // outline on this one layer: no seam, cap or step where they meet (Leo 2026-10-19).
+        let joined = joinedLineLength > 0 && !collapsed
+        pill.frame = joined ? NSRect(x: 0, y: barFrame.minY, width: b.width, height: barHeight + joinedLineLength) : barFrame
+        pill.cornerRadius = joined ? 0 : radius
+        if joined {
+            let outline = pill.mask as? CAShapeLayer ?? CAShapeLayer()
+            outline.frame = pill.bounds
+            outline.path = SidebarGroupLineShape.joined(width: b.width, barHeight: barHeight, radius: radius,
+                                                        lineWidth: SidebarStyle.groupBarWidth, length: joinedLineLength)
+            pill.mask = outline
+        } else {
+            pill.mask = nil
+        }
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
