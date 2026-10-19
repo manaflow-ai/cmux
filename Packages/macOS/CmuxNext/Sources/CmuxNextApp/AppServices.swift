@@ -171,7 +171,8 @@ final class AppServices {
     var borderObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
-    let popups: BrowserPopupPanels  // sized browser popups (OAuth, payment) in floating panels
+    /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
+    let popups: BrowserPopupWindows
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
     /// Click by Hint over the whole window (`hints.show`, Cmd-J).
@@ -217,7 +218,7 @@ final class AppServices {
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupPanels(contextMenus: contextMenus)
+        popups = BrowserPopupWindows(contextMenus: contextMenus)
         self.environment = environment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         // After the run marker's handlers: Sentry calls them after its report.
