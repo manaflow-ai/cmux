@@ -800,11 +800,6 @@ function AccessMenu({
           <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
             {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
           </span>
-          {grants.length > 0 && (
-            <span className="acpmux-access-grant-count" aria-hidden="true">
-              {grants.length}
-            </span>
-          )}
           <ChevronIcon />
         </MenuButton>
         <MenuPopup
