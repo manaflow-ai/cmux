@@ -249,6 +249,10 @@ extension SettingsSchema {
         "agents.subsessions.enabled": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // What reaches this Mac from outside and what leaves it: only the person opens phone access.
+        "phone.allowConnections": .network,
+        "phone.startSessions": .network,
+        "phone.keepAwake": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]
