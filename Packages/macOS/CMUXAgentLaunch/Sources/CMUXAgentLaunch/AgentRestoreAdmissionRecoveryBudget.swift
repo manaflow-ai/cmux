@@ -29,6 +29,19 @@ public struct AgentRestoreAdmissionRecoveryBudget {
         return true
     }
 
+    /// Clips an inner retry schedule to the time still available to the outer
+    /// recovery loop. The final delay may reach the deadline, but the caller
+    /// cannot spend another admission pass after that point.
+    public func retryDelays(_ delays: [Duration]) -> [Duration] {
+        var remaining = Duration.seconds(max(0, deadline.timeIntervalSince(now())))
+        return delays.compactMap { delay in
+            guard remaining > .zero else { return nil }
+            let bounded = min(delay, remaining)
+            remaining -= bounded
+            return bounded
+        }
+    }
+
     /// Gives one socket request no more than thirty seconds and never beyond
     /// the outer recovery deadline.
     public var responseTimeout: TimeInterval {

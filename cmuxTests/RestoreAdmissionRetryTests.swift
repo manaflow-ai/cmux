@@ -137,6 +137,15 @@ import Testing
         now = now.addingTimeInterval(11)
         let expiredAttempt = deadlineBudget.beginAttempt()
         #expect(!expiredAttempt)
+
+        var clippedBudget = AgentRestoreAdmissionRecoveryBudget(
+            timeout: 3,
+            maximumAttempts: 3,
+            start: Date(timeIntervalSince1970: 100),
+            now: { Date(timeIntervalSince1970: 100) }
+        )
+        let clipped = clippedBudget.retryDelays([.seconds(1), .seconds(5), .seconds(5)])
+        #expect(clipped == [.seconds(1), .seconds(2)])
     }
 }
 

@@ -76,7 +76,9 @@ extension CMUXCLI {
                     )
                 )
             }
-            response = try await RestoreAdmissionRetryPolicy.response {
+            response = try await RestoreAdmissionRetryPolicy.response(
+                delays: recoveryBudget.retryDelays(AgentRestoreAdmissionRetry().delays)
+            ) {
                 try sendRestoreAdmission(
                     params: &params,
                     restorePayload: restorePayload,
@@ -137,10 +139,12 @@ extension CMUXCLI {
 
         /// `AgentRestoreAdmissionRetry().response` with the CLI's error classifier.
         static func response(
+            delays: [Duration]? = nil,
             onRetry: (Int) -> Void = { _ in },
             sending send: () throws -> [String: Any]
         ) async throws -> [String: Any] {
             try await AgentRestoreAdmissionRetry().response(
+                delays: delays,
                 onRetry: onRetry,
                 isRetryable: isRetryable,
                 sending: { try send() }
