@@ -4,6 +4,19 @@ use super::*;
 
 const HOST: &str = "host_abc";
 
+/// The API and generated Cloud wire type return integer Unix milliseconds.
+#[test]
+fn cloud_token_grant_decodes_backend_millisecond_expiry() {
+    let wire = serde_json::json!({
+        "token": "one-dial-token", "expires_at": 1_792_430_000_000_u64,
+        "host": HOST, "epoch": 4, "services": ["ssh"], "future_field": true
+    });
+    let grant: LinkTokenGrant = serde_json::from_value(wire).unwrap();
+    assert!(grant.covers(HOST, Service::Ssh));
+    assert_eq!(serde_json::to_value(&grant).unwrap()["expires_at"], 1_792_430_000_000_u64);
+    assert!(!format!("{grant:?}").contains("one-dial-token"));
+}
+
 fn info(revision: u64) -> ConnectInfo {
     serde_json::from_value(serde_json::json!({
         "machine": "vm_1",
