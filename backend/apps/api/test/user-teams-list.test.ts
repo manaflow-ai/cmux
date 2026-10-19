@@ -42,6 +42,19 @@ describe("user.teams.list (cx-5xew)", { timeout: 60_000 }, () => {
     expect(inShared.body.value.teams).toEqual(teams)
   })
 
+  it("omits a stored reference that belongs to a different canonical owner", async () => {
+    const t = await mirroredTeam("Mismatched reference")
+    await fireAlarm(teamStub(t.team))
+    await inDO(teamStub(t.team), async (instance) => {
+      instance.submitSystem("team.stack_mirror", { team: t.team, stack_team: crypto.randomUUID(), display_name: "Mismatched reference" }, crypto.randomUUID())
+    })
+    const r = await listTeams(t.token)
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    const shared = r.body.value.teams.find((team: { id: string }) => team.id === t.team)
+    expect(shared).toMatchObject({ id: t.team, kind: "stack", role: "member" })
+    expect(shared).not.toHaveProperty("stack_team")
+  })
+
   it("drops an index entry its TeamDO does not confirm: a team that never had the user, and a team the user left", async () => {
     const t = await mirroredTeam("Left Inc")
     await fireAlarm(teamStub(t.team))
