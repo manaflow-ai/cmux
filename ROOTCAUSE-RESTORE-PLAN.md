@@ -343,3 +343,14 @@ expected 80 Gb/s USB4 link and remains mounted, so the guide's low-link-speed an
 missing-device cases do not fit. First Aid/verify remains the next storage
 operation, but it must wait until the active Atelier worktree ownership is
 resolved and a safe unmount window exists.
+
+The protected restore build also has a concrete process-fan-out signature:
+**30 `cmux __restore-lease-watch` helpers** have been alive for about two
+hours, one per restored Codex/Subrouter session, consuming approximately
+**356 MB combined RSS**. Their parents are independent Codex/Subrouter
+processes, not the protected app PID itself. This does not prove each watcher
+is leaked, but it directly demonstrates that the old restore path makes session
+count translate into resident processes and memory. It is consistent with the
+WindowServer snapshots showing 279 cmux threads and supports validating the new
+admission and hibernation logic against watcher count, not only JSON decode
+time.
