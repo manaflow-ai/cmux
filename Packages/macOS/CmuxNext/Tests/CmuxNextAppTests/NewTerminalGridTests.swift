@@ -9,7 +9,12 @@ import Testing
 /// The estimate must equal what Ghostty fits into the same view, or the
 /// view's first report resizes the PTY and the pane snaps.
 @MainActor @Suite struct NewTerminalGridTests {
-    private let padding = TerminalPadding(leading: 6, trailing: 6, top: 6, bottom: 6, balanced: false)
+    /// cmux's default padding; `TerminalPadding`'s memberwise init is internal.
+    private let padding: TerminalPadding = {
+        var padding = TerminalPadding.cmuxDefault
+        padding.leading = 6; padding.trailing = 7; padding.top = 5; padding.bottom = 6.5
+        return padding
+    }()
 
     /// Ghostty's own fit (``TerminalGridMetrics``) of a surface of `points` at `scale`.
     private func ghosttyFit(width: Double, height: Double, scale: Double, cell: (Int, Int), padding: TerminalPadding) -> TerminalGridSize {
