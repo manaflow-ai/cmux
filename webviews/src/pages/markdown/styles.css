@@ -615,7 +615,8 @@ body {
   text-decoration-color: var(--cmux-md-link-broken-color);
 }
 
-.md-link-card,
+/* The link bubble (Google Docs' model): under the link at the caret, never on hover. */
+.md-link-bubble,
 .md-link-popover {
   position: fixed;
   z-index: 20;
@@ -630,31 +631,104 @@ body {
   font-size: var(--cmux-md-popover-font-size);
 }
 
-.md-link-card {
-  pointer-events: none;
+.md-link-bubble {
+  min-width: 220px;
+  padding: 4px 4px 6px 8px;
+  pointer-events: auto;
 }
 
-.md-link-card[hidden] {
-  display: none;
+.md-link-bubble-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.md-link-card-target {
+.md-link-bubble-target {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--cmux-md-link-color);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.md-link-bubble-target:hover .md-link-bubble-url {
+  text-decoration: underline;
+}
+
+.md-link-bubble-url {
+  overflow: hidden;
   font-family: var(--cmux-md-code-font-family);
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.md-link-card-detail {
-  margin-top: 2px;
+.md-link-bubble-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.md-link-glyph {
+  flex: 0 0 auto;
+}
+
+.md-link-bubble-detail {
+  margin-top: 1px;
   color: var(--cmux-md-muted-color);
 }
 
-.md-link-card[data-state="broken"] .md-link-card-detail {
+.md-link-bubble[data-state="broken"] .md-link-bubble-detail,
+.md-link-bubble[data-state="broken"] .md-link-bubble-target {
   color: var(--cmux-md-link-broken-color);
 }
 
 .md-link-popover {
   width: 360px;
-  padding: 6px;
+  padding: 8px;
+}
+
+.md-link-form {
+  display: grid;
+  gap: 6px;
+}
+
+.md-link-field {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: start;
+  gap: 8px;
+}
+
+.md-link-field-label {
+  min-width: 3em;
+  padding-top: 5px;
+  color: var(--cmux-md-muted-color);
+}
+
+.md-link-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.md-link-text {
+  font-family: var(--cmux-md-font-family);
+}
+
+.md-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .md-link-input {
