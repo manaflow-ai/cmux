@@ -308,10 +308,14 @@ const MARKER_INTERVAL: Duration = Duration::from_secs(3);
 const REACH_REPEATS: [Duration; 3] =
     [Duration::from_millis(100), Duration::from_millis(300), Duration::from_millis(1000)];
 /// A route the peer's `reach` chose over the one its datagrams arrive on
-/// (reachability is one-way) is kept this long past each such `reach`:
-/// longer than two `reach` intervals, so it survives while it works and
-/// falls back to sending on every route soon after it stops.
-const REACH_PIN: Duration = Duration::from_secs(7);
+/// (reachability is one-way) is kept this long past each such `reach`.
+/// An idle link sends only WireGuard keepalives (every 10 s), each answered
+/// by one `reach`, so this outlives two of them.
+const REACH_PIN: Duration = Duration::from_secs(25);
+/// A confirmed route that no `reach` confirmed for this long (2.5 keepalive
+/// intervals, so an idle link keeps it) is no longer trusted: our sending
+/// on it may have broken while the peer's datagrams still arrive.
+const REACH_STALE: Duration = Duration::from_secs(25);
 /// A `reach` naming another route than the current one moves the route
 /// there only if no `reach` confirmed the current route for this long (one
 /// arrives at least every [`MARKER_INTERVAL`] while it works), or if it
@@ -587,9 +591,11 @@ impl HybridUnderlay {
                 }
                 self.socket = socket;
                 self.blackhole = false;
-                // The old allocation belongs to the old network's 5-tuple.
-                self.turn = None;
+                // The old allocation belongs to the old network's 5-tuple; a
+                // `reach` still in flight that names it is stale.
+                self.retire_turn();
                 self.turn_targets.clear();
+                self.route_since = now;
                 self.last_direct = None;
                 self.last_udp = None;
                 // A `reach` still in flight names the old network's addresses.
@@ -619,12 +625,7 @@ impl HybridUnderlay {
             }
             Control::Turn(turn) => {
                 tracing::debug!(relayed = %turn.relayed, transport = ?turn.transport, "WireGuard takes a TURN allocation");
-                if let Some(old) = self.turn.as_ref().map(|turn| turn.relayed) {
-                    self.retired_relayed.push(old);
-                    if self.retired_relayed.len() > 8 {
-                        self.retired_relayed.remove(0);
-                    }
-                }
+                self.retire_turn();
                 self.turn = Some(turn);
                 self.wake_receiver();
                 self.retarget_turn();
@@ -658,7 +659,7 @@ impl HybridUnderlay {
             Control::Reached { from, via_turn } => self.reached(from, via_turn),
             Control::Blackhole => {
                 self.blackhole = true;
-                self.turn = None;
+                self.retire_turn();
                 self.turn_targets.clear();
             }
             Control::KillTurn => {
@@ -728,6 +729,17 @@ impl HybridUnderlay {
         self.publish_path();
     }
 
+    /// Drop this side's TURN allocation, remembering its relayed address: a
+    /// `reach` naming it was sent before the change.
+    fn retire_turn(&mut self) {
+        if let Some(old) = self.turn.take().map(|turn| turn.relayed) {
+            self.retired_relayed.push(old);
+            if self.retired_relayed.len() > 8 {
+                self.retired_relayed.remove(0);
+            }
+        }
+    }
+
     /// Plain UDP to one of the peer's own addresses (not its relayed one).
     fn is_direct(&self, route: Route) -> bool {
         route.carrier == Carrier::Udp && !self.labels.peer_relayed.contains(&route.addr)
@@ -736,6 +748,10 @@ impl HybridUnderlay {
     /// A route on `carrier` to the peer's relayed address (`via_turn`) or to
     /// one of its plain addresses.
     fn route_for(&self, carrier: Carrier, via_turn: bool) -> Option<Route> {
+        if carrier == Carrier::Udp && no_plain_udp(&self.options) {
+            // Plain UDP is off here: whatever arrived, it was not ours.
+            return None;
+        }
         let usable = |addr: &SocketAddr| carrier == Carrier::Turn || !self.refused.contains(addr);
         let addr = if via_turn {
             let mut relayed: Vec<SocketAddr> =
@@ -950,6 +966,13 @@ impl HybridUnderlay {
             // The peer stopped confirming the route its `reach` chose.
             self.pinned_until = None;
             self.demote("chosen route no longer confirmed");
+        }
+        if self.direct_only()
+            && self.peer_reaches
+            && self.last_fit.is_some_and(|at| at.elapsed() > REACH_STALE)
+        {
+            // Datagrams still arrive, but the peer stopped confirming ours.
+            self.demote("route no longer confirmed by the peer");
         }
         if self.direct_only() && self.last_direct.is_some_and(|last| last.elapsed() > DIRECT_STALE) {
             // Nothing came back on the route for a while: offer every route

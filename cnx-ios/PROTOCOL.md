@@ -205,14 +205,15 @@ with 4001 `moved`.
   confirmed the current route in the 4 s since it became the route (for
   example plain UDP to the peer's relayed address when its own UDP to the
   peer's LAN address is lost), and keeps it while `reach` keeps naming it,
-  even though the peer's datagrams arrive on another route, and for 7 s
-  after the last one. A relayed copy of a datagram never displaces a
+  even though the peer's datagrams arrive on another route, and for 25 s
+  after the last one (an idle link's keepalives every 10 s each draw one). A relayed copy of a datagram never displaces a
   direct route that still delivers. A side that receives its peer's direct
   UDP while most of the peer's datagrams arrive relayed sends `reach`
   for that direct arrival at once (at most every 100 ms), so the peer
   upgrades; while the route is relayed (its own TURN, or the peer's
-  relayed address) the direct candidates are tried every 5 s. A confirmed route that is silent for 14 s is no longer
-  trusted (every route again until a new `reach`). A bare `{"t":"reach"}`
+  relayed address) the direct candidates are tried every 5 s. A confirmed route that is silent for 14 s, or that no
+  `reach` confirmed for 25 s, is no longer trusted (every route again until
+  a new `reach`). A bare `{"t":"reach"}`
   confirms the current route.
   An older peer (version 0) sends its confirmation through the retired
   relay, where it is lost, and never sends `reach`: with such a peer a

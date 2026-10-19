@@ -208,6 +208,18 @@ async fn exercise_turn(phone_options: DialOptions, mac_options: DialOptions) -> 
 
 /// [`exercise_turn`], echoing in rounds for at least `min`.
 async fn exercise_turn_for(phone_options: DialOptions, mac_options: DialOptions, min: Duration) -> TurnRun {
+    exercise_turn_idle(phone_options, mac_options, min, Duration::ZERO).await
+}
+
+/// [`exercise_turn_for`], then `idle` with no traffic (keepalives only),
+/// then echo rounds again; `changes` lists the Mac's path changes seen from
+/// the idle gap on.
+async fn exercise_turn_idle(
+    phone_options: DialOptions,
+    mac_options: DialOptions,
+    min: Duration,
+    idle: Duration,
+) -> TurnRun {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -258,10 +270,35 @@ async fn exercise_turn_for(phone_options: DialOptions, mac_options: DialOptions,
         round = round.wrapping_add(1);
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
+    let mut changes = Vec::new();
+    if !idle.is_zero() {
+        let mut mac_watch = mac_path.lock().unwrap().clone().expect("the Mac answered");
+        mac_watch.mark_unchanged();
+        let idle_end = tokio::time::Instant::now() + idle;
+        while let Ok(Ok(())) = tokio::time::timeout_at(idle_end, mac_watch.changed()).await {
+            changes.push(*mac_watch.borrow_and_update());
+        }
+        for round in 0..5u8 {
+            channel.send(Bytes::from(vec![round; 20_000])).await.unwrap();
+            let mut got = 0;
+            while got < 20_000 {
+                match tokio::time::timeout(Duration::from_secs(20), channel.recv())
+                    .await
+                    .expect("echo after idle")
+                {
+                    Some(ChannelEvent::Data(bytes)) => got += bytes.len(),
+                    other => panic!("unexpected {other:?}"),
+                }
+            }
+        }
+        if mac_watch.has_changed().unwrap_or(false) {
+            changes.push(*mac_watch.borrow_and_update());
+        }
+    }
     let settled = *connected.path.borrow();
     let mac = mac_path.lock().unwrap().as_ref().map(|path| *path.borrow());
     connected.link.close("done");
-    TurnRun { phone: settled, changes: Vec::new(), mac, binary: server.refused_binary_frames() }
+    TurnRun { phone: settled, changes, mac, binary: server.refused_binary_frames() }
 }
 
 /// Phone dial options that trust `turn` and use all of its servers.
@@ -384,7 +421,10 @@ async fn wireguard_survives_one_way_udp_through_the_peers_turn() {
     let turn = TestTurn::start().await;
     let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
     let mac = DialOptions { drop_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START), ..options() };
-    let run = exercise_turn(phone, mac).await;
+    // Busy, then idle past a keepalive interval (only keepalives, each
+    // answered by one `reach`), then busy again: the Mac stays on the route
+    // the phone confirmed.
+    let run = exercise_turn_idle(phone, mac, Duration::from_secs(2), Duration::from_secs(13)).await;
     assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
 }
