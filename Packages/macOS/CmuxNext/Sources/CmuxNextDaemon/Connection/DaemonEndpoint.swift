@@ -41,11 +41,11 @@ public struct DaemonCapabilities: Sendable {
     public let workspaceNameSource = "workspace-name-source-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
+    public let frontendBrowserTabKeys = "frontend-browser-tab-keys-v1" // idempotency_key on new-frontend-browser-tab
     /// A frontend browser tab's back/forward entries and scroll positions,
     /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
     public let frontendBrowserHistory = "frontend-browser-history-v1"
-    /// `profile_id` on `update-frontend-browser-tab`: a browser tab moves to
-    /// another browser profile in place (same tab id and position).
+    /// `profile_id` on `update-frontend-browser-tab`: the tab moves to another browser profile in place.
     public let frontendBrowserTabProfile = "frontend-browser-tab-profile-v1"
     public let tabDrag = "tab-drag-v1"
     /// `set-size-counts` (protocol 12): a hidden view keeps its lease and stops counting toward

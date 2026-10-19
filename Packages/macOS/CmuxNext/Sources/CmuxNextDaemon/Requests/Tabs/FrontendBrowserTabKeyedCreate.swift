@@ -1,12 +1,6 @@
 import Foundation
 import os
 
-extension DaemonCapabilities {
-    /// `idempotency_key` on `new-frontend-browser-tab`: a retry with the key
-    /// answers the tab the first request made (`NewFrontendBrowserTabRequest.send(on:)`).
-    public var frontendBrowserTabKeys: String { "frontend-browser-tab-keys-v1" }
-}
-
 extension NewFrontendBrowserTabRequest {
     /// How long a keyed create asks again after a missed reply deadline.
     public static let lateReplyBudget: Duration = .seconds(10)
