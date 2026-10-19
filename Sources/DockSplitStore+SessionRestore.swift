@@ -334,6 +334,20 @@ extension DockSplitStore {
         let legacySubrouterBinding = {
             let binding = terminalSnapshot.resumeBinding
             guard binding?.autoResume == true else { return false }
+            if let bindingKind = binding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               let agentKind = restorableAgent?.kind.rawValue.lowercased(),
+               bindingKind != agentKind {
+                return false
+            }
+            if let bindingSessionID = binding?.checkpointId,
+               let agentSessionID = restorableAgent?.sessionId,
+               !ManagedAgentSessionIdentity.sessionIDsMatch(
+                   kind: restorableAgent?.kind.rawValue ?? binding?.kind ?? "",
+                   lhs: bindingSessionID,
+                   rhs: agentSessionID
+               ) {
+                return false
+            }
             let launch = binding?.launchCommand ?? restorableAgent?.launchCommand ?? terminalSnapshot.agent?.launchCommand
             let kind = binding?.kind ?? restorableAgent?.kind.rawValue ?? terminalSnapshot.agent?.kind.rawValue
             let sessionID = binding?.checkpointId ?? restorableAgent?.sessionId ?? terminalSnapshot.agent?.sessionId
@@ -560,12 +574,7 @@ extension DockSplitStore {
         let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
         let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(forFileURL: replayFileURL)
         var restoredEnvironment = replayEnvironment
-        if capturedAgentKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == RestorableAgentKind.codex.rawValue,
-           (SubrouterCodexResumeRouting().usesSubrouterProvider(
-               in: capturedCodexLaunch?.arguments ?? []
-           ) || SubrouterCodexResumeRouting().usesSubrouterProvider(
-               in: terminalSnapshot.resumeBinding?.command
-           )) {
+        if legacySubrouterResumeInput != nil {
             // Subrouter uses a local sentinel to satisfy Codex's provider
             // credential lookup. It is not an account credential and must be
             // present before either codex resume or cmux restore runs.

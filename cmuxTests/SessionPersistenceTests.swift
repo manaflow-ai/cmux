@@ -8154,4 +8154,71 @@ extension SessionPersistenceTests {
             )
         )
     }
+
+    func testLegacySubrouterRestoreRejectsConflictingSourcesAndSpoofedCodex() throws {
+        let subrouterBinding = SurfaceResumeBindingSnapshot(
+            kind: RestorableAgentKind.codex.rawValue,
+            command: "codex -c model_provider=subrouter",
+            checkpointId: "codex-session",
+            autoResume: true
+        )
+        XCTAssertNil(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: subrouterBinding.kind,
+                sessionID: subrouterBinding.checkpointId,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    arguments: ["codex", "-c", "model_provider=openai"]
+                ),
+                resumeBinding: subrouterBinding,
+                workingDirectory: "/tmp/project"
+            )
+        )
+
+        let marker = "sr claude proxy --resume"
+        let bindingEnvironment = [
+            SubrouterClaudeResumeRouting.environmentKey: marker,
+            SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: marker,
+        ]
+        let conflictingLaunchEnvironment = [
+            SubrouterClaudeResumeRouting.environmentKey: marker,
+            SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy",
+        ]
+        let claudeBinding = SurfaceResumeBindingSnapshot(
+            kind: RestorableAgentKind.claude.rawValue,
+            command: "claude --resume",
+            checkpointId: "claude-session",
+            environment: bindingEnvironment,
+            autoResume: true
+        )
+        XCTAssertNil(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: claudeBinding.kind,
+                sessionID: claudeBinding.checkpointId,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: RestorableAgentKind.claude.rawValue,
+                    arguments: ["claude"],
+                    environment: conflictingLaunchEnvironment
+                ),
+                resumeBinding: claudeBinding,
+                workingDirectory: "/tmp/project"
+            )
+        )
+
+        XCTAssertNil(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: RestorableAgentKind.codex.rawValue,
+                sessionID: subrouterBinding.checkpointId,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    arguments: ["evil", "-c", "model_provider=subrouter"]
+                ),
+                resumeBinding: SurfaceResumeBindingSnapshot(
+                    kind: RestorableAgentKind.codex.rawValue,
+                    command: "",
+                    checkpointId: subrouterBinding.checkpointId,
+                    autoResume: true
+                ),
+                workingDirectory: "/tmp/project"
+            )
+        )
+    }
 }

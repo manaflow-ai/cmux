@@ -660,6 +660,24 @@ struct AgentResumeArgvTests {
         #expect(!router.usesSubrouterProvider(in: "codex -c model_provider=openai -c model_provider=subrouter"))
     }
 
+    @Test("Structured Subrouter proof rejects spoofed executables and mixed providers")
+    func structuredRoutingProofFailsClosedAcrossSources() {
+        let router = SubrouterCodexResumeRouting()
+        #expect(router.usesSubrouterProvider(in: [
+            "codex", "-c", "model_provider=subrouter",
+        ]))
+        #expect(!router.usesSubrouterProvider(in: [
+            "evil", "-c", "model_provider=subrouter",
+        ]))
+        #expect(router.providerEvidence(in: [
+            "codex", "-c", "model_provider=subrouter",
+        ]) == .provider("subrouter"))
+        #expect(router.providerEvidence(in: [
+            "codex", "-c", "model_provider=openai", "-c", "model_provider=subrouter",
+        ]) == .ambiguous)
+        #expect(router.providerEvidence(in: ["codex", "--help"]) == .absent)
+    }
+
     @Test("Codex wrapper rendering does not rewrite sr's codex subcommand")
     func renderedSubrouterResumeKeepsExplicitLauncher() {
         let quote: (String) -> String = { "'" + $0 + "'" }

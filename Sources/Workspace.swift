@@ -1223,15 +1223,34 @@ extension Workspace {
 
         let capturedLaunch = launchCommand ?? resumeBinding?.launchCommand
         let capturedArguments = capturedLaunch?.arguments ?? []
-        let capturedEnvironment = (resumeBinding?.environment ?? [:]).merging(
-            capturedLaunch?.environment ?? [:],
-            uniquingKeysWith: { _, launchValue in launchValue }
+        let bindingEnvironment = resumeBinding?.environment ?? [:]
+        let launchEnvironment = capturedLaunch?.environment ?? [:]
+        // A binding and its structured launch capture are separate durable
+        // evidence sources. Never let one silently override the other.
+        guard !bindingEnvironment.contains(where: { key, value in
+            guard let launchValue = launchEnvironment[key] else { return false }
+            return launchValue != value
+        }) else { return nil }
+        let capturedEnvironment = bindingEnvironment.merging(
+            launchEnvironment,
+            uniquingKeysWith: { bindingValue, _ in bindingValue }
         )
         let commandArguments: [String]
         switch normalizedKind {
         case RestorableAgentKind.codex.rawValue:
-            guard SubrouterCodexResumeRouting().usesSubrouterProvider(in: capturedArguments) ||
-                    SubrouterCodexResumeRouting().usesSubrouterProvider(in: resumeBinding?.command) else {
+            let router = SubrouterCodexResumeRouting()
+            let launchEvidence = capturedLaunch == nil
+                ? SubrouterCodexProviderEvidence.absent
+                : router.providerEvidence(in: capturedArguments)
+            let bindingEvidence = resumeBinding?.command.isEmpty == false
+                ? router.providerEvidence(in: resumeBinding?.command)
+                : .absent
+            let providerEvidence = [launchEvidence, bindingEvidence]
+            guard !providerEvidence.contains(.ambiguous),
+                  Set(providerEvidence.compactMap { evidence in
+                      if case .provider(let value) = evidence { return value }
+                      return nil
+                  }) == Set(["subrouter"]) else {
                 return nil
             }
             let directory = workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
@@ -1748,6 +1767,20 @@ extension Workspace {
             let legacySubrouterBinding = {
                 let binding = persistedResumeBinding ?? resumeBinding
                 guard binding?.autoResume == true else { return false }
+                if let bindingKind = binding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                   let agentKind = restorableAgent?.kind.rawValue.lowercased(),
+                   bindingKind != agentKind {
+                    return false
+                }
+                if let bindingSessionID = binding?.checkpointId,
+                   let agentSessionID = restorableAgent?.sessionId,
+                   !ManagedAgentSessionIdentity.sessionIDsMatch(
+                       kind: restorableAgent?.kind.rawValue ?? binding?.kind ?? "",
+                       lhs: bindingSessionID,
+                       rhs: agentSessionID
+                   ) {
+                    return false
+                }
                 let launch = binding?.launchCommand ?? snapshot.terminal?.agent?.launchCommand
                 let kind = binding?.kind ?? snapshot.terminal?.agent?.kind.rawValue
                 let sessionID = binding?.checkpointId ?? snapshot.terminal?.agent?.sessionId
@@ -2136,9 +2169,7 @@ extension Workspace {
             let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(forFileURL: replayFileURL)
             var restoredEnvironment = replayEnvironment
-            if capturedAgentKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == RestorableAgentKind.codex.rawValue,
-               (SubrouterCodexResumeRouting().usesSubrouterProvider(in: capturedCodexLaunch?.arguments ?? []) ||
-               SubrouterCodexResumeRouting().usesSubrouterProvider(in: persistedResumeBinding?.command)) {
+            if legacySubrouterResumeInput != nil {
                 restoredEnvironment["SUBROUTER_CODEX_DUMMY_API_KEY"] = "subrouter"
             }
             // Reuse the persisted surface id so the restored terminal keeps

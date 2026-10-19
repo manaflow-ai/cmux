@@ -1,5 +1,11 @@
 import Foundation
 
+public enum SubrouterCodexProviderEvidence: Equatable, Sendable {
+    case absent
+    case provider(String)
+    case ambiguous
+}
+
 /// Recognizes the bounded launch evidence emitted by `sr codex` and builds its
 /// explicit resume argv without trusting environment-provided shell text.
 public struct SubrouterCodexResumeRouting: Sendable, Equatable {
@@ -122,7 +128,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// before Codex starts; this check is limited to the non-secret provider
     /// selection in the captured argv.
     public func usesSubrouterProvider(in launchArguments: [String]) -> Bool {
-        launchArgumentsContainSubrouterProvider(launchArguments)
+        providerEvidence(in: launchArguments) == .provider("subrouter")
     }
 
     /// Legacy surface bindings may retain only their canonical shell command
@@ -137,7 +143,28 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             (executable == "sr" && tokens.dropFirst().first == "codex") ||
             (executable == "subrouter" && tokens.dropFirst().first == "codex")
         guard isCodexCommand else { return false }
-        return launchArgumentsContainSubrouterProvider(tokens)
+        return providerEvidence(in: tokens) == .provider("subrouter")
+    }
+
+    /// Returns the provider evidence in a captured argv. `ambiguous` means
+    /// that the record explicitly names more than one provider and must never
+    /// be upgraded into a routed restore.
+    public func providerEvidence(in launchArguments: [String]) -> SubrouterCodexProviderEvidence {
+        guard isCodexInvocation(launchArguments) else { return .ambiguous }
+        return providerEvidenceFromAssignments(in: launchArguments)
+    }
+
+    /// Returns provider evidence from a canonical legacy shell command.
+    public func providerEvidence(in shellCommand: String?) -> SubrouterCodexProviderEvidence {
+        guard let shellCommand,
+              let tokens = shellCommandTokens(shellCommand),
+              !tokens.isEmpty else { return .absent }
+        let executable = URL(fileURLWithPath: tokens[0]).lastPathComponent.lowercased()
+        let isCodexCommand = executable == "codex" ||
+            (executable == "sr" && tokens.dropFirst().first == "codex") ||
+            (executable == "subrouter" && tokens.dropFirst().first == "codex")
+        guard isCodexCommand else { return .ambiguous }
+        return providerEvidenceFromAssignments(in: tokens)
     }
 
     /// Retains a canonical, non-secret routing proof when prompt sanitization
@@ -225,6 +252,18 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     }
 
     private func launchArgumentsContainSubrouterProvider(_ arguments: [String]) -> Bool {
+        providerEvidence(in: arguments) == .provider("subrouter")
+    }
+
+    private func isCodexInvocation(_ arguments: [String]) -> Bool {
+        guard let first = arguments.first else { return false }
+        let executable = URL(fileURLWithPath: first).lastPathComponent.lowercased()
+        return executable == "codex" ||
+            (executable == "sr" && arguments.dropFirst().first == "codex") ||
+            (executable == "subrouter" && arguments.dropFirst().first == "codex")
+    }
+
+    private func providerEvidenceFromAssignments(in arguments: [String]) -> SubrouterCodexProviderEvidence {
         var observedProviders: Set<String> = []
         var index = 0
         while index < arguments.count {
@@ -249,7 +288,11 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         // Multiple provider declarations are only safe when they agree. A
         // stale or hand-edited record that mixes Subrouter with another
         // provider must not be upgraded into routed restore evidence.
-        return observedProviders.count == 1 && observedProviders.contains("subrouter")
+        guard !observedProviders.isEmpty else { return .absent }
+        guard observedProviders.count == 1, let provider = observedProviders.first else {
+            return .ambiguous
+        }
+        return .provider(provider)
     }
 
     private func modelProviderAssignment(in rawValue: String) -> String? {
