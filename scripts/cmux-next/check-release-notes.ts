@@ -19,4 +19,4 @@ const previous = previousPaths.slice(0, RANGE - 1).map(read);
 const defects = checkNightlyNotes(notes, previous);
 for (const defect of defects) console.log(annotation(notes.build, defect));
 if (defects.length > 0) process.exit(1);
-console.log(`${notes.build}: notes, page (1 and ${RANGE} nightlies) and card read clean`);
+console.log(`${notes.build}: notes, page (1 and ${previous.length + 1} nightlies) and card read clean`);

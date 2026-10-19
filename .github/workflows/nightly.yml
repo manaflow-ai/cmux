@@ -6365,15 +6365,23 @@ jobs:
           builds="$(python3 -c 'import json, sys; builds = [b["build"] for b in json.load(open(sys.argv[1]))["builds"] if b["build"] != sys.argv[2]]; print("\n".join(builds[:9]))' notes/index.json "$NIGHTLY_BUILD")"
           mkdir -p previous
           previous=()
+          missing=()
           while IFS= read -r build; do
             [ -n "$build" ] || continue
             file="notes/$build.json"
             if [ ! -f "$file" ]; then
               file="previous/$build.json"
-              curl -fsSL --retry 3 -A "cmux-release-notes/1" -o "$file" "$NIGHTLY_NEXT_FEED_BASE/notes/$build.json" || continue
+              if ! curl -fsSL --retry 3 -A "cmux-release-notes/1" -o "$file" "$NIGHTLY_NEXT_FEED_BASE/notes/$build.json"; then
+                missing+=("$build")
+                continue
+              fi
             fi
             previous+=("$file")
           done <<< "$builds"
+          # A feed outage narrows the wider page; say so instead of passing it as 10 nightlies.
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::warning title=Release notes::$NIGHTLY_BUILD: the wider page lacks ${#missing[@]} nightlies the feed did not serve: ${missing[*]}"
+          fi
           bun scripts/cmux-next/check-release-notes.ts "notes/$NIGHTLY_BUILD.json" "${previous[@]}"
 
   publish-release-notes:
