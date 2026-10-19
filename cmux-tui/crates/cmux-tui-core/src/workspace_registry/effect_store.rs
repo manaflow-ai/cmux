@@ -900,6 +900,7 @@ impl WorkspaceRegistry {
             &outcome_json,
             &deltas,
             &mut spans,
+            operation == "workspace.close",
         )?;
         tx.commit()?;
         drop(db);
@@ -970,6 +971,7 @@ fn commit_resource_effect_patch_in_transaction(
     outcome_json: &str,
     deltas: &Value,
     spans: &mut CommitSpans,
+    report_closed: bool,
 ) -> anyhow::Result<ResourcePatchCommit> {
     let (stored_operation, stored_fingerprint, state, _) =
         read_effect_record(transaction, idempotency_key)?.ok_or_else(|| {
@@ -993,11 +995,31 @@ fn commit_resource_effect_patch_in_transaction(
         .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
     let sqlite_revision =
         i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+    let closed_before = report_closed
+        .then(|| crate::state::closed_history_store::closed_seq(transaction))
+        .transpose()?;
     let applying = std::time::Instant::now();
     let (patch, prune) = apply_resource_patch_timed(transaction, patch, sqlite_revision)?;
     (spans.prune, spans.apply, spans.written) =
         (prune, applying.elapsed().saturating_sub(prune), patch.changes.len());
     let patch = &patch;
+    // `workspace.close` answers `closed_ids`: the closed groups this commit
+    // stored, oldest first, so an Undo reopens exactly them.
+    let reported;
+    let (result, outcome, outcome_json) = match closed_before {
+        Some(before) => {
+            let ids = crate::state::closed_history_store::closed_ids_after(transaction, before)?;
+            let mut value = result.clone();
+            if let Some(fields) = value.as_object_mut() {
+                fields.insert("closed_ids".to_string(), json!(ids));
+            }
+            let outcome = serde_json::to_value(ResourceEffectOutcome::Success(value.clone()))?;
+            let outcome_json = canonical_json(&outcome)?;
+            reported = (value, outcome, outcome_json);
+            (&reported.0, &reported.1, reported.2.as_str())
+        }
+        None => (result, outcome, outcome_json),
+    };
     transaction.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
         [revision.to_string()],

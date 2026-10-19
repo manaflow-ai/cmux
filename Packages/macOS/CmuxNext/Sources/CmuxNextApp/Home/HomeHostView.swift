@@ -6,6 +6,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
@@ -15,7 +16,7 @@ import CmuxNextWakeups
 @MainActor
 final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
-    private let message = NSTextField(labelWithString: "")
+    private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a right sidebar the header's name pill toggles
     /// (Chief conversation only); the transcript narrows while it shows.
@@ -51,16 +52,15 @@ final class HomeHostView: NSView {
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         sidebar = HomeChiefSidebar(muxHome: control.brainHome, source: control.engineSource())
         super.init(frame: .zero)
+        transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
         loadAvatar()
-        sidebar.onAvatar = { [weak self, weak service] text in
-            self?.transcript.avatarPicture = text == nil ? Self.defaultAvatar : nil
-            self?.transcript.avatarText = text
+        sidebar.onAvatar = { [weak self, weak service] in
+            self?.loadAvatar()
             // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
-            guard self?.control.named == nil else { return }
-            service?.directory.chiefAvatar = text.map(HomeChiefAvatar.text) ?? Self.defaultTileAvatar
+            if self?.control.named == nil { service?.refreshChiefAvatar() }
         }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
@@ -83,6 +83,7 @@ final class HomeHostView: NSView {
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
         // A Chief subagent's link: its workspace and chat tab, through link.open.
         transcript.onAppLink = { [weak services] url in if let services { ChiefSubagentLinks.open(url, services: services) } }
+        transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }
@@ -169,7 +170,7 @@ final class HomeHostView: NSView {
         // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
         message.maximumNumberOfLines = 0
         message.lineBreakMode = .byWordWrapping
-        message.cell?.wraps = true
+        message.wraps = true
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
@@ -217,7 +218,7 @@ final class HomeHostView: NSView {
         }
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {
@@ -235,8 +236,7 @@ final class HomeHostView: NSView {
         let inset: CGFloat = 24
         let width = max(0, bounds.width - 2 * inset)
         message.preferredMaxLayoutWidth = width
-        let height = ceil(message.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height
-            ?? message.intrinsicContentSize.height)
+        let height = ceil(message.size(forWidth: width).height)
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
     }
 

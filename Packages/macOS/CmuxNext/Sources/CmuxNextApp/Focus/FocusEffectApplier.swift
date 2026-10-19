@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextFocus
 
 /// Makes one window's AppKit first responder, WebKit/CEF page focus,
 /// `LayoutModel` focus and the registry context match its `FocusState`

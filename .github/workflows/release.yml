@@ -144,7 +144,7 @@ jobs:
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
     # Notarization wait times vary on Apple's side; the app and the final DMG
     # serialize. v0.64.22 took 40 minutes with the legacy app's extra helper
     # builds and notarizations. Keep at least 25 percent above the measured
@@ -359,7 +359,9 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          # The exact Go of the shipped cmuxd-remote (its go.mod `toolchain` line);
+          # build_remote_daemon_release_assets.sh refuses any other.
+          go-version-file: daemon/remote/go.mod
           cache: false
 
       # The Embed CEF phase embeds the pinned Chromium engine

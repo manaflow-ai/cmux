@@ -21,12 +21,43 @@ export class OptChat {
         wasm.__wbg_optchat_free(ptr, 0);
     }
     /**
-     * Appends one message (already stored) and returns its id.
+     * `append` for any memory: sizes it does not hold come from `store`.
+     * @param {any} store
+     * @returns {number}
+     */
+    appendIn(store) {
+        const ret = wasm.optchat_appendIn(this.__wbg_ptr, store);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0];
+    }
+    /**
+     * Appends one message (already stored) and returns its id. Not for a lazy memory (`appendIn`).
      * @returns {number}
      */
     append() {
         const ret = wasm.optchat_append(this.__wbg_ptr);
-        return ret;
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0];
+    }
+    /**
+     * Where the memory stands, as JSON for `resume`: `{t, low, view, compact_view, merging, compact_merging}`.
+     * @returns {string}
+     */
+    checkpoint() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.optchat_checkpoint(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * The compactor call for node (l, i) as JSON `{system, context, marks,
@@ -75,6 +106,21 @@ export class OptChat {
         }
     }
     /**
+     * `complete` for any memory: sizes it does not hold come from `store`.
+     * @param {number} l
+     * @param {number} i
+     * @param {string} text
+     * @param {any} store
+     */
+    completeIn(l, i, text, store) {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.optchat_completeIn(this.__wbg_ptr, l, i, ptr0, len0, store);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {number} l
      * @param {number} i
      * @param {string} text
@@ -112,6 +158,13 @@ export class OptChat {
         return ret !== 0;
     }
     /**
+     * @returns {boolean}
+     */
+    isLazy() {
+        const ret = wasm.optchat_isLazy(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * @returns {number}
      */
     len() {
@@ -134,6 +187,13 @@ export class OptChat {
             throw takeFromExternrefTable0(ret[1]);
         }
         return OptChat.__wrap(ret[0]);
+    }
+    /**
+     * Drops the sizes of nodes outside the views (read from the store when needed); from here on
+     * change it with `appendIn` and `completeIn`.
+     */
+    makeLazy() {
+        wasm.optchat_makeLazy(this.__wbg_ptr);
     }
     /**
      * A new, empty memory with a view budget in bytes (`VIEW` when 0).
@@ -193,6 +253,30 @@ export class OptChat {
         } finally {
             wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
         }
+    }
+    /**
+     * Picks up from `checkpoint()`'s JSON without reading the whole log (spec 3.2: the saved view is
+     * loaded, never rebuilt): `t` messages, and the frontier as JSON `[[l, i, bytes], ...]` (every stored
+     * node at or above the checkpoint's `low` of its level). Messages after the checkpoint are appended
+     * as live. The result is lazy: change it with `appendIn` and `completeIn`. Undefined when the
+     * checkpoint does not fit the store (the host then folds with `load` + `makeLazy`).
+     * @param {string} checkpoint
+     * @param {number} t
+     * @param {string} frontier_json
+     * @param {number} budget
+     * @param {any} store
+     * @returns {OptChat | undefined}
+     */
+    static resume(checkpoint, t, frontier_json, budget, store) {
+        const ptr0 = passStringToWasm0(checkpoint, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(frontier_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.optchat_resume(ptr0, len0, t, ptr1, len1, budget, store);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] === 0 ? undefined : OptChat.__wrap(ret[0]);
     }
     /**
      * @returns {boolean}

@@ -111,7 +111,8 @@ struct TabHoverCardFactsTests {
         ]
         let turns = AgentTurnStateStore()
         turns.localHost = Self.host
-        turns.details["s-facts"] = try #require(AgentChatDetail.of(summary: summary))
+        turns.apply(session: "s-facts", state: nil, lastMessage: nil, muted: false, title: nil,
+                    detail: try #require(AgentChatDetail.of(summary: summary)))
         var snapshot = TabSnapshot(surface: SurfaceID(rawValue: 8), kind: .conversation, title: "Fix the build")
         snapshot.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.host, session: "s-facts", harness: "claude"))
         let item = TabItemMapping.shared.item(TabModel(snapshot), fallbackTitle: "Agent", turns: turns)

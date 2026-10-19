@@ -207,6 +207,10 @@ pub fn turn_preset(
     if family == Family::Claude {
         env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
     }
+    // Only acpmux's cmux MCP server (cx-4a5w2), as acpmux's built-in turn
+    // presets set it for a Chief that sends no env.
+    let (servers_key, servers) = session_dir::TURN_TOOL_SERVERS;
+    env.insert(servers_key.to_owned(), servers.to_owned());
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),

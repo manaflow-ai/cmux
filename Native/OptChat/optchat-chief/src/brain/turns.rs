@@ -480,10 +480,7 @@ impl Brain {
             .frozen
             .as_ref()
             .and_then(crate::state::FrozenRecord::frozen);
-        let len = self.chat.status().messages;
-        let (input, delta_end) = self
-            .chat
-            .turn_input(frozen.as_ref(), len.saturating_sub(first_new));
+        let (input, delta_end) = self.chat.turn_input(frozen.as_ref(), first_new);
         self.state.frozen = Some(crate::state::FrozenRecord::of(&input.frozen));
         self.save();
         self.note_engine(&engine);
@@ -1094,6 +1091,26 @@ impl Brain {
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
         let owner_stopped = std::mem::take(&mut self.owner_stopped);
+        // A failed turn also leaves a note in the memory log, after the
+        // messages it did not answer: without it the next turn's delta shows
+        // them as still open, and a later "hi" got the answer to a message
+        // that failed ten days before (2026-10-18). The note tells the next
+        // turn to answer only what comes after it. None for a session that
+        // lives on as an orphan (its answer is folded in later) or while a
+        // message a failed steer logged already waits in the queue (it is
+        // before the note but still open).
+        let steered_waits = self.queue.iter().any(|q| q.logged);
+        let failure_note = match &outcome.error {
+            Some(error)
+                if !(superseded
+                    || owner_stopped && outcome.cancelled
+                    || outcome.orphan.is_some()
+                    || steered_waits) =>
+            {
+                Some(failure_note(error))
+            }
+            _ => None,
+        };
         let text = match (outcome.reply, outcome.error) {
             _ if superseded => String::new(),
             (reply, _) if owner_stopped && outcome.cancelled => match reply {
@@ -1118,6 +1135,11 @@ impl Brain {
         } else {
             text
         };
+        if let Some(note) = &failure_note
+            && let Err(e) = self.chat.append(Kind::Note, note)
+        {
+            (self.log)(&format!("logging turn {key}'s failure failed: {e}"));
+        }
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
             // The turn that answers both keeps this one's remote origin.
@@ -1252,6 +1274,20 @@ impl Brain {
         self.maybe_start_turn();
         self.prewarm_next_turn();
     }
+}
+
+/// The memory note a failed turn leaves after the messages it did not answer.
+pub fn failure_note(error: &str) -> String {
+    let error: String = error
+        .lines()
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(200)
+        .collect();
+    format!(
+        "the turn failed ({error}); the user saw the failure, and the requests before this note did not finish and are closed: answer only messages after this note, and take up an older request only if the user asks again"
+    )
 }
 
 /// Puts a reply into the thread `(root, parent)`, when it has one.

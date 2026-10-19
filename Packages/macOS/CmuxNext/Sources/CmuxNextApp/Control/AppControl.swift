@@ -75,6 +75,8 @@ final class AppControl {
             .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
+            .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.handle(call.params)) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
             // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).
@@ -113,6 +115,11 @@ final class AppControl {
             .mainActor("debug.omnibar") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.report(call.params, services: services))
+            },
+            // Chief hands (cx-om025): levels, presence key, waiting requests; answers HandsService.debug JSON text.
+            .mainActor("debug.hands") { [weak services] call in
+                guard let hands = services?.cloud.hands else { return .value(.null) }
+                return .followUp { [params = call.params.compactMapValues(\.stringValue)] in .string(await hands.debug(params)) }
             },
             // Unread tabs, attention marks, banners and the dismissal log
             // (plans/cmux-next/notifications.md); "click" runs a banner click.

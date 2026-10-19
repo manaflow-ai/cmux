@@ -350,8 +350,8 @@ impl Mux {
             // transaction travels as its decimal form.
             let transaction =
                 transaction.map(|(_, transaction)| Arc::from(transaction.to_string()));
-            self.emit_screen_changed_for_transaction(&[outcome.screen], transaction);
-            self.emit(MuxEvent::LayoutChanged(outcome.screen));
+            self.emit_screen_changed_for_transaction(&[outcome.screen], transaction.clone());
+            self.emit_layout_changed(outcome.screen, transaction);
         }
         Ok(outcome)
     }

@@ -28,9 +28,11 @@ import { ToolRows } from "./TurnRows";
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 export function EditedFilesCard({
   row,
+  sessionId,
   onOpenDiff,
 }: {
   row: AcpmuxRow;
+  sessionId?: string;
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const settings = useEditedFilesSettings();
@@ -40,7 +42,7 @@ export function EditedFilesCard({
   const latest = sessionEdits?.at(-1)?.id;
   const own = useMemo(() => [row], [row]);
   if (settings.show === "never" || (settings.scope === "session" && sessionEdits && latest !== row.id))
-    return <ToolRows row={row} />;
+    return <ToolRows row={row} sessionId={sessionId} />;
   const rows = settings.scope === "session" && sessionEdits ? sessionEdits : own;
   return <Card row={row} rows={rows} onOpenDiff={onOpenDiff} />;
 }

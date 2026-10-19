@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextDiff
 import CmuxNextSettings
 import Foundation
 import Observation

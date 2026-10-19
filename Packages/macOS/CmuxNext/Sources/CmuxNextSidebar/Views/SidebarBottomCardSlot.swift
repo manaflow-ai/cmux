@@ -73,12 +73,17 @@ struct SidebarBottomCardSlot {
         func frame(_ which: Shown, height: CGFloat) -> NSRect {
             shown == which ? NSRect(x: inset, y: bottom - Metrics.space2 - height, width: width, height: height).integral : .zero
         }
-        notice.isHidden = shown != .notice
         nowPlaying.isHidden = shown != .nowPlaying
         nowPlaying.frame = frame(.nowPlaying, height: nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0)
         updated.isHidden = shown != .updated
-        update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
         updated.frame = frame(.updated, height: updated.height)
-        notice.frame = frame(.notice, height: notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0)
+        // A card playing its exit (``SidebarCardPresence``) keeps its place until it has gone.
+        if shown == .update || !update.isLeaving {
+            update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
+        }
+        notice.presence.setShown(shown == .notice)
+        if shown == .notice || !notice.isLeaving {
+            notice.frame = frame(.notice, height: notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0)
+        }
     }
 }
