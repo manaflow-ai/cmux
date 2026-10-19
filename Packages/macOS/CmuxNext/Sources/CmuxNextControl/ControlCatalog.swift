@@ -109,6 +109,10 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// The CLI waits for the work's result (`ActionDescriptor.waitsForResult`);
     /// `action.run` with `wait` then gets the result deadline.
     public var waitsForResult = false
+    /// A keyed daemon create that asks again when its reply is late
+    /// (`ActionDescriptor.waitsForKeyedCreate`): `action.run` with `wait`
+    /// gets ``KeyedCreateDeadline``.
+    public var waitsForKeyedCreate = false
     /// The action's purpose is a view change (`ActionDescriptor.focuses`):
     /// it focuses or shows even when run from the CLI without `focus`.
     public var focuses = false

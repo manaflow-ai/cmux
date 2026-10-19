@@ -94,6 +94,11 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     public var isGlobalHotKey: Bool = false
     /// How long `action.run` with `wait` may take for such an action.
     public static let resultDeadline: Duration = .seconds(40)
+    /// The action's work makes a daemon object with a keyed create that asks
+    /// again when its reply is late (`DaemonConnection.newFrontendBrowserTab`):
+    /// `action.run` with `wait` (the default) then allows that retry budget
+    /// instead of failing at the control-plane deadline while the tab opens.
+    public var waitsForKeyedCreate: Bool = false
 
     public init(
         id: ActionID,

@@ -130,6 +130,9 @@ public struct DaemonCapabilities: Sendable {
     public let frontendBrowserActivate = "frontend-browser-activate-v1"
     /// `after` on `new-frontend-browser-tab`: a link's tab lands next to its opener.
     public let frontendBrowserInsertAfter = "frontend-browser-insert-after-v1"
+    /// `idempotency_key` on `new-frontend-browser-tab`: a retry with the key
+    /// answers the tab the first request made (`DaemonConnection.newFrontendBrowserTab`).
+    public let frontendBrowserTabKeys = "frontend-browser-tab-keys-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"
@@ -421,7 +424,7 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, workspaceNameSource, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread, tabMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
