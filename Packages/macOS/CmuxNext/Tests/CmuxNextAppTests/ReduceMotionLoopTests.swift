@@ -85,7 +85,10 @@ import Testing
         cell.startTypingBreath(insert: CACurrentMediaTime())
         MessagesLabHomeView.reduceMotionOverride = true
         cell.startTypingBreath(insert: CACurrentMediaTime())
-        #expect([cell.typingContainer, cell.typingClip].flatMap { Self.loops(under: $0) } == [])
+        // Typed, so `flatMap` flattens: inside `#expect` the literal and `== []` inferred the
+        // Optional overload, which compared [[], []] (no loops on either layer) to [].
+        let breath: [CALayer] = [cell.typingContainer, cell.typingClip]
+        #expect(breath.flatMap { Self.loops(under: $0) }.isEmpty, "a breath started under Reduce Motion keeps looping")
     }
 
     /// The pins follow `Motion.reduceMotionOverride` after the mirror is installed.
