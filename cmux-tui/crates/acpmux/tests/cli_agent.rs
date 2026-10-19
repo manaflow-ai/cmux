@@ -73,7 +73,7 @@ fn session(agent: &mut Agent) -> String {
 }
 
 #[test]
-fn a_prompt_runs_the_program_and_streams_its_output() {
+fn cli_agent_a_prompt_runs_the_program_and_streams_its_output() {
     let mut agent = Agent::start(&["--", "cat"]);
     let sid = session(&mut agent);
     agent.send(json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{
@@ -86,7 +86,7 @@ fn a_prompt_runs_the_program_and_streams_its_output() {
 }
 
 #[test]
-fn last_block_sends_only_the_new_messages() {
+fn cli_agent_last_block_sends_only_the_new_messages() {
     let mut agent = Agent::start(&["--last-block", "--", "cat"]);
     let sid = session(&mut agent);
     agent.send(json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{
@@ -98,7 +98,7 @@ fn last_block_sends_only_the_new_messages() {
 }
 
 #[test]
-fn a_failing_program_fails_the_prompt_with_its_stderr() {
+fn cli_agent_a_failing_program_fails_the_prompt_with_its_stderr() {
     let mut agent = Agent::start(&["--", "sh", "-c", "echo broken >&2; exit 3"]);
     let sid = session(&mut agent);
     agent.send(json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{
@@ -110,7 +110,7 @@ fn a_failing_program_fails_the_prompt_with_its_stderr() {
 }
 
 #[test]
-fn cancel_stops_a_running_prompt() {
+fn cli_agent_cancel_stops_a_running_prompt() {
     let mut agent = Agent::start(&["--", "sleep", "30"]);
     let sid = session(&mut agent);
     agent.send(json!({"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{
