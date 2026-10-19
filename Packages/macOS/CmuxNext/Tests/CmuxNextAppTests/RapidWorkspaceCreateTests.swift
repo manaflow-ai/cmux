@@ -265,7 +265,7 @@ struct RapidWorkspaceCreateTests {
         }
         let item = try #require(SidebarDocWiring.item(workspace: grouped, services.machines))
         let section = try #require(doc.records.items[item]?.section)
-        try doc.sendChecked(ops: [["op": "group.create", "id": GroupID.make().rawValue, "name": "Accounts", "color": GroupColor.grey.rawValue,
+        try doc.sendChecked(ops: [["op": "group.create", "id": GroupID.make().rawValue, "name": "Accounts", "color": "grey",
                                    "items": [item], "to": ["section": section, "index": 0]]], title: "Group", undoable: false)
         func groupFirst() -> Bool {
             guard case let .group(first)? = sidebar.sections.first(where: { !$0.nodes.isEmpty && $0.machine != nil })?.nodes.first else { return false }
