@@ -8,8 +8,9 @@
 //!       timed from the WRITE until its tty echo reaches the viewer. With
 //!       `--flood`, a second terminal loops `cat FILE` to its own attached
 //!       viewer (another pane on the same link) the whole time (FILE must
-//!       not contain `#`). Packets and bytes come from the kernel's TCP
-//!       counters.
+//!       not contain `#`); `--flood-connect ADDR` and `--flood-kbps K`
+//!       put that viewer on TCP and cap its read rate. Packets and bytes
+//!       come from the kernel's TCP counters.
 //!   mux2-netbench interrupt N FILE
 //!       N times: loop `cat FILE` to an attached viewer, type Ctrl-C after
 //!       the flood has run for a while, and time until the viewer shows the
@@ -190,14 +191,30 @@ mod imp {
         let mut ctl = open();
         // The flooding pane: its own terminal and viewer connection, read as
         // fast as the link allows and discarded.
+        // `--flood-connect ADDR` puts the flooding viewer on TCP while the
+        // measured pane uses the default transport, and `--flood-kbps`
+        // caps how fast it reads, standing in for a slow link (each lag
+        // then costs the server a snapshot of the flooding terminal).
+        let flood_addr = flag(args, "--flood-connect").map(str::to_string);
+        let flood_kbps: u64 = flag(args, "--flood-kbps").and_then(|v| v.parse().ok()).unwrap_or(0);
         let flood_term = flood.map(|f| {
             let ft = create(&mut ctl, 120, 40, &format!("while :; do cat {}; done", quote(f)));
-            let mut fv = open();
+            let mut fv = match &flood_addr {
+                Some(a) => {
+                    Stream::connect_tcp(a).unwrap_or_else(|e| die(format!("connect {a}: {e}")))
+                }
+                None => open(),
+            };
             proto::write_frame(&mut fv, proto::ATTACH, &ft.to_le_bytes())
                 .unwrap_or_else(|e| die(e));
             std::thread::spawn(move || {
-                let mut buf = vec![0u8; 1 << 20];
-                while matches!(std::io::Read::read(&mut fv, &mut buf), Ok(n) if n > 0) {}
+                let chunk = if flood_kbps > 0 { 16 << 10 } else { 1 << 20 };
+                let mut buf = vec![0u8; chunk];
+                while matches!(std::io::Read::read(&mut fv, &mut buf), Ok(n) if n > 0) {
+                    if let Some(us) = (16_000_000u64).checked_div(flood_kbps) {
+                        std::thread::sleep(Duration::from_micros(us));
+                    }
+                }
             });
             ft
         });

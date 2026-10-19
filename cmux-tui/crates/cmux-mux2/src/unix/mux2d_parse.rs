@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// Where a worker leaves a replay it built: `Some(None)` when the build
+/// failed.
+pub(super) type SnapshotSlot = Arc<Mutex<Option<Option<Vec<u8>>>>>;
+
 #[derive(Default)]
 pub(super) struct Inflight {
     pub(super) count: Mutex<usize>,
@@ -24,6 +28,9 @@ pub(super) struct ParseJob {
     pub(super) parser: Arc<Mutex<Terminal>>,
     pub(super) inflight: Arc<Inflight>,
     pub(super) bytes: Vec<u8>,
+    /// Set for a snapshot job: after the batches before it, the worker
+    /// builds the replay into this slot instead of parsing `bytes`.
+    pub(super) snapshot: Option<SnapshotSlot>,
     /// Wakes the loop when the batch is parsed.
     pub(super) waker: Waker,
     pub(super) term: u32,
@@ -50,7 +57,14 @@ pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
                         // A parse that panics must not leave the loop
                         // waiting forever for this batch: stop the server.
                         let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            job.parser.lock().expect("parser").vt_write(&job.bytes);
+                            let mut vt = job.parser.lock().expect("parser");
+                            match &job.snapshot {
+                                Some(slot) => {
+                                    let replay = vt.vt_replay_bytes().ok();
+                                    *slot.lock().expect("snapshot slot") = Some(replay);
+                                }
+                                None => vt.vt_write(&job.bytes),
+                            }
                         }));
                         if parsed.is_err() {
                             eprintln!("mux2d: parse worker panicked; aborting");
@@ -122,6 +136,7 @@ pub(super) fn offload_parse(
         parser: term.parser.clone(),
         inflight: term.inflight.clone(),
         bytes,
+        snapshot: None,
         waker: waker.clone(),
         term: t,
     };
