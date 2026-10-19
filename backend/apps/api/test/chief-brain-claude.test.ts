@@ -204,7 +204,8 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
         const chief = (await op(token, "chief.create", {}, `chief-${sub}`)).value as { id: string }
         const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
         let r = { status: 0, json: {} as any, text: "" }
-        for (let i = 0; i < 20 && (r.status === 0 || r.status === 403); i++) {
+        // 403 / chief_archived: the chief record has not reached the brain yet.
+        for (let i = 0; i < 20 && (r.status === 0 || r.status === 403 || r.json?.error?.code === "chief_archived"); i++) {
           await fireAlarm(userDO)
           r = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true })
         }
@@ -236,10 +237,13 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     try {
       // On the list (and with credits) when the brain was turned on; off it at the turn.
       const { token, chief } = await ownerWithClaudeChief(sub)
-      testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = saved
+      saved === undefined ? delete testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA : (testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = saved)
       expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "d1", parts: [{ type: "text", text: "still there?" }] }, "d1")).ok).toBe(true)
       const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
       expect(reply.parts[0].text).toBe(MODEL_UNAVAILABLE_NOTICE)
+      // A settings save that repeats enabled:true on the Chief that is already on is not refused.
+      const save = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true, role: "Release captain 2" })
+      expect(save.status, save.text).toBe(200)
       expect(route.seen).toHaveLength(0)
       const runId = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs[0].id as string
       const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${runId}?conversation=${chief.main_conversation}`, token)

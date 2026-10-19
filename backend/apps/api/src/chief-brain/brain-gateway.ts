@@ -94,7 +94,6 @@ export const turnFailedNotice = async (env: Env, sql: SqlStorage, config: BrainC
 /** The notice for a turn whose paid model this owner may not use on this deployment (no vendor names). */
 export const MODEL_UNAVAILABLE_NOTICE = "This model is not available for your team, so I stopped here."
 
-
 /** The loop guard refuses a Chief that spoke under 2 s ago (agent_rate): a notice right after a reply waits that gap, twice at most. */
 const NOTICE_GAP_MS = 2_500
 const postNotice = async (env: Env, principal: ReturnType<typeof chiefPrincipal>, conversation: string, text: string, key: string, tries = 3): Promise<void> => {
