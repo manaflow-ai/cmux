@@ -120,6 +120,7 @@ extension SidebarViewComponents {
             }
             lastSections = model.sections
         }
+        if listChanged || lastState?.tree != state.tree { refreshNeedsYou() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state
