@@ -98,18 +98,36 @@ final class SidebarNowPlayingLevels: NSView {
             layer?.addSublayer(bar)
         }
         setAccessibilityElement(false)
-        // Reduce Motion (the system's or cmux's own) or the animation speed changed mid-track:
-        // start or still the bars at once. Selector observers, which AppKit drops with the view.
-        NotificationCenter.default.addObserver(self, selector: #selector(motionChanged), name: Motion.reduceMotionDidChange, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(motionChanged), name: Motion.speedDidChange, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(motionChanged),
-                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc private func motionChanged() { update() }
+    /// The motion observers while the bars are in a window (``observeMotion(_:)``).
+    private var motionObservers: [(center: NotificationCenter, token: any NSObjectProtocol)] = []
+
+    /// Reduce Motion (the system's or cmux's own) or the animation speed changed mid-track: the
+    /// bars start or still at once. Block observers on the main queue while in a window, removed
+    /// when the view leaves it, so the view needs no deinit.
+    private func observeMotion(_ on: Bool) {
+        guard on != !motionObservers.isEmpty else { return }
+        guard on else {
+            for observer in motionObservers { observer.center.removeObserver(observer.token) }
+            motionObservers = []
+            return
+        }
+        let names: [(NotificationCenter, Notification.Name)] = [
+            (NotificationCenter.default, Motion.reduceMotionDidChange),
+            (NotificationCenter.default, Motion.speedDidChange),
+            (NSWorkspace.shared.notificationCenter, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification),
+        ]
+        motionObservers = names.map { center, name in
+            (center, center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                // main-proof: the observer runs on the main queue (queue: .main)
+                MainActor.assumeIsolated { self?.update() }
+            })
+        }
+    }
 
     func show(playing: Bool) {
         guard playing != isPlaying else { return }
@@ -136,6 +154,7 @@ final class SidebarNowPlayingLevels: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        observeMotion(window != nil)
         applyColors()
         update()
     }
