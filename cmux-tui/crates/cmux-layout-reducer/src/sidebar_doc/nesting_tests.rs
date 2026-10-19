@@ -373,7 +373,12 @@ fn app_ops(json: serde_json::Value) -> Vec<Op> {
 #[test]
 fn new_cloud_workspaces_of_two_machines_join_one_cloud_group() {
     let mut doc = Doc::from_parts(1, Vec::new(), Vec::new());
-    for section in [Section::pinned(), Section::machine(LOCAL), Section::machine(CLOUD_A), Section::machine(CLOUD_B)] {
+    for section in [
+        Section::pinned(),
+        Section::machine(LOCAL),
+        Section::machine(CLOUD_A),
+        Section::machine(CLOUD_B),
+    ] {
         run(&mut doc, &[Op::SectionAdd { section, place: SectionPlace::default() }]).unwrap();
     }
     let first = workspace(&mut doc, CLOUD_A, "w1", into(&machine_section_id(CLOUD_A), None));
