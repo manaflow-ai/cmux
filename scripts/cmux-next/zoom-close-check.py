@@ -188,8 +188,10 @@ def check_static(directory, frames, colors, scale, moving_color=None, exclude=()
         cover = bbox(mask(frame, moving_color)) if moving_color else None
         changed = np.abs(frame - base).max(axis=2) > 40
         if cover:
-            pad = int(6 * scale)
-            changed[max(0, cover[1] - pad):cover[3] + pad, max(0, cover[0] - pad):cover[2] + pad] = False
+            # The moving pane's color box plus its tab strip above it (not its color, and on top of
+            # the panes it covers while it zooms).
+            pad, header = int(6 * scale), int(48 * scale)
+            changed[max(0, cover[1] - pad - header):cover[3] + pad, max(0, cover[0] - pad):cover[2] + pad] = False
         for label, rect in rects:
             x0, y0, x1, y1 = rect_px(rect, scale, 4)
             count = int(changed[y0:y1, x0:x1].sum())
@@ -220,6 +222,50 @@ def travel_curve(series):
     return {"travel_pt": round(total, 1), "t90_ms": round(t90 - t0) if t90 is not None else None,
             "end_ms": round(end - t0) if end is not None else None, "overshoot_pt": round(max(0, over), 2),
             "max_step_change_pt": round(jerk, 2), "max_frame_gap_ms": round(max(gaps, default=0), 1)}
+
+
+def z_violations(samples, pane, colors):
+    """Trace samples, while the zoom moves, with a pane host or visible divider over the zooming pane above it."""
+    found = []
+    for sample in samples:
+        if not any(sample.get("zoom") or []):
+            continue
+        rows = {row[0]: row for row in sample.get("panes") or []}
+        mine = rows.get(pane)
+        if not mine or mine[3] < 1:
+            continue
+        rect, z = mine[1:5], mine[6]
+        for other, row in rows.items():
+            if other != pane and row[6] > z and row[5] > 0.01 and overlaps(rect, row[1:5]):
+                found.append(f"{sample.get('t')}ms:pane {colors.get(other, other)} above")
+        for row in sample.get("dividers") or []:
+            if row[6] > z and row[5] > 0.01 and overlaps(rect, row[1:5]):
+                found.append(f"{sample.get('t')}ms:divider {row[0]} alpha {row[5]:.2f} above")
+    return found
+
+
+def check_trace_only(name, directory, colors):
+    """A scenario recorded with --no-pixels: the trace checks (live, header, work, edges, z order,
+    one spring, alpha)."""
+    samples = trace_samples(directory)
+    pane = zoom_pane(samples) if "zoom" in name else None
+    result, failures = check_live(directory, colors, pane)
+    if name.startswith("split"):
+        edges, more = check_split_edges(directory, colors)
+        result.update(edges)
+        failures = failures + more
+    if "zoom" in name:
+        if not pane:
+            failures.append("no zoom motion in the trace (the zoom snapped or did not run)")
+        z = z_violations(samples, pane, colors) if pane else []
+        result["z_violation_count"] = len(z)
+        if z:
+            failures.append(f"{len(z)} trace samples with a view above the zooming pane (first {z[0]})")
+    alphas = [row[5] for s in samples for row in s.get("panes") or [] if row[3] > 1 and row[4] > 1]
+    result["min_pane_alpha"] = min(alphas, default=None)
+    if alphas and min(alphas) < 0.999:
+        failures.append(f"a pane shows at alpha {min(alphas):.2f} (no fades)")
+    return result, failures
 
 
 def check_zoom(name, directory, frames, colors, scale, zooming_in):
@@ -310,22 +356,7 @@ def check_zoom(name, directory, frames, colors, scale, zooming_in):
         result["hole_frames"] = holes
         if holes:
             failures.append(f"blank or faded panes outside the shrinking pane in {len(holes)} pane-frames (first {holes[0]})")
-    # Z order from the trace.
-    zviolations = []
-    for sample in samples:
-        if not any(sample.get("zoom") or []):
-            continue
-        rows = {row[0]: row for row in sample.get("panes") or []}
-        mine = rows.get(pane)
-        if not mine or mine[3] < 1:
-            continue
-        rect, z = mine[1:5], mine[6]
-        for other, row in rows.items():
-            if other != pane and row[6] > z and row[5] > 0.01 and overlaps(rect, row[1:5]):
-                zviolations.append(f"{sample.get('t')}ms:pane {colors.get(other, other)} above")
-        for row in sample.get("dividers") or []:
-            if row[6] > z and row[5] > 0.01 and overlaps(rect, row[1:5]):
-                zviolations.append(f"{sample.get('t')}ms:divider {row[0]} alpha {row[5]:.2f} above")
+    zviolations = z_violations(samples, pane, colors)
     result["z_violations"] = zviolations[:12]
     result["z_violation_count"] = len(zviolations)
     if zviolations:
@@ -600,15 +631,14 @@ def main():
             failed = True
             continue
         frames = frames or frames_of(directory)
-        if len(frames) < 3 and name.startswith("split"):
-            result, failures = check_split_edges(directory, load(os.path.join(directory, "colors.json"), {}) or colors)
-            live, live_failures = check_live(directory, load(os.path.join(directory, "colors.json"), {}) or colors)
-            result.update(live)
-            failures = failures + live_failures
+        if len(frames) < 3:
+            result, failures = check_trace_only(name, directory, load(os.path.join(directory, "colors.json"), {}) or colors)
             result["failures"] = failures
             report[name] = result
             failed = failed or bool(failures)
-            print(f"{'FAIL' if failures else 'ok':4} {name} [trace]: " + "; ".join(failures or [json.dumps({k: v for k, v in result['edges'].items() if k != 'track'} if isinstance(result.get('edges'), dict) else result.get('edges'))[:300]]), flush=True)
+            summary = {k: v for k, v in result.get("edges", {}).items() if k != "track"} if isinstance(result.get("edges"), dict) else {
+                c: (d["held"], d["frozen"], d["content_steps"], d["header_min"]) for c, d in (result.get("live") or {}).items()}
+            print(f"{'FAIL' if failures else 'ok':4} {name} [trace]: " + "; ".join(failures or [json.dumps(summary)[:300]]), flush=True)
             continue
         if len(frames) < 3:
             report[name] = {"failures": ["fewer than 3 frames"]}
