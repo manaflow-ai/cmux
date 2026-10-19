@@ -51,7 +51,33 @@ on:
     branches: [feat-cmux-next]
     paths:
       - docs/**
-jobs: {}
+jobs:
+  path_route:
+    name: cmux-next path routing
+  checks:
+    name: cmux-next checks (god files, concurrency, crash safety, l10n)
+  swift-canary:
+    name: cmux-next Swift canary
+  fast-tier:
+    name: cmux-next fast tier
+  swift-test:
+    name: cmux-next swift test
+  release-compile:
+    name: cmux-next Release compile (Xcode 26)
+  cmux-scheme-compile:
+    name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
+"""
+CI_WORKFLOW = """name: CI
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+  web:
+    uses: ./.github/workflows/ci-web.yml
+"""
+CI_WEB_WORKFLOW = """name: Web
+jobs:
+  react-apps-check:
+    runs-on: ubuntu-latest
 """
 
 
@@ -330,7 +356,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -345,7 +371,7 @@ class InstalledHelperRegression(unittest.TestCase):
             python.chmod(0o755)
         if full:
             extra_args = ("--full", *extra_args)
-        rollup_payload = shlex.quote(json.dumps({"headRefOid": rollup_head, "files": [{"path": f} for f in changed_files], "statusCheckRollup": [
+        rollup_payload = shlex.quote(json.dumps({"headRefOid": rollup_head, "baseRefName": rollup_base or base, "files": [{"path": f} for f in changed_files], "statusCheckRollup": [
             {"__typename": "CheckRun", "name": name, "status": status.upper(), "conclusion": conclusion.upper()} for name, status, conclusion in rollup]}))
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
@@ -368,7 +394,10 @@ class InstalledHelperRegression(unittest.TestCase):
             "printf '%s\\n' " + rollup_payload + "; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"" + base + "\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
-            "if [ \"$1 $2\" = 'pr view' ]; then "
+            + ("if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER.viewed\" ]; then "
+               "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"" + base_after + "\",\"state\":\"OPEN\",\"labels\":[]}'; exit 0; fi\n"
+               if base_after else "") +
+            "if [ \"$1 $2\" = 'pr view' ]; then touch \"$MERGE_MARKER.viewed\"; "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"" + base + "\",\"state\":\"OPEN\",\"isCrossRepository\":" + json.dumps(is_cross_repository) + ",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "".join("," + json.dumps(k) + ":" + json.dumps(v) for k, v in (pr_fields or {}).items()).replace("'", "'\\''") + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' \"$*\" >> \"$MERGE_ARGS_LOG\"; printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
@@ -378,6 +407,10 @@ class InstalledHelperRegression(unittest.TestCase):
             "printf '%s\\n' " + runs_payload + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/cmux-next.yml?ref=" + HEAD + "'; then "
             + workflow_route + "; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci.yml?ref=" + HEAD + "'; then "
+            "printf '%s' " + shlex.quote(CI_WORKFLOW) + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci-web.yml?ref=" + HEAD + "'; then "
+            "printf '%s' " + shlex.quote(CI_WEB_WORKFLOW) + "; exit 0; fi\n"
             + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then exit 1; fi\n"
                "if [ \"$1 $2\" = 'api graphql' ] && printf '%s' \"$*\" | grep -q 'files(first'; then printf '%s\\n' "
                + shlex.quote(json.dumps({"data": {"repository": {"pullRequest": {"files": {"nodes": [{"path": f} for f in changed_files], "pageInfo": {"hasNextPage": False}}}}}}))
@@ -720,6 +753,51 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
             self.assertIn("used GraphQL fallback to inspect changed files", result.stderr)
+
+    def test_a_base_retargeted_during_the_fast_wait_refuses(self):
+        """--match-head-commit pins the head, not the base: a PR moved from feat-cmux-next
+        to main while the fast gate waits must not merge into main on it."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     rollup_base="main")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("base changed to main", result.stderr)
+
+    def test_a_base_retargeted_before_the_merge_refuses_on_both_gates(self):
+        for full in (False, True):
+            with self.subTest(full=full), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                result = self.run_helper(directory, marker, full=full, changed_files=self.SWIFT if not full else ("docs/README.md",),
+                                         rollup=self.FAST_GREEN, base_after="main")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertIn("base moved from feat-cmux-next to main", result.stderr)
+
+    def test_override_does_not_waive_a_cancelled_fast_lane(self):
+        """Like the full gate's cmux-next run: a cancelled or timed-out lane has no verdict to waive."""
+        for conclusion in ("cancelled", "timed_out"):
+            rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", conclusion)]
+            with self.subTest(conclusion=conclusion), tempfile.TemporaryDirectory() as directory:
+                marker, events = Path(directory) / "merged", Path(directory) / "events"
+                result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                         extra_args=("--override", self.OVERRIDE), event_log=events)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertFalse(events.exists())
+                self.assertIn("no verdict", result.stderr)
+
+    def test_the_fast_gate_refuses_when_a_lane_it_keys_on_is_renamed(self):
+        """A renamed job would otherwise drop out of the gate silently."""
+        renamed = CMUX_NEXT_WORKFLOW.replace("cmux-next checks (god files, concurrency, crash safety, l10n)", "cmux-next checks")
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     cmux_next_workflow=renamed)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("god-file, l10n or concurrency lint job", result.stderr)
 
     def test_main_keeps_the_full_wait_without_full(self):
         """Only feat-cmux-next gets the fast gate: a main PR with green fast lanes and a
