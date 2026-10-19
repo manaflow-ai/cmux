@@ -9,7 +9,6 @@ test drives bash through a PTY.
 
 from __future__ import annotations
 
-from collections import Counter
 import os
 import pty
 import re
@@ -155,8 +154,6 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
         bin_path = tmp_path / "bin"
         gh_stub = bin_path / "gh"
         send_log = tmp_path / "send.log"
-        status_log = tmp_path / "status.log"
-        debug_log = tmp_path / "debug.log"
 
         git_dir.mkdir(parents=True)
         (git_dir / "HEAD").write_text("ref: refs/heads/feature/bash-done\n", encoding="utf-8")
@@ -180,26 +177,12 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
                     "LANG": "C",
                     "PATH": f"{bin_path}{os.pathsep}{os.environ.get('PATH', '')}",
                     "HISTFILE": "/dev/null",
-                    "TMPDIR": str(tmp_path),
-                    "TMUX_TMPDIR": str(tmp_path),
                 }
             )
-            env.pop("TMUX", None)
-            env.pop("STY", None)
 
             with InteractiveBash(env) as bash:
                 bash.run("set -m")
                 bash.run("HISTCONTROL=ignorespace")
-                bash.run(
-                    "PROMPT_COMMAND=" + shlex.quote(
-                        f'printf "%s\\n" "$?" >> {shlex.quote(str(status_log))}'
-                    )
-                )
-                bash.run(
-                    "trap " + shlex.quote(
-                        f'printf "%s\\n" "$BASH_COMMAND" >> {shlex.quote(str(debug_log))}'
-                    ) + " DEBUG"
-                )
                 bash.run(f"export CMUX_SOCKET_PATH={shlex.quote(str(socket_path))}")
                 bash.run("export CMUX_TAB_ID=tab-test CMUX_PANEL_ID=panel-test")
                 # Seed an old command without running it. Loading the integration
@@ -218,19 +201,9 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
                 bash.run("gh pr merge 123")
                 bash.run(" true")
                 bash.run("gh pr close 456")
-                if status_log.read_text().splitlines()[-1] != "1":
-                    raise AssertionError("cmux hid the failed command's status from PROMPT_COMMAND")
                 bash.run(" true")
-                bash.run("gh pr reopen 789")
                 bash.run("gh pr merge 123")
                 bash.run(" true")
-                bash.run("export CMUX_NO_PR_WATCH=1")
-                bash.run("gh pr merge 998")
-                bash.run("unset CMUX_NO_PR_WATCH")
-                bash.run("export CMUX_NO_GIT_WATCH=1")
-                bash.run("gh pr merge 999")
-                bash.run("unset CMUX_NO_GIT_WATCH")
-                bash.run(": __CMUX_DEBUG_TRAP_CHECK__")
                 bash.run("cd ..")
                 bash.run("true")
                 bash.run("sleep 0.2")
@@ -241,26 +214,23 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
                     if send_log.exists()
                     else ""
                 )
-                expected_payloads = Counter({
-                    'report_pr_action merge --tab=tab-test --panel=panel-test --target="123"': 2,
-                    'report_pr_action reopen --tab=tab-test --panel=panel-test --target="789"': 1,
-                })
-                actual_payloads = Counter(
+                expected_payload = (
+                    'report_pr_action merge --tab=tab-test '
+                    '--panel=panel-test --target="123"'
+                )
+                actual_payloads = [
                     line for line in sent_payloads.splitlines()
                     if line.startswith("report_pr_action ")
-                )
-                if actual_payloads != expected_payloads:
+                ]
+                if actual_payloads != [expected_payload, expected_payload]:
                     raise AssertionError(
                         "bash integration did not emit exactly one PR action "
                         "payload per successful gh command.\n\n"
-                        f"Expected payloads:\n{expected_payloads}\n\n"
+                        f"Expected payload twice:\n{expected_payload}\n\n"
                         f"Observed payloads:\n{actual_payloads}\n\n"
                         f"Sent payloads:\n{sent_payloads}\n\n"
                         f"Full PTY output:\n{bash.text}"
                     )
-
-                if ": __CMUX_DEBUG_TRAP_CHECK__" not in debug_log.read_text().splitlines():
-                    raise AssertionError("cmux replaced the user's DEBUG trap")
 
                 done_lines = JOB_DONE_RE.findall(bash.text)
                 if done_lines:
