@@ -25,6 +25,7 @@ import { chiefsTools } from "./brain-chiefs.ts"
 import { type ChildStart, childInput, childKey, childObject, childPrompt, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, SPAWN_SCHEMA, CHILD_LOST_MS, archiveAndDrop, childReportText, forwardOutcomes, outcomeWhere, keepMs, turnWhereOf, type AgentOutcome, checkOutcomes, noteAgentCall, postOutcomes, queueOutcome, spawnMax, spawnTool, subagentActivity, takeReport, turnThread } from "./brain-spawn.ts"
 import * as sub from "./brain-sub.ts"
 import * as turnLoop from "./brain-turn.ts"
+import { IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, importBatch, importing, importStatus } from "./memory-import.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -196,7 +197,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    for (const q of [...SCHEMA, ...SPAWN_SCHEMA]) this.sql.exec(q)
+    for (const q of [...SCHEMA, ...SPAWN_SCHEMA, IMPORT_SCHEMA]) this.sql.exec(q)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
     const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL), msOr(env.CHIEF_BRAIN_PREFIX_WAIT_MS, PrefixCache.WAIT_MS))
     this.compactor = new Compactor({
@@ -207,7 +208,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : isClaude(name) ? compactEffort(env.CHIEF_BRAIN_COMPACT_EFFORT) : "medium", prompt: "cmux", agent: AGENT, cache: compactCache, record: logCompactCall }
       },
       onBuilt: () => undefined,
-      off: () => (this.compactorName() === undefined ? "no compactor model this owner may use" : undefined),
+      off: () => (importing(this.sql) ? "a memory copy is under way" : this.compactorName() === undefined ? "no compactor model this owner may use" : undefined),
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_brain.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
       onRetryWait: (at) => this.schedule("compact", "compact", at),
       retryBaseMs: Number(env.CHIEF_BRAIN_COMPACT_RETRY_BASE_MS) || undefined
@@ -329,6 +330,22 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return { config: this.config(), turns_today: Number(this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `turns:${day}`).toArray()[0]?.value ?? 0) }
   }
 
+  /** The memory copy from a Mac Chief (memory-import.ts): where it stands. */
+  memoryImportStatus(): ImportStatus {
+    return importStatus(this.sql)
+  }
+
+  /** One batch of the memory copy; after the last one the view is folded again from the copied nodes. */
+  memoryImport(body: ImportBody, brainOn: boolean): ImportStatus | ImportFail {
+    if (this.childOf()) return { ok: false, status: 400, code: "validation.invalid", message: "a subagent has no memory" }
+    const r = importBatch(this.sql, this.ctx.storage, body, brainOn)
+    if (!("ok" in r) && body.done) {
+      this.memory.reload()
+      this.compactor.pump()
+    }
+    return r
+  }
+
   /** A brain asks before a turn (`turn: true` counts it) or a post: enabled, the chief live and not placed, under the daily limit. */
   async admit(agent: string, owner: string, turn: boolean): Promise<Admission> {
     await this.lifecycle.start()
@@ -359,6 +376,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** Asks the settings object and keeps its answer as this brain's config copy. */
   async admitted(agent: string, owner: string, turn: boolean): Promise<Admission> {
+    // A memory copy under way (memory-import.ts): no turn appends to the log until its last batch.
+    if (importing(this.sql)) return { ok: false, reason: "memory_importing" } as Admission
     const a = (await this.settingsOf(agent).admit(agent, owner, turn)) as Admission
     if (a.ok) {
       const { agent: ag, owner: ow, enabled, chiefs, ...rest } = a.config

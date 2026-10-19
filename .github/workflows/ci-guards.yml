@@ -623,6 +623,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate published-in PR comments
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_published_in_comments.py
+
       - name: Validate merge receipts
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py

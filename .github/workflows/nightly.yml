@@ -1585,15 +1585,16 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
-    # nightly-next pushes share one build slot. Each push used to build its own
-    # head, so pushes queued for the trusted runner and every intermediate head got
-    # a full build (2026-10-18: three pushes in three minutes, three 90-minute
-    # builds; merged-to-published p50 5.8 h, p90 2.1 d). Now at most one build
-    # waits, and a newer push replaces it; a running build always finishes. The
-    # workflow group above stays run-scoped so post-publication checks never hold
-    # the next build. Every other ref and dispatch keeps a slot of its own.
+    # Every run gets its own build slot, so no push ever replaces another. A
+    # shared nightly-next slot (1 running + 1 pending, newer replaces pending)
+    # turned every push into a "cancelled" run once its holder, run 39217096519,
+    # sat queued for a Blacksmith runner that never came (2026-10-19: six
+    # nightly-next runs cancelled without ever getting a runner). nightly-next
+    # builds now queue FIFO on the dedicated warm runner
+    # (CI_NIGHTLY_NEXT_TRUSTED_RUNNER), which serializes them; with its warm
+    # DerivedData an intermediate head costs an incremental build, not 90 min.
     concurrency:
-      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && 'nightly-next-build-app' || format('nightly-build-app-{0}', github.run_id) }}
+      group: nightly-build-app-${{ github.run_id }}
       cancel-in-progress: false
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
@@ -1739,9 +1740,10 @@ jobs:
           scripts/ci/clear-dirs.sh build-universal
           mkdir -p build-universal
           if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
-            # A trusted worker keeps only its package checkouts and deletes
-            # the build state that earlier revisions kept. NEXT restores no
-            # compilation cache today, so its build is fully cold.
+            # A trusted worker keeps only its package checkouts and its
+            # content-keyed compilation cache on disk, and deletes the build
+            # state that earlier revisions kept. Elsewhere NEXT restores no
+            # compilation cache, so its build is fully cold.
             python3 scripts/ci/nightly_build_state.py prepare nightly-next
             exit 0
           fi
@@ -2080,6 +2082,9 @@ jobs:
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
+          # A trusted NEXT worker links it to the cache it keeps on disk
+          # (nightly_build_state.py); measure and bound the cache itself.
+          if [ -L "$cache_path" ]; then cache_path="$(readlink "$cache_path")"; fi
           max_cache_kib=$((5 * 1024 * 1024))
           if [ -d "$cache_path" ]; then
             # Xcode's CAS chains v1.N generations: the newest is the primary,
@@ -6138,6 +6143,45 @@ jobs:
               --content-type "application/xml" \
               --cache-control "no-cache, no-store, must-revalidate"
           done
+
+  # Each PR in this nightly-next build gets a "Shipped in" line, in one comment
+  # that release.yml also writes for stable releases
+  # (scripts/ci/published_in_comments.py). The span is the one the release
+  # body's "PRs in this build" list uses (the previous published commit to
+  # this build's), first-parent, so main's PRs arriving through a sync merge
+  # are not claimed. No secrets; a comment failure never fails the nightly.
+  published-in:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
+    if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.published_sha != '' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    # Writes are paced at 7.5 s under GitHub's hourly content limit.
+    timeout-minutes: 60
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+      PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: Fetch the published span
+        run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
+      - name: Comment the build on its PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISHED_SHA" = "$HEAD_SHA" ]; then echo "Empty span."; exit 0; fi
+          python3 scripts/ci/published_in_comments.py --repo "$GITHUB_REPOSITORY" \
+            --since "$PUBLISHED_SHA" --head "$HEAD_SHA" \
+            --name "cmux NEXT nightly 1.0.0-nightly.$NIGHTLY_BUILD" \
+            --url "https://github.com/$GITHUB_REPOSITORY/releases/tag/nightly-next"
 
   # Keep one open issue per failed publication boundary. A stale channel tag
   # leaves the assets, release metadata, and feeds available, so the incident

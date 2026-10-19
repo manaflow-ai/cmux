@@ -65873,127 +65873,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "After an update, a What's New item shows at the top of the sidebar until you open it."
+            "value": "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "بعد التحديث، يظهر عنصر «ما الجديد» أعلى الشريط الجانبي حتى تفتحه."
+            "value": "بعد التحديث، تظهر بطاقة أسفل الشريط الجانبي تفتح «ما الجديد» حتى تفتحها أو تغلقها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nakon ažuriranja, stavka Šta je novo prikazuje se na vrhu bočne trake dok je ne otvorite."
+            "value": "Nakon ažuriranja, kartica na dnu bočne trake vodi na Šta je novo dok je ne otvorite ili zatvorite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Efter en opdatering vises Nyheder øverst i indholdsoversigten, indtil du åbner det."
+            "value": "Efter en opdatering viser et kort nederst i indholdsoversigten et link til Nyheder, indtil du åbner eller lukker det."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nach einem Update steht „Neuigkeiten“ oben in der Seitenleiste, bis du es öffnest."
+            "value": "Nach einem Update führt eine Karte unten in der Seitenleiste zu „Neuigkeiten“, bis du sie öffnest oder schließt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tras una actualización, Novedades aparece arriba en la barra lateral hasta que lo abras."
+            "value": "Tras una actualización, una tarjeta abajo en la barra lateral enlaza a Novedades hasta que la abras o la cierres."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Après une mise à jour, Nouveautés s’affiche en haut de la barre latérale jusqu’à ce que vous l’ouvriez."
+            "value": "Après une mise à jour, une carte en bas de la barre latérale mène aux Nouveautés jusqu’à ce que vous l’ouvriez ou la fermiez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dopo un aggiornamento, Novità compare in cima alla barra laterale finché non lo apri."
+            "value": "Dopo un aggiornamento, una scheda in fondo alla barra laterale porta a Novità finché non la apri o la chiudi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アップデート後、開くまでサイドバーの一番上に「新機能」が表示されます。"
+            "value": "アップデート後、開くか閉じるまでサイドバーの下部に「新機能」へのカードが表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បន្ទាប់ពីធ្វើបច្ចុប្បន្នភាព ធាតុ អ្វីដែលថ្មី បង្ហាញនៅខាងលើរបារចំហៀង រហូតដល់អ្នកបើកវា។"
+            "value": "បន្ទាប់ពីធ្វើបច្ចុប្បន្នភាព កាតមួយនៅខាងក្រោមរបារចំហៀងភ្ជាប់ទៅ អ្វីដែលថ្មី រហូតដល់អ្នកបើក ឬបិទវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "업데이트 후 새로운 기능 항목이 열어 볼 때까지 사이드바 맨 위에 표시됩니다."
+            "value": "업데이트 후 사이드바 아래쪽에 새로운 기능으로 이동하는 카드가 열거나 닫을 때까지 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Etter en oppdatering vises Nyheter øverst i sidepanelet til du åpner det."
+            "value": "Etter en oppdatering viser et kort nederst i sidepanelet til Nyheter til du åpner eller lukker det."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Po aktualizacji element Co nowego jest na górze paska bocznego, dopóki go nie otworzysz."
+            "value": "Po aktualizacji karta na dole paska bocznego prowadzi do Co nowego, dopóki jej nie otworzysz lub nie zamkniesz."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Após uma atualização, Novidades aparece no topo da barra lateral até você abrir."
+            "value": "Após uma atualização, um cartão na parte de baixo da barra lateral leva às Novidades até você abrir ou fechar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "После обновления пункт «Что нового» показывается вверху боковой панели, пока вы его не откроете."
+            "value": "После обновления карточка внизу боковой панели ведёт в «Что нового», пока вы её не откроете или не закроете."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "หลังอัปเดต รายการมีอะไรใหม่จะแสดงที่ด้านบนของแถบด้านข้างจนกว่าคุณจะเปิด"
+            "value": "หลังอัปเดต การ์ดที่ด้านล่างของแถบด้านข้างจะลิงก์ไปยังมีอะไรใหม่จนกว่าคุณจะเปิดหรือปิด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir güncellemeden sonra Yenilikler öğesi, siz açana kadar kenar çubuğunun en üstünde görünür."
+            "value": "Bir güncellemeden sonra, siz açana veya kapatana kadar kenar çubuğunun altında Yenilikler'e giden bir kart görünür."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Після оновлення пункт «Що нового» показується вгорі бічної панелі, доки ви його не відкриєте."
+            "value": "Після оновлення картка внизу бічної панелі веде до «Що нового», доки ви її не відкриєте або не закриєте."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sau khi cập nhật, mục Có gì mới hiện ở đầu thanh bên cho đến khi bạn mở."
+            "value": "Sau khi cập nhật, một thẻ ở cuối thanh bên dẫn tới Có gì mới cho đến khi bạn mở hoặc đóng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "更新后，“新功能”会显示在边栏顶部，直到你打开它。"
+            "value": "更新后，边栏底部会显示一张通往“新功能”的卡片，直到你打开或关闭它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "更新後，「新功能」會顯示在側邊欄頂端，直到你打開它。"
+            "value": "更新後，側邊欄底部會顯示一張通往「新功能」的卡片，直到你打開或關閉它。"
           }
         }
       }
@@ -105186,6 +105186,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "每個 Markdown 檢視器開啟時的文字大小。Cmd-= 和 Cmd-- 可在單一檢視器中調整，Cmd-0 會回到此大小。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.detailedStatusIcons": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detailed Status Icons"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيقونات حالة مفصّلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaljne ikone statusa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaljerede statusikoner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaillierte Statussymbole"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iconos de estado detallados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icônes d’état détaillées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icone di stato dettagliate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細なステータスアイコン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបតំណាងស្ថានភាពលម្អិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자세한 상태 아이콘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaljerte statusikoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szczegółowe ikony stanu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ícones de status detalhados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробные значки состояния"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไอคอนสถานะแบบละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayrıntılı durum simgeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Докладні значки стану"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biểu tượng trạng thái chi tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "详细状态图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細狀態圖示"
+          }
+        }
+      }
+    },
+    "settings.sidebar.detailedStatusIcons.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض صفوف مساحات العمل أيقونة منفصلة لكل من: قيد العمل، وبانتظار الإدخال، والخطأ، والاكتمال. عند الإيقاف، يعرض الصف مؤشر دوران أثناء العمل ونقطة زرقاء عندما يصبح جاهزًا لك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redovi radnih prostora prikazuju zasebnu ikonu za rad, čekanje na unos, grešku i završeno. Kada je isključeno, red prikazuje indikator dok radi i plavu tačku kada je spreman za vas."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rækker for arbejdsområder viser et separat ikon for arbejder, venter på input, fejl og færdig. Slået fra viser en række en spinner, mens den arbejder, og en blå prik, når den er klar til dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichszeilen zeigen ein eigenes Symbol für „arbeitet“, „wartet auf Eingabe“, „Fehler“ und „fertig“. Aus zeigt eine Zeile einen Spinner, solange sie arbeitet, und einen blauen Punkt, wenn sie für dich bereit ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las filas de los espacios de trabajo muestran un icono distinto para trabajando, esperando entrada, error y terminado. Desactivado, una fila muestra un indicador giratorio mientras trabaja y un punto azul cuando está lista para ti."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les lignes des espaces de travail affichent une icône distincte pour en cours, en attente de saisie, erreur et terminé. Désactivé, une ligne affiche un indicateur rotatif pendant le travail et un point bleu quand elle est prête pour vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le righe delle aree di lavoro mostrano un'icona distinta per in corso, in attesa di input, errore e completato. Se disattivato, una riga mostra un indicatore rotante mentre lavora e un punto blu quando è pronta per te."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの行に、作業中、入力待ち、エラー、完了をそれぞれ別のアイコンで表示します。オフの場合、作業中はスピナー、確認できる状態になると青い点を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរដេកកន្លែងធ្វើការបង្ហាញរូបតំណាងដាច់ដោយឡែកសម្រាប់កំពុងធ្វើការ រង់ចាំការបញ្ចូល កំហុស និងរួចរាល់។ នៅពេលបិទ ជួរដេកបង្ហាញសញ្ញាបង្វិលពេលកំពុងធ្វើការ និងចំណុចពណ៌ខៀវពេលវារួចរាល់សម្រាប់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 행에 작업 중, 입력 대기, 오류, 완료를 각각 다른 아이콘으로 표시합니다. 끄면 작업 중에는 스피너를, 확인할 준비가 되면 파란 점을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rader for arbeidsområder viser et eget ikon for arbeider, venter på inndata, feil og ferdig. Av viser en rad en spinner mens den arbeider og en blå prikk når den er klar for deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiersze obszarów roboczych pokazują osobną ikonę dla stanów: w toku, oczekiwanie na dane, błąd i gotowe. Po wyłączeniu wiersz pokazuje wskaźnik obrotowy podczas pracy i niebieską kropkę, gdy jest gotowy dla Ciebie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As linhas dos espaços de trabalho mostram um ícone separado para trabalhando, aguardando entrada, erro e concluído. Desativado, uma linha mostra um indicador giratório enquanto trabalha e um ponto azul quando está pronta para você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Строки рабочих пространств показывают отдельный значок для состояний «работает», «ждёт ввода», «ошибка» и «готово». Если выключено, строка показывает индикатор во время работы и синюю точку, когда она готова для вас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถวของพื้นที่ทำงานแสดงไอคอนแยกสำหรับกำลังทำงาน รอการป้อนข้อมูล ข้อผิดพลาด และเสร็จสิ้น เมื่อปิด แถวจะแสดงตัวหมุนขณะทำงานและจุดสีน้ำเงินเมื่อพร้อมให้คุณดู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı satırları çalışıyor, girdi bekliyor, hata ve bitti için ayrı bir simge gösterir. Kapalıyken satır, çalışırken bir döner gösterge ve sizin için hazır olduğunda mavi bir nokta gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рядки робочих просторів показують окремий значок для станів «працює», «чекає на введення», «помилка» і «готово». Якщо вимкнено, рядок показує індикатор під час роботи і синю крапку, коли він готовий для вас."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các hàng không gian làm việc hiển thị biểu tượng riêng cho đang làm việc, chờ nhập, lỗi và hoàn tất. Khi tắt, một hàng hiển thị vòng xoay khi đang làm việc và một chấm xanh lam khi đã sẵn sàng cho bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区行为“工作中”“等待输入”“错误”和“完成”分别显示图标。关闭时，行在工作时显示加载指示器，准备好供你查看时显示蓝点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區列為「工作中」「等待輸入」「錯誤」和「完成」分別顯示圖示。關閉時，列在工作時顯示載入指示器，準備好供你查看時顯示藍點。"
           }
         }
       }
