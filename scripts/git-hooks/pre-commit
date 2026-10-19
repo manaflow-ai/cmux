@@ -102,7 +102,7 @@ STAGED_WEB_PATHS=()
 STAGED_RUST_PATHS=()
 STAGED_SWIFT_PATHS=()
 while IFS= read -r -d '' path; do
-    if ! git diff --quiet -- "$path"; then
+    if (( ! SKIP_FORMATTERS )) && ! git diff --quiet -- "$path"; then
         case "$path" in
             webviews/*|cmux-tui/frontends/web/*|*.rs|*.swift)
                 echo "pre-commit: $path has unstaged changes; stage or stash them before formatting." >&2
@@ -165,7 +165,14 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
         # packages are installed first: bun's cache makes that about a second,
         # and lifecycle scripts never run.
         if web_packages_stale "$PACKAGE_DIR"; then
-            if [[ -f "$PACKAGE_DIR/bun.lock" ]] && command -v bun >/dev/null 2>&1; then
+            # One install at a time across agents sharing the checkout: npm ci
+            # deletes node_modules first. A held lock means someone else is
+            # installing; format with what is there.
+            INSTALL_LOCK="$(git rev-parse --git-common-dir)/cmux-format-install-${package//\//-}.lock"
+            [[ "$INSTALL_LOCK" == /* ]] || INSTALL_LOCK="$REPO_ROOT/$INSTALL_LOCK"
+            if ! mkdir "$INSTALL_LOCK" 2>/dev/null; then
+                echo "pre-commit: another agent is installing $package packages; formatting with the current ones" >&2
+            elif [[ -f "$PACKAGE_DIR/bun.lock" ]] && command -v bun >/dev/null 2>&1; then
                 echo "pre-commit: installing $package packages for vp (bun install --frozen-lockfile --ignore-scripts)" >&2
                 (cd "$PACKAGE_DIR" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
                 if [[ "$package" == webviews ]]; then
@@ -177,6 +184,7 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                 echo "pre-commit: installing $package packages for vp (npm ci --ignore-scripts)" >&2
                 (cd "$PACKAGE_DIR" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1) || true
             fi
+            rmdir "$INSTALL_LOCK" 2>/dev/null || true
         fi
         VP_BIN="$PACKAGE_DIR/node_modules/.bin/vp"
         if [[ ! -x "$VP_BIN" ]]; then
@@ -228,13 +236,15 @@ rust_toolchain() { # package root -> the channel the nearest rust-toolchain(.tom
     local dir="$1"
     while :; do
         if [[ -f "$REPO_ROOT/${dir:+$dir/}rust-toolchain.toml" ]]; then
-            sed -nE 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$REPO_ROOT/${dir:+$dir/}rust-toolchain.toml" | head -n 1
+            sed -nE 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"([A-Za-z0-9][A-Za-z0-9._-]*)".*/\1/p' "$REPO_ROOT/${dir:+$dir/}rust-toolchain.toml" | head -n 1
             return 0
         fi
         if [[ -f "$REPO_ROOT/${dir:+$dir/}rust-toolchain" ]]; then
             local channel=""
             IFS= read -r channel < "$REPO_ROOT/${dir:+$dir/}rust-toolchain" || true
-            echo "${channel//[[:space:]]/}"
+            channel="${channel//[[:space:]]/}"
+            # A toolchain name, never a path rustup would run a binary from.
+            [[ "$channel" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && echo "$channel"
             return 0
         fi
         [[ -z "$dir" ]] && return 0

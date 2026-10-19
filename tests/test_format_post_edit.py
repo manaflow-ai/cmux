@@ -42,8 +42,10 @@ for arg in sys.argv[2:]:
         handle.write(text.replace("const   value=1\n", "const value = 1;\n"))
 """
 
+# Formats stdin to stdout ("fn main(){}" gains spaces) and records its arguments.
 FAKE_RUSTFMT = """#!/bin/sh
 printf '%s %s\\n' "{name}" "$*" >> "$FAKE_RUSTFMT_LOG"
+sed 's/fn main(){{}}/fn main() {{}}/'
 """
 
 # `rustup which --toolchain X rustfmt` prints the pinned rustfmt only for an
@@ -135,7 +137,8 @@ class FormatPostEditTests(unittest.TestCase):
         if agent == "claude":
             return {"hook_event_name": "PostToolUse", "tool_name": "Edit", "cwd": str(cwd),
                     "tool_input": {"file_path": str(path)}}
-        relative = path.relative_to(self.repo)
+        # Codex patch paths are relative to the session working directory.
+        relative = os.path.relpath(path, cwd)
         patch = f"*** Begin Patch\n*** Update File: {relative}\n@@\n-old\n+new\n*** End Patch\n"
         return {"hook_event_name": "PostToolUse", "tool_name": "apply_patch", "cwd": str(cwd),
                 "tool_input": {"command": patch}}
@@ -255,7 +258,7 @@ class FormatPostEditTests(unittest.TestCase):
         calls = self.rustfmt_log.read_text().splitlines() if self.rustfmt_log.exists() else []
         self.assertEqual(len(calls), 1, stderr)
         self.assertTrue(calls[0].startswith("pinned --edition 2021 "), calls)
-        self.assertTrue(calls[0].endswith(str(path)), calls)
+        self.assertEqual(path.read_text(), "fn main() {}\n", stderr)
 
     def test_a_missing_pinned_toolchain_falls_back_to_path_rustfmt_with_a_warning(self):
         # rustfmt keeps a stable style across versions, so the PATH rustfmt
@@ -273,6 +276,21 @@ class FormatPostEditTests(unittest.TestCase):
         calls = self.rustfmt_log.read_text().splitlines() if self.rustfmt_log.exists() else []
         self.assertEqual(len(calls), 1, stderr)
         self.assertTrue(calls[0].startswith("default --edition 2021 "), calls)
+
+    @unittest.skipUnless(shutil.which("rustfmt"), "rustfmt is not installed")
+    def test_rust_edit_never_reformats_child_modules(self):
+        # rustfmt given a path follows `mod child;` and rewrites child.rs, which
+        # another agent may be editing in the same checkout.
+        package = self.repo / "probe"
+        (package / "src").mkdir(parents=True)
+        (package / "Cargo.toml").write_text('[package]\nname = "probe"\nedition = "2021"\n')
+        child = package / "src/child.rs"
+        child.write_text("pub fn   child( ){}\n")
+        path = self.edit("probe/src/lib.rs", "mod child;\npub fn   lib( ){}\n")
+        returncode, stdout, stderr = self.run_hook("codex", path)
+        self.assert_hook_ok("codex", returncode, stdout)
+        self.assertEqual(path.read_text(), "mod child;\npub fn lib() {}\n", stderr)
+        self.assertEqual(child.read_text(), "pub fn   child( ){}\n")
 
     def test_skip_variable_leaves_the_edit_alone(self):
         self.webviews()

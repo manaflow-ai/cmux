@@ -329,8 +329,10 @@ done
     def test_skip_variable_commits_without_formatting(self):
         self.assertEqual(self.install().returncode, 0)
         vp_log = self.root / "vp.log"
-        self.stage_web_file("webviews")
+        web = self.stage_web_file("webviews")
         self.stage_rust_package("Native/OptChat/probe", "2021")
+        # A partly staged file (git add -p) commits under the switch too.
+        web.write_text(web.read_text() + "const   y=2\n")
         result = self.run_pre_commit(self.formatter_env(
             with_rustfmt=True, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1", CMUX_SKIP_FORMAT_HOOKS="1"))
         self.assertEqual(result.returncode, 0, result.stderr)

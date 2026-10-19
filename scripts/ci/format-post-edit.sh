@@ -41,6 +41,7 @@ except (TypeError, ValueError):
 paths = set()
 keys = {"file_path", "filePath", "path", "filename", "target_file", "targetFile"}
 WEB_PACKAGES = ("webviews", "cmux-tui/frontends/web")
+TOOLCHAIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 WEB_FILE = re.compile(r"\.(m?[jt]sx?|c[jt]s|css|scss|html|json|mdx?)$")
 
 def visit(value):
@@ -94,13 +95,22 @@ def toolchain(package):
         text = read(directory, "rust-toolchain.toml")
         if text is not None:
             found = re.search(r'^\s*channel\s*=\s*"([^"]+)"', text, re.M)
-            return found.group(1) if found else ""
-        text = read(directory, "rust-toolchain")
-        if text is not None:
-            return text.strip() if re.fullmatch(r"[\w.\-]+", text.strip()) else ""
+            channel = found.group(1) if found else ""
+        else:
+            text = read(directory, "rust-toolchain")
+            if text is None:
+                continue
+            channel = text.strip()
+        # A toolchain name, never a path rustup would run a binary from.
+        return channel if TOOLCHAIN.fullmatch(channel) else ""
     return ""
 
+# Codex apply_patch paths are relative to the session working directory.
+base = payload.get("cwd") if isinstance(payload, dict) else None
+base = base if isinstance(base, str) and os.path.isabs(base) else root
 for path in sorted(paths):
+    if not os.path.isabs(path):
+        path = os.path.join(base, path)
     if os.path.isabs(path):
         path = os.path.relpath(os.path.realpath(path), root)
     path = os.path.normpath(path)
@@ -146,8 +156,19 @@ if [ -n "$rust_lines" ]; then
       echo "warning: rustfmt is unavailable; $path is unformatted (the pre-commit hook will refuse an agent commit)" >&2
       continue
     fi
-    "$rustfmt_bin" --edition "$edition" --config-path "${config:-$defaults}" "$ROOT/$path" >/dev/null 2>&1 \
-      || echo "warning: rustfmt could not format $path (a syntax error?)" >&2
+    # Through stdin, so rustfmt formats only this file and never follows its
+    # `mod` declarations into child modules another agent may be editing.
+    formatted="$ROOT/$path.cmux-fmt.$$"
+    if "$rustfmt_bin" --edition "$edition" --config-path "${config:-$defaults}" <"$ROOT/$path" >"$formatted" 2>/dev/null; then
+      if cmp -s "$formatted" "$ROOT/$path"; then
+        rm -f "$formatted"
+      else
+        cat "$formatted" >"$ROOT/$path" && rm -f "$formatted"
+      fi
+    else
+      rm -f "$formatted"
+      echo "warning: rustfmt could not format $path (a syntax error?)" >&2
+    fi
   done
 fi
 
@@ -179,10 +200,21 @@ for package in $web_packages; do
   dir="$ROOT/$package"
   files="$(printf '%s\n' "$plan" | awk -F '\t' -v p="$package" '$1 == "web" && $2 == p { print $3 }')"
   if web_packages_stale "$dir"; then
-    if [ -f "$dir/bun.lock" ] && command -v bun >/dev/null 2>&1; then
+    # bun install updates node_modules in place. One agent installs at a time
+    # (the others format with what is there); npm ci deletes node_modules
+    # first, so npm packages are left to the pre-commit hook.
+    lock="$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null || true)"
+    case "$lock" in /*) ;; "") lock="$ROOT/.git" ;; *) lock="$ROOT/$lock" ;; esac
+    lock="$lock/cmux-format-install-$(printf '%s' "$package" | tr '/' '-').lock"
+    if [ ! -f "$dir/bun.lock" ]; then
+      echo "warning: $package packages differ from its lockfile; the pre-commit hook reinstalls them" >&2
+    elif ! command -v bun >/dev/null 2>&1; then
+      :
+    elif mkdir "$lock" 2>/dev/null; then
       (cd "$dir" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
-    elif [ -f "$dir/package-lock.json" ] && command -v npm >/dev/null 2>&1; then
-      (cd "$dir" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1) || true
+      rmdir "$lock" 2>/dev/null || true
+    else
+      echo "warning: another agent is installing $package packages; formatting with the current ones" >&2
     fi
   fi
   if [ ! -x "$dir/node_modules/.bin/vp" ]; then
