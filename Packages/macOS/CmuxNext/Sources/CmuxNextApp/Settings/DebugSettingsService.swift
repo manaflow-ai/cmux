@@ -8,6 +8,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeed
+import CmuxNextFloating
 import CmuxNextHome
 import CmuxNextLayout
 import CmuxNextPages

@@ -183,6 +183,7 @@
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
         "CmuxNextFeed",
+        "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
@@ -257,6 +258,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDiff",
+        "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
@@ -599,6 +601,26 @@
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextFloating": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFloating",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextFloatingTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFloatingTests",
+      "targets": [
+        "CmuxNextFloating"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextFocus": {
       "kind": "regular",
