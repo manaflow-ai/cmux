@@ -115,7 +115,8 @@ final class BonsplitTabDragUITests: XCTestCase {
 
     /// Regression for #20194: a tab dropped onto a pane edge turns that pane into a
     /// split. On macOS 27 a pane host then laid out during the drop trapped on its
-    /// `@Environment(BonsplitController.self)` read and the app exited.
+    /// `@Environment(BonsplitController.self)` read and the app exited. macOS 26
+    /// does not trap there, so only a macOS 27 run shows a regression.
     func testDroppingTabsOntoPaneEdgesBuildsNestedSplitsWithoutCrashing() {
         let (app, dataPath) = launchConfiguredApp(fourTabSetup: true)
 
@@ -144,7 +145,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         // the drop, which is when the trap fired.
         let drops: [(name: String, tab: XCUIElement, target: CGVector)] = [
             ("delta to the right edge", deltaTab, CGVector(dx: 0.97, dy: 0.55)),
-            ("gamma to the bottom of the right pane", gammaTab, CGVector(dx: 0.85, dy: 0.95)),
+            ("gamma to the bottom of the right pane", gammaTab, CGVector(dx: 0.80, dy: 0.95)),
             ("beta to the bottom of the left pane", betaTab, CGVector(dx: 0.35, dy: 0.95)),
         ]
 
