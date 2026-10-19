@@ -7,17 +7,27 @@
 # proves the shipped CLI runs, its cmux-tui and acpmux names resolve to it, and
 # the shipped CLI and app agree on the control socket protocol.
 #
-# Usage: smoke-signed-app-cli.sh <app-path>
+# Usage: smoke-signed-app-cli.sh <app-path> [--canary]
+#
+# --canary (the nightly canary, docs/ci/nightly-next-canary.md) also checks
+# what a person sees first: a visible window, a New Tab, an agent session that
+# answers a prompt (acpmux's test agent, no account), and that the app and its
+# helpers stay up with no crash report for CMUX_CLI_SMOKE_CANARY_SECONDS
+# (default 60) after launch (scripts/cmux-next/signed-app-canary-checks.py).
 #
 # CI only: cmux enforces a single instance per bundle id, so launching a
 # bundle whose channel you are using on this Mac terminates your running copy.
 #
 # Environment:
 #   CMUX_CLI_SMOKE_SOCKET_TIMEOUT_SECONDS  wait for the socket (default 45)
+#   CMUX_CLI_SMOKE_CANARY_SECONDS          --canary: how long the app must stay up (default 60)
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <app-path>" >&2
+CANARY=0
+if [[ $# -eq 2 && "$2" == "--canary" ]]; then
+  CANARY=1
+elif [[ $# -ne 1 ]]; then
+  echo "usage: $0 <app-path> [--canary]" >&2
   exit 2
 fi
 
@@ -63,12 +73,18 @@ if command -v lipo >/dev/null 2>&1 && ! lipo "$EXECUTABLE_PATH" -verify_arch "$H
 fi
 
 SOCKET_TIMEOUT_SECONDS="${CMUX_CLI_SMOKE_SOCKET_TIMEOUT_SECONDS:-45}"
+CANARY_SECONDS="${CMUX_CLI_SMOKE_CANARY_SECONDS:-60}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # A short private socket path: sun_path is limited to 104 bytes, and a private
 # path cannot collide with a socket another cmux on the runner already owns.
 WORK_DIR="$(mktemp -d /tmp/cmux-cli-smoke.XXXXXX)"
 SOCKET_PATH="$WORK_DIR/s.sock"
 APP_LOG="$WORK_DIR/app.log"
+# --canary: the app's acpmux home, with acpmux's test agent as its one harness.
+ACPMUX_HOME_DIR="$WORK_DIR/acpmux"
+CANARY_HARNESS="nightly-canary-agent"
+CRASH_MARKER="$WORK_DIR/launched"
 APP_PID=""
 STEP="setup"
 
@@ -89,6 +105,10 @@ cleanup() {
     # shellcheck source=SCRIPTDIR/lib/stop-cmux-tui-owners.sh
     source "$(dirname "${BASH_SOURCE[0]}")/lib/stop-cmux-tui-owners.sh"
     cmux_stop_cmux_tui_owners "$APP_PATH/Contents/Resources/bin"
+    # --canary started the bundle's acpmux daemon with this run's home.
+    if [[ "$CANARY" == 1 ]]; then
+      pkill -f "^$APP_PATH/Contents/Resources/bin/acpmux " 2>/dev/null || true
+    fi
   fi
   if [[ $status -ne 0 ]]; then
     echo "error: CLI smoke failed during step: $STEP" >&2
@@ -185,13 +205,24 @@ echo "ok: $ACPMUX_VERSION"
 # lets a process the app did not spawn connect, and CMUX_NEXT_NO_ACTIVATE keeps
 # the window from taking focus.
 STEP="launch app"
+launch_env=()
+if [[ "$CANARY" == 1 ]]; then
+  mkdir -p "$ACPMUX_HOME_DIR" "$WORK_DIR/agent-cwd"
+  cp "$SCRIPT_DIR/../cmux-tui/crates/acpmux/tests/fake_agent.py" "$WORK_DIR/fake_agent.py"
+  python3 -c 'import json, sys; json.dump({"harnesses": {sys.argv[1]: {"argv": [sys.argv[2], sys.argv[3]]}}}, open(sys.argv[4], "w"))' \
+    "$CANARY_HARNESS" "$(command -v python3)" "$WORK_DIR/fake_agent.py" "$ACPMUX_HOME_DIR/config.json"
+  launch_env+=(ACPMUX_HOME="$ACPMUX_HOME_DIR")
+fi
+: >"$CRASH_MARKER"
 env -u CMUX_WORKSPACE_ID -u CMUX_SURFACE_ID -u CMUX_TAB_ID -u CMUX_PANEL_ID \
-  -u CMUX_SOCKET_PATH -u CMUX_SOCKET_PASSWORD \
+  -u CMUX_SOCKET_PATH -u CMUX_SOCKET_PASSWORD -u ACPMUX_HOME -u ACPMUX_SOCKET \
+  "${launch_env[@]+"${launch_env[@]}"}" \
   CMUX_NEXT_SOCKET_PATH="$SOCKET_PATH" \
   CMUX_NEXT_SOCKET_MODE=allowAll \
   CMUX_NEXT_NO_ACTIVATE=1 \
   "$EXECUTABLE_PATH" -ApplePersistenceIgnoreState YES >"$APP_LOG" 2>&1 &
 APP_PID=$!
+LAUNCHED_AT=$SECONDS
 echo "app pid $APP_PID, socket $SOCKET_PATH"
 
 STEP="wait for socket"
@@ -219,6 +250,27 @@ echo "ok: cmux app identify --json"
 
 STEP="app still alive"
 kill -0 "$APP_PID" 2>/dev/null || fail "app exited during the CLI smoke"
+
+if [[ "$CANARY" == 1 ]]; then
+  STEP="canary: window, New Tab, agent prompt"
+  python3 "$SCRIPT_DIR/cmux-next/signed-app-canary-checks.py" \
+    --socket "$SOCKET_PATH" --cli "$CLI_PATH" --acpmux-home "$ACPMUX_HOME_DIR" \
+    --harness "$CANARY_HARNESS" --cwd "$WORK_DIR/agent-cwd" \
+    || fail "a canary check failed"
+
+  STEP="canary: ${CANARY_SECONDS}s with no crash"
+  while (( SECONDS - LAUNCHED_AT < CANARY_SECONDS )); do
+    kill -0 "$APP_PID" 2>/dev/null || fail "app exited $((SECONDS - LAUNCHED_AT))s after launch"
+    sleep 1
+  done
+  crashes="$(find "$HOME/Library/Logs/DiagnosticReports" -newer "$CRASH_MARKER" \
+    \( -name "${EXECUTABLE_NAME}*.ips" -o -name "${EXECUTABLE_NAME}*.crash" -o -name 'cmux*.ips' -o -name 'acpmux*.ips' \) 2>/dev/null || true)"
+  if [[ -n "$crashes" ]]; then
+    for c in $crashes; do echo "== $c" >&2; head -c 4000 "$c" >&2; echo >&2; done
+    fail "a crash report was written in the first ${CANARY_SECONDS}s"
+  fi
+  echo "ok: up ${CANARY_SECONDS}s after launch with no crash report"
+fi
 
 STEP="done"
 echo "==> CLI smoke OK: bundled CLI drove $BUNDLE_ID over its socket"
