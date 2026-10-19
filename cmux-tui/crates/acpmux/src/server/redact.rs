@@ -11,6 +11,9 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
     if let Some(obj) = reply.as_object_mut() {
         obj.remove("webUrl");
     }
+    if method == "_acpmux/harnesses" {
+        hide_harness_contents(reply);
+    }
     // A preset's args, env and system prompt never leave the unix socket
     // (the Web and the local app alike): `_acpmux/presets` (one or all) and
     // `_acpmux/harnesses` say only whether a preset has them.
@@ -25,6 +28,49 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
             if let Some(url) = peer.get("url").and_then(Value::as_str) {
                 peer["url"] = Value::String(url_without_secrets(url));
             }
+        }
+    }
+}
+
+/// A harness catalog without values that shape its process. The app and Web
+/// clients need the picker metadata, not literal argv or environment values.
+fn hide_harness_contents(reply: &mut Value) {
+    if let Some(harnesses) = reply.get_mut("harnesses").and_then(Value::as_object_mut) {
+        for profile in harnesses.values_mut().filter_map(Value::as_object_mut) {
+            let has_args =
+                profile.get("argv").and_then(Value::as_array).is_some_and(|v| !v.is_empty());
+            let has_env =
+                profile.get("env").and_then(Value::as_object).is_some_and(|v| !v.is_empty());
+            profile.remove("argv");
+            profile.remove("env");
+            profile.insert("hasArgs".into(), Value::Bool(has_args));
+            profile.insert("hasEnv".into(), Value::Bool(has_env));
+            if let Some(defaults) = profile.get_mut("defaults").and_then(Value::as_object_mut) {
+                let has_env =
+                    defaults.get("env").and_then(Value::as_object).is_some_and(|v| !v.is_empty());
+                defaults.remove("env");
+                defaults.insert("hasEnv".into(), Value::Bool(has_env));
+            }
+            if let Some(auth) = profile.get_mut("auth").and_then(Value::as_object_mut) {
+                let has_check =
+                    auth.get("check").and_then(Value::as_array).is_some_and(|v| !v.is_empty());
+                auth.remove("check");
+                auth.insert("hasCheck".into(), Value::Bool(has_check));
+            }
+            let has_models_command = profile
+                .get("modelsCommand")
+                .and_then(Value::as_array)
+                .is_some_and(|v| !v.is_empty());
+            profile.remove("modelsCommand");
+            profile.insert("hasModelsCommand".into(), Value::Bool(has_models_command));
+        }
+    }
+    if let Some(defaults) = reply.get_mut("defaults").and_then(Value::as_object_mut) {
+        for values in defaults.values_mut().filter_map(Value::as_object_mut) {
+            let has_env =
+                values.get("env").and_then(Value::as_object).is_some_and(|v| !v.is_empty());
+            values.remove("env");
+            values.insert("hasEnv".into(), Value::Bool(has_env));
         }
     }
 }
