@@ -16,7 +16,7 @@ export interface ParsedLink {
 
 /** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…` in the `cmux` scheme or a build's
  * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. */
-const APP_LINK = /^cmux(-[a-z0-9-]+)?:\/\/(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~\-/]+(#[A-Za-z0-9._~-]+)?$/i;
+const APP_LINK = /^cmux(-[a-z0-9-]+)?:\/\/(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~/-]+(#[A-Za-z0-9._~-]+)?$/i;
 
 const MARKDOWN_PATH = /\.(md|markdown|mdx|mdown|mkd)$/i;
 
