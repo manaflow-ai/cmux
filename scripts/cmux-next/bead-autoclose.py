@@ -208,7 +208,12 @@ def create_for_pull(pull: dict, dry_run: bool) -> tuple[str, str]:
     bead_id = str(created.get("id") or "").strip()
     if not bead_id:
         return "", f"failed create for #{pull['number']}: bd returned no id"
-    link_bead_on_pull_request(pull, bead_id)
+    try:
+        link_bead_on_pull_request(pull, bead_id)
+    except BoardUnreachable as error:
+        # The bead exists and names the PR as its external reference: record the PR, so the
+        # next run does not create a second bead, and report the missing link.
+        return bead_id, f"create {bead_id} for #{pull['number']}; linking it on the PR failed: {error}"
     return bead_id, f"create {bead_id} for #{pull['number']} and link it on the PR"
 
 
@@ -292,7 +297,7 @@ def main() -> int:
                 continue
             _, outcome = create_for_pull(pull, args.dry_run)
             print(f"#{pull['number']} {outcome}")
-            open_failed = open_failed or outcome.startswith("failed ")
+            open_failed = open_failed or outcome.startswith("failed ") or "linking it on the PR failed" in outcome
             if not outcome.startswith("failed "):
                 open_handled[number] = pull.get("createdAt") or format_time(datetime.now(timezone.utc))
     except BoardUnreachable as error:
