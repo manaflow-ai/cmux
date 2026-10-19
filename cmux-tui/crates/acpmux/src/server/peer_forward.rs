@@ -20,6 +20,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_HARNESS_INVENTORY_WATCH,
+    method::MUX_HARNESS_INVENTORY_REFRESH,
     method::MUX_WARM,
     method::MUX_PREWARM,
     method::MUX_START_MODE,

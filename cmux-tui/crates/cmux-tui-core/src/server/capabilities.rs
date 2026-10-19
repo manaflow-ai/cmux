@@ -52,6 +52,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
+        capabilities.push(agent_inventory::REFRESH_CAPABILITY);
         capabilities.push(agent_inventory::watch::CAPABILITY);
         capabilities.push(agent_inventory::watch::FENCED_CAPABILITY);
         capabilities.push(agent_inventory::watch::ADMISSION_CAPABILITY);

@@ -14,6 +14,12 @@ mod daemon_env;
 // and update checks, which launch-deny would skip.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
+#[path = "harness_health/update_outcomes.rs"]
+mod update_outcomes;
+
+#[path = "harness_health/inventory_refresh.rs"]
+mod inventory_refresh;
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::{Settings, latest::Sources};
 use acpmux::hub::Hub;
@@ -357,7 +363,7 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     );
     assert_eq!(
         r["update"]["argv"],
-        json!(["npm", "install", "-g", "@zed-industries/codex-acp@latest"]),
+        json!(["npm", "install", "-g", "--prefix", npm, "@zed-industries/codex-acp@latest"]),
         "{r}"
     );
     assert_eq!(r["update"]["elevated"], false, "{r}");
@@ -376,7 +382,14 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     // SAFETY: geteuid has no preconditions. Root writes any folder.
     if unsafe { libc::geteuid() } != 0 {
         assert_eq!(r["update"]["elevated"], true, "{r}");
-        assert_eq!(r["update"]["command"], "sudo npm install -g opencode-ai@latest", "{r}");
+        assert_eq!(
+            r["update"]["command"],
+            format!(
+                "sudo npm install -g --prefix {} opencode-ai@latest",
+                acpmux::harness_health::channel::quote(npm_ro.to_str().unwrap())
+            ),
+            "{r}"
+        );
     }
 
     let r = row(&reply, "gemini");
@@ -833,9 +846,10 @@ async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() 
             "{r}"
         );
         assert!(
-            r["error"]
-                .as_str()
-                .is_some_and(|e| e.contains("sudo npm install -g opencode-ai@latest")),
+            r["error"].as_str().is_some_and(|e| e.contains(&format!(
+                "sudo npm install -g --prefix {} opencode-ai@latest",
+                acpmux::harness_health::channel::quote(npm_ro.to_str().unwrap())
+            ))),
             "the sudo command is named, never run: {r}"
         );
     }

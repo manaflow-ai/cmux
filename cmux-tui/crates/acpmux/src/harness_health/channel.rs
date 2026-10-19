@@ -32,8 +32,8 @@ pub enum Channel {
 pub struct Install {
     pub channel: Channel,
     pub package: Option<String>,
-    /// The folder an update writes (npm's `lib/node_modules`), to tell
-    /// whether it needs elevated rights.
+    /// The folder an update writes (npm's `lib/node_modules`), to bind its
+    /// target prefix and tell whether it needs elevated rights.
     pub writes: Option<PathBuf>,
 }
 
@@ -135,7 +135,23 @@ pub fn update_plan(
     let package = install.package.as_deref();
     let argv: Vec<String> = match (install.channel, package) {
         (Channel::Npm, Some(p)) => {
-            vec!["npm".into(), "install".into(), "-g".into(), format!("{p}@latest")]
+            let modules = install.writes.as_deref()?;
+            let lib = modules.parent()?;
+            if modules.file_name()? != "node_modules" || lib.file_name()? != "lib" {
+                return None;
+            }
+            let prefix = lib.parent()?;
+            if !absolute_prefix(prefix) {
+                return None;
+            }
+            vec![
+                "npm".into(),
+                "install".into(),
+                "-g".into(),
+                "--prefix".into(),
+                prefix.to_str()?.into(),
+                format!("{p}@latest"),
+            ]
         }
         (Channel::Bun, Some(p)) => {
             vec!["bun".into(), "add".into(), "-g".into(), format!("{p}@latest")]
@@ -155,6 +171,26 @@ pub fn update_plan(
     let line = argv.iter().map(|w| quote(w)).collect::<Vec<_>>().join(" ");
     let command = if elevated { format!("sudo {line}") } else { line };
     Some(UpdatePlan { argv, command, elevated })
+}
+
+/// Old saved health rows can still contain an update without a target.
+/// Never execute that plan using whichever npm prefix today's shell selects.
+pub(super) fn npm_update_matches(plan: &UpdatePlan, package: Option<&str>) -> bool {
+    let argv = plan.argv.as_slice();
+    let [program, verb, global, flag, prefix, _package] = argv else { return false };
+    Path::new(program).file_name().is_some_and(|name| name == "npm")
+        && verb == "install"
+        && global == "-g"
+        && flag == "--prefix"
+        && absolute_prefix(Path::new(prefix))
+        && package.is_some_and(|package| argv.last() == Some(&format!("{package}@latest")))
+}
+
+fn absolute_prefix(prefix: &Path) -> bool {
+    prefix.is_absolute()
+        && !prefix.components().any(|part| {
+            matches!(part, std::path::Component::CurDir | std::path::Component::ParentDir)
+        })
 }
 
 #[cfg(unix)]
