@@ -422,6 +422,17 @@ test("while filtering, a digit narrows the list instead of picking a row", async
   expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“gpt 5”");
 });
 
+// A digit narrows a filter, so the filtered rows show no number to press.
+test("while filtering, the rows show no number keys", async () => {
+  await mount({ routes: [] });
+  await open();
+  for (const letter of "o") await key(letter);
+  await settle();
+  const rows = [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-item")];
+  expect(rows.length).toBeGreaterThan(0);
+  expect(rows.filter((row) => row.querySelector(".ui-menu-shortcut"))).toHaveLength(0);
+});
+
 test("the rail's tabs are not rows of the menu", async () => {
   await mount({ routes: [] });
   await open();
