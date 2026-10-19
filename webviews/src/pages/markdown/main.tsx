@@ -21,7 +21,8 @@ import { htmlPreview } from "./htmlPreview";
 import { MarkdownPage } from "./MarkdownPage";
 import { LinkOverlays } from "./overlays";
 import { MarkdownStore } from "./store";
-import { bindMarkdownLook, markdownCodeTheme } from "./settings";
+import type { ReadingSettingsActions } from "./ReadingSettings";
+import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
 import { L } from "./strings";
 import { MarkdownEmptyState } from "../../viewer-empty/MarkdownEmptyState";
@@ -107,6 +108,24 @@ function editorHost(
   };
 }
 
+/**
+ * The Reading Settings popover's writes: each option is its `markdown.*` key through the store's one
+ * settings write path. A new text size is the default size, so this viewer goes back to the
+ * default (Cmd-0) and shows it.
+ */
+function readingActions(store: MarkdownStore, zoom: MarkdownFontZoom): ReadingSettingsActions {
+  return {
+    set(option, value) {
+      store.setPreference(MARKDOWN_READING[option].key, value);
+      if (option === "fontSize") zoom.run("zoomReset");
+    },
+    reset() {
+      for (const option of Object.values(MARKDOWN_READING)) store.setPreference(option.key, null);
+      zoom.run("zoomReset");
+    },
+  };
+}
+
 export function mountMarkdownPage(root: HTMLElement, client: PageClient | null = createPageClient()): MarkdownStore {
   const store = new MarkdownStore(client);
   const strings = createStrings(table);
@@ -182,7 +201,10 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     client.handle(MARKDOWN_FLUSH_OP, () => store.flush());
   }
   // Leaving the page (tab closed, app quit) writes pending edits.
-  addEventListener("pagehide", () => void store.save());
+  addEventListener("pagehide", () => {
+    store.flushPreferences();
+    void store.save();
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") void store.save();
   });
@@ -211,6 +233,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         overlays={overlays}
         onBack={() => void router.go(-1)}
         onForward={() => void router.go(1)}
+        reading={readingActions(store, zoom)}
       />
     </UiProvider>,
   );

@@ -92,6 +92,15 @@ pub enum CloudEvent {
         frame: Value,
         account: Option<String>,
     },
+    /// Someone in a subscribed conversation started or stopped typing (the
+    /// owner's `conversation-typing` broadcast: a Cloud Chief's reply, or
+    /// another person); ephemeral, never stored or replayed.
+    Typing {
+        conversation: String,
+        participant: String,
+        on: bool,
+        account: Option<String>,
+    },
 }
 
 impl CloudEvent {
@@ -106,7 +115,8 @@ impl CloudEvent {
             | Self::MuxResynced { account, .. }
             | Self::SubscriptionState { account, .. }
             | Self::RunChanged { account, .. }
-            | Self::Live { account, .. } => {
+            | Self::Live { account, .. }
+            | Self::Typing { account, .. } => {
                 *account = socket_account.map(str::to_string);
             }
             Self::SessionNeeded { .. } => {}
@@ -124,7 +134,8 @@ impl CloudEvent {
             | Self::MuxResynced { account, .. }
             | Self::SubscriptionState { account, .. }
             | Self::RunChanged { account, .. }
-            | Self::Live { account, .. } => account.as_deref(),
+            | Self::Live { account, .. }
+            | Self::Typing { account, .. } => account.as_deref(),
             Self::SessionNeeded { .. } => None,
         }
     }
@@ -195,6 +206,12 @@ impl CloudEvent {
                 "conversation": conversation,
                 "frame": frame,
             }),
+            Self::Typing { conversation, participant, on, .. } => json!({
+                "event": "cloud-conversation-typing",
+                "conversation": conversation,
+                "participant": participant,
+                "on": on,
+            }),
         };
         if let Some(account) = self.account() {
             value["account"] = json!(account);
@@ -235,7 +252,15 @@ pub(crate) struct StreamState {
     /// A snapshot or an event reached clients since the last
     /// [`StreamState::take_progress`].
     progressed: bool,
+    /// The participants this socket heard typing `on` and not yet `off`: the
+    /// owner sends their `off` only on a socket, so a socket that ends turns
+    /// them off for the clients ([`StreamState::typing_ended`]).
+    typing: std::collections::BTreeSet<String>,
 }
+
+/// At most this many participants are kept typing per socket (an owner that
+/// sends more is not a real conversation's).
+const MAX_TYPING: usize = 256;
 
 impl StreamState {
     pub(crate) fn new(target: Target, backoff: SnapshotBackoff) -> Self {
@@ -244,7 +269,14 @@ impl StreamState {
         let mirror = StreamMirror::with_reducer(PositionOnly, "daemon-proxy", Value::Null)
             .without_rows()
             .with_snapshot_backoff(backoff);
-        Self { target, mirror, user: None, subscribed: false, progressed: false }
+        Self {
+            target,
+            mirror,
+            user: None,
+            subscribed: false,
+            progressed: false,
+            typing: std::collections::BTreeSet::new(),
+        }
     }
 
     /// True once after a snapshot or an event reached clients: the stream
@@ -390,6 +422,9 @@ impl StreamState {
                 }
                 _ => Vec::new(),
             },
+            // Someone types in this conversation (no seq: never replayed; the
+            // owner turns a closed socket's typing off).
+            Some("conversation-typing") => self.on_typing(&frame),
             Some("error") => {
                 let code = frame.get("code").and_then(Value::as_str).unwrap_or_default();
                 if code == "auth.forbidden" { vec![StreamAction::Forbidden] } else { Vec::new() }
@@ -417,6 +452,51 @@ impl StreamState {
             frame,
             account: None,
         })]
+    }
+
+    /// The owner's `conversation-typing {conversation, participant, on}` of
+    /// this conversation; any other shape is dropped.
+    fn on_typing(&mut self, frame: &Value) -> Vec<StreamAction> {
+        let Target::Conversation(conversation) = &self.target else { return Vec::new() };
+        if frame.get("conversation").and_then(Value::as_str) != Some(conversation.as_str()) {
+            return Vec::new();
+        }
+        let participant =
+            frame.get("participant").and_then(Value::as_str).filter(|id| !id.is_empty());
+        let (Some(participant), Some(on)) = (participant, frame.get("on").and_then(Value::as_bool))
+        else {
+            return Vec::new();
+        };
+        if on {
+            if self.typing.len() >= MAX_TYPING && !self.typing.contains(participant) {
+                return Vec::new();
+            }
+            self.typing.insert(participant.to_string());
+        } else {
+            self.typing.remove(participant);
+        }
+        vec![StreamAction::Emit(CloudEvent::Typing {
+            conversation: conversation.clone(),
+            participant: participant.to_string(),
+            on,
+            account: None,
+        })]
+    }
+
+    /// The socket ended: everyone it heard typing stops, because no `off`
+    /// for them can come on it any more (the next socket hears only new
+    /// typing).
+    pub(crate) fn typing_ended(&mut self) -> Vec<CloudEvent> {
+        let Target::Conversation(conversation) = &self.target else { return Vec::new() };
+        std::mem::take(&mut self.typing)
+            .into_iter()
+            .map(|participant| CloudEvent::Typing {
+                conversation: conversation.clone(),
+                participant,
+                on: false,
+                account: None,
+            })
+            .collect()
     }
 
     fn mine(&self, frame: &Value) -> bool {

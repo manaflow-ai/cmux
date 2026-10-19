@@ -135,8 +135,29 @@ macro_rules! home_rule {
     };
 }
 
+/// The link rule every Chief and subagent prompt carries: anything with a
+/// URL or path is a Markdown link with a short name as its text, never raw.
+macro_rules! link_rule {
+    () => {
+        "- Links: never write a raw URL, id, sha or path, and never a bare number
+  for something that has a page. Write a Markdown link whose text is a short
+  name: `[Chief · tab audio toggles](cmux://workspace/ws_…)`, `[#123](https://github.com/OWNER/REPO/pull/123)`,
+  `[abc1234](https://github.com/OWNER/REPO/commit/FULLSHA)`, `[run 39221907733](https://github.com/OWNER/REPO/actions/runs/39221907733)`,
+  `[REPORT.md](file:///Users/me/work/REPORT.md)`. This holds everywhere,
+  headings, bold text, lists and tables included. cmux objects use
+  `cmux://workspace/ws_…`, `cmux://pane/pane_…`, `cmux://tab/tab_…`,
+  `cmux://session/…`; files and folders use `file://` and the absolute path.
+  When you lack the URL, look it up (`gh`, `cmux --json …`) before you write
+  the number. A subagent id (`a12`) is the exception: write it bare, the app
+  links it."
+    };
+}
+
 /// The Home workspace rule as text.
 pub const HOME_RULE: &str = home_rule!();
+
+/// The link rule as text.
+pub const LINK_RULE: &str = link_rule!();
 
 /// The third part of the system prompt, where section 7.2 puts the user's own
 /// instructions file: how this Chief works inside cmux. It names no user and
@@ -167,9 +188,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
-- Links: when you name a page, PR, build, dashboard, job, bead or file, give
-  its real clickable URL (a file: its absolute path), never a bare id or a
-  vague name. A subagent id is the exception: the app links it.
+",
+    link_rule!(),
+    "
 - Files: never list, glob or search the whole home folder, or Desktop,
   Documents, Downloads, Pictures, Music, Movies or iCloud Drive, unless the
   user names a path there; macOS asks the user for access to each. Search
@@ -273,13 +294,12 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
-- Links: when you name a page, PR, build, dashboard, job, bead or file, give
-  its real clickable URL (a file: its absolute path), never a bare id or a
-  vague name.
+{links}
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell.
 {home}",
-        home = HOME_RULE
+        home = HOME_RULE,
+        links = LINK_RULE
     )
 }
 
@@ -308,6 +328,7 @@ fn subagent_instructions(tools: &Tools) -> String {
             "Chief's memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is\n  `{chief} date ID`, run from your shell."
         ),
     };
+    let links = LINK_RULE;
     format!(
         "# Instructions
 
@@ -317,12 +338,13 @@ message from the user is the user's word; still end each turn with your
 report.
 
 - {memory}
-- Links: when you name a page, PR, build, dashboard, job, bead or file, give
-  its real clickable URL (a file: its absolute path), never a bare id or a
-  vague name.
+{links}
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
+- The user's sign-ins from another browser: `cmux browser import-cookies
+  --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
+  reason and the fewest sites; the user must Allow it in cmux first.
 - Where to show things: the user keeps two columns, your chat on the left
   and one column on its right for what you show. `cmux --json identify`
   names that column (`beside.pane`), or `new_column` when there is none.
@@ -379,7 +401,10 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 /// Tool descriptions of section 9's `spawn` and `tell`.
 pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
-pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; its report answers it.";
+pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
+
+/// The `control` tool's description.
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id option: answer its pending prompt with an option id, or deny; approve only safe steps (reads, edits and tests in its worktree), ask the user for money, legal, destructive or credential steps. pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// How long a cache entry lives after its last read: Anthropic's two TTLs.
 /// Every mark of one request has the same TTL (the API refuses a 1h mark
