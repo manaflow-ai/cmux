@@ -13,6 +13,12 @@ pub mod auto;
 pub mod channel;
 pub(crate) mod inventory;
 pub(crate) mod inventory_feed;
+mod inventory_refresh;
+pub(crate) use inventory_refresh::INVENTORY_REFRESH_FEATURE;
+mod update_plan;
+pub(crate) use update_plan::UPDATE_PLAN_FEATURE;
+mod update_prepare;
+pub(crate) use update_prepare::UPDATE_PREPARE_FEATURE;
 pub mod latest;
 pub mod probe;
 
@@ -240,6 +246,13 @@ impl HealthService {
                 {
                     row.update = None;
                 }
+                if row.channel == channel::Channel::Bun
+                    && row.update.as_ref().is_some_and(|plan| {
+                        !channel::bun::matches(plan, row.package.as_deref(), row.path.as_deref())
+                    })
+                {
+                    row.update = None;
+                }
             }
             self.replace_rows(rows);
         }
@@ -338,7 +351,7 @@ fn save(path: &Path, rows: &[HarnessHealth]) {
 /// The part of a check that runs here: where the program is, how it was
 /// installed, its version, its sign-in, and its update and login commands.
 fn local(s: Subject, home: &Path) -> HarnessHealth {
-    let found = if Path::new(&s.program).is_absolute() {
+    let mut found = if Path::new(&s.program).is_absolute() {
         Path::new(&s.program).is_file().then(|| s.program.clone())
     } else {
         crate::config::which(&s.program)
@@ -356,6 +369,12 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     };
     let update =
         channel::update_plan(&install, found.as_deref().map(Path::new), real.as_deref(), home);
+    if install.channel == Channel::Bun
+        && let (Some(plan), Some(path)) = (&update, &found)
+    {
+        found = channel::bun::recorded_path(plan, Path::new(path))
+            .and_then(|path| path.to_str().map(str::to_owned));
+    }
     // Without a profile check, the agent's own answer; a sign-in it proves
     // outranks an older probe's sign-in error.
     let builtin = (s.check.is_empty() && found.is_some()).then(|| builtin_auth(&s)).flatten();
