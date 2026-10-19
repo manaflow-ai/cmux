@@ -9,15 +9,25 @@
 //!   mux2 attach ID              interactive; Ctrl-\ detaches
 //!   mux2 bench create N         N creates over one connection, latency in microseconds
 //!   mux2 bench rtt N            write -> visible on screen, over one connection
+//!   mux2 bench echo N           keystroke -> echo at an attached viewer
+//!
+//! One source for every OS: the Unix and Windows parts are the server start,
+//! the console size, raw mode and resize following.
 
 use std::io::{self, Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
 use std::time::Instant;
 
-use cmux_mux2::{self as proto};
+use cmux_mux2::{self as proto, Stream};
+
+#[cfg(unix)]
+#[path = "mux2_unix.rs"]
+mod os;
+#[cfg(windows)]
+#[path = "mux2_windows.rs"]
+mod os;
+use os::{RawMode, spawn_server, term_size};
+
+type UnixStream = Stream;
 
 fn die(msg: impl std::fmt::Display) -> ! {
     eprintln!("mux2: {msg}");
@@ -25,47 +35,18 @@ fn die(msg: impl std::fmt::Display) -> ! {
 }
 
 /// Connects, starting `mux2d` (next to this binary) when no server listens.
-// The server outlives this client on purpose (it leaves our session with
-// setsid); it is only waited for when it fails to start.
-#[allow(clippy::zombie_processes)]
 fn connect() -> UnixStream {
     let path = proto::socket_path();
-    if let Ok(s) = UnixStream::connect(&path) {
+    if let Ok(s) = proto::connect(&path) {
         return s;
     }
     let exe = std::env::current_exe().unwrap_or_else(|e| die(e));
-    let daemon = exe.with_file_name("mux2d");
-    let mut fds = [0; 2];
-    // SAFETY: pipe writes two descriptors.
-    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-        die(io::Error::last_os_error());
+    let daemon = exe.with_file_name(if cfg!(windows) { "mux2d.exe" } else { "mux2d" });
+    // The server writes one byte once it listens, or exits and closes the pipe.
+    if let Err(e) = spawn_server(&daemon) {
+        die(e);
     }
-    // SAFETY: both descriptors were just created and are owned here.
-    let (rd, wr) = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
-    let wr_fd = wr.as_raw_fd();
-    let mut cmd = std::process::Command::new(&daemon);
-    cmd.env("MUX2_READY_FD", wr_fd.to_string())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    // SAFETY: setsid is async-signal-safe; the daemon leaves our session.
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
-    let mut child =
-        cmd.spawn().unwrap_or_else(|e| die(format!("cannot start {}: {e}", daemon.display())));
-    drop(wr);
-    // The daemon writes one byte once it listens, or exits and closes the pipe.
-    let mut byte = [0u8; 1];
-    let ready = std::fs::File::from(rd).read(&mut byte).unwrap_or(0) == 1;
-    if !ready {
-        let _ = child.wait();
-        die("server failed to start");
-    }
-    UnixStream::connect(&path).unwrap_or_else(|e| die(format!("connect: {e}")))
+    proto::connect(&path).unwrap_or_else(|e| die(format!("connect: {e}")))
 }
 
 fn call(s: &mut UnixStream, kind: u8, payload: &[u8]) -> Vec<u8> {
@@ -112,20 +93,9 @@ fn size_arg(arg: &str) -> (u16, u16) {
     (c.parse().unwrap_or_else(|_| die("bad cols")), r.parse().unwrap_or_else(|_| die("bad rows")))
 }
 
-fn term_size() -> (u16, u16) {
-    // SAFETY: TIOCGWINSZ into a zeroed winsize.
-    let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
-    if unsafe { libc::ioctl(1, libc::TIOCGWINSZ, &mut ws) } == 0 && ws.ws_col > 0 {
-        (ws.ws_col, ws.ws_row)
-    } else {
-        (80, 24)
-    }
-}
-
 fn create_from_args(s: &mut UnixStream, args: &[String]) -> u32 {
     let (mut cols, mut rows) = term_size();
-    let mut cwd =
-        std::env::current_dir().map(|p| p.as_os_str().as_bytes().to_vec()).unwrap_or_default();
+    let mut cwd = os::cwd_bytes();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -168,8 +138,7 @@ fn bench(s: &mut UnixStream, args: &[String]) {
     let mut lat = Vec::with_capacity(n);
     match args.first().map(String::as_str) {
         Some("create") => {
-            let argv: [&[u8]; 2] = [b"/bin/sleep", b"1000000"];
-            let payload = proto::create_payload(80, 24, b"", &argv);
+            let payload = proto::create_payload(80, 24, b"", os::IDLE_ARGV);
             for _ in 0..n {
                 let t = Instant::now();
                 call(s, proto::CREATE, &payload);
@@ -177,13 +146,13 @@ fn bench(s: &mut UnixStream, args: &[String]) {
             }
         }
         Some("rtt") => {
-            let argv: [&[u8]; 1] = [b"/bin/cat"];
-            let reply = call(s, proto::CREATE, &proto::create_payload(80, 24, b"", &argv));
+            let reply = call(s, proto::CREATE, &proto::create_payload(80, 24, b"", os::ECHO_ARGV));
             let t_id = u32::from_le_bytes(reply[..4].try_into().expect("id"));
             for i in 0..n {
                 let mark = format!("M{i:06}X");
                 let mut w = idp(t_id);
-                w.extend_from_slice(format!("{mark}\n").as_bytes());
+                w.extend_from_slice(mark.as_bytes());
+                w.extend_from_slice(os::ENTER);
                 let t = Instant::now();
                 call(s, proto::WRITE, &w);
                 while !String::from_utf8_lossy(&call(s, proto::SCREEN, &idp(t_id))).contains(&mark)
@@ -192,7 +161,39 @@ fn bench(s: &mut UnixStream, args: &[String]) {
                 lat.push(t.elapsed().as_secs_f64() * 1e6);
             }
         }
-        _ => die("bench create N | bench rtt N"),
+        Some("echo") => {
+            // Keystroke echo as an attached viewer sees it: one byte typed on
+            // the viewer's connection, until an OUTPUT frame carries it back.
+            let reply = call(s, proto::CREATE, &proto::create_payload(80, 24, b"", os::ECHO_ARGV));
+            let t_id = u32::from_le_bytes(reply[..4].try_into().expect("id"));
+            let mut v = proto::connect(&proto::socket_path()).unwrap_or_else(|e| die(e));
+            proto::write_frame(&mut v, proto::ATTACH, &idp(t_id)).unwrap_or_else(|e| die(e));
+            // Waits for an OUTPUT frame holding `want` (any frame for None).
+            let typed = |v: &mut UnixStream, bytes: &[u8], want: Option<u8>| {
+                let mut w = idp(t_id);
+                w.extend_from_slice(bytes);
+                proto::write_frame(v, proto::WRITE, &w).unwrap_or_else(|e| die(e));
+                loop {
+                    let (k, body) = proto::read_frame(v).unwrap_or_else(|e| die(e));
+                    if k == proto::OUTPUT && want.is_none_or(|c| body.contains(&c)) {
+                        return;
+                    }
+                }
+            };
+            // Untimed: the program is reading once its first keystroke echoes.
+            typed(&mut v, b"z", Some(b'z'));
+            typed(&mut v, b"\x7f", None);
+            for i in 0..n {
+                let c = b'a' + (i % 25) as u8;
+                let t = Instant::now();
+                typed(&mut v, &[c], Some(c));
+                lat.push(t.elapsed().as_secs_f64() * 1e6);
+                // Erase it (untimed), so the line never fills.
+                typed(&mut v, b"\x7f", None);
+            }
+            call(s, proto::KILL, &idp(t_id));
+        }
+        _ => die("bench create N | bench rtt N | bench echo N"),
     }
     println!(
         "{{\"bench\":\"{}\",\"n\":{n},\"p50_us\":{:.1},\"p95_us\":{:.1},\"p99_us\":{:.1}}}",
@@ -201,31 +202,6 @@ fn bench(s: &mut UnixStream, args: &[String]) {
         pct(&mut lat, 0.95),
         pct(&mut lat, 0.99)
     );
-}
-
-struct RawMode(libc::termios);
-
-impl RawMode {
-    fn enter() -> Option<Self> {
-        // SAFETY: tcgetattr/tcsetattr on stdin with valid termios storage.
-        unsafe {
-            let mut t: libc::termios = std::mem::zeroed();
-            if libc::tcgetattr(0, &mut t) != 0 {
-                return None;
-            }
-            let saved = t;
-            libc::cfmakeraw(&mut t);
-            libc::tcsetattr(0, libc::TCSANOW, &t);
-            Some(RawMode(saved))
-        }
-    }
-}
-
-impl Drop for RawMode {
-    fn drop(&mut self) {
-        // SAFETY: restoring the saved termios.
-        unsafe { libc::tcsetattr(0, libc::TCSANOW, &self.0) };
-    }
 }
 
 fn resize_payload(t: u32) -> Vec<u8> {
@@ -237,14 +213,6 @@ fn resize_payload(t: u32) -> Vec<u8> {
 }
 
 fn attach(s: UnixStream, t: u32) -> i32 {
-    // SIGWINCH is handled by a sigwait thread; block it everywhere first.
-    // SAFETY: building and applying a signal mask before threads exist.
-    let mut winch: libc::sigset_t = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::sigemptyset(&mut winch);
-        libc::sigaddset(&mut winch, libc::SIGWINCH);
-        libc::pthread_sigmask(libc::SIG_BLOCK, &winch, std::ptr::null_mut());
-    }
     // Frames from different threads must not interleave on the socket.
     let writer =
         std::sync::Arc::new(std::sync::Mutex::new(s.try_clone().unwrap_or_else(|e| die(e))));
@@ -254,24 +222,10 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     send(&writer, proto::RESIZE, &resize_payload(t));
     send(&writer, proto::ATTACH, &idp(t));
     let raw = RawMode::enter();
-    let winch_writer = writer.clone();
-    std::thread::spawn(move || {
-        loop {
-            let mut sig = 0;
-            // SAFETY: waiting on the blocked SIGWINCH set.
-            if unsafe { libc::sigwait(&winch, &mut sig) } != 0 {
-                return;
-            }
-            if proto::write_frame(
-                &mut *winch_writer.lock().expect("writer"),
-                proto::RESIZE,
-                &resize_payload(t),
-            )
-            .is_err()
-            {
-                return;
-            }
-        }
+    let follow = writer.clone();
+    os::follow_resize(move || {
+        proto::write_frame(&mut *follow.lock().expect("writer"), proto::RESIZE, &resize_payload(t))
+            .is_ok()
     });
     let mut reader = s;
     let out = std::thread::spawn(move || -> i32 {

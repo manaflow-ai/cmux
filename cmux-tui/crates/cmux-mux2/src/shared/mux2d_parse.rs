@@ -1,5 +1,7 @@
 //! Unwatched batches: the parse workers, their in-flight accounting, and
-//! the flush that orders every parse.
+//! the flush that orders every parse. Shared by the Unix and Windows servers:
+//! the including module provides `Term` (with `parser`, `inflight`,
+//! `pending`, `carry` and `open_seq`), `Waker` and `tunable`.
 
 use super::*;
 
@@ -68,20 +70,6 @@ pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
             tx
         })
         .collect()
-}
-
-/// Writes queued input until the PTY is full, without touching kqueue; the
-/// caller's flush_input arms EVFILT_WRITE for whatever is left.
-pub(super) fn write_input_now(term: &mut Term) {
-    while !term.input.is_empty() && term.pty_open {
-        let (front, _) = term.input.as_slices();
-        // SAFETY: front is a valid slice.
-        let n = unsafe { libc::write(term.master, front.as_ptr().cast(), front.len()) };
-        if n <= 0 {
-            return;
-        }
-        term.input.drain(..n as usize);
-    }
 }
 
 /// Parses every pending byte now, after the batches already handed out.

@@ -1,16 +1,8 @@
-//! Unix only for now (kqueue on macOS, epoll on Linux); Windows comes next. See GOAL.md.
+//! The mux2 client. See `src/shared/mux2.rs`.
 
-#[cfg(unix)]
-#[path = "../unix/mux2.rs"]
+#[path = "../shared/mux2.rs"]
 mod imp;
 
-#[cfg(unix)]
 fn main() {
     imp::main();
-}
-
-#[cfg(not(unix))]
-fn main() {
-    eprintln!("mux2: Unix only for now");
-    std::process::exit(2);
 }

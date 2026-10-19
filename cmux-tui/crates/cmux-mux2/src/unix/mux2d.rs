@@ -26,11 +26,11 @@ use ghostty_vt::{Callbacks, Terminal};
 
 #[path = "mux2d_os.rs"]
 mod os;
-#[path = "mux2d_parse.rs"]
+#[path = "../shared/mux2d_parse.rs"]
 mod parse;
 #[path = "mux2d_poll.rs"]
 mod poll;
-#[path = "mux2d_scan.rs"]
+#[path = "../shared/mux2d_scan.rs"]
 mod scan;
 #[path = "mux2d_state.rs"]
 mod state;
@@ -822,6 +822,20 @@ impl Server {
         for c in notify {
             self.send(c, proto::EXIT, &code.to_le_bytes());
         }
+    }
+}
+
+/// Writes queued input until the PTY is full, without touching kqueue; the
+/// caller's flush_input arms EVFILT_WRITE for whatever is left.
+fn write_input_now(term: &mut Term) {
+    while !term.input.is_empty() && term.pty_open {
+        let (front, _) = term.input.as_slices();
+        // SAFETY: front is a valid slice.
+        let n = unsafe { libc::write(term.master, front.as_ptr().cast(), front.len()) };
+        if n <= 0 {
+            return;
+        }
+        term.input.drain(..n as usize);
     }
 }
 
