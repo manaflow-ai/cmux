@@ -7,8 +7,9 @@ struct SidebarSelectionCloseTests {
     private static let ids = (0..<5).map { WorkspaceID("workspace-\($0)") }
 
     /// Rows 0 and 1 in group "a", row 2 in group "b", rows 3 and 4 loose.
-    private static func model(items: [SidebarGroupItem] = []) -> SidebarModel {
-        let rows = ids.enumerated().map { SidebarWorkspace(id: $0.element, title: "Workspace \($0.offset)") }
+    /// `homeAt`: the row that cannot close (the Home row, `isClosable: false`).
+    private static func model(items: [SidebarGroupItem] = [], homeAt home: Int? = nil) -> SidebarModel {
+        let rows = ids.enumerated().map { SidebarWorkspace(id: $0.element, title: "Workspace \($0.offset)", isClosable: $0.offset != home) }
         var first = SidebarGroup(id: GroupID("a"), name: "A", workspaces: [rows[0], rows[1]])
         first.items = items
         let second = SidebarGroup(id: GroupID("b"), name: "B", workspaces: [rows[2]])
@@ -41,6 +42,22 @@ struct SidebarSelectionCloseTests {
         model.selection = [Self.ids[0], Self.ids[3], Self.ids[4]]
         #expect(model.closeTitle(for: Self.ids[3]) == "Close 3 Workspaces")
         #expect(model.closeTitle(for: Self.ids[1]) == nil)
+    }
+
+    @Test func aRowThatCannotCloseLeavesTheSelectionCloseAndItsCount() {
+        let model = Self.model(homeAt: 3)
+        model.selection = [Self.ids[0], Self.ids[3], Self.ids[4]]
+        #expect(model.closeTargets(for: Self.ids[0]) == [Self.ids[0], Self.ids[4]])
+        #expect(model.closeTitle(for: Self.ids[4]) == "Close 2 Workspaces")
+        #expect(model.closeTargets(for: Self.ids[3]) == [Self.ids[3]])
+        #expect(Self.ids.filter(model.canClose) == [Self.ids[0], Self.ids[1], Self.ids[2], Self.ids[4]])
+    }
+
+    @Test func aSelectionWithOneClosableRowClosesThatRowAlone() {
+        let model = Self.model(homeAt: 3)
+        model.selection = [Self.ids[3], Self.ids[4]]
+        #expect(model.closeTargets(for: Self.ids[4]) == [Self.ids[4]])
+        #expect(model.closeTitle(for: Self.ids[4]) == nil)
     }
 
     @Test func closeTitleKeepsTheCatalogTitleForOneRow() {
