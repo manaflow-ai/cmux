@@ -103755,127 +103755,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers."
+            "value": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حتى يتمكن هاتفك من العثور على هذا الـ Mac، يسجّل cmux لدى خوادمه اسم هذا الـ Mac ومعرّف الجهاز والنظام، ومعرّف حزمة التطبيق وإصداره وقناة البناء، وعنوان الترحيل ومفتاح الاتصال الخاصين بالـ Mac، ومعرّفي حسابك وفريقك. تنتقل أسماء مساحات العمل والمجلدات والمسارات الكاملة ومخرجات الطرفية عبر الاتصال المشفّر إلى هاتفك فقط. لا يُرسل أي من ذلك، ولا أي اسم فرع أو عنوان URL لمستودع، إلى خوادم cmux."
+            "value": "حتى يتمكن هاتفك من العثور على هذا الـ Mac، يسجّل cmux لدى خوادمه اسم هذا الـ Mac ومعرّف الجهاز والنظام، ومعرّف حزمة التطبيق وإصداره وقناة البناء، وعنوان الترحيل ومفتاح الاتصال الخاصين بالـ Mac، ومعرّفي حسابك وفريقك. تنتقل أسماء مساحات العمل والمجلدات والمسارات الكاملة ومخرجات الطرفية عبر الاتصال المشفّر إلى هاتفك فقط. لا يُرسل أي من ذلك، ولا أي اسم فرع أو عنوان URL لمستودع، إلى خوادم cmux. استثناء: عند تشغيل «إظهار مساحات عمل هذا الـ Mac على هاتفك أثناء إيقاف تشغيله»، تخزّن خوادم cmux لكل مساحة عمل المعرّف ومعرّف المورد والمعرّف المختصر والاسم ومراجعة الاسم والمجموعة واللون والأيقونة وحالة التثبيت وعلامة عدم القراءة وعدد غير المقروء وما إذا كانت نشطة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kako bi vaš telefon mogao pronaći ovaj Mac, cmux na svojim serverima registruje ime, ID uređaja i platformu ovog Maca, ID paketa, verziju i kanal izdanja aplikacije, relej adresu i ključ veze Maca te ID-ove vašeg računa i tima. Nazivi radnih prostora, mape, pune putanje i izlaz terminala idu samo preko šifrirane veze do vašeg telefona. Ništa od toga, kao ni nazivi grana i URL-ovi repozitorija, ne šalje se na cmux servere."
+            "value": "Kako bi vaš telefon mogao pronaći ovaj Mac, cmux na svojim serverima registruje ime, ID uređaja i platformu ovog Maca, ID paketa, verziju i kanal izdanja aplikacije, relej adresu i ključ veze Maca te ID-ove vašeg računa i tima. Nazivi radnih prostora, mape, pune putanje i izlaz terminala idu samo preko šifrirane veze do vašeg telefona. Ništa od toga, kao ni nazivi grana i URL-ovi repozitorija, ne šalje se na cmux servere. Izuzetak: dok je „Prikaži radne prostore ovog Maca na telefonu dok je isključen“ uključeno, cmux serveri čuvaju za svaki radni prostor ID, ID resursa, kratki ID, ime, reviziju imena, grupu, boju, ikonu, stanje prikačenosti, oznaku nepročitanog, broj nepročitanih i da li je aktivan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "For at din telefon kan finde denne Mac, registrerer cmux på sine servere denne Macs navn, enheds-id og platform, appens bundle-id, version og byggekanal, Mac'ens relæadresse og forbindelsesnøgle samt dine konto- og team-id'er. Navne på arbejdsområder, mapper, fulde stier og terminaloutput sendes kun via den krypterede forbindelse til din telefon. Intet af det, og hverken grennavne eller repo-URL'er, sendes til cmux' servere."
+            "value": "For at din telefon kan finde denne Mac, registrerer cmux på sine servere denne Macs navn, enheds-id og platform, appens bundle-id, version og byggekanal, Mac'ens relæadresse og forbindelsesnøgle samt dine konto- og team-id'er. Navne på arbejdsområder, mapper, fulde stier og terminaloutput sendes kun via den krypterede forbindelse til din telefon. Intet af det, og hverken grennavne eller repo-URL'er, sendes til cmux' servere. Undtagelse: Når “Vis denne Macs arbejdsområder på din telefon, mens den er slukket” er slået til, gemmer cmux' servere for hvert arbejdsområde id, ressource-id, kort id, navn, navnerevision, gruppe, farve, ikon, fastgørelse, ulæst-markering, antal ulæste og om det er aktivt."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Damit dein Telefon diesen Mac findet, registriert cmux auf seinen Servern Namen, Geräte-ID und Plattform dieses Macs, Bundle-ID, Version und Build-Kanal der App, Relay-Adresse und Verbindungsschlüssel des Macs sowie deine Account- und Team-IDs. Workspace-Namen, Ordner, vollständige Pfade und Terminalausgaben gehen nur über die verschlüsselte Verbindung an dein Telefon. Nichts davon, auch kein Branch-Name und keine Repo-URL, wird an cmux-Server gesendet."
+            "value": "Damit dein Telefon diesen Mac findet, registriert cmux auf seinen Servern Namen, Geräte-ID und Plattform dieses Macs, Bundle-ID, Version und Build-Kanal der App, Relay-Adresse und Verbindungsschlüssel des Macs sowie deine Account- und Team-IDs. Workspace-Namen, Ordner, vollständige Pfade und Terminalausgaben gehen nur über die verschlüsselte Verbindung an dein Telefon. Nichts davon, auch kein Branch-Name und keine Repo-URL, wird an cmux-Server gesendet. Ausnahme: Solange „Arbeitsbereiche dieses Macs auf dem iPhone zeigen, während er aus ist“ aktiviert ist, speichern cmux-Server für jeden Arbeitsbereich ID, Ressourcen-ID, Kurz-ID, Name, Namensrevision, Gruppe, Farbe, Symbol, Anheftstatus, Ungelesen-Markierung, Anzahl ungelesener Elemente und ob er aktiv ist."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para que tu teléfono encuentre este Mac, cmux registra en sus servidores el nombre, el ID de dispositivo y la plataforma de este Mac, el ID de paquete, la versión y el canal de compilación de la app, la dirección de relé y la clave de conexión del Mac, y los ID de tu cuenta y tu equipo. Los nombres de los espacios de trabajo, las carpetas, las rutas completas y la salida del terminal solo viajan por el enlace cifrado hasta tu teléfono. Nada de eso, ni ningún nombre de rama o URL de repositorio, se envía a los servidores de cmux."
+            "value": "Para que tu teléfono encuentre este Mac, cmux registra en sus servidores el nombre, el ID de dispositivo y la plataforma de este Mac, el ID de paquete, la versión y el canal de compilación de la app, la dirección de relé y la clave de conexión del Mac, y los ID de tu cuenta y tu equipo. Los nombres de los espacios de trabajo, las carpetas, las rutas completas y la salida del terminal solo viajan por el enlace cifrado hasta tu teléfono. Nada de eso, ni ningún nombre de rama o URL de repositorio, se envía a los servidores de cmux. Excepción: mientras «Mostrar los espacios de trabajo de este Mac en tu teléfono mientras está apagado» esté activado, los servidores de cmux guardan de cada espacio de trabajo el ID, el ID de recurso, el ID corto, el nombre, la revisión del nombre, el grupo, el color, el icono, si está fijado, la marca de no leído, el número de no leídos y si está activo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pour que votre téléphone trouve ce Mac, cmux enregistre sur ses serveurs le nom, l’identifiant d’appareil et la plateforme de ce Mac, l’identifiant de bundle, la version et le canal de build de l’app, l’adresse de relais et la clé de connexion du Mac, ainsi que les identifiants de votre compte et de votre équipe. Les noms des espaces de travail, les dossiers, les chemins complets et la sortie du terminal passent uniquement par la liaison chiffrée vers votre téléphone. Rien de tout cela, ni aucun nom de branche ou URL de dépôt, n’est envoyé aux serveurs de cmux."
+            "value": "Pour que votre téléphone trouve ce Mac, cmux enregistre sur ses serveurs le nom, l’identifiant d’appareil et la plateforme de ce Mac, l’identifiant de bundle, la version et le canal de build de l’app, l’adresse de relais et la clé de connexion du Mac, ainsi que les identifiants de votre compte et de votre équipe. Les noms des espaces de travail, les dossiers, les chemins complets et la sortie du terminal passent uniquement par la liaison chiffrée vers votre téléphone. Rien de tout cela, ni aucun nom de branche ou URL de dépôt, n’est envoyé aux serveurs de cmux. Exception : lorsque « Afficher les espaces de travail de ce Mac sur votre téléphone lorsqu'il est éteint » est activé, les serveurs cmux stockent pour chaque espace de travail l'identifiant, l'identifiant de ressource, l'identifiant court, le nom, la révision du nom, le groupe, la couleur, l'icône, l'épinglage, la marque non lu, le nombre de non-lus et s'il est actif."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Perché il telefono trovi questo Mac, cmux registra sui propri server nome, ID dispositivo e piattaforma di questo Mac, bundle ID, versione e canale di build dell’app, indirizzo di relay e chiave di connessione del Mac e gli ID del tuo account e del tuo team. I nomi degli spazi di lavoro, le cartelle, i percorsi completi e l’output del terminale passano solo tramite il collegamento cifrato verso il telefono. Niente di tutto ciò, né nomi di branch o URL di repository, viene inviato ai server di cmux."
+            "value": "Perché il telefono trovi questo Mac, cmux registra sui propri server nome, ID dispositivo e piattaforma di questo Mac, bundle ID, versione e canale di build dell’app, indirizzo di relay e chiave di connessione del Mac e gli ID del tuo account e del tuo team. I nomi degli spazi di lavoro, le cartelle, i percorsi completi e l’output del terminale passano solo tramite il collegamento cifrato verso il telefono. Niente di tutto ciò, né nomi di branch o URL di repository, viene inviato ai server di cmux. Eccezione: quando “Mostra gli spazi di lavoro di questo Mac sul telefono quando è spento” è attivo, i server di cmux memorizzano per ogni spazio di lavoro ID, ID risorsa, ID breve, nome, revisione del nome, gruppo, colore, icona, stato di fissaggio, segno di non letto, numero di non letti e se è attivo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スマートフォンがこの Mac を見つけられるよう、cmux はこの Mac の名前、デバイス ID、プラットフォーム、アプリのバンドル ID、バージョン、ビルドチャンネル、Mac のリレーアドレスと接続キー、アカウント ID とチーム ID を cmux のサーバーに登録します。ワークスペース名、フォルダ、フルパス、ターミナルの出力は、暗号化された接続でスマートフォンにのみ送られます。これらも、ブランチ名やリポジトリの URL も、cmux のサーバーには送られません。"
+            "value": "スマートフォンがこの Mac を見つけられるよう、cmux はこの Mac の名前、デバイス ID、プラットフォーム、アプリのバンドル ID、バージョン、ビルドチャンネル、Mac のリレーアドレスと接続キー、アカウント ID とチーム ID を cmux のサーバーに登録します。ワークスペース名、フォルダ、フルパス、ターミナルの出力は、暗号化された接続でスマートフォンにのみ送られます。これらも、ブランチ名やリポジトリの URL も、cmux のサーバーには送られません。例外：「MacがオフのときもこのMacのワークスペースをスマートフォンに表示」がオンの間、cmux のサーバーは各ワークスペースの ID、リソース ID、短縮 ID、名前、名前のリビジョン、グループ、色、アイコン、ピン留めの状態、未読マーク、未読数、アクティブかどうかを保存します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ដើម្បីឱ្យទូរសព្ទរបស់អ្នករកឃើញ Mac នេះ cmux ចុះឈ្មោះនៅលើម៉ាស៊ីនមេរបស់ខ្លួននូវឈ្មោះ លេខសម្គាល់ឧបករណ៍ និងវេទិការបស់ Mac នេះ លេខសម្គាល់កញ្ចប់ កំណែ និងឆានែលស្ថាបនារបស់កម្មវិធី អាសយដ្ឋានបញ្ជូនបន្ត និងសោតភ្ជាប់របស់ Mac និងលេខសម្គាល់គណនី និងក្រុមរបស់អ្នក។ ឈ្មោះកន្លែងធ្វើការ ថត ផ្លូវពេញ និងលទ្ធផលស្ថានីយ ផ្ញើតែតាមតំណដែលបានអ៊ិនគ្រីបទៅទូរសព្ទរបស់អ្នកប៉ុណ្ណោះ។ គ្មានអ្វីមួយក្នុងនោះ ហើយក៏គ្មានឈ្មោះមែក ឬ URL ឃ្លាំង ត្រូវបានផ្ញើទៅម៉ាស៊ីនមេ cmux ឡើយ។"
+            "value": "ដើម្បីឱ្យទូរសព្ទរបស់អ្នករកឃើញ Mac នេះ cmux ចុះឈ្មោះនៅលើម៉ាស៊ីនមេរបស់ខ្លួននូវឈ្មោះ លេខសម្គាល់ឧបករណ៍ និងវេទិការបស់ Mac នេះ លេខសម្គាល់កញ្ចប់ កំណែ និងឆានែលស្ថាបនារបស់កម្មវិធី អាសយដ្ឋានបញ្ជូនបន្ត និងសោតភ្ជាប់របស់ Mac និងលេខសម្គាល់គណនី និងក្រុមរបស់អ្នក។ ឈ្មោះកន្លែងធ្វើការ ថត ផ្លូវពេញ និងលទ្ធផលស្ថានីយ ផ្ញើតែតាមតំណដែលបានអ៊ិនគ្រីបទៅទូរសព្ទរបស់អ្នកប៉ុណ្ណោះ។ គ្មានអ្វីមួយក្នុងនោះ ហើយក៏គ្មានឈ្មោះមែក ឬ URL ឃ្លាំង ត្រូវបានផ្ញើទៅម៉ាស៊ីនមេ cmux ឡើយ។ ករណីលើកលែង៖ ពេល “បង្ហាញកន្លែងធ្វើការរបស់ Mac នេះនៅលើទូរសព្ទរបស់អ្នក ពេលវាបិទ” បើក ម៉ាស៊ីនមេ cmux រក្សាទុកសម្រាប់កន្លែងធ្វើការនីមួយៗនូវ ID, ID ធនធាន, ID ខ្លី, ឈ្មោះ, កំណែឈ្មោះ, ក្រុម, ពណ៌, រូបតំណាង, ស្ថានភាពខ្ទាស់, សញ្ញាមិនទាន់អាន, ចំនួនមិនទាន់អាន និងថាតើវាសកម្មឬអត់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "휴대폰이 이 Mac을 찾을 수 있도록 cmux는 이 Mac의 이름, 기기 ID, 플랫폼, 앱의 번들 ID, 버전, 빌드 채널, Mac의 릴레이 주소와 연결 키, 계정 ID와 팀 ID를 cmux 서버에 등록합니다. 작업 공간 이름, 폴더, 전체 경로, 터미널 출력은 암호화된 연결을 통해 휴대폰으로만 전송됩니다. 이 중 어떤 것도, 브랜치 이름이나 저장소 URL도 cmux 서버로 전송되지 않습니다."
+            "value": "휴대폰이 이 Mac을 찾을 수 있도록 cmux는 이 Mac의 이름, 기기 ID, 플랫폼, 앱의 번들 ID, 버전, 빌드 채널, Mac의 릴레이 주소와 연결 키, 계정 ID와 팀 ID를 cmux 서버에 등록합니다. 작업 공간 이름, 폴더, 전체 경로, 터미널 출력은 암호화된 연결을 통해 휴대폰으로만 전송됩니다. 이 중 어떤 것도, 브랜치 이름이나 저장소 URL도 cmux 서버로 전송되지 않습니다. 예외: “Mac이 꺼져 있을 때도 이 Mac의 작업 공간을 휴대폰에 표시” 설정이 켜져 있는 동안 cmux 서버는 각 작업 공간의 ID, 리소스 ID, 짧은 ID, 이름, 이름 리비전, 그룹, 색상, 아이콘, 고정 상태, 읽지 않음 표시, 읽지 않은 개수, 활성 여부를 저장합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "For at telefonen skal finne denne Macen, registrerer cmux på serverne sine navnet, enhets-ID-en og plattformen til denne Macen, appens pakke-ID, versjon og byggekanal, Macens reléadresse og tilkoblingsnøkkel samt konto- og team-ID-ene dine. Navn på arbeidsområder, mapper, fullstendige stier og terminalutdata går bare over den krypterte forbindelsen til telefonen. Ingenting av dette, og verken grennavn eller repo-URL-er, sendes til cmux-servere."
+            "value": "For at telefonen skal finne denne Macen, registrerer cmux på serverne sine navnet, enhets-ID-en og plattformen til denne Macen, appens pakke-ID, versjon og byggekanal, Macens reléadresse og tilkoblingsnøkkel samt konto- og team-ID-ene dine. Navn på arbeidsområder, mapper, fullstendige stier og terminalutdata går bare over den krypterte forbindelsen til telefonen. Ingenting av dette, og verken grennavn eller repo-URL-er, sendes til cmux-servere. Unntak: Når «Vis denne Macens arbeidsområder på telefonen mens den er av» er på, lagrer cmux-serverne for hvert arbeidsområde ID, ressurs-ID, kort ID, navn, navnerevisjon, gruppe, farge, ikon, festestatus, ulest-merke, antall uleste og om det er aktivt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aby telefon mógł znaleźć tego Maca, cmux rejestruje na swoich serwerach nazwę, identyfikator urządzenia i platformę tego Maca, identyfikator pakietu, wersję i kanał kompilacji aplikacji, adres przekaźnika i klucz połączenia Maca oraz identyfikatory Twojego konta i zespołu. Nazwy obszarów roboczych, foldery, pełne ścieżki i wyjście terminala trafiają tylko szyfrowanym połączeniem do Twojego telefonu. Nic z tego, ani żadne nazwy gałęzi czy adresy URL repozytoriów, nie jest wysyłane na serwery cmux."
+            "value": "Aby telefon mógł znaleźć tego Maca, cmux rejestruje na swoich serwerach nazwę, identyfikator urządzenia i platformę tego Maca, identyfikator pakietu, wersję i kanał kompilacji aplikacji, adres przekaźnika i klucz połączenia Maca oraz identyfikatory Twojego konta i zespołu. Nazwy obszarów roboczych, foldery, pełne ścieżki i wyjście terminala trafiają tylko szyfrowanym połączeniem do Twojego telefonu. Nic z tego, ani żadne nazwy gałęzi czy adresy URL repozytoriów, nie jest wysyłane na serwery cmux. Wyjątek: gdy opcja „Pokazuj obszary robocze tego Maca na telefonie, gdy jest wyłączony” jest włączona, serwery cmux przechowują dla każdego obszaru roboczego identyfikator, identyfikator zasobu, krótki identyfikator, nazwę, wersję nazwy, grupę, kolor, ikonę, stan przypięcia, znacznik nieprzeczytania, liczbę nieprzeczytanych i to, czy jest aktywny."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Para que o celular encontre este Mac, o cmux registra nos servidores dele o nome, o ID do dispositivo e a plataforma deste Mac, o ID de pacote, a versão e o canal de build do app, o endereço de relay e a chave de conexão do Mac e os IDs da sua conta e equipe. Nomes de espaços de trabalho, pastas, caminhos completos e a saída do terminal vão apenas pela conexão criptografada até o seu celular. Nada disso, nem nomes de branches ou URLs de repositórios, é enviado aos servidores do cmux."
+            "value": "Para que o celular encontre este Mac, o cmux registra nos servidores dele o nome, o ID do dispositivo e a plataforma deste Mac, o ID de pacote, a versão e o canal de build do app, o endereço de relay e a chave de conexão do Mac e os IDs da sua conta e equipe. Nomes de espaços de trabalho, pastas, caminhos completos e a saída do terminal vão apenas pela conexão criptografada até o seu celular. Nada disso, nem nomes de branches ou URLs de repositórios, é enviado aos servidores do cmux. Exceção: enquanto “Mostrar os espaços de trabalho deste Mac no celular enquanto ele estiver desligado” estiver ativado, os servidores do cmux armazenam de cada espaço de trabalho o ID, o ID do recurso, o ID curto, o nome, a revisão do nome, o grupo, a cor, o ícone, se está fixado, a marca de não lido, o número de não lidos e se está ativo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Чтобы телефон мог найти этот Mac, cmux регистрирует на своих серверах имя, идентификатор устройства и платформу этого Mac, идентификатор пакета, версию и канал сборки приложения, адрес ретранслятора и ключ подключения Mac, а также идентификаторы вашей учётной записи и команды. Названия рабочих пространств, папки, полные пути и вывод терминала передаются только по зашифрованному каналу на ваш телефон. Ничего из этого, как и названия веток и URL репозиториев, не отправляется на серверы cmux."
+            "value": "Чтобы телефон мог найти этот Mac, cmux регистрирует на своих серверах имя, идентификатор устройства и платформу этого Mac, идентификатор пакета, версию и канал сборки приложения, адрес ретранслятора и ключ подключения Mac, а также идентификаторы вашей учётной записи и команды. Названия рабочих пространств, папки, полные пути и вывод терминала передаются только по зашифрованному каналу на ваш телефон. Ничего из этого, как и названия веток и URL репозиториев, не отправляется на серверы cmux. Исключение: пока включён параметр «Показывать рабочие пространства этого Mac на телефоне, когда он выключен», серверы cmux хранят для каждого рабочего пространства ID, ID ресурса, короткий ID, имя, версию имени, группу, цвет, значок, состояние закрепления, отметку о непрочитанном, число непрочитанных и признак активности."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพื่อให้โทรศัพท์ค้นหา Mac เครื่องนี้เจอ cmux จะลงทะเบียนชื่อ ID อุปกรณ์ และแพลตฟอร์มของ Mac เครื่องนี้ Bundle ID เวอร์ชัน และช่องทางบิลด์ของแอป ที่อยู่รีเลย์และคีย์การเชื่อมต่อของ Mac รวมถึง ID บัญชีและทีมของคุณไว้กับเซิร์ฟเวอร์ของ cmux ชื่อพื้นที่ทำงาน โฟลเดอร์ พาธเต็ม และเอาต์พุตของเทอร์มินัลจะส่งผ่านการเชื่อมต่อที่เข้ารหัสไปยังโทรศัพท์ของคุณเท่านั้น ไม่มีข้อมูลเหล่านี้ รวมถึงชื่อสาขาหรือ URL ของรีโพ ถูกส่งไปยังเซิร์ฟเวอร์ของ cmux"
+            "value": "เพื่อให้โทรศัพท์ค้นหา Mac เครื่องนี้เจอ cmux จะลงทะเบียนชื่อ ID อุปกรณ์ และแพลตฟอร์มของ Mac เครื่องนี้ Bundle ID เวอร์ชัน และช่องทางบิลด์ของแอป ที่อยู่รีเลย์และคีย์การเชื่อมต่อของ Mac รวมถึง ID บัญชีและทีมของคุณไว้กับเซิร์ฟเวอร์ของ cmux ชื่อพื้นที่ทำงาน โฟลเดอร์ พาธเต็ม และเอาต์พุตของเทอร์มินัลจะส่งผ่านการเชื่อมต่อที่เข้ารหัสไปยังโทรศัพท์ของคุณเท่านั้น ไม่มีข้อมูลเหล่านี้ รวมถึงชื่อสาขาหรือ URL ของรีโพ ถูกส่งไปยังเซิร์ฟเวอร์ของ cmux ข้อยกเว้น: ขณะที่เปิด “แสดงพื้นที่ทำงานของ Mac เครื่องนี้บนโทรศัพท์ขณะที่ปิดเครื่องอยู่” อยู่ เซิร์ฟเวอร์ของ cmux จะเก็บ ID, ID ทรัพยากร, ID แบบสั้น, ชื่อ, รุ่นของชื่อ, กลุ่ม, สี, ไอคอน, สถานะการปักหมุด, เครื่องหมายยังไม่ได้อ่าน, จำนวนที่ยังไม่ได้อ่าน และสถานะว่าใช้งานอยู่หรือไม่ของแต่ละพื้นที่ทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Telefonunuzun bu Mac'i bulabilmesi için cmux, bu Mac'in adını, cihaz kimliğini ve platformunu, uygulamanın paket kimliğini, sürümünü ve derleme kanalını, Mac'in aktarma adresini ve bağlantı anahtarını, hesap ve ekip kimliklerinizi sunucularına kaydeder. Çalışma alanı adları, klasörler, tam yollar ve terminal çıktısı yalnızca şifreli bağlantı üzerinden telefonunuza gider. Bunların hiçbiri, dal adları ve depo URL'leri de dahil, cmux sunucularına gönderilmez."
+            "value": "Telefonunuzun bu Mac'i bulabilmesi için cmux, bu Mac'in adını, cihaz kimliğini ve platformunu, uygulamanın paket kimliğini, sürümünü ve derleme kanalını, Mac'in aktarma adresini ve bağlantı anahtarını, hesap ve ekip kimliklerinizi sunucularına kaydeder. Çalışma alanı adları, klasörler, tam yollar ve terminal çıktısı yalnızca şifreli bağlantı üzerinden telefonunuza gider. Bunların hiçbiri, dal adları ve depo URL'leri de dahil, cmux sunucularına gönderilmez. İstisna: “Bu Mac kapalıyken çalışma alanlarını telefonunda göster” açıkken cmux sunucuları her çalışma alanı için kimliği, kaynak kimliğini, kısa kimliği, adı, ad revizyonunu, grubu, rengi, simgeyi, sabitlenme durumunu, okunmadı işaretini, okunmamış sayısını ve etkin olup olmadığını saklar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Щоб телефон міг знайти цей Mac, cmux реєструє на своїх серверах назву, ідентифікатор пристрою й платформу цього Mac, ідентифікатор пакета, версію й канал збірки застосунку, адресу ретранслятора й ключ підключення Mac, а також ідентифікатори вашого облікового запису й команди. Назви робочих просторів, папки, повні шляхи й вивід термінала передаються лише зашифрованим з’єднанням на ваш телефон. Нічого з цього, як і назви гілок чи URL репозиторіїв, не надсилається на сервери cmux."
+            "value": "Щоб телефон міг знайти цей Mac, cmux реєструє на своїх серверах назву, ідентифікатор пристрою й платформу цього Mac, ідентифікатор пакета, версію й канал збірки застосунку, адресу ретранслятора й ключ підключення Mac, а також ідентифікатори вашого облікового запису й команди. Назви робочих просторів, папки, повні шляхи й вивід термінала передаються лише зашифрованим з’єднанням на ваш телефон. Нічого з цього, як і назви гілок чи URL репозиторіїв, не надсилається на сервери cmux. Виняток: поки ввімкнено параметр «Показувати робочі простори цього Mac на телефоні, коли він вимкнений», сервери cmux зберігають для кожного робочого простору ID, ID ресурсу, короткий ID, назву, версію назви, групу, колір, значок, стан закріплення, позначку непрочитаного, кількість непрочитаних і ознаку активності."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Để điện thoại tìm thấy máy Mac này, cmux đăng ký với máy chủ của mình tên, ID thiết bị và nền tảng của máy Mac này, bundle ID, phiên bản và kênh bản dựng của ứng dụng, địa chỉ chuyển tiếp và khóa kết nối của máy Mac, cùng ID tài khoản và nhóm của bạn. Tên không gian làm việc, thư mục, đường dẫn đầy đủ và đầu ra terminal chỉ đi qua kết nối được mã hóa tới điện thoại của bạn. Không thông tin nào trong số đó, kể cả tên nhánh hay URL kho mã, được gửi đến máy chủ cmux."
+            "value": "Để điện thoại tìm thấy máy Mac này, cmux đăng ký với máy chủ của mình tên, ID thiết bị và nền tảng của máy Mac này, bundle ID, phiên bản và kênh bản dựng của ứng dụng, địa chỉ chuyển tiếp và khóa kết nối của máy Mac, cùng ID tài khoản và nhóm của bạn. Tên không gian làm việc, thư mục, đường dẫn đầy đủ và đầu ra terminal chỉ đi qua kết nối được mã hóa tới điện thoại của bạn. Không thông tin nào trong số đó, kể cả tên nhánh hay URL kho mã, được gửi đến máy chủ cmux. Ngoại lệ: khi “Hiển thị không gian làm việc của máy Mac này trên điện thoại khi máy tắt” đang bật, máy chủ cmux lưu cho mỗi không gian làm việc ID, ID tài nguyên, ID ngắn, tên, bản sửa đổi tên, nhóm, màu, biểu tượng, trạng thái ghim, dấu chưa đọc, số mục chưa đọc và việc nó có đang hoạt động hay không."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "为了让手机找到这台 Mac，cmux 会在其服务器上登记这台 Mac 的名称、设备 ID 和平台，应用的 Bundle ID、版本和构建渠道，这台 Mac 的中继地址和连接密钥，以及你的账户 ID 和团队 ID。工作区名称、文件夹、完整路径和终端输出只通过加密连接发送到你的手机。这些内容以及分支名称、仓库 URL 都不会发送到 cmux 服务器。"
+            "value": "为了让手机找到这台 Mac，cmux 会在其服务器上登记这台 Mac 的名称、设备 ID 和平台，应用的 Bundle ID、版本和构建渠道，这台 Mac 的中继地址和连接密钥，以及你的账户 ID 和团队 ID。工作区名称、文件夹、完整路径和终端输出只通过加密连接发送到你的手机。这些内容以及分支名称、仓库 URL 都不会发送到 cmux 服务器。例外：开启“在此 Mac 关机时于手机上显示其工作区”时，cmux 服务器会为每个工作区存储 ID、资源 ID、短 ID、名称、名称修订版本、分组、颜色、图标、固定状态、未读标记、未读数以及是否处于活动状态。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "為了讓手機找到這台 Mac，cmux 會在其伺服器上登記這台 Mac 的名稱、裝置 ID 和平台，App 的 Bundle ID、版本和建置管道，這台 Mac 的中繼位址和連線金鑰，以及你的帳號 ID 和團隊 ID。工作區名稱、檔案夾、完整路徑和終端機輸出只會透過加密連線傳到你的手機。這些內容以及分支名稱、儲存庫 URL 都不會傳送到 cmux 伺服器。"
+            "value": "為了讓手機找到這台 Mac，cmux 會在其伺服器上登記這台 Mac 的名稱、裝置 ID 和平台，App 的 Bundle ID、版本和建置管道，這台 Mac 的中繼位址和連線金鑰，以及你的帳號 ID 和團隊 ID。工作區名稱、檔案夾、完整路徑和終端機輸出只會透過加密連線傳到你的手機。這些內容以及分支名稱、儲存庫 URL 都不會傳送到 cmux 伺服器。例外：開啟「在此 Mac 關機時於手機上顯示其工作區」時，cmux 伺服器會為每個工作區儲存 ID、資源 ID、短 ID、名稱、名稱修訂版本、群組、顏色、圖示、釘選狀態、未讀標記、未讀數，以及是否為使用中。"
           }
         }
       }
