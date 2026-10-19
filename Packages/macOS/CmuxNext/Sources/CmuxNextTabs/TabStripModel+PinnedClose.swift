@@ -53,3 +53,17 @@ extension TabStripModel {
         return ordered[..<index].filter { !$0.isPinned }.map(\.id)
     }
 }
+
+extension TabStripModel {
+    /// Where Move Tab Left (`offset` -1) or Move Tab Right (+1) takes `id`, as a display index;
+    /// nil at the edge of its section. A pinned tab moves only among the pinned tabs and an
+    /// unpinned one only among the rest, as in Chrome.
+    public func moveIndex(of id: TabID, by offset: Int) -> Int? {
+        let ordered = orderedTabs
+        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return nil }
+        let pinnedCount = ordered.count(where: \.isPinned)
+        let section = ordered[index].isPinned ? 0..<pinnedCount : pinnedCount..<ordered.count
+        let target = index + offset
+        return target != index && section.contains(target) ? target : nil
+    }
+}
