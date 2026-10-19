@@ -38,11 +38,7 @@ pub(super) enum InboundRefused {
 }
 
 pub(super) use super::paired_streams::Revocations;
-use super::paired_streams::while_paired;
-
-/// How long a revoked paired stream waits for the dialing side to close
-/// after its own shutdown (the dialer's FIN acknowledges the close).
-const REVOKED_CLOSE_ACK: std::time::Duration = std::time::Duration::from_secs(2);
+use super::paired_streams::{close_revoked, while_paired};
 
 /// The daemon entry a link stream may reach for the session listening on
 /// `session_socket`: its remote entry, never the session socket itself.
@@ -177,20 +173,6 @@ where
     let mut daemon = connect_same_uid(&socket, uid).await?;
     let _ = tokio::io::copy_bidirectional(&mut stream, &mut daemon).await;
     Ok(())
-}
-
-async fn close_revoked<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) {
-    // Close while the WireGuard peer still exists (the reload waits for this
-    // session before it removes the peer): shut down, then wait, bounded,
-    // for the dialing side's own close.
-    let _ = stream.shutdown().await;
-    let _ = tokio::time::timeout(REVOKED_CLOSE_ACK, async {
-        let mut sink = [0u8; 1024];
-        while matches!(tokio::io::AsyncReadExt::read(&mut *stream, &mut sink).await, Ok(n) if n > 0)
-        {
-        }
-    })
-    .await;
 }
 
 /// Connect to `socket` and require that its listener runs as `uid`.

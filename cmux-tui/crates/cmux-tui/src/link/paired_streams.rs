@@ -3,8 +3,9 @@
 use cmux_link::pairing::Pairings;
 use cmux_link::stamp::LinkPeer;
 use std::future::Future;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
-/// What an open paired stream watches (`serve_inbound_watched`): every new
+/// What an open paired stream watches: every new
 /// pairing view, and the register of open paired streams that a reload
 /// waits on before it removes a revoked WireGuard peer.
 #[derive(Clone)]
@@ -97,4 +98,17 @@ pub(super) async fn while_paired<F: Future>(
         () = revoked => Err(()),
         result = work => Ok(result),
     }
+}
+
+/// Send the close while reload still retains the WireGuard peer. Drain only
+/// to acknowledge the far side's close; revoked bytes never reach a caller.
+pub(super) async fn close_revoked<S: AsyncRead + AsyncWrite + Unpin>(stream: &mut S) {
+    let _ = stream.shutdown().await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        let mut sink = [0u8; 1024];
+        while matches!(tokio::io::AsyncReadExt::read(&mut *stream, &mut sink).await, Ok(n) if n > 0)
+        {
+        }
+    })
+    .await;
 }

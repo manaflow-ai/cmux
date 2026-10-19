@@ -196,9 +196,9 @@ async fn outgoing_revocation_closes_daemon_and_owner_before_overlay_removal() {
 }
 
 #[tokio::test]
-async fn outgoing_revocation_closes_a_reassigned_key_for_each_identity_field() {
+async fn outgoing_revocation_closes_reassigned_identities_and_rotated_keys() {
     let mut failures = Vec::new();
-    for field in ["install", "user", "team"] {
+    for field in ["install", "user", "team", "key"] {
         let mut link = LocalLink::start(false).await;
         let (caller, remote) = link.open("daemon").await;
         let mut fresh = pairings();
@@ -206,6 +206,10 @@ async fn outgoing_revocation_closes_a_reassigned_key_for_each_identity_field() {
             "install" => fresh.peers[0].install = "inst_c".into(),
             "user" => fresh.peers[0].user = "other-user".into(),
             "team" => fresh.peers[0].team = "other-team".into(),
+            "key" => {
+                fresh.peers[0].public_key =
+                    base64::engine::general_purpose::STANDARD.encode([3; 32])
+            }
             _ => unreachable!(),
         }
         link.save(&fresh);
@@ -248,4 +252,33 @@ async fn outgoing_endpoint_updates_preserve_the_same_identity_and_payload() {
     exchange(&mut caller, &mut remote).await;
     caller.get_mut().shutdown().await.unwrap();
     remote.get_mut().shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn outgoing_revocation_refuses_a_stale_snapshot_before_contacting_the_peer() {
+    let mut link = LocalLink::start(false).await;
+    let stale = link.peers.snapshot();
+    link.save(&Pairings::default());
+    link.peers.reload(&*link.overlay).await.unwrap();
+    let (caller, link_side) = tokio::io::duplex(4096);
+    let mut caller = BufReader::new(caller);
+    let resolver = CloudResolver::new(RelaySource);
+    let serve = super::dial::serve_dial_line(
+        link_side,
+        "{\"op\":\"link.dial\",\"host\":\"inst_b\",\"service\":\"daemon\"}",
+        &*link.overlay,
+        &stale,
+        &resolver,
+        Some(link.peers.revocations()),
+    );
+    let read = async {
+        let mut reply = String::new();
+        caller.read_line(&mut reply).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["error_code"],
+            "not_authorized"
+        );
+    };
+    within(async { tokio::join!(serve, read) }).await;
+    assert!(link.entered.try_recv().is_err(), "a stale view contacted the revoked peer");
 }

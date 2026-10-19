@@ -41,7 +41,7 @@ impl Peers {
         Ok(Self { path, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) })
     }
 
-    /// What an incoming paired stream watches for revocation.
+    /// What every incoming or outgoing paired stream watches for revocation.
     pub(super) fn revocations(&self) -> Revocations {
         Revocations { view: self.changes.subscribe(), open: self.open.clone() }
     }
@@ -167,7 +167,8 @@ async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
         return;
     }
     let pairings = peers.snapshot();
-    serve_dial_line(stream, &first, &*overlay, &pairings, &resolver).await;
+    serve_dial_line(stream, &first, &*overlay, &pairings, &resolver, Some(peers.revocations()))
+        .await;
 }
 
 /// Serve overlay streams from paired peers. Without a session socket this
