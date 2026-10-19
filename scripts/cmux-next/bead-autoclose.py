@@ -144,7 +144,7 @@ def beads_named(pull: dict, *, include_comments: bool = False) -> list[str]:
 
 def link_bead_on_pull_request(pull: dict, bead_id: str) -> None:
     """The bead line of the PR's status comment (scripts/ci/pr_status.py)."""
-    args = ["gh", "workflow", "run", "pr-status.yml", "-R", REPO, "--ref", "feat-cmux-next",
+    args = ["gh", "workflow", "run", "pr-status.yml", "-R", REPO, "--ref", "main",
             "-f", f"pr={pull['number']}", "-f", f"bead={bead_id}"]
     result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode:

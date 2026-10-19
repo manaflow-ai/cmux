@@ -6,6 +6,8 @@ name: PR status line
 # person; a dispatch shows only in Actions, and the line lands as github-actions.
 # Inputs are a pull request number and one validated value: `field` refuses anything that
 # is not a bead id or a commit SHA, so a dispatch cannot put free text on a pull request.
+# GitHub dispatches only a workflow on the default branch, so callers run it on main; the
+# same file and script are on feat-cmux-next.
 on:
   workflow_dispatch:
     inputs:
