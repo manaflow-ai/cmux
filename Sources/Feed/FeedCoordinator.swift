@@ -172,6 +172,13 @@ final class FeedCoordinator: @unchecked Sendable {
         }
     }
 
+    /// Joins the Workstream JSONL and revision-sidecar writes before an
+    /// orderly application termination is acknowledged by AppKit.
+    @MainActor
+    func flushPersistenceForTermination() async {
+        await store?.flushPersistence()
+    }
+
     /// Installs a one-shot kqueue watcher for `ppid`. The handler
     /// fires the moment the kernel observes process exit (or
     /// immediately if `ppid` is already dead), marks every pending

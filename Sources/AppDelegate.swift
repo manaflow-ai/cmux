@@ -2317,6 +2317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 guard !Task.isCancelled else { return }
                 await CloudNotificationSyncHub.shared.persistenceStore.drain()
+                await FeedCoordinator.shared.flushPersistenceForTermination()
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }
