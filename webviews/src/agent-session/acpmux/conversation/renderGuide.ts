@@ -3,7 +3,7 @@ import { labOn } from "../labs";
 
 /// Teach the reply's render fences once per agent session (Lucas 2026-10-19).
 const INTRO =
-  "Draw charts, diagrams, interactive tables, calculators and explorable explanations inline when they help. Use a ```cmux-render block (HTML/CSS/JS) or ```cmux-react (function App(), React 18 global, no imports). Fences are the fast streaming path: HTML draws as written, scripts and React run on close. Tool-based renders: check it with render_preview, then show it with render. Preview returns an image and diagnostics at reply width; width:390 checks phones. Never include secrets. Skip simple answers and code to paste.";
+  "Draw charts, diagrams, interactive tables, calculators and explorable explanations inline when they help. Use a ```cmux-render block (HTML/CSS/JS) or ```cmux-react (function App(), React 18 global, no imports). Fences are the fast streaming path: HTML draws as written, scripts and React run on close. Tool-based renders: check it with render_preview, then show it with render. Preview returns an image and diagnostics at reply width; width:390 checks phones. Never include secrets. Pass the HTML inline in the fence or the tool call; never write it to a file, and use these instead of a separate visualize or artifact skill. Skip simple answers and code to paste.";
 const LAYOUT =
   "Flush with reply text: no outer card, banner, background or horizontal body padding. Fluid width, content height; never 100vh or height:100%. Inset surfaces: 16px padding, var(--cmux-radius) corners. Charts need pixel heights. Short styles first, markup next, scripts last.";
 const BRIDGE =

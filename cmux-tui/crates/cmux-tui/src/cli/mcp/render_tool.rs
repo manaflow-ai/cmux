@@ -25,7 +25,7 @@ pub(super) fn descriptor() -> Value {
             "additionalProperties": false,
             "required": ["html"],
             "properties": {
-                "html": {"type": "string", "minLength": 1, "description": "At most 1 MiB of UTF-8."},
+                "html": {"type": "string", "minLength": 1, "description": "At most 1 MiB of UTF-8. Pass it inline; never write it to a file first."},
                 "title": {"type": "string", "maxLength": MAX_TITLE_CHARS}
             }
         },
