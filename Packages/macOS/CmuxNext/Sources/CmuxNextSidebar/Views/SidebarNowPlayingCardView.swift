@@ -51,7 +51,7 @@ final class SidebarNowPlayingCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func configure(_ nowPlaying: SidebarNowPlaying?) {
         guard nowPlaying != self.nowPlaying else { return }
@@ -186,7 +186,7 @@ final class SidebarNowPlayingScrubber: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func show(_ nowPlaying: SidebarNowPlaying?) {
         self.nowPlaying = nowPlaying

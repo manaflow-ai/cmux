@@ -265,7 +265,15 @@ impl Hub {
             lifecycle_receipt: None,
             peer: None,
         };
+        let receipt = SessionReceipt::new(
+            LOCAL_HOST_ID,
+            m.id.clone(),
+            m.agent_session_id.clone(),
+            self.started_at,
+        );
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
+        summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
+        summary["sessionReceipt"] = receipt.to_value();
         decide(&mut summary);
         summary
     }

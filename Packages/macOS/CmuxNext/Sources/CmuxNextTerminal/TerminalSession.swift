@@ -81,7 +81,7 @@ public final class TerminalSession {
         guard force || config !== previous else { return }
         theme = config
         view.theme = config
-        applyTheme(to: surfaceView, clearing: previous != nil && config == nil)
+        applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: true)
     }
 
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
@@ -107,6 +107,8 @@ public final class TerminalSession {
     /// later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
     private(set) var swappedSurfaces = 0
+    /// Last frames shown while this session attached (``showLastFrame(_:)``).
+    private(set) var lastFrameHolds = 0
     /// Local-history restores whose history did not match the owner's (or
     /// failed): each one asked the owner for READY + history.
     private(set) var localHistoryMismatches = 0
@@ -226,6 +228,18 @@ public final class TerminalSession {
         surfaceView.snapshot(maxPixelSize: maxPixelSize)
     }
 
+    /// A new session for an evicted terminal: its last frame shows at once, until the first
+    /// content the owner sends is parsed and drawn (no empty pane while it attaches). Returns
+    /// why it did not (diagnostics), nil when it holds the frame.
+    @discardableResult
+    public func showLastFrame(_ frame: TerminalLastFrame) -> String? {
+        guard !surfaceHasContent else { return "has_content" }
+        guard let surface = frame.take() else { return "purged" }
+        lastFrameHolds += 1
+        frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+        return nil
+    }
+
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
@@ -253,6 +267,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .kittyReplay(let replay):
             // GhosttyNextKit restores Kitty graphics through GHOSTSNP snapshots
@@ -263,6 +278,7 @@ public final class TerminalSession {
             if surfaceHasContent { swapSurface() }
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .snapshot(let data, let phase):
             // The same surface takes the owner's state: no swap.
@@ -270,6 +286,7 @@ public final class TerminalSession {
             guard restored, phase.isReady else { return }
             restoredSnapshots += 1
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
             TypingLatencyProbe.shared.mark(.outputMain)
@@ -279,6 +296,7 @@ public final class TerminalSession {
             // The surface may have been swapped while waiting (a replay).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
+            frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .resize(let columns, let rows):
             guard columns > 0, rows > 0 else { return }
@@ -327,7 +345,7 @@ public final class TerminalSession {
         fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
-        applyTheme(to: fresh, clearing: false)
+        applyTheme(to: fresh, clearing: false, animated: false)
         TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
@@ -340,8 +358,11 @@ public final class TerminalSession {
     /// A new surface starts from the app config, so only a theme needs
     /// applying; clearing one re-applies the app config (Ghostty resolves
     /// its light/dark variant per surface).
-    private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool) {
+    /// `animated`: the live surface blends to the new colors on the GPU from the colors on
+    /// screen (a theme change); a fresh surface takes its first colors at once.
+    private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool, animated: Bool) {
         guard let surface = surfaceView.surface else { return }
+        surfaceView.applyColorTransition(animated: animated)
         if let theme {
             ghostty_surface_update_config(surface, theme.config)
         } else if clearing, let config = GhosttyRuntime.shared.config {

@@ -59,6 +59,9 @@ final class AgentTabStore {
     /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
     /// where its new chats start (cx-9aps). Nil while the tab is not found.
     var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
+    /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
+    /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
+    var daemonListing: @MainActor (TabModel) -> DaemonService? = { _ in nil }
     /// Tabs closed while the store was still creating them: closed when it answers.
     var pendingCloses: [String: @MainActor (String) -> Void] = [:]
     /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): ≤255 bytes, no control characters.

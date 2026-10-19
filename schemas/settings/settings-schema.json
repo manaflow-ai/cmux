@@ -338,6 +338,7 @@
             "rows" : [
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
+              "workspaces.autoName",
               "appearance.sidebarSurface",
               "sidebar.border",
               "sidebar.borderWidth",
@@ -394,6 +395,7 @@
             "key" : "settings.group.statusIndicator",
             "rows" : [
               "appearance.statusIndicator.style",
+              "appearance.statusIndicator.animation",
               "appearance.statusIndicator.size",
               "appearance.statusIndicator.thickness",
               "appearance.statusIndicator.color",
@@ -538,6 +540,16 @@
               "key" : "settings.group.freeModel",
               "text" : "AI Models"
             }
+          },
+          {
+            "key" : "settings.group.sessions",
+            "rows" : [
+              "sessions.keepAwake"
+            ],
+            "title" : {
+              "key" : "settings.group.sessions",
+              "text" : "Agent Sessions"
+            }
           }
         ],
         "id" : "agents",
@@ -572,7 +584,8 @@
               "notifications.suppressWhileTypingSeconds",
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
-              "notifications.dockBadge"
+              "notifications.dockBadge",
+              "notifications.dockBounce"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -3721,6 +3734,79 @@
     },
     {
       "accepts" : [
+        "off",
+        "pluggedIn",
+        "always"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakePluggedIn",
+            "text" : "While Plugged In"
+          },
+          "value" : "pluggedIn"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.keepAwakeAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "pluggedIn",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.keepAwake.help",
+        "text" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.keepAwake",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "caffeinate",
+        "battery",
+        "power",
+        "agents"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "keepAwake"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.keepAwake",
+        "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -4443,6 +4529,59 @@
       "title" : {
         "key" : "settings.sidebar.groupByComputer",
         "text" : "Group Workspaces by Computer"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.workspaces.autoName.help",
+        "text" : "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.autoName",
+      "keywords" : [
+        "workspace",
+        "name",
+        "rename",
+        "auto",
+        "title",
+        "tab",
+        "chat",
+        "page",
+        "folder",
+        "sidebar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "autoName"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaces.autoName",
+        "text" : "Name Workspaces from Tabs"
       },
       "validation" : "portable"
     },
@@ -12834,6 +12973,75 @@
       "title" : {
         "key" : "settings.statusIndicator.style",
         "text" : "Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "animated",
+        "static"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.animated",
+            "text" : "Animated"
+          },
+          "value" : "animated"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.static",
+            "text" : "Static"
+          },
+          "value" : "static"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "animated",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.animation.help",
+        "text" : "Static draws a still, distinct shape for each state. Reduce Motion always uses Static."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.animation",
+      "keywords" : [
+        "animation",
+        "motion",
+        "blink",
+        "pulse",
+        "flash",
+        "static",
+        "reduce motion",
+        "accessibility",
+        "headache"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "animation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.statusIndicator.animation",
+        "text" : "Status Indicators"
       },
       "validation" : "portable"
     },
@@ -22825,6 +23033,77 @@
     },
     {
       "accepts" : [
+        "off",
+        "once",
+        "untilActive"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceOnce",
+            "text" : "Once"
+          },
+          "value" : "once"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dockBounceUntilActive",
+            "text" : "Until You Switch to cmux"
+          },
+          "value" : "untilActive"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "once",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.dockBounce.help",
+        "text" : "When a notification alerts while cmux isn't the active app."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.dockBounce",
+      "keywords" : [
+        "dock",
+        "bounce",
+        "attention",
+        "badge"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "dockBounce"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.dockBounce",
+        "text" : "Bounce Dock Icon"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -24998,7 +25277,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fd4f8f37b75939fc97aaa9a07d4afd9a289b89297f8f27023db93b9e1a04ee26",
+  "schema_hash" : "502fa1bb751069c138334d83a806a719d993de32235251b4d3b9035f24c81d78",
   "sections" : [
     {
       "id" : "general",

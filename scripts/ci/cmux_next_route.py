@@ -281,6 +281,13 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         result.everything("the diff is unknown or empty: every tier")
         return result
 
+    # The workflow defines the native build and its routing contract. A change
+    # to it must exercise the release compile even though other CI-only files
+    # can stay on the Linux fast tier.
+    if ".github/workflows/cmux-next.yml" in changed:
+        result.everything("cmux-next workflow changed: run every tier")
+        return result
+
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
     read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731

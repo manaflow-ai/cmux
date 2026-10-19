@@ -160,6 +160,8 @@ impl Hub {
             harness_roots: vec![],
             watching: None,
             composer_draft: None,
+            // It runs the parent's mode: a spawn from other preset contents leaves it too.
+            preset_mode_approval: parent_meta.preset_mode_approval.clone(),
             // Filled below with the fork's own seqs of the marked prompts it copies.
             bookmarks: Default::default(),
             // The fork keeps the chat's tools off (`hub/tools.rs`); its spawn lists them again.

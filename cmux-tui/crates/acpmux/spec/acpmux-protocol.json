@@ -720,6 +720,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/inventory/watch",
+      "params": {
+        "$ref": "#/types/InventoryWatchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/update",
       "params": true,
       "result": true
@@ -890,6 +898,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/harnesses_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/harness_inventory",
       "params": true
     },
     {
@@ -1071,6 +1084,18 @@
       ],
       "type": "string"
     },
+    "InventoryWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
+    },
     "Isolation": {
       "description": "acpmux never claims host isolation.",
       "enum": [
@@ -1192,7 +1217,7 @@
       "type": "object"
     },
     "LifecycleReceipt": {
-      "description": "A durable lifecycle fact supplied by an explicit producer.",
+      "description": "A durable lifecycle fact supplied by an explicit producer. This contract\nis intentionally optional and opaque to the session sidebar until a\nproducer wires it to a real controller receipt.",
       "properties": {
         "id": {
           "type": "string"
@@ -2092,7 +2117,7 @@
               "type": "null"
             }
           ],
-          "description": "An optional explicit lifecycle receipt; absent until a producer supplies validated evidence."
+          "description": "An optional controller/daemon lifecycle receipt. It is absent until a\nproducer supplies a validated receipt; clients must not infer one from\nstatus or placement fields."
         },
         "mcpServers": {
           "description": "The MCP servers the harness says it loaded, from its own report (Claude\nCode's system/init); null when it reports none (every ACP harness).",

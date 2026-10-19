@@ -77,7 +77,7 @@ final class ScreenContentView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     fileprivate var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
@@ -219,7 +219,7 @@ final class ScreenContentView: NSView {
                 dividerViews[kind] = view
             }
             view.lineThickness = style.dividerThickness
-            view.showsIdleLine = style.showsDividerLine
+            view.showsIdleLine = kind.usesRowSeparator ? style.showsRowSeparator : style.showsDividerLine
             view.showsActiveLine = style.showsDividerFeedback
             if var frame = dividerFrames[kind] {
                 if scrolls(kind) {

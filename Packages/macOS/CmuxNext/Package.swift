@@ -62,6 +62,8 @@ import PackageDescription
 //   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
 //   CmuxNextAgentCursorVisibility -> AgentCursor (pure visibility rules for a cursor target: snapshot in,
 //     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
+//   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, Design (hq#1957: the name a workspace takes from a moved
+//     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
 //   CmuxNextAgentLanes -> AgentActivity, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
@@ -176,6 +178,7 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextKeepAwake",
                 "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
@@ -187,6 +190,7 @@ let package = Package(
                 "CmuxNextFocusUI",
                 "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
+                "CmuxNextDaemonRecovery",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
@@ -236,6 +240,7 @@ let package = Package(
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
+                "CmuxNextWorkspaceNaming",
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
@@ -264,7 +269,7 @@ let package = Package(
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
                            .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -274,7 +279,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -350,6 +355,16 @@ let package = Package(
         ),
         // The agent question card (plans/cmux-next/agent-questions.md): one
         // AppKit view and layout for Home rows, agent panes and the UI Gallery.
+        // The launch window's connecting and failure screen with Retry Now and
+        // Restart cmux-tui, and the App Store banner's recovery actions (cx-jniyz.1).
+        .target(
+            name: "CmuxNextDaemonRecovery",
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextAgentQuestion",
             dependencies: [
@@ -497,6 +512,33 @@ let package = Package(
             dependencies: ["CmuxNextAgentCursor"],
             swiftSettings: uiSwiftSettings
         ),
+        // Workspace naming (hq#1957): the name a workspace made from a moved tab
+        // takes, and the name a default-named workspace takes from its front tab
+        // (live label, or variant B's one-time rename). Pure rules; the App
+        // supplies its browser pages, New Tab pages and the rename command.
+        .target(
+            name: "CmuxNextWorkspaceNaming",
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextWorkspaceNamingTests",
+            dependencies: ["CmuxNextWorkspaceNaming"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
+        // action and working local agents, released on battery unless the user
+        // chose Always. IOKit's power-source notification, no polling.
+        .target(
+            name: "CmuxNextKeepAwake",
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextKeepAwakeTests",
+            dependencies: ["CmuxNextKeepAwake", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the
         // pane listing computer use sessions on every machine, their
         // screenshot timeline and user controls. A projection: the CUA host
@@ -524,11 +566,16 @@ let package = Package(
         // and the App Store window. The App supplies the operation sink.
         .target(
             name: "CmuxNextApps",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/AppPlatform"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAppsTests",
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
@@ -937,9 +984,12 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+            dependencies: ["CmuxNextCompat", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                           // ReduceMotionLoopTests builds the vendored Home typing indicators.
+                           .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
+                           .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                            // GhosttyGlassMinimumContrastTests builds a Ghostty config.
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")],

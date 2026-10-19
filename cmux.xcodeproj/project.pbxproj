@@ -162,6 +162,7 @@
 				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
+				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
 			);
 			buildRules = (
 			);
@@ -454,6 +455,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-server-helper.sh\"\n";
+		};
+		CE7A00000000000000000043 /* Bundle MediaRemote adapter */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle MediaRemote adapter";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-mediaremote-adapter.sh\"\n";
 		};
 		CE7A00000000000000000040 /* Verify web bundles */ = {
 			isa = PBXShellScriptBuildPhase;

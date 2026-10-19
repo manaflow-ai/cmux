@@ -75,13 +75,14 @@ public nonisolated enum MotionTunables {
     static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [
         .spinner: (0.9, "One turn of the busy spinner."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
-        .flash: (0.6, "Pane attention flash (two blinks)."),
+        .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
     ]
 
     static let loops: [MotionLoop: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionLoop.allCases.map { loop in
         let entry = loopDefaults[loop] ?? (1, "")
         return (loop, Tunable.number("motion.loop.\(loop.rawValue)", .fades, "\(loop.rawValue) period", help: entry.1,
-                                     default: entry.0, range: 0.1...4, step: 0.05, unit: .seconds, code: "MotionTunables.loopDefaults[.\(loop.rawValue)]"))
+                                     default: entry.0, range: loop.minimumPeriod...4, step: 0.05, unit: .seconds,
+                                     code: "MotionTunables.loopDefaults[.\(loop.rawValue)]"))
     })
 
     // MARK: Marquee and panel scale

@@ -91,6 +91,7 @@ impl Hub {
             head,
             preset_name: preset.clone(),
             folder_root,
+            preset_digest: preset_cfg.as_ref().and_then(|p| p.approval_digest()),
         })
     }
 }
@@ -134,6 +135,8 @@ pub(super) struct Resolved {
     pub(super) preset_name: Option<String>,
     /// The folder of a folder profile (H4): the session's cwd must be inside it.
     pub(super) folder_root: Option<PathBuf>,
+    /// The approval digest of the preset contents read here (`hub/start_gate/preset_bind.rs`).
+    pub(super) preset_digest: Option<String>,
 }
 
 /// The inputs of a new session's meta (`draft_meta`).
@@ -198,6 +201,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_roots: vec![],
         watching: None,
         composer_draft: None,
+        preset_mode_approval: None,
         bookmarks: Default::default(),
         tools: Default::default(),
         // Read off the async runtime by `session/new` (`adoption::start_folder`).
