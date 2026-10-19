@@ -36,6 +36,13 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         /// `home` (8 lowercase hex, optchat-chief `paths::home_id`), whose agent tabs record
         /// host `chief:<home>`. The Chief writes it in its text (`workspaces::subagent_link`).
         case chiefSession(home: String, session: String)
+        /// An outside agent's session by the harness's own id (hq#2555):
+        /// `agent/<harness>/<harnessSessionId>`, where the harness is an acpmux
+        /// name (`claude`, `codex`, `opencode`, …) and the session is the id the
+        /// harness gives it (`CLAUDE_CODE_SESSION_ID`, `CODEX_THREAD_ID`). An
+        /// address, not a credential: it opens only a tab this app already
+        /// shows that session in.
+        case agent(harness: String, session: String)
         /// Nightly's `workspace/<uuid>`: the durable workspace key, with the
         /// `stable_workspace_id` fallback.
         case legacyWorkspace(UUID, fallback: UUID?)
@@ -44,6 +51,11 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         /// Nightly's `workspace/<uuid>/surface/<uuid>` (or `/panel/`), with the
         /// `stable_workspace_id` and `stable_surface_id` fallbacks.
         case legacySurface(workspace: UUID, surface: UUID, fallbackWorkspace: UUID?, fallbackSurface: UUID?)
+
+        var isAgent: Bool {
+            if case .agent = self { return true }
+            return false
+        }
     }
 
     /// The object the link opens.
@@ -52,15 +64,25 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     /// the link names one. Ids are globally unique, so it is a hint for the
     /// refusal, never needed to find the target.
     public var machine: String?
+    /// An agent link's `?host=` display hint: the name of the machine the
+    /// agent ran on. Never used to find the session or to trust the link.
+    public var hostHint: String?
+    /// An agent link's `?name=` display hint: the agent's name. Never used to
+    /// find the session or to trust the link.
+    public var nameHint: String?
 
     /// A link to `target`.
     ///
     /// - Parameters:
     ///   - target: The object the link opens.
     ///   - machine: The `machine_` id of a remote machine; nil for none.
-    public init(_ target: Target, machine: String? = nil) {
+    ///   - hostHint: An agent link's machine name for display; nil for none.
+    ///   - nameHint: An agent link's agent name for display; nil for none.
+    public init(_ target: Target, machine: String? = nil, hostHint: String? = nil, nameHint: String? = nil) {
         self.target = target
         self.machine = machine
+        self.hostHint = hostHint
+        self.nameHint = nameHint
     }
 
     /// The host of the sign-in callback (`<scheme>://auth-callback`), which
@@ -85,6 +107,10 @@ public nonisolated struct DeepLink: Sendable, Hashable {
             text += "session/\(id)"
             fragment = turn.map { Self.turnFragmentPrefix + $0 }
         case .chiefSession(let home, let session): text += "chief/\(home)/session/\(session)"
+        case .agent(let harness, let session):
+            text += "agent/\(harness)/\(session)"
+            if let hostHint { query.append("\(Self.hostHintKey)=\(hostHint)") }
+            if let nameHint { query.append("\(Self.nameHintKey)=\(nameHint)") }
         case .legacyWorkspace(let workspace, let fallback):
             text += "workspace/\(workspace.uuidString)"
             if let fallback { query.append("stable_workspace_id=\(fallback.uuidString)") }
@@ -104,15 +130,24 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     /// The fragment that names a turn: `#turn-<turnId>`.
     static let turnFragmentPrefix = "turn-"
 
+    /// The query parameters of an agent link's display hints.
+    static let hostHintKey = "host"
+    static let nameHintKey = "name"
+
     /// Whether every id fits its kind's grammar (``parse(_:scheme:)``).
     var isWellFormed: Bool {
         if let machine, !Self.isResourceID(machine, prefix: "machine_") { return false }
+        if let hostHint, !Self.isHint(hostHint) { return false }
+        if let nameHint, !Self.isHint(nameHint) { return false }
+        // Only an agent link carries hints; any other would not parse back the same.
+        if hostHint != nil || nameHint != nil, !target.isAgent { return false }
         switch target {
         case .workspace(let id): return Self.isResourceID(id, prefix: "ws_")
         case .pane(let id): return Self.isResourceID(id, prefix: "pane_")
         case .tab(let id): return Self.isResourceID(id, prefix: "tab_")
         case .session(let id, let turn): return Self.isToken(id) && (turn.map(Self.isToken) ?? true)
         case .chiefSession(let home, let session): return Self.isChiefHome(home) && Self.isToken(session)
+        case .agent(let harness, let session): return Self.isHarness(harness) && Self.isToken(session)
         case .legacyWorkspace, .legacyPane, .legacySurface: return true
         }
     }
@@ -121,6 +156,8 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     static let resourceHexDigits = 32
     /// The lengths a session or turn id may have.
     static let tokenLengths = 1...200
+    /// The lengths a harness name or a display hint may have.
+    static let shortTokenLengths = 1...64
 
     /// `<prefix>` plus 128 bits as 32 lowercase hex digits
     /// (cmux-tui/spec/resource-api-v2.md).
@@ -142,6 +179,19 @@ public nonisolated struct DeepLink: Sendable, Hashable {
             (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
                 || byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_") || byte == UInt8(ascii: ".")
         }
+    }
+
+    /// An acpmux harness name (`claude`, `codex`, `opencode`): 1 to 64
+    /// lowercase ASCII letters, digits or `-`.
+    static func isHarness(_ text: String) -> Bool {
+        shortTokenLengths.contains(text.utf8.count) && text.utf8.allSatisfy { byte in
+            (48...57).contains(byte) || (97...122).contains(byte) || byte == UInt8(ascii: "-")
+        }
+    }
+
+    /// A display hint (`?host=`, `?name=`): a token of at most 64 characters.
+    static func isHint(_ text: String) -> Bool {
+        shortTokenLengths.contains(text.utf8.count) && isToken(text)
     }
 
     /// An RFC 3986 scheme: a letter, then letters, digits, `+`, `-` or `.`.

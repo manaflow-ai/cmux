@@ -1,6 +1,6 @@
 {
   "agent_tab" : "Copy Tab Link on an agent chat tab writes its chat's session link (kind session, no turn), not a tab link; a new chat with no session has no link",
-  "description" : "cmux-next object links (Copy Workspace/Pane/Tab Link, agent chat sessions), generated from CmuxNextActions/DeepLink (DeepLink.url) and CloudConfiguration.callbackScheme. Do not edit: CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter LinkExportTests rewrites it.",
+  "description" : "cmux-next object links (Copy Workspace/Pane/Tab Link, agent chat sessions, outside agent sessions), generated from CmuxNextActions/DeepLink (DeepLink.url) and CloudConfiguration.callbackScheme. Do not edit: CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter LinkExportTests rewrites it.",
   "ignored" : "every other query parameter is ignored, so a link never carries a command",
   "kinds" : [
     {
@@ -28,6 +28,15 @@
       "id_rule" : "an acpmux session id: 1 to 200 ASCII letters, digits, '-', '_' or '.'",
       "kind" : "session",
       "turn" : "optional fragment #turn-<turnId>; the turn id follows the same rule"
+    },
+    {
+      "example" : "cmux://agent/claude/0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d",
+      "example_with_hints" : "cmux://agent/claude/0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d?host=big-red&name=Rivetmoss",
+      "hints" : "optional ?host=<machine name>&name=<agent name>, for display only: 1 to 64 characters of the session id rule; a malformed hint is dropped",
+      "id_rule" : "harness: an acpmux harness name, 1 to 64 lowercase ASCII letters, digits or '-'; session: the harness's own session id, 1 to 200 ASCII letters, digits, '-', '_' or '.'",
+      "kind" : "agent",
+      "opens" : "only a tab this app already shows the session in (the chat tab that adopted it, else the terminal running it); it never starts, resumes or connects to anything",
+      "path" : "agent/<harness>/<session>"
     }
   ],
   "machine" : "optional ?machine=machine_<32 hex>: the machine the target lives on (a hint; ids are globally unique)",
