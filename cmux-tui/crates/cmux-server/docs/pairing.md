@@ -1,0 +1,69 @@
+# Server enrollment
+
+Start enrollment on the server:
+
+```sh
+cmux server pair --name "Build host"
+```
+
+Enter the displayed code in Add Server in the signed-in cmux app. Compare the
+four check words before approving. The existing backend approval checks the
+person's team rights and registers the server's install key. The server waits
+for the pushed result and saves the returned host, team, user and install IDs.
+
+`cmux server pair status --json` reads the local enrollment record, including
+before installation. Its `state` is one of:
+
+| State | Fields | Meaning |
+| --- | --- | --- |
+| `unpaired` | none | No completed local enrollment or pending attempt |
+| `pending` | `expires_at` | An approval code is awaiting a recorded result |
+| `indeterminate` | `retry_not_before` | A begin request may have succeeded, but its reply was lost |
+| `paired` | `host`, `team`, `user`, `install` | A pushed approval was saved locally |
+
+These states describe enrollment. Transport reachability and serving roles have
+their own health. An enrollment record is not an execution grant.
+
+For `pair --json`, public progress objects go to stderr and the final result
+goes to stdout. A validated HTTPS `verification_uri` from the selected API is
+included when available and preserved on resume. Machine fields, IDs and diagnostic codes are invariant; human
+instructions and status labels follow `LC_ALL`, `LC_MESSAGES` or `LANG` in the
+nine supported macOS languages. The default API is
+`https://cloud-api.cmux.dev`; `--api-origin` accepts a canonical HTTPS origin.
+Redirects, userinfo, paths, queries and fragments are refused.
+
+## Recovery and private state
+
+State lives at `pairing/identity.json` under the server layout's state directory.
+One file lock serializes enrollment. ES256 and WireGuard keys remain stable
+across retries. The known pending response is saved before waiting, so running
+the same command resumes the same code after a disconnected wait or restart.
+An optional `--idempotency-key` also binds that attempt; a different key or API
+origin cannot retarget it.
+
+A begin request whose reply was lost is left indeterminate through the maximum
+code lifetime and clock-skew allowance. The client does not issue another begin
+while that code could still be active. A code that expires requires another
+explicit pairing attempt and approval. Backend host records are owned by the
+backend; local expiry does not revoke them.
+
+On Unix, the identity directory and file must be private to the current user
+(0700 and 0600), with symlinks refused. On Windows, private keys and the pending
+collection response use current-user DPAPI with UI disabled, rather than
+machine-wide protection. See Microsoft's
+[CryptProtectData contract](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata).
+Public status, progress, debug output and error messages omit key material and
+the collection secret. The secret travels only in the WebSocket subprotocol
+header, which is marked sensitive.
+
+## Protocol ownership
+
+General servers and Chief hosts use
+`cmux_server_core::pairing::enrollment` for the environment-bound begin request,
+RFC 7638 thumbprint, check words and pushed-result validation. The server's
+network adapter bounds HTTP and WebSocket messages and waits against one
+deadline. It does not poll for approval.
+
+`server.pair.begin` and `server.pair.status` retain their existing catalog
+owners. Approval remains a signed-in human operation; no MCP approval surface,
+caller-supplied actor authority, App grant or remote execution grant is added.
