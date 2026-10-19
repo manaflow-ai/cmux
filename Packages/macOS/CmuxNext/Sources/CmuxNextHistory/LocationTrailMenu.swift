@@ -1,6 +1,8 @@
+public import CmuxNextDesign
+
 /// How the titlebar Back / Forward right-click list is laid out (Debug Settings
 /// `history.menuLayout`, plans/cmux-next/history.md 4.2c).
-public nonisolated enum LocationTrailMenuLayout: String, CaseIterable, Hashable, Sendable {
+public nonisolated enum LocationTrailMenuLayout: String, CaseIterable, Hashable, Sendable, TunableChoice {
     /// The entries Back and Forward walk (the scope), then the window's other
     /// places (other workspaces and chats) under their own header. The default.
     case scopeThenWindow
@@ -8,6 +10,14 @@ public nonisolated enum LocationTrailMenuLayout: String, CaseIterable, Hashable,
     case scope
     /// The window's places split by kind: browser pages, chats and pages, terminals.
     case byKind
+
+    public var tunableTitle: String {
+        switch self {
+        case .scopeThenWindow: "Scope, then other workspaces and chats"
+        case .scope: "Scope only (what Back walks)"
+        case .byKind: "Split by kind: browser, chats and pages, terminals"
+        }
+    }
 }
 
 /// One group of a Back or Forward list; every kind but `scope` shows a header.

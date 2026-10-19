@@ -15,7 +15,7 @@ extension WindowController {
         }
         band.historyMenu = { [weak services, weak registry] direction in
             guard let services, services.locationTrail.scope != .surface else { return nil }
-            let layout = TitlebarHistoryTunables.menuLayout.value.layout
+            let layout = TitlebarHistoryTunables.menuLayout.value
             let sections = services.locationTrail.menuSections(direction, layout: layout)
             // The `scope` layout is the R69 list as it was: nothing to list, no menu. The others
             // always open, so a right-click is never dead (Show All History at least).
