@@ -91,7 +91,7 @@ enum WorkspaceBulkClose {
                 (group.id.rawValue, group.workspaces.compactMap { services.machines.workspace(id: $0.id.rawValue)?.0.name })
             }
             for group in others { sidebar.handle(.closeGroup(group.id)) }
-        } else if id == "closeWorkspace", let first = members.first {
+        } else if id == "closeWorkspace", members.count > 1, let first = members.first {
             // A selection: each group it empties closes as Close Group does (an unpinned group goes, cx-rcby), the
             // other rows as their own close does (InstantClose), asked once (`prompt`) and undone together.
             let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first.0, context)

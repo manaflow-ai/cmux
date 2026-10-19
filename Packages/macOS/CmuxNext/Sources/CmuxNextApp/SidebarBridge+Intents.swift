@@ -64,7 +64,7 @@ extension SidebarBridge {
             // The row's close button is an entrypoint of `closeWorkspace`,
             // so it asks the same confirmation and ends the terminals too. Delete on a multi-row
             // selection is one Close Workspace of the selection (one question, one Undo).
-            guard let first = ids.first else { return }
+            guard let first = ids.first(where: model.canClose) ?? ids.first else { return }
             let row = ActionInvocation(closingRow: first.rawValue)
             services.registry.perform("closeWorkspace", invocation: ids.count > 1 ? ActionInvocation(target: row.target) : row)
         case .newWorkspace(let machine, let group):
