@@ -291,8 +291,10 @@ public final class AgentPaneModel {
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
-        case .projectIcon:
-            return AgentPaneReply.success()
+        case .projectIcon(let cwd):
+            // Off the main actor, cached by file and modification date; nil keeps the page's letters.
+            guard let src = await AgentPaneProjectIcons.shared.icon(for: cwd) else { return AgentPaneReply.success() }
+            return AgentPaneReply.success(["src": src])
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])

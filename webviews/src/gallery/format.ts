@@ -74,6 +74,8 @@ export type ChipHostFixture = {
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
   browsers?: { id: string; name: string; icon?: string }[];
+  /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
+  projectIcons?: Record<string, string>;
 };
 
 /** One step of an experiment's scripted interaction (the compare view replays them in sync). */
