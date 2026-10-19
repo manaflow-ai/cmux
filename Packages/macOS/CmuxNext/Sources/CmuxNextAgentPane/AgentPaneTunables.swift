@@ -282,6 +282,12 @@ public nonisolated struct AgentPaneTunables {
         "agentPane.labs.planProgress", PageTunables.section, "Plan progress above the composer",
         help: "The running plan's current step stays above the composer. New agent tabs.",
         default: false, code: "AgentPaneTunables.planProgress")
+    /// Files and changes open in one viewer beside the transcript, inside the chat, instead of a
+    /// new column or a tab over the chat (Lucas 2026-10-19).
+    public static let chatViewer = Tunable<Bool>.toggle(
+        "agentPane.labs.chatViewer", PageTunables.section, "Files and changes beside the chat",
+        help: "Changes and files from the chat open in one viewer beside the transcript, inside the chat, instead of a new column or a tab over the chat. New agent tabs.",
+        default: true, code: "AgentPaneTunables.chatViewer")
     public static let shortcutsHelp = Tunable<Bool>.toggle(
         "agentPane.labs.shortcutsHelp", PageTunables.section, "Keyboard shortcuts in the chat menu",
         help: "The chat menu shows the keyboard shortcuts available in the pane. New agent tabs.",
@@ -290,7 +296,7 @@ public nonisolated struct AgentPaneTunables {
     static let labTunables: [String: Tunable<Bool>] = [
         "live-render": liveRender, "render-guide": renderGuide, "render-kit": renderKit, "render-preview": renderPreview, "render-expand": renderExpand, "table-scroll": tableScroll, "context-meter": contextMeter, "prompt-collapse": promptCollapse,
         "message-times": messageTimes, "code-wrap": codeWrap, "plan-progress": planProgress,
-        "shortcuts-help": shortcutsHelp
+        "shortcuts-help": shortcutsHelp, "chat-viewer": chatViewer
     ]
     /// What a folded long thought's line reads: how long the agent thought, or its first line.
     /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
@@ -423,6 +429,7 @@ public nonisolated struct AgentPaneTunables {
     /// can, so the declarations above do not collide either.
     public static var all: [TunableDescriptor] {
         [
+            chatViewer.descriptor,
             chatWidth.descriptor,
             codeWrap.descriptor,
             codexToolRuns.descriptor,

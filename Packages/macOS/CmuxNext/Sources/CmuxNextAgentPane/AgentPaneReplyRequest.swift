@@ -8,6 +8,8 @@ public import Foundation
 /// - `link.inspect {paths, urls}`: where each path is (``AgentPaneReplyPaths``) and the favicon
 ///   and title cmux already has for each URL (no fetch). Passive: no gesture, no effect.
 /// - `link.openPath {path}`: open a path chip. Spends a user gesture.
+/// - `link.readPath {path}`: a path chip's file as text for the chat's viewer (the same checks as
+///   `link.openPath`; a folder still opens in Finder). Spends a user gesture.
 /// - `image.load {src}`: a reply image, a file or an https URL (host fetch). A file outside the
 ///   roots follows `agentPane.links.outsideRoots` (`confirm` spends a gesture, `text` refuses).
 ///   A web image spends a gesture unless `agentPane.images.remote` is `always`.
@@ -19,18 +21,20 @@ public import Foundation
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
+    case readPath(String)
     case loadImage(String)
     case loadMedia(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
-    public static let methods: Set<String> = ["link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn"]
+    public static let methods: Set<String> = ["link.inspect", "link.openPath", "link.readPath", "image.load", "media.load", "browser.list", "browser.openIn"]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list).
     static let knownParams: [String: Set<String>] = [
         "link.inspect": ["paths", "urls"],
         "link.openPath": ["path"],
+        "link.readPath": ["path"],
         "image.load": ["src"],
         "media.load": ["src"],
         "browser.list": [],
@@ -46,7 +50,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     var isPassive: Bool {
         switch self {
         case .inspect, .listBrowsers, .loadImage, .loadMedia: true
-        case .openPath, .openIn: false
+        case .openPath, .readPath, .openIn: false
         }
     }
 
@@ -76,6 +80,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         case "link.openPath":
             guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
             self = .openPath(path)
+        case "link.readPath":
+            guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
+            self = .readPath(path)
         case "image.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
             self = .loadImage(src)
@@ -90,6 +97,27 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             self = .openIn(url: url, browserId: id)
         default:
             return nil
+        }
+    }
+
+    /// A file's text for `link.readPath`: at most ``maximumBytes`` (``truncated`` past that), and
+    /// no text for a binary file (a NUL in its first 8 KiB), which the page opens in a tab instead.
+    struct FileText: Sendable {
+        static let maximumBytes = 1 << 20
+        let text: String?
+        let bytes: Int
+        let truncated: Bool
+
+        nonisolated init?(path: String) {
+            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            defer { try? handle.close() }
+            guard let read = try? handle.read(upToCount: Self.maximumBytes + 1) else { return nil }
+            let body = read ?? Data()
+            let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? body.count
+            bytes = max(size, body.count)
+            truncated = body.count > Self.maximumBytes
+            let kept = body.prefix(Self.maximumBytes)
+            text = kept.prefix(8192).contains(0) ? nil : String(decoding: kept, as: UTF8.self)
         }
     }
 
