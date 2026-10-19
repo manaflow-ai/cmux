@@ -32,11 +32,16 @@ import sys
 from pathlib import Path
 
 STAMP = "cmux-binary-pins.stamp"
-# Explicit Swift and Clang module builds, and the implicit module cache.
+# Explicit Swift and Clang module builds, the implicit module cache, and
+# Xcode's build description: it records those modules as built, so with only
+# the modules gone the next build asked clang for a Darwin pcm that no longer
+# existed (job 118285853270). Without it Xcode plans the build again; the
+# Swift driver's own incremental state in Intermediates.noindex stays.
 MODULE_DIRS = (
     "Build/Intermediates.noindex/SwiftExplicitPrecompiledModules",
     "Build/Intermediates.noindex/ExplicitPrecompiledModules",
     "ModuleCache.noindex",
+    "Build/Intermediates.noindex/XCBuildData",
 )
 CHECKSUM = re.compile(r"\b[0-9a-f]{64}\b")
 
