@@ -121,6 +121,7 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     private func decide(_ event: NSEvent, focus: FocusState, context: KeyContext, facts: Facts) -> Decision {
+        if editorSequenceTakes(event, focus: focus, context: context, facts: facts) { return .deliver }
         if let candidate = candidate(for: event, context: context, focus: focus) {
             if case .ghostty = candidate.source {
                 // A terminal runs its own Ghostty keybinds (in copy mode,
@@ -131,12 +132,20 @@ final class KeyRouter: BrowserKeyRouting {
             }
             if Self.allows(candidate.tier, id: candidate.id, focus: focus) { return .run(candidate) }
         }
-        guard consumesBrowserOnlyChord(event, focus: focus) else { return .deliver }
+        // The code editor's Cmd-[ / Cmd-] are outdent and indent (Monaco), not page Back / Forward.
+        guard !context.bits.contains(.codeEditorFocused), consumesBrowserOnlyChord(event, focus: focus) else { return .deliver }
         // On a page with its own history, Cmd-[ / Cmd-] are Go Back / Go Forward (history.md 4.2b).
         if facts.showsPageHistory, let id = BrowserChordTable.pageHistoryAction(for: event, registry: registry) {
             return .run(Candidate(id: id, tier: registry.keyTier(for: id), source: .registry(argument: nil)))
         }
         return .consume
+    }
+
+    /// The code editor waits for the second key of its own key sequence (Monaco's Cmd-K Cmd-0,
+    /// `cmux.editor.keySequence`): the key is the editor's. Only a system chord (Quit, Hide) runs.
+    func editorSequenceTakes(_ event: NSEvent, focus: FocusState, context: KeyContext, facts: Facts) -> Bool {
+        guard facts.pageKeySequencePending, context.bits.contains(.codeEditorFocused) else { return false }
+        return candidate(for: event, context: context, focus: focus)?.tier != .system
     }
 
     // MARK: App-wide dispatch
@@ -210,6 +219,11 @@ final class KeyRouter: BrowserKeyRouting {
         decided.add(event)
         let focus = controller.focus.currentState()
         let context = keyContext(for: focus, facts: facts)
+        // The code editor waits for the second key of its own sequence: no app chord arms.
+        if editorSequenceTakes(event, focus: focus, context: context, facts: facts) {
+            trace?("dispatcher: the code editor's key sequence takes it")
+            return false
+        }
         // 2. A chord.
         if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
         guard Self.isChord(event.modifierFlags) else {

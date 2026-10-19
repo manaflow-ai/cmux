@@ -17,6 +17,9 @@ activity, deployment approvals) and checks the decision the workflow acts on:
 - Newest request wins (decideNewest): a request steps aside for a live waiter
   whose commit contains its own, decides a newer waiter's commit instead of its
   own older one, and cancels nothing when it cannot read the other requests.
+  A newer request GitHub evicted from the promote queue in the last day is
+  decided like a dead waiter; a person's cancel, an older or ungreen commit
+  and a dry run are not.
 """
 
 from __future__ import annotations
@@ -68,6 +71,8 @@ function treeOf(sha) {
 const github = {
   rest: {
     actions,
+    // The annotations on a request's promote job (evictedPromotions()).
+    checks: { listAnnotations: async ({ check_run_id }) => ({ data: (scenario.annotations || {})[check_run_id] || [] }) },
     git: {
       getRef: async ({ ref }) => {
         if (ref === 'heads/feat-cmux-next') return { data: { object: { sha: scenario.sourceHead } } };
@@ -648,6 +653,67 @@ def test_an_unreadable_queue_decides_the_request_and_cancels_nothing() -> None:
     out = run(case)
     assert out["newest"]["scanFailed"] is True
     assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
+
+
+EVICTED = "Canceling since a higher priority waiting request for nightly-next-promote exists"
+
+
+def with_evicted(evicted_sha: str, *, message: str = EVICTED, age_hours: float = 1, green: bool = True,
+                 title: str | None = None) -> dict:
+    """SHA is requested after GitHub cancelled run 950's request for evicted_sha in the promote queue."""
+    from datetime import datetime, timedelta, timezone
+
+    created = (datetime.now(timezone.utc) - timedelta(hours=age_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    case = scenario(newest=True, sourceHead=NEWER, onSource={SHA: "ahead"},
+                    runs=[gate_run(), gate_run(id=8, head_sha=NEWER)],
+                    jobs={7: GREEN, 8: GREEN if green else [],
+                          950: [{"id": 9500, "name": "promote-nightly-next", "status": "completed", "conclusion": "cancelled"}]},
+                    dispatchRuns=[{"id": 950, "status": "cancelled", "created_at": created,
+                                   "display_title": title or f"Promote nightly-next to {evicted_sha}"}],
+                    annotations={"9500": [{"annotation_level": "failure", "message": message}]})
+    case["commits"].insert(0, commit(NEWER, [SHA], ["Sources/Newer.swift"]))
+    return case
+
+
+def test_a_newer_request_evicted_from_the_queue_is_decided() -> None:
+    out = run(with_evicted(NEWER))
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["decision"]["sha"] == NEWER
+    assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
+
+
+def test_an_older_evicted_request_does_not_replace_the_request() -> None:
+    out = run(with_evicted(MID))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_an_evicted_request_without_a_green_compile_falls_back_to_the_request() -> None:
+    out = run(with_evicted(NEWER, green=False))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_a_request_a_person_cancelled_is_not_recovered() -> None:
+    out = run(with_evicted(NEWER, message="The run was canceled by @lawrencecchen."))
+    assert out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_an_evicted_request_older_than_a_day_is_not_recovered() -> None:
+    out = run(with_evicted(NEWER, age_hours=25))
+    assert out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_a_dry_run_request_is_not_recovered() -> None:
+    out = run(with_evicted(NEWER, title=f"Promote nightly-next to dry-run:{NEWER}"))
+    assert out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_the_request_title_names_its_commit() -> None:
+    import yaml
+
+    data = yaml.safe_load(WORKFLOW)
+    # guard.evictedPromotions() parses this title (REQUEST_TITLE).
+    assert data["run-name"] == "${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha) || '' }}"
+    assert data["jobs"]["promote-nightly-next"]["permissions"]["checks"] == "read"
 
 
 def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:

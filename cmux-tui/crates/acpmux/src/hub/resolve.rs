@@ -208,5 +208,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_cost_usd: None,
         git_branch: None,
         git_head: None,
+        subsession: None,
+        subsession_limits: Default::default(),
     }
 }

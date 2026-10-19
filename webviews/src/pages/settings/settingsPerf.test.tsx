@@ -85,6 +85,10 @@ type Page = {
 };
 
 let renderMs = 0;
+/** The first commit of the newest mount: when it landed, its React ms, and the rows it drew. */
+type FirstFrame = { at: number; react: number; rows: number };
+let firstFrame: FirstFrame | null = null;
+let mountReactStart = 0;
 async function mount(path: string): Promise<Page> {
   setLocale("en");
   const mock = createMockClient();
@@ -98,7 +102,16 @@ async function mount(path: string): Promise<Page> {
     root.render(
       createElement(
         Profiler,
-        { id: "settings", onRender: (_id: string, _phase: string, actual: number) => (renderMs += actual) },
+        {
+          id: "settings",
+          onRender: (_id: string, _phase: string, actual: number) => {
+            renderMs += actual;
+            // The first commit that draws setting rows (the router's own first commit draws none).
+            const rows = document.querySelectorAll("[data-row-key]").length;
+            if (!firstFrame && rows > 0)
+              firstFrame = { at: performance.now(), react: renderMs - mountReactStart, rows };
+          },
+        },
         createElement(SettingsPage, { store, history }),
       ),
     );
@@ -118,11 +131,20 @@ async function mount(path: string): Promise<Page> {
   };
 }
 
-type Sample = { wall: number; react: number; rendered: number; rows: number; lists: number };
+type Sample = {
+  wall: number;
+  react: number;
+  rendered: number;
+  rows: number;
+  lists: number;
+  /** Opening only: ms to the first commit that draws rows (the first frame), React ms until then. */
+  firstFrame?: number;
+  firstFrameReact?: number;
+};
 
 function stats(name: string, samples: Sample[]) {
   const pick = (field: keyof Sample) => {
-    const sorted = samples.map((sample) => sample[field]).sort((a, b) => a - b);
+    const sorted = samples.map((sample) => sample[field] ?? 0).sort((a, b) => a - b);
     const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
     return { p50: +at(0.5).toFixed(2), p95: +at(0.95).toFixed(2), max: +sorted.at(-1)!.toFixed(2) };
   };
@@ -134,6 +156,9 @@ function stats(name: string, samples: Sample[]) {
     componentsRendered: pick("rendered"),
     settingRowsRendered: pick("rows"),
     settingsListReads: pick("lists"),
+    ...(samples[0]?.firstFrame === undefined
+      ? {}
+      : { firstFrameMs: pick("firstFrame"), firstFrameReactMs: pick("firstFrameReact") }),
   };
   // A notice line: run-webviews-tests.sh shows a passing file's notices.
   console.log(`::notice::SETTINGS_BENCH ${JSON.stringify(out)}`);
@@ -207,14 +232,21 @@ test.skipIf(!enabled)(
       const samples: Sample[] = [];
       for (let index = 0; index < iterations; index += 1) {
         const before = renderMs;
+        firstFrame = null;
+        mountReactStart = renderMs;
         const start = performance.now();
         const page = await mount(`/settings/${section}`);
+        // Set by the Profiler during mount (TypeScript still narrows it to the null above).
+        const frame = firstFrame as FirstFrame | null;
         samples.push({
           wall: performance.now() - start,
           react: renderMs - before,
           rendered: 0,
-          rows: 0,
+          // Opening: the rows the first frame drew.
+          rows: frame?.rows ?? 0,
           lists: page.lists(),
+          firstFrame: (frame?.at ?? start) - start,
+          firstFrameReact: frame?.react ?? 0,
         });
         expect(
           page.container.querySelector("[data-row-key]") ?? page.container.querySelector(".section"),
