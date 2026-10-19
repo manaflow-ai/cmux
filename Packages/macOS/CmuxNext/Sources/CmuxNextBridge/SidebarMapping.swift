@@ -109,7 +109,9 @@ public struct SidebarMapping {
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
-        let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
+        // Each tab's reports, read once for the row's merged status, its working slot and the tab rows.
+        let tabReports = tabs.map { StatusMapping.shared.reports($0) }
+        let indicator = StatusMapping.shared.summary(reports: tabReports.flatMap { $0 } + StatusMapping.shared.reports(workspace.status))
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
         let page = front.flatMap { pageFace(workspace, $0) }
@@ -130,7 +132,7 @@ public struct SidebarMapping {
             pullRequest: Self.entry(Self.pullRequestKey, in: entries),
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
-            agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
+            agentWorking: tabReports.contains { $0.contains { $0.state.isWorking } },
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
                 ?? page?.favicon.map(WorkspaceIcon.favicon),
             kind: kind(front),
@@ -141,13 +143,13 @@ public struct SidebarMapping {
             agentBrand: agentBrand(tabs),
             agentName: agentTab(tabs)?.agentName,
             progress: progress(workspace, tabs: tabs),
-            tabs: tabs.map { tab in
+            tabs: zip(tabs, tabReports).map { tab, reports in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
                 return SidebarTab(id: TabID(tab.id), title: title,
                                   kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
                                   brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil,
-                                  activity: StatusMapping.shared.summary(tab).state)
+                                  activity: StatusMapping.shared.summary(reports: reports).state)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).

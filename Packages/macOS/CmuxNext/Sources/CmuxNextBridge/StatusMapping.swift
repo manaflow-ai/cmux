@@ -130,7 +130,13 @@ public struct StatusMapping {
 
     /// One tab's merged status.
     public func summary(_ tab: TabModel) -> StatusSummary {
-        StatusStack.resolve(reports(tab), honoring: honored)
+        summary(reports: reports(tab))
+    }
+
+    /// The merged status of reports already read (`reports(_:)`), for a caller that needs a
+    /// workspace's summary and each tab's from one read of its tabs (`SidebarMapping.row`).
+    public func summary(reports: [StatusReport]) -> StatusSummary {
+        StatusStack.resolve(reports, honoring: honored)
     }
 
     /// The strongest loading or working report of one tab, for the tab's
@@ -153,7 +159,7 @@ public struct StatusMapping {
 
     /// A workspace's merged status over its tabs and its `cmux status set` entries.
     public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil) -> StatusSummary {
-        StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
+        summary(reports: tabs.flatMap(reports) + reports(status))
     }
 
     /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,

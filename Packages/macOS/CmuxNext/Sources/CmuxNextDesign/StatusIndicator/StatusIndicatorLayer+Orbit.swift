@@ -71,11 +71,11 @@ extension StatusIndicatorLayer {
     /// stopped (`Motion.period`).
     func orbitAnimation() -> CAAnimation? {
         guard let period = Motion.period(.pulse), let bounds = orbitLayer?.bounds else { return nil }
-        let orbit = CAKeyframeAnimation(keyPath: "position")
-        orbit.values = (0...Self.orbitSamples).map { index in
+        let points = (0...Self.orbitSamples).map { index in
             NSValue(point: Self.orbitPoint(turn: CGFloat(index) / CGFloat(Self.orbitSamples), in: bounds))
         }
-        orbit.duration = 2 * period
+        // The path is sampled, so the turn steps linearly between points.
+        let orbit = Motion.sampledKeyframes("position", values: points, duration: 2 * period)
         orbit.repeatCount = .infinity
         orbit.isRemovedOnCompletion = false
         return orbit
