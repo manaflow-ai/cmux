@@ -56,6 +56,17 @@ pub trait Orchestrator: Send + Sync {
     }
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
+    /// `tell` with an idempotency key: a repeat of `key` is not sent again.
+    fn tell_keyed(&self, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
+        let _ = key;
+        self.tell(id, message)
+    }
+    /// `control(action, ...)`: see, interrupt, answer, pause, resume,
+    /// cancel, restart, reorder subagents and set the live cap.
+    fn control(&self, request: ControlCall) -> Result<String, String> {
+        let _ = request;
+        Err("this Chief host has no subagent control".into())
+    }
     /// Subagent `id`'s whole chat (`zoom("a<N>")`), one page from
     /// character `at`.
     fn agent_chat(&self, id: &str, at: u64) -> Result<String, String>;
@@ -99,6 +110,26 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             Ok(v @ Value::Object(_)) => Call::parse("chiefs", &v),
             _ => return Ok(Command::Usage(usage(tool))),
         },
+        ("control", []) => Call::parse("control", &serde_json::json!({"action": "status"})),
+        ("control", ["status", id]) => Call::parse(
+            "control",
+            &serde_json::json!({"action": "status", "id": id}),
+        ),
+        ("control", ["cap", n]) => {
+            Call::parse("control", &serde_json::json!({"action": "cap", "n": n}))
+        }
+        ("control", ["answer", id, option]) => Call::parse(
+            "control",
+            &serde_json::json!({"action": "answer", "id": id, "option": option}),
+        ),
+        ("control", [action, id, message @ ..]) => {
+            let mut v = serde_json::json!({"action": action, "id": id});
+            if !message.is_empty() {
+                v["message"] = serde_json::json!(message.join(" "));
+            }
+            Call::parse("control", &v)
+        }
+        ("control", [action]) => Call::parse("control", &serde_json::json!({"action": action})),
         ("tell", [id, message @ ..]) if !message.is_empty() => Call::parse(
             "tell",
             &serde_json::json!({"id": id, "message": message.join(" ")}),
@@ -119,6 +150,8 @@ pub fn usage(tool: &str) -> String {
             "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
+            "control" =>
+                "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N",
             _ => "ID \"message\"",
         }
     )
@@ -131,6 +164,91 @@ pub fn agent_id(id: &str) -> bool {
 
 /// The efforts `spawn` takes (acpmux maps them onto the harness's own).
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// The `control` tool's actions.
+pub const CONTROL_ACTIONS: [&str; 9] = [
+    "status",
+    "interrupt",
+    "answer",
+    "pause",
+    "resume",
+    "cancel",
+    "restart",
+    "priority",
+    "cap",
+];
+
+/// One `control` call.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ControlCall {
+    pub action: String,
+    pub id: Option<String>,
+    pub message: Option<String>,
+    pub option: Option<String>,
+    pub n: Option<u64>,
+}
+
+impl ControlCall {
+    fn parse(args: &Value) -> Result<ControlCall, String> {
+        let text = |key: &str| {
+            args.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned)
+        };
+        let action = text("action").unwrap_or_else(|| "status".to_owned());
+        if !CONTROL_ACTIONS.contains(&action.as_str()) {
+            return Err(format!(
+                "control: no action {action}; one of {}",
+                CONTROL_ACTIONS.join(", ")
+            ));
+        }
+        let n = match args.get("n") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                    .ok_or("control: `n` must be a non-negative integer")?,
+            ),
+        };
+        let call = ControlCall {
+            action,
+            id: text("id"),
+            message: text("message"),
+            option: text("option"),
+            n,
+        };
+        let needs_id = !matches!(call.action.as_str(), "status" | "cap");
+        if needs_id && call.id.is_none() {
+            return Err(format!("control {}: `id` is required", call.action));
+        }
+        if call.action == "answer" && call.option.is_none() {
+            return Err("control answer: `option` is required (an option id, or `deny`)".into());
+        }
+        if call.action == "cap" && call.n.is_none() {
+            return Err("control cap: `n` is required (0: no cap)".into());
+        }
+        Ok(call)
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"tool": "control", "action": self.action});
+        if let Some(id) = &self.id {
+            v["id"] = json!(id);
+        }
+        if let Some(m) = &self.message {
+            v["message"] = json!(m);
+        }
+        if let Some(o) = &self.option {
+            v["option"] = json!(o);
+        }
+        if let Some(n) = self.n {
+            v["n"] = json!(n);
+        }
+        v
+    }
+}
 
 /// One tool call.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -158,7 +276,11 @@ pub enum Call {
     Tell {
         id: String,
         message: String,
+        /// Idempotency key: a repeat is not sent again.
+        key: Option<String>,
     },
+    /// `control` (brain/control.rs): subagent control.
+    Control(ControlCall),
     /// `profile` (chief_profile.rs): read or change the Chief's own record.
     Profile {
         args: Value,
@@ -247,8 +369,10 @@ impl Call {
                 Ok(Call::Tell {
                     id: text("id")?,
                     message: text("message")?,
+                    key: text("key").ok(),
                 })
             }
+            "control" => ControlCall::parse(args).map(Call::Control),
             "profile" => {
                 let mut args = args.as_object().cloned().unwrap_or_default();
                 // The socket request's own keys are not the tool's arguments.
@@ -281,6 +405,7 @@ impl Call {
             Call::Date { id } => memory.date(id),
             Call::Spawn { .. }
             | Call::Tell { .. }
+            | Call::Control(_)
             | Call::ZoomAgent { .. }
             | Call::Profile { .. }
             | Call::Chiefs { .. } => {
@@ -305,7 +430,14 @@ impl Call {
                 }
                 v
             }
-            Call::Tell { id, message } => json!({"tool": "tell", "id": id, "message": message}),
+            Call::Tell { id, message, key } => {
+                let mut v = json!({"tool": "tell", "id": id, "message": message});
+                if let Some(key) = key {
+                    v["key"] = json!(key);
+                }
+                v
+            }
+            Call::Control(c) => c.to_json(),
             Call::Profile { args } => {
                 let mut v = args.clone();
                 if !v.is_object() {
@@ -529,10 +661,11 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(
                         Call::Spawn { .. }
                         | Call::Tell { .. }
+                        | Call::Control(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
                     ) if subagent => {
-                        Err("subagents have no spawn, tell, profile or chiefs".to_owned())
+                        Err("subagents have no spawn, tell, control, profile or chiefs".to_owned())
                     }
                     // `chiefs` only for this host's own turn: the turn key the
                     // host gave its turn sessions alone (rule C: a subagent,
@@ -548,7 +681,10 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Spawn { .. }) if grant.is_some_and(|g| !g.allows("spawn")) => {
                         Err(crate::chief_profile::Grant::refusal("spawn"))
                     }
-                    Ok(Call::Tell { .. }) if grant.is_some_and(|g| !g.allows("tell")) => {
+                    // control rides on the tell grant: both steer subagents.
+                    Ok(Call::Tell { .. } | Call::Control(_))
+                        if grant.is_some_and(|g| !g.allows("tell")) =>
+                    {
                         Err(crate::chief_profile::Grant::refusal("tell"))
                     }
                     Ok(Call::Profile { args }) => match &served.chief {
@@ -559,8 +695,12 @@ fn connection(conn: UnixStream, served: &Served) {
                         Some(o) => o.spawn_with_effort(tasks, cwd, effort),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
-                    Ok(Call::Tell { id, message }) => match &served.orchestrator {
-                        Some(o) => o.tell(&id, &message),
+                    Ok(Call::Tell { id, message, key }) => match &served.orchestrator {
+                        Some(o) => o.tell_keyed(&id, &message, key.as_deref()),
+                        None => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    Ok(Call::Control(request)) => match &served.orchestrator {
+                        Some(o) => o.control(request),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
                     // A subagent may read another's chat too (the reference

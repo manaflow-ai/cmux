@@ -88,6 +88,10 @@ pub(crate) fn harness_command(
     for key in crate::agent_tools::INHERITED_CALLER_ENV {
         cmd.env_remove(key);
     }
+    // A cmux tool allowlist in the daemon's own env (a daemon started from a
+    // Chief turn's shell) is not the agent's: a harness passes its env to
+    // its MCP servers. A turn's preset puts its own value back (`envs`).
+    cmd.env_remove(crate::agent_tools::MCP_TOOLS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
     }

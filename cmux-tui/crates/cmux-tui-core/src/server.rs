@@ -122,6 +122,8 @@ pub use loopback_forward::{
 };
 mod admission;
 #[cfg(unix)]
+mod agent_cli_job;
+#[cfg(unix)]
 mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
@@ -1710,6 +1712,7 @@ enum Command {
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
     CloudConversationLive(cloud_conversations::TargetParams),
+    CloudConversationTyping(cloud_conversations::TypingParams),
     /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
     /// chief token), and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),

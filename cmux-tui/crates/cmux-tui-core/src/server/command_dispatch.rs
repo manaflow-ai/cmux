@@ -621,6 +621,9 @@ pub(super) fn handle_command_with_cancellation(
             cloud_conversations::unsubscribe(mux, client, Some(params))
         }
         Command::CloudConversationLive(params) => cloud_conversations::live(mux, client, params),
+        Command::CloudConversationTyping(params) => {
+            cloud_conversations::typing(mux, client, params)
+        }
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),

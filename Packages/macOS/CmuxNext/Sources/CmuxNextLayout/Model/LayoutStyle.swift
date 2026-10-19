@@ -62,7 +62,7 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var focusRingAlphaOverride: CGFloat?
     /// `appearance.focusIndicator`, and how unfocused panes' tabs draw
     /// subtler when it marks tabs (`ChromeEmphasis.forPane`).
-    public var focusIndicator: FocusIndicator = .both
+    public var focusIndicator: FocusIndicator = .tabs
     public var inactiveTabStyle: InactiveTabStyle = .fade
     public var inactiveTabStrength: CGFloat = 0.35
     /// Fraction of a pane's extent that counts as an edge drop zone
