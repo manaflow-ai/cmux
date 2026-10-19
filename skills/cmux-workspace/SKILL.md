@@ -59,6 +59,8 @@ For auxiliary output (preview apps, TUIs, logs, one-off shells, browser checks),
 
 Repeated "open it" requests add tabs to the existing helper pane, not more splits.
 
+An agent in a chat tab: `cmux --json identify` names its chat (`caller.pane`) and the column right of it (`beside.pane`, or `"placement": "new_column"` when there is none). `cmux open URL` opens a page there and makes the column when needed. For a file, use `cmux action run file.open --target <beside.pane> --path FILE --where tab`. With no column yet, make it once with `cmux pane <caller.pane> split --right --viewport-width 0.5` (a chat dock takes no plain split).
+
 ## Caller terminal
 
 Text is written literally. Add `\n` yourself, or send `enter` as a key.
