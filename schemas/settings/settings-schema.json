@@ -3462,7 +3462,7 @@
       },
       "help" : {
         "key" : "settings.updates.showWhatsNew.help",
-        "text" : "After an update, a What's New item shows at the top of the sidebar until you open it."
+        "text" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.showWhatsNew",
@@ -25880,7 +25880,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "60f1845f0710920b3e1013aa16e1b139ef004f6265fa07448b4b1bab3df62763",
+  "schema_hash" : "6308d5af13149b0ffc443562667d4082de18fa807ac538f71abc80ce15024559",
   "sections" : [
     {
       "id" : "general",
