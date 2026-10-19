@@ -205,6 +205,13 @@ pub async fn run(options: Options) -> Result<()> {
         !options.command.is_empty(),
         "cli-agent needs a program: cli-agent -- PROGRAM [ARGS]"
     );
+    // A program that exits without reading its prompt closes the pipe the
+    // prompt goes to: that write must fail, not end this agent.
+    #[cfg(unix)]
+    // SAFETY: setting a signal's disposition to ignore has no preconditions.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
     let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
     let writer = tokio::spawn(async move {
         let mut stdout = tokio::io::stdout();
