@@ -223,6 +223,10 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
 
 ### Status (2026-10-04)
 
+- The project picker's start (Leo, 2026-10-18): a New Tab with no project of its own (no folder,
+  the home folder or a private agent-home folder) and no host start folder starts on the project of
+  the newest local chat; a tab with a project keeps it. The folder menu also offers "Do not work in
+  a project", which starts the chat with `noProject` in the host's private folder.
 - Landed: plan, N1 (shared intent table), N2 (variant B page), N3 (host side: search, type-only `!`,
   type-ahead, choice memory, `newTab.layout`).
 - N4: one spare per window (`NewTabSparePool`), adopted by `newTabPage()`; spares exist while the

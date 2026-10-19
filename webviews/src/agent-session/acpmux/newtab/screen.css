@@ -478,3 +478,29 @@
 .nt-mode[data-mode="ask"] .nt-mode-track button[data-mode="ask"] {
   color: var(--agent-text);
 }
+/* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
+   hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills
+   one, as the page's other rows do. A chat's state reads in the theme's amber (input) or red. */
+.nt-widgets{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.nt-widget{display:flex;flex-direction:column;box-sizing:border-box;padding:6px;border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
+.nt-widget-row{display:flex;align-items:center;gap:12px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;cursor:default}
+button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
+.nt-widget-row[aria-pressed=true]{color:var(--agent-text)}
+.nt-widget-icon{flex:none;color:var(--acpmux-composer-dim)}
+.nt-widget-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nt-widget-check{flex:none;color:var(--agent-text)}
+.nt-widget-rule{height:0;margin:4px -6px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
+.nt-widget-attention{gap:4px}
+.nt-widget-chat{display:flex;align-items:center;gap:4px;min-width:0;padding-right:6px;border-radius:14px;background:color-mix(in srgb,var(--agent-text) 5%,transparent)}
+.nt-widget-chat:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
+.nt-widget-chat-open{flex:1;display:flex;align-items:baseline;gap:6px;min-width:0;height:36px;padding:0 12px;box-sizing:border-box;border:0;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);line-height:36px;text-align:left;cursor:default}
+.nt-widget-chat-open:hover{color:var(--agent-text)}
+.nt-widget-state{flex:none;color:var(--agent-warning,var(--agent-text))}
+.nt-widget-chat[data-state=error] .nt-widget-state,.nt-widget-chat[data-state=failed] .nt-widget-state{color:var(--agent-danger)}
+.nt-widget-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nt-widget-dismiss{flex:none;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:8px;padding:0;background:none;color:var(--acpmux-composer-dim);cursor:default}
+.nt-widget-dismiss:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
+.nt-widget-tip{display:flex;flex-direction:column;gap:2px;max-width:360px}
+.nt-widget-tip-title{color:var(--agent-text)}
+.nt-widget-tip-detail{color:var(--acpmux-composer-dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+@media (prefers-reduced-motion:no-preference){.nt-widget-row,.nt-widget-chat,.nt-widget-dismiss{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-widget-row:hover,.nt-widget-chat:hover,.nt-widget-dismiss:hover{transition-duration:var(--agent-motion-hover,.08s)}}

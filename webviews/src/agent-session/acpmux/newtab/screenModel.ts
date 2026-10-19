@@ -334,7 +334,7 @@ export function recentChatCards(
     }),
   );
   const fill = [...device]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key))
     .filter((chat) => !(fold && chat.parent) && !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
     .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
     .slice(0, Math.max(0, count - live.length))
@@ -412,7 +412,7 @@ function withChildren(card: ChatCard, indexed: Map<string, ChildCard[]>): ChatCa
   const parents = [...new Set([card.sessionId, card.chatKey].filter((id): id is string => Boolean(id)))];
   const children = parents
     .flatMap((parent) => indexed.get(parent) ?? [])
-    .sort((a, b) => b.at - a.at)
+    .sort((a, b) => b.at - a.at || a.card.sessionId.localeCompare(b.card.sessionId))
     .map((child) => child.card);
   return children.length > 0 ? { ...card, children } : card;
 }
