@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import Foundation
 
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
@@ -54,12 +55,15 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// shows tiles for what the column can hold (terminal, browser, files, changes, a chat); nil is the
     /// usual page.
     public var surfaces: Bool?
+    /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
+    /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
+    public var widgets: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil) {
+                template: String? = nil, widgets: Bool? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -74,6 +78,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.lastPicks = lastPicks
         self.home = home
         self.inputToken = nil
+        // nil follows the Debug Settings toggle, read as each page context is made.
+        self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
     }
 }
 
