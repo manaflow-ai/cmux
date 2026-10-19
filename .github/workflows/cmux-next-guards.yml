@@ -193,9 +193,9 @@ jobs:
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
 
-  # The defaults guard's tests, and schemas/defaults/cmux-next.json matching the
-  # action and settings exports, in seconds; cmux-next-defaults-guard.yml judges
-  # the changes and the approval.
+  # The defaults guard's tests, the settings export stamp, and no committed
+  # defaults snapshot (build output since hq#2572), in seconds;
+  # cmux-next-defaults-guard.yml judges the changes and the approval.
   defaults-snapshot:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -209,7 +209,7 @@ jobs:
       - name: The defaults guard judges changes and approvals
         run: python3 tests/test_defaults_guard.py
 
-      - name: The defaults snapshot matches the exports
+      - name: The settings exports match their sources and no defaults snapshot is committed
         run: python3 scripts/ci/defaults_guard.py check-fresh
 
       # PR #19754 moved the workspace and tab menus' group rows into More and

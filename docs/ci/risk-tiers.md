@@ -68,8 +68,9 @@ whose job started before it, or one that never ran. Edit the description (or pus
 
 A high-tier change that a user would notice lands behind a setting or Debug toggle that defaults
 off, unless it fixes a regression. Flip the default in its own small pull request after a
-nightly-next has carried it. That flip is high tier too (`schemas/defaults/`), so it needs its
-own evidence.
+nightly-next has carried it. That flip also fails the defaults guard
+(`cmux-next defaults guard`) until a call owner other than the author approves its head. The
+guard computes every default from the sources (hq#2572), so no path here marks a flip.
 
 ## Canary and revert
 

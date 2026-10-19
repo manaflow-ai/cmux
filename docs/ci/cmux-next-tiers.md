@@ -8,7 +8,7 @@ job's summary lists each tier and the reason for it.
 | Tier | Check (job) | Runs when the PR changes | Runner |
 | --- | --- | --- | --- |
 | checks | `cmux-next checks` (god files, concurrency, crash safety, string tables, script tests, package conventions, tier routing) | any cmux-next path | Linux (Blacksmith) |
-| generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph; settings exports, their source stamp and the defaults snapshot) | the CmuxNext package, `plans/cmux-next/`, the settings exports, the generators | mini |
+| generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph; settings exports and their source stamp) | the CmuxNext package, `plans/cmux-next/`, the settings exports, the generators | mini |
 | swift canary | `cmux-next Swift canary` (Debug SwiftPM build of the changed production targets) | production Swift files under `Packages/macOS/CmuxNext/Sources/` only | mini, placed first |
 | native | `cmux-next Release compile (Xcode 26)` | Swift or app sources | mini |
 | scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
@@ -123,11 +123,16 @@ with the Swift sources directly. It recomputes the source stamp
 `schemas/settings-export/settings-schema.sources.sha256` (a SHA-256 of
 `CmuxNextSettings` and the two export tests) and fails when the sources moved
 without a re-export. `cmux-next generated files` then runs
-`scripts/cmux-next/regenerate-settings-exports.sh` and
-`defaults_guard.py snapshot` and adds the files to the patch. On
-`feat-cmux-next`, the base autofix's Mac job runs the same script after a
-settings change and commits the exports and the snapshot, so a lane does not
-have to run the export itself.
+`scripts/cmux-next/regenerate-settings-exports.sh` and adds the files to the
+patch. On `feat-cmux-next`, the base autofix's Mac job runs the same script
+after a settings change and commits the exports, so a lane does not have to
+run the export itself.
+
+The defaults snapshot (`schemas/defaults/cmux-next.json`) is not committed
+(hq#2572). The defaults guard computes every default of the merge base and
+the head from their sources when it runs; `defaults_guard.py snapshot` writes
+the same list to that ignored path for reading. `check-fresh` fails when a
+tree tracks a copy again.
 
 ## Measurements
 

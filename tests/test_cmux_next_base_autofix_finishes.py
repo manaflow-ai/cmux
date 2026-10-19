@@ -22,7 +22,6 @@ DOC = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").rea
 PUSH = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")["run"]
 SETTINGS = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift"
 EXPORT = "schemas/settings/settings-schema.json"
-SNAPSHOT = "schemas/defaults/cmux-next.json"
 SHORTCUTS = "web/data/cmux-shortcuts.generated.json"
 SURFACES = "plans/cmux-next/action-surfaces.json"
 
@@ -50,7 +49,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         seed = work / "seed"
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
-        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old",
+        files = {SETTINGS: "k1", EXPORT: "old", SHORTCUTS: "old", SURFACES: "old",
                  "README.md": "r", "unlisted/output.txt": "old",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
@@ -109,12 +108,6 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         self.assertEqual(landed[EXPORT], "old")
         self.assertIn("newer run", out)
-
-    def test_the_defaults_snapshot_waits_when_the_action_exports_moved(self):
-        # The snapshot is built from the settings and the action exports (coord-2 review of c30bfe5).
-        done, landed, out = self.push({SURFACES: "changed"}, repair={SNAPSHOT: "new"})
-        self.assertEqual(done.returncode, 1, out)
-        self.assertEqual(landed[SNAPSHOT], "old")
 
     def test_a_shortcuts_repair_lands_past_an_unrelated_change(self):
         done, landed, out = self.push({"README.md": "r2"}, repair={SHORTCUTS: "new"})

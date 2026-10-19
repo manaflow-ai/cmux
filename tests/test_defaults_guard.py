@@ -64,10 +64,7 @@ class Repo:
         return subprocess.run([sys.executable, str(self.root / "scripts/ci/defaults_guard.py"), *args],
                               cwd=self.root, capture_output=True, text=True, env={**os.environ, **(env or {})})
 
-    def commit(self, message, snapshot=True):
-        if snapshot:
-            result = self.guard("snapshot")
-            assert result.returncode == 0, result.stdout + result.stderr
+    def commit(self, message):
         self.git("add", "-A")
         self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", message)
         return self.git("rev-parse", "HEAD")
@@ -86,12 +83,12 @@ class DefaultsGuardTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def head(self, actions=None, settings=None, keybinds=KEYBINDS, flags=FLAGS, snapshot=True, extra=None):
+    def head(self, actions=None, settings=None, keybinds=KEYBINDS, flags=FLAGS, extra=None):
         self.repo.git("checkout", "-q", "-b", f"pr-{len(self.repo.git('branch').splitlines())}", self.base)
         self.repo.sources(actions or BASE_ACTIONS, settings or BASE_SETTINGS, keybinds, flags)
         for path, text in (extra or {}).items():
             self.repo.write(path, text)
-        head = self.repo.commit("head", snapshot=snapshot)
+        head = self.repo.commit("head")
         self.repo.git("checkout", "-q", self.base)  # the workflow runs the base's guard and owners
         return head
 
@@ -261,17 +258,18 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertGreater(len(fence), 2, line)
         self.assertEqual(span.count(fence), 2, line)  # opened once, closed once, never inside
 
-    # The snapshot itself.
+    # No committed snapshot (hq#2572 step 1): every default comes from the sources at check time.
 
-    def test_a_branch_from_before_the_snapshot_is_judged_by_its_sources(self):
-        self.repo.git("rm", "-q", "schemas/defaults/cmux-next.json")
-        self.base = self.repo.commit("base before the snapshot", snapshot=False)
-        head = self.head(settings=[{"key": "terminal.showJumpToBottomButton", "default": True}, BASE_SETTINGS[1]],
-                         snapshot=False)
+    STALE = json.dumps({"app": "cmux-next", "version": 1, "defaults": {"setting.terminal.showJumpToBottomButton": True}})
+
+    def test_a_committed_snapshot_is_never_read(self):
+        # A branch from before hq#2572 still carries the old file; a stale copy must not hide a change.
+        self.repo.write("schemas/defaults/cmux-next.json", self.STALE)
+        self.base = self.repo.commit("base with a stale snapshot")
+        head = self.head(settings=[{"key": "terminal.showJumpToBottomButton", "default": True}, BASE_SETTINGS[1]])
         result = self.check(head)
         self.assertEqual(result.returncode, 1)
         self.assertIn("DEFAULTS setting.terminal.showJumpToBottomButton: false -> true", result.stdout)
-        self.assertNotIn("snapshot", result.stdout.replace("defaults_guard.py snapshot", ""))
 
     def test_no_default_change_passes_without_a_review(self):
         actions = [*BASE_ACTIONS[:3], {**action("toggleEditor"), "title": "Toggle Editor"}]
@@ -279,12 +277,31 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertNotIn("DEFAULTS", result.stdout)
 
-    def test_exports_changed_without_regenerating_the_snapshot_fail(self):
-        actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
-        result = self.check(self.head(actions, snapshot=False))
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("does not match the sources; run `python3 scripts/ci/defaults_guard.py snapshot`", result.stdout)
+    def test_check_fresh_refuses_a_committed_snapshot(self):
+        self.repo.write("schemas/defaults/cmux-next.json", self.STALE)
+        sha = self.repo.commit("someone committed the snapshot again")
+        for args in (("check-fresh", "--ref", sha), ("check-fresh",)):
+            with self.subTest(args=args):
+                result = self.repo.guard(*args)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("schemas/defaults/cmux-next.json is committed, but it is build output now", result.stdout)
 
+    def test_check_fresh_passes_with_an_untracked_snapshot(self):
+        # `snapshot` writes the ignored build output; check-fresh only refuses a tracked copy.
+        self.assertEqual(self.repo.guard("snapshot").returncode, 0)
+        self.assertTrue((self.repo.root / "schemas/defaults/cmux-next.json").is_file())
+        result = self.repo.guard("check-fresh")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_snapshot_prints_every_default_from_the_sources(self):
+        result = self.repo.guard("snapshot", "--out", "-")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = json.loads(result.stdout)["defaults"]
+        self.assertEqual(values["setting.sidebar.numbering"], "allItems")
+        self.assertEqual(values["key.nextSidebarTab"], ["ctrl+pagedown", "ctrl+tab", "shift+cmd+]"])
+        self.assertEqual(values["ghostty.super+j"], "unbind")
+        self.assertIs(values["flag.CmuxNextApp/PaneSplitCommand.optimisticSplitEnabled"], False)
+        self.assertFalse((self.repo.root / "schemas/defaults/cmux-next.json").exists())
 
 if __name__ == "__main__":
     unittest.main()

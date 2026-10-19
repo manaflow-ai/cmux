@@ -26,8 +26,8 @@ name: cmux-next base autofix
 # (schemas/settings/settings-schema.json, docs/mdm, and the source stamp
 # schemas/settings-export/settings-schema.sources.sha256) need one too: the
 # same job regenerates them (scripts/cmux-next/regenerate-settings-exports.sh)
-# when CmuxNextSettings or an export changed, and autofix copies them in before
-# it rewrites the defaults snapshot from them.
+# when CmuxNextSettings or an export changed, and autofix copies them in.
+# The defaults snapshot is no longer committed (hq#2572).
 # A separate job pins scripts/ghosttykit-checksums.txt when the ghostty
 # gitlink moves, from our own published GhosttyKit release (waiting for
 # build-ghosttykit.yml when there is none yet).
@@ -61,7 +61,6 @@ on:
       - scripts/cmux-next/regenerate-settings-exports.sh
       - schemas/settings-export/**
       - docs/mdm/**
-      - scripts/ci/defaults_guard.py
       - web/scripts/export-docs-shortcuts.ts
       # The app-host generated files (base-autofix.sh --app-host).
       - cmux-tui/spec/resource-operations-v2.json
@@ -396,7 +395,7 @@ jobs:
           # Dependency order: the shortcuts and app-host files follow the action
           # exports, so they wait while the exports' inputs changed unverified.
           [[ "$ACTIONS" == true && "$EXPORTS_VERIFIED" != true ]] && args+=(--unverified-exports)
-          # The defaults snapshot follows the settings exports the same way.
+          # Accepted and ignored since the defaults snapshot became build output (hq#2572).
           [[ "$SETTINGS" == true && "$SETTINGS_VERIFIED" != true ]] && args+=(--unverified-settings-exports)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
@@ -466,7 +465,6 @@ jobs:
                 plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json)
                   echo actions; echo shortcuts; echo apphost ;;
                 schemas/settings/settings-schema.json|schemas/settings-export/*|docs/mdm/*) echo settings ;;
-                schemas/defaults/cmux-next.json) echo settings; echo actions ;;
                 web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
                 cmux-tui/crates/cmux-app-host/generated/*) echo apphost; echo actions ;;
                 scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;

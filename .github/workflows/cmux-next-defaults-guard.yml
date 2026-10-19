@@ -8,7 +8,8 @@ name: cmux-next defaults guard
 #
 # Fast: no build. It sparse-checks-out only the guard's files of the merge base
 # and the head (about 40 MiB of a 340 MiB tree) and reports within a minute.
-# Every changed default is a warning annotation and a sticky comment that says
+# Every default is computed from the sources on both sides (no committed
+# snapshot since hq#2572). Every changed default is a warning annotation and a sticky comment that says
 # who must approve; both stay after it passes, and the merge adds a receipt.
 #
 # Trust: only pull_request_target runs this, so the workflow, the guard and
@@ -72,7 +73,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: |
-            schemas/defaults
             plans/cmux-next/action-surfaces.json
             schemas/settings/settings-schema.json
             Packages/macOS/CmuxNext/Sources
@@ -92,7 +92,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: |
-            schemas/defaults
             plans/cmux-next/action-surfaces.json
             schemas/settings/settings-schema.json
             Packages/macOS/CmuxNext/Sources

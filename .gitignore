@@ -103,3 +103,6 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 /webviews/src/pages/diff/generated/locales/
 /webviews/src/pages/diff/generated/localeLoaders.ts
 /webviews/src/**/generated/*.tmp
+# The defaults snapshot: build output of scripts/ci/defaults_guard.py snapshot. The guard computes
+# every default from the sources at check time (hq#2572 step 1); check-fresh refuses a committed copy.
+/schemas/defaults/cmux-next.json

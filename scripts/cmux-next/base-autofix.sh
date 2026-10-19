@@ -19,9 +19,6 @@
 #     (the typed cmux global, scopes and ops) from the operation catalogs, the
 #     action catalog export and the first-party apps' fragments
 #     (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts; with --app-host);
-#   - the defaults snapshot: schemas/defaults/cmux-next.json from the action
-#     and settings exports (scripts/ci/defaults_guard.py snapshot), after
-#     --generated copied the regenerated exports in;
 #   - the namespace ratchet: drops the rows of scripts/lint-namespace-types-ratchet.txt
 #     whose type is fixed or gone (shrink only; with --ratchets);
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
@@ -42,10 +39,9 @@
 # action-surfaces.json, so they run after --generated copied the regenerated
 # exports in. With --unverified-exports (the exports' inputs changed but their
 # Mac job did not regenerate them on this tree) both are left and reported,
-# never rewritten from a possibly stale export. --unverified-exports and
-# --unverified-settings-exports (the settings exports' inputs changed but the
-# Mac job did not regenerate them) also leave the defaults snapshot, which
-# reads both exports.
+# never rewritten from a possibly stale export. --unverified-settings-exports
+# is accepted and does nothing: it only held back the defaults snapshot, which
+# is build output now (hq#2572; scripts/ci/defaults_guard.py computes it).
 # A path matching base-autofix-frozen.txt is never written; it is reported.
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
@@ -53,7 +49,7 @@
 # Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -63,7 +59,7 @@ while (( $# > 1 )); do
     --docs-shortcuts) docs_shortcuts=1; shift ;;
     --app-host) app_host=1; shift ;;
     --unverified-exports) unverified_exports=1; shift ;;
-    --unverified-settings-exports) unverified_settings=1; shift ;;
+    --unverified-settings-exports) shift ;; # accepted, does nothing (hq#2572)
     --ratchets) ratchets=1; shift ;;
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
@@ -165,28 +161,6 @@ if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
         echo "fixed: regenerated $rel"
       fi
     done <<<"$changed"
-  fi
-fi
-
-# 1e3. The defaults snapshot, from the action and settings exports
-# (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a call owner's approval on the pull request.
-defaults_snapshot=schemas/defaults/cmux-next.json
-if (( unverified_exports || unverified_settings )); then
-  waits=()
-  (( unverified_exports )) && waits+=("action")
-  (( unverified_settings )) && waits+=("settings")
-  echo "left: $defaults_snapshot (waits for the ${waits[*]} exports; their Mac job did not regenerate them)"
-elif [[ -f "$repo/scripts/ci/defaults_guard.py" ]]; then
-  before="$(cksum < "$repo/$defaults_snapshot" 2>/dev/null || true)"
-  (cd "$repo" && python3 scripts/ci/defaults_guard.py snapshot >/dev/null)
-  if [[ "$before" != "$(cksum < "$repo/$defaults_snapshot")" ]]; then
-    if frozen "$defaults_snapshot"; then
-      git -C "$repo" checkout --quiet -- "$defaults_snapshot" 2>/dev/null || rm -f "$repo/$defaults_snapshot"
-      echo "skipped (frozen): $defaults_snapshot (stale; python3 scripts/ci/defaults_guard.py snapshot)"
-    else
-      echo "fixed: regenerated $defaults_snapshot"
-    fi
   fi
 fi
 

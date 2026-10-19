@@ -120,7 +120,7 @@ GENERATED_INPUTS = (
     # The settings exports and their source stamp
     # (defaults_guard.py check-fresh; regenerate-settings-exports.sh). The
     # CmuxNextSettings sources and the export tests are under PACKAGE.
-    # (The defaults snapshot and defaults_guard.py are checked on Linux.)
+    # (defaults_guard.py is checked on Linux; the defaults snapshot is build output.)
     "schemas/settings/settings-schema.json",
     "schemas/settings-export/",
     "docs/mdm/",

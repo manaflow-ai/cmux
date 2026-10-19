@@ -2311,7 +2311,8 @@ jobs:
 
   # Generated files are fresh: the action catalog, surfaces and inventory
   # (ActionSurfaceParityTests and its siblings), the CI target graph, and the
-  # settings exports with their source stamp and the defaults snapshot. Its
+  # settings exports with their source stamp (the defaults snapshot is build
+  # output since hq#2572; check-fresh refuses a committed copy). Its
   # own job, so a pull request that skips the package tests still cannot land
   # a stale export (feat-cmux-next went red at a925bd9 that way). When a file
   # is stale, the job regenerates it, uploads the regenerated files as the
@@ -2492,11 +2493,12 @@ jobs:
         continue-on-error: true
         run: python3 scripts/cmux-next/ci-target-graph.py --check
 
-      # The settings exports (schemas/settings/settings-schema.json, docs/mdm)
-      # and the defaults snapshot: check-fresh recomputes the source stamp
-      # (schemas/settings-export) from the CmuxNextSettings sources, so a
-      # settings edit without a re-export fails here and is regenerated below.
-      - name: Check the settings exports and the defaults snapshot
+      # The settings exports (schemas/settings/settings-schema.json, docs/mdm):
+      # check-fresh recomputes the source stamp (schemas/settings-export) from
+      # the CmuxNextSettings sources, so a settings edit without a re-export
+      # fails here and is regenerated below. The defaults snapshot is no longer
+      # committed (hq#2572); check-fresh also refuses a tracked copy.
+      - name: Check the settings exports
         id: settings
         continue-on-error: true
         run: python3 scripts/ci/defaults_guard.py check-fresh
@@ -2513,23 +2515,19 @@ jobs:
           if [[ "${{ steps.graph.outcome }}" == failure ]]; then
             python3 scripts/cmux-next/ci-target-graph.py
           fi
-          # The Swift settings export only when the source stamp is stale (a
-          # stale snapshot alone needs only the snapshot below). It writes the
-          # files into the checkout, as the fleet export step does, and fails
-          # when the stamp still does not match afterwards.
+          # The Swift settings export only when the source stamp is stale. It
+          # writes the files into the checkout, as the fleet export step does,
+          # and fails when the stamp still does not match afterwards.
           if [[ "${{ steps.settings.outcome }}" == failure ]] && ! python3 scripts/ci/defaults_guard.py check-stamp; then
             scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports"
           fi
-          # The defaults snapshot reads the action and settings exports, so it
-          # follows whichever of them was regenerated.
-          python3 scripts/ci/defaults_guard.py snapshot
           # The regenerated files themselves, at their repository paths, so
           # they copy onto the PR head. A diff would be against the merge
           # commit, whose context the head may not have.
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json
-            schemas/settings/settings-schema.json 'schemas/settings-export/*' 'docs/mdm/*' schemas/defaults/cmux-next.json)
+            schemas/settings/settings-schema.json 'schemas/settings-export/*' 'docs/mdm/*')
           git add -N -- "${generated[@]}"
           git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
           git diff --stat
@@ -2559,7 +2557,7 @@ jobs:
             echo
             [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
             [[ "${{ steps.graph.outcome }}" != failure ]] || echo "- CI target graph: scripts/cmux-next/ci-target-graph.py"
-            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports, source stamp and defaults snapshot: scripts/cmux-next/regenerate-settings-exports.sh, then python3 scripts/ci/defaults_guard.py snapshot"
+            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports and source stamp: scripts/cmux-next/regenerate-settings-exports.sh (a committed schemas/defaults/cmux-next.json: git rm --cached it; it is build output)"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"

@@ -6,8 +6,7 @@
 # CMUX_UPDATE_MDM_SCHEMA=1 and SettingsSchemaExportTests with
 # CMUX_UPDATE_ACTION_SURFACES=1. It copies every export that changed into OUT
 # at its repository path: the --generated DIR of
-# scripts/cmux-next/base-autofix.sh, which copies them over the checkout and
-# then rewrites the defaults snapshot (defaults_guard.py snapshot) from them.
+# scripts/cmux-next/base-autofix.sh, which copies them over the checkout.
 # The exports and their source stamp
 # (schemas/settings-export/settings-schema.sources.sha256, which
 # defaults_guard.py check-fresh compares with the CmuxNextSettings sources)
