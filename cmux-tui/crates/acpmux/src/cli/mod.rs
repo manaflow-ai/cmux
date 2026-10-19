@@ -5,6 +5,7 @@
 //! is `continue`; `errors` maps every failure to one exit code and envelope.
 
 pub mod chats;
+pub mod cli_agent;
 pub mod command;
 pub mod entry;
 pub mod errors;

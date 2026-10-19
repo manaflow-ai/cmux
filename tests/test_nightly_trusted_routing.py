@@ -123,21 +123,20 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertNotEqual(group('nightly-next', '39124573091'), group('nightly-next', '39124573100'))
         self.assertNotEqual(group('main'), group('nightly-next', '39124573091'))
 
-    def test_next_pushes_share_one_build_slot_that_the_newest_push_takes(self):
-        # Every nightly-next push built its own head, so pushes queued for the trusted
-        # runner and each intermediate head got a full build (2026-10-18: three pushes
-        # in three minutes, three 90-minute builds). One job-level group keeps one build
-        # waiting at most, the newest; a running build always finishes.
+    def test_every_run_gets_its_own_build_slot(self):
+        # A shared nightly-next slot (#21917) turned pushes into cancelled runs while its
+        # holder waited for a runner that never came (2026-10-19: six runs cancelled).
+        # Each run now has its own group (de5912c9fe41); the dedicated trusted runner
+        # serializes them, and a running build always finishes.
         job = DOC['jobs']['build-nightly-app']
         def group(branch, event='push', run_id='1'):
             context = {'github.ref': f'refs/heads/{branch}', 'github.event_name': event, 'github.run_id': run_id}
             return re.sub(r'\$\{\{(.*?)\}\}',
                           lambda match: str(evaluate(parse_expression(match[1]), context)),
                           job['concurrency']['group'])
-        self.assertEqual(group('nightly-next', run_id='1'), group('nightly-next', run_id='2'))
+        self.assertNotEqual(group('nightly-next', run_id='1'), group('nightly-next', run_id='2'))
         self.assertNotEqual(group('nightly-next', 'workflow_dispatch', '1'), group('nightly-next', 'workflow_dispatch', '2'))
         self.assertNotEqual(group('main', run_id='1'), group('main', run_id='2'))
-        self.assertNotEqual(group('main'), group('nightly-next'))
         self.assertFalse(job['concurrency']['cancel-in-progress'])
 
     def test_a_superseded_next_run_never_enters_the_build_slot(self):
@@ -197,7 +196,7 @@ class NightlyTrustedRouting(unittest.TestCase):
     @unittest.skipUnless('nightly_next_unsigned_run' in DOC[True]['workflow_dispatch']['inputs'],
                          'unsigned resume is owned by PR 21161, not landed on this base yet')
     def test_unsigned_resume_is_linux_before_every_native_route(self):
-        self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), 'ubuntu-24.04')
+        self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
 
 
 if __name__ == '__main__':

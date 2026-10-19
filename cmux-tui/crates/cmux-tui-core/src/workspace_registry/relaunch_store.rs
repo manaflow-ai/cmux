@@ -238,7 +238,7 @@ fn absolute(path: &str) -> Option<String> {
 /// only flags (`--posix`, `-l`, ...) and nushell's integration `--execute
 /// 'use ghostty *'`. A command flag (`-c`, `-lc`, `--command`) or a script
 /// argument makes it a command.
-fn is_interactive_shell(argv: &[String]) -> bool {
+pub(crate) fn is_interactive_shell(argv: &[String]) -> bool {
     let Some((program, arguments)) = argv.split_first() else { return false };
     if !SHELLS.contains(&basename(program).as_str()) {
         return false;
