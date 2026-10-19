@@ -244,3 +244,17 @@ fn invalid(id: Value, why: &str) -> Value {
     json!({ "type": "result", "id": id, "ok": false,
         "error": { "code": "cmux.cloud.invalid_request", "message": why, "retryable": false } })
 }
+
+#[cfg(test)]
+mod scope_probe_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn cloud_scope_probe_confirms_the_protocol_without_borrowing_authority() {
+        let relay = HostRelay::new(Cursor::new(Vec::<u8>::new()), Vec::<u8>::new());
+        let mut server = Server::new(relay);
+        let response = answer(&mut server, json!({"type": "scope.probe", "id": "scope-7"}));
+        assert_eq!(response, Some(json!({"type": "scope.ready", "id": "scope-7"})));
+    }
+}
