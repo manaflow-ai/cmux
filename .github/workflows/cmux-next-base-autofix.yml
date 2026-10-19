@@ -382,11 +382,12 @@ jobs:
         run: |
           set -euo pipefail
           args=()
-          # Regenerated action and settings exports: the docs shortcuts, app-host
-          # files and defaults snapshot follow them.
+          # Regenerated action and settings exports: the defaults snapshot follows
+          # both. The docs shortcuts and app-host files follow the action exports
+          # only when this run regenerated them, never a settings-only artifact.
           if [[ -d "$RUNNER_TEMP/action-exports" ]]; then
             args+=(--generated "$RUNNER_TEMP/action-exports")
-            SHORTCUTS=true APPHOST=true
+            [[ -d "$RUNNER_TEMP/action-exports/plans/cmux-next" ]] && SHORTCUTS=true APPHOST=true
           fi
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           [[ "$STRINGS" == true ]] && args+=(--strings)

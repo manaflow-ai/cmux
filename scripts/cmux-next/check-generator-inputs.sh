@@ -19,12 +19,17 @@ done
 
 # These are the inputs read by defaults_guard.py.  The Swift source directory
 # is a pathspec because the guard scans it for Ghostty keybinds and feature
-# flags in addition to the checked-in exports.
+# flags in addition to the checked-in exports.  The docs shortcuts exporter
+# (web/scripts/export-docs-shortcuts.ts) reads action-surfaces.json and the
+# CmuxNextActions catalogs under Sources/; its committed copy is listed too, so
+# a merge that kept a PR's older copy over the base's is refused.
 paths=(
   plans/cmux-next/action-surfaces.json
   schemas/settings/settings-schema.json
   Packages/macOS/CmuxNext/Sources/
   scripts/ci/defaults_guard.py
+  web/scripts/export-docs-shortcuts.ts
+  web/data/cmux-shortcuts.generated.json
 )
 
 read -r _ first_parent second_parent < <(git rev-list --parents -n1 "$merge_ref")
