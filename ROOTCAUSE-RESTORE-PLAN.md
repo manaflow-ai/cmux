@@ -226,10 +226,11 @@ after Xcode reported `BUILD SUCCEEDED`.
 
 ## Exact-head validation update (2026-10-19)
 
-The current repair code head is
-[`bd24baf383ba3ef3249866d58f93d454182b9a2f`](https://github.com/danielraffel/cmux/commit/bd24baf383ba3ef3249866d58f93d454182b9a2f);
-the worktree's documentation-only head is
-[`b5048101be69bfff443a800edcefa4b8ac5ab489`](https://github.com/danielraffel/cmux/commit/b5048101be69bfff443a800edcefa4b8ac5ab489).
+The current repair worktree head is
+[`63814044655fcac6f862ca86ee88fb346e6a2112`](https://github.com/danielraffel/cmux/commit/63814044655fcac6f862ca86ee88fb346e6a2112).
+The earlier provider repair remains at
+[`bd24baf383ba3ef3249866d58f93d454182b9a2f`](https://github.com/danielraffel/cmux/commit/bd24baf383ba3ef3249866d58f93d454182b9a2f),
+with subsequent commits recording receipts and the custom-path fix.
 It contains the restore identity and fallback hardening, the managed-binding
 persistence validation, and the `cmux feed clear` revision-floor fix. The
 portable CMUXAgentLaunch suite passes **883 tests in 100 suites**; the focused
@@ -238,6 +239,14 @@ agent-restore regression passes **8 tests**; and the Dock lifecycle suite passes
 Astra reviewed the exact committed repair slice; its final adversarial pass
 caught and corrected an overly broad compatibility bypass before this head was
 recorded. Claude proxy review was attempted again but remained unavailable.
+
+The adversarial pass also found a managed custom-Codex edge: legacy workspace
+restore previously required the executable basename to be literally `codex`,
+even when the durable launcher kind was `codex` and the captured executable
+was a valid custom path. The routing API now accepts that launcher-kind
+evidence while retaining provider-assignment ambiguity checks, and the
+workspace path passes the launcher kind through. The new native regression
+`testLegacySubrouterCodexRestoreAcceptsManagedCustomExecutable` passes.
 
 The host still has eight WindowServer reports, all macOS bug type 409 watchdog
 timeouts. At failure, cmux instances ranged from approximately 805 MB to
@@ -305,7 +314,7 @@ changed as part of this repair.
 
 The current-head native rerun used the `cmux-unit` scheme and selected the
 restore persistence, live-owner admission, and issue-12775 regression suites.
-It executed **41 tests in 3 suites**, all passing, with the same benign
+The post-fix rerun executed **45 tests in 3 suites**, all passing, with the same benign
 CoreSimulator-version warning on this host. This is the authoritative focused
 receipt for the current repair head; the earlier 21-test persistence receipt
 remains a subset of it.
