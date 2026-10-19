@@ -322,6 +322,16 @@ const TAILSCALE_APP_CLI: Option<&str> =
 #[cfg(not(target_os = "macos"))]
 const TAILSCALE_APP_CLI: Option<&str> = None;
 
+/// Where to look for the app's CLI when `tailscale` isn't on PATH. Tests set
+/// `CMUX_REMOTE_DOCTOR_TAILSCALE_APP_CLI` so a runner's own Tailscale app
+/// can't answer for them.
+fn tailscale_app_cli() -> Option<String> {
+    std::env::var("CMUX_REMOTE_DOCTOR_TAILSCALE_APP_CLI")
+        .ok()
+        .filter(|path| !path.is_empty())
+        .or_else(|| TAILSCALE_APP_CLI.map(str::to_owned))
+}
+
 fn probe_tailnet(host: &str, timeout: Duration) -> TailnetProbe {
     let ping = |program: &str| {
         Command::new(program)
@@ -332,8 +342,8 @@ fn probe_tailnet(host: &str, timeout: Duration) -> TailnetProbe {
             .output()
     };
     let output = match ping("tailscale") {
-        Err(error) if error.kind() == ErrorKind::NotFound => match TAILSCALE_APP_CLI {
-            Some(app_cli) => ping(app_cli),
+        Err(error) if error.kind() == ErrorKind::NotFound => match tailscale_app_cli() {
+            Some(app_cli) => ping(&app_cli),
             None => Err(error),
         },
         other => other,
