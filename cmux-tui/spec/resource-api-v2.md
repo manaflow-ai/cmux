@@ -493,7 +493,9 @@ members by those ids, and an id the stash no longer holds is
 target?, pane?}` reopens them like `closed.reopen` (`here`; a member whose
 own pane is gone opens in `pane`, the pane the user acted from) or in one
 new workspace (`new_workspace`); restored members leave the stash in the
-same commit. App tabs and pages that are not http(s) are never stashed.
+same commit. A restore is all or nothing: when one member cannot reopen,
+the pages it opened close again and every member stays, so a retry opens
+each page once. App tabs and pages that are not http(s) are never stashed.
 `stash.delete` drops members or a stash, `stash.import {source: onetab,
 groups}` stores OneTab groups (http(s) pages only), and `stash.list` never
 shows back/forward history. Changes are `state_upsert`/`state_delete` of

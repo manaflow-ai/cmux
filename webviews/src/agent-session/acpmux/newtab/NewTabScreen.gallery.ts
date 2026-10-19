@@ -461,7 +461,7 @@ export default agentPaneEntry({
       },
     },
     "typed-prompt": {
-      note: "A typed prompt: Ask first (Return's, highlighted) and a web search in the popover over the cards; the cards stay where they were.",
+      note: "A typed prompt: Ask first (Return's, highlighted), a web search, then New terminal, New browser tab and New chat in the popover over the cards; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -490,9 +490,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // Ask, the search, two tabs, the workspace and a page: five presses from Ask end on the
-        // last row, and three more wrap round to the first tab.
-        for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
+        // Ask, the search, two tabs, the workspace, a page and the three create actions: eight
+        // presses from Ask end on the last row, and three more wrap round to the first tab.
+        for (let step = 0; step < 8; step++) await ctx.press("ArrowDown");
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");
