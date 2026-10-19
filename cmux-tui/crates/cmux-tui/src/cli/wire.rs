@@ -588,10 +588,15 @@ fn run_response(
 /// Whether a write that failed because the session closed the socket met
 /// the refusal line a session at its connection limit sends before closing
 /// (`type: "refused"`), so the error says "busy", not "broken pipe".
-fn refused_at_connect(reader: &mut BufReader<Box<dyn transport::Stream>>, error: &io::Error) -> bool {
+fn refused_at_connect(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    error: &io::Error,
+) -> bool {
     if !matches!(
         error.kind(),
-        io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
     ) {
         return false;
     }

@@ -1,8 +1,8 @@
 mod events_page;
-pub(crate) use events_page::query_resource_events_after;
 use super::*;
 use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
+pub(crate) use events_page::query_resource_events_after;
 use serde_json::json;
 mod patch_apply;
 mod topology_load;

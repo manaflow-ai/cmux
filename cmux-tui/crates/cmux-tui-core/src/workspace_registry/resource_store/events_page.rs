@@ -57,8 +57,7 @@ pub(crate) fn query_resource_events_after(
         statement
             .query_map(
                 params![
-                    i64::try_from(revision)
-                        .context("resource revision exceeds SQLite range")?,
+                    i64::try_from(revision).context("resource revision exceeds SQLite range")?,
                     i64::try_from(RESOURCE_EVENT_PAGE_SIZE)?,
                 ],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
@@ -74,11 +73,10 @@ pub(crate) fn query_resource_events_after(
             .collect::<anyhow::Result<Vec<_>>>()?
     };
     let sequences = indexed.iter().map(|(_, sequence)| *sequence).collect::<Vec<_>>();
-    let mut records =
-        session_journal::query_session_journal_sequences(connection, &sequences)?
-            .into_iter()
-            .map(|record| (record.sequence, record))
-            .collect::<HashMap<_, _>>();
+    let mut records = session_journal::query_session_journal_sequences(connection, &sequences)?
+        .into_iter()
+        .map(|record| (record.sequence, record))
+        .collect::<HashMap<_, _>>();
     let mut expected_revision = revision.saturating_add(1);
     let mut batches = Vec::with_capacity(indexed.len());
     for (indexed_revision, sequence) in indexed {

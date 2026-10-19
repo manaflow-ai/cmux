@@ -203,8 +203,8 @@ impl SessionJournalReader {
         &self,
         generation: &str,
         revision: u64,
-    ) -> anyhow::Result<super::ResourceEventPage> {
-        super::resource_store::query_resource_events_after(&self.connection, generation, revision)
+    ) -> anyhow::Result<ResourceEventPage> {
+        resource_store::query_resource_events_after(&self.connection, generation, revision)
     }
 
     pub(crate) fn after_subjects(
