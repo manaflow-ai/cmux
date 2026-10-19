@@ -67,17 +67,18 @@ permissions: {}
 # A pull request run (not a label event for another label) shares the pull
 # request's group and replaces its older tour; whether it tours is the route
 # job's call, and that depends on the whole pull request's diff, so a later
-# push of a toured pull request tours again. A label event for another label
+# push of a toured pull request tours again. Adding `no-media-tour` joins it too,
+# so it cancels a running tour. A label event for another label
 # gets a group of its own, so it cancels nothing.
 # Merge tours share one group without cancel-in-progress.
 concurrency:
-  group: ${{ github.event_name == 'push' && 'cmux-next-media-feat-cmux-next' || github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'push' && 'cmux-next-media-feat-cmux-next' || github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   route:
     name: Pick the tour runner
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'media-tour')) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'labeled' || github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -114,8 +115,12 @@ jobs:
             echo "a merge to feat-cmux-next tours"
             exit 0
           fi
-          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
-            > "$RUNNER_TEMP/changed.txt"
+          # The files API lists at most 3000; past that the label decides.
+          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' \
+            > "$RUNNER_TEMP/changed.txt"; then
+            echo "::warning::could not list the pull request's files; only the media-tour label tours"
+            : > "$RUNNER_TEMP/changed.txt"
+          fi
           python3 scripts/ci/media_auto_tour.py --changed "$RUNNER_TEMP/changed.txt"
 
       - name: Pick an owned gui runner

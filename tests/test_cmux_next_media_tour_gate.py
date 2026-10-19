@@ -150,6 +150,8 @@ def main():
         ("adding the label tours", pr_event("labeled", [LABEL], label=LABEL), True),
         ("adding another label to a labeled pull request tours nothing",
          pr_event("labeled", [LABEL, "dev-build"], label="dev-build"), False),
+        ("adding no-media-tour reaches the route, which cancels the running tour and posts nothing",
+         pr_event("labeled", ["no-media-tour"], label="no-media-tour"), True),
         ("a fork pull request never tours", pr_event("synchronize", [LABEL], fork=True), False),
         ("a merge to feat-cmux-next tours", push_event(), True),
     ]
