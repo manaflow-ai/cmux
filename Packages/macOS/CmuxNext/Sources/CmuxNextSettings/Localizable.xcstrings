@@ -106106,6 +106106,268 @@
           }
         }
       }
+    },
+    "settings.sidebar.detailedStatusIcons": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detailed Status Icons"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيقونات حالة مفصّلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaljne ikone statusa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaljerede statusikoner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaillierte Statussymbole"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iconos de estado detallados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icônes d’état détaillées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icone di stato dettagliate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細なステータスアイコン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបតំណាងស្ថានភាពលម្អិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자세한 상태 아이콘"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaljerte statusikoner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szczegółowe ikony stanu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ícones de status detalhados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробные значки состояния"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไอคอนสถานะแบบละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayrıntılı durum simgeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Докладні значки стану"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biểu tượng trạng thái chi tiết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "详细状态图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細狀態圖示"
+          }
+        }
+      }
+    },
+    "settings.sidebar.detailedStatusIcons.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض صفوف مساحات العمل أيقونة منفصلة لكل من: قيد العمل، وبانتظار الإدخال، والخطأ، والاكتمال. عند الإيقاف، يعرض الصف مؤشر دوران أثناء العمل ونقطة زرقاء عندما يصبح جاهزًا لك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redovi radnih prostora prikazuju zasebnu ikonu za rad, čekanje na unos, grešku i završeno. Kada je isključeno, red prikazuje indikator dok radi i plavu tačku kada je spreman za vas."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rækker for arbejdsområder viser et separat ikon for arbejder, venter på input, fejl og færdig. Slået fra viser en række en spinner, mens den arbejder, og en blå prik, når den er klar til dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereichszeilen zeigen ein eigenes Symbol für „arbeitet“, „wartet auf Eingabe“, „Fehler“ und „fertig“. Aus zeigt eine Zeile einen Spinner, solange sie arbeitet, und einen blauen Punkt, wenn sie für dich bereit ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las filas de los espacios de trabajo muestran un icono distinto para trabajando, esperando entrada, error y terminado. Desactivado, una fila muestra un indicador giratorio mientras trabaja y un punto azul cuando está lista para ti."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les lignes des espaces de travail affichent une icône distincte pour en cours, en attente de saisie, erreur et terminé. Désactivé, une ligne affiche un indicateur rotatif pendant le travail et un point bleu quand elle est prête pour vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le righe delle aree di lavoro mostrano un'icona distinta per in corso, in attesa di input, errore e completato. Se disattivato, una riga mostra un indicatore rotante mentre lavora e un punto blu quando è pronta per te."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの行に、作業中、入力待ち、エラー、完了をそれぞれ別のアイコンで表示します。オフの場合、作業中はスピナー、確認できる状態になると青い点を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរដេកកន្លែងធ្វើការបង្ហាញរូបតំណាងដាច់ដោយឡែកសម្រាប់កំពុងធ្វើការ រង់ចាំការបញ្ចូល កំហុស និងរួចរាល់។ នៅពេលបិទ ជួរដេកបង្ហាញសញ្ញាបង្វិលពេលកំពុងធ្វើការ និងចំណុចពណ៌ខៀវពេលវារួចរាល់សម្រាប់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 행에 작업 중, 입력 대기, 오류, 완료를 각각 다른 아이콘으로 표시합니다. 끄면 작업 중에는 스피너를, 확인할 준비가 되면 파란 점을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rader for arbeidsområder viser et eget ikon for arbeider, venter på inndata, feil og ferdig. Av viser en rad en spinner mens den arbeider og en blå prikk når den er klar for deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiersze obszarów roboczych pokazują osobną ikonę dla stanów: w toku, oczekiwanie na dane, błąd i gotowe. Po wyłączeniu wiersz pokazuje wskaźnik obrotowy podczas pracy i niebieską kropkę, gdy jest gotowy dla Ciebie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As linhas dos espaços de trabalho mostram um ícone separado para trabalhando, aguardando entrada, erro e concluído. Desativado, uma linha mostra um indicador giratório enquanto trabalha e um ponto azul quando está pronta para você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Строки рабочих пространств показывают отдельный значок для состояний «работает», «ждёт ввода», «ошибка» и «готово». Если выключено, строка показывает индикатор во время работы и синюю точку, когда она готова для вас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถวของพื้นที่ทำงานแสดงไอคอนแยกสำหรับกำลังทำงาน รอการป้อนข้อมูล ข้อผิดพลาด และเสร็จสิ้น เมื่อปิด แถวจะแสดงตัวหมุนขณะทำงานและจุดสีน้ำเงินเมื่อพร้อมให้คุณดู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı satırları çalışıyor, girdi bekliyor, hata ve bitti için ayrı bir simge gösterir. Kapalıyken satır, çalışırken bir döner gösterge ve sizin için hazır olduğunda mavi bir nokta gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рядки робочих просторів показують окремий значок для станів «працює», «чекає на введення», «помилка» і «готово». Якщо вимкнено, рядок показує індикатор під час роботи і синю крапку, коли він готовий для вас."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các hàng không gian làm việc hiển thị biểu tượng riêng cho đang làm việc, chờ nhập, lỗi và hoàn tất. Khi tắt, một hàng hiển thị vòng xoay khi đang làm việc và một chấm xanh lam khi đã sẵn sàng cho bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区行为“工作中”“等待输入”“错误”和“完成”分别显示图标。关闭时，行在工作时显示加载指示器，准备好供你查看时显示蓝点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區列為「工作中」「等待輸入」「錯誤」和「完成」分別顯示圖示。關閉時，列在工作時顯示載入指示器，準備好供你查看時顯示藍點。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
