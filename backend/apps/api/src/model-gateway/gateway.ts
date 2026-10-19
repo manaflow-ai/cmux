@@ -141,7 +141,8 @@ export class ModelGatewayLive {
         if ((final.stopReason === "error" || terminal?.type === "error") && w.run) this.hooks.failed?.(w.run, String(final.errorMessage ?? "model error").replace(/\s+/g, " ").slice(0, 400))
         if (priced) await this.gate.after(key, final).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", call: key, error: String(e).slice(0, 200) })))
         if (w.run) this.hooks.usage?.(w.run, usageOf(final))
-        if (terminal) out.push(terminal)
+        // The terminal event carries the repriced message: pi-ai resolves result() from it.
+        if (terminal) out.push(terminal.type === "done" ? { ...terminal, message: final } : { ...terminal, error: final })
         out.end(final)
       } catch (e) {
         if (priced && !sent) await this.gate.release(key).catch(() => undefined)
@@ -153,8 +154,10 @@ export class ModelGatewayLive {
     return out
   }
 
-  /** The compactor's call: charged after the fact, once (settle without reserve). */
+  /** The compactor's (and the hand classifier's) call: the same credits gate as a turn (reserve, then settle), so a team with no credits gets no paid call. */
   async completeSimple(model: Model<Api>, context: Context, options?: Parameters<MutableModels["completeSimple"]>[2]): Promise<AssistantMessage> {
+    const name = nameOf(model)
+    const priced = creditsRequired(this.env, name)
     const w = this.who()
     if (priced && !w.owner) return failed(model, "credits: this chief has no owner to bill")
     const key = safeId(`compact:${crypto.randomUUID()}`)
@@ -175,6 +178,7 @@ export class ModelGatewayLive {
       if (priced) await this.gate.release(key).catch(() => undefined)
       throw e
     }
+    if (priced) await this.gate.after(key, reply).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.compactor_settle_failed", call: key, error: String(e).slice(0, 200) })))
     return reply
   }
 

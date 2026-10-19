@@ -125,14 +125,18 @@ const markCache = (out: Record<string, unknown>, ttl: string, hinted?: ReadonlyA
   // the header lists it before the read mark, so a full request keeps the entry the next turn reads.
   const [write, ...reads] = hinted ?? []
   if (write !== undefined) add(blocks[write], "brain write mark")
-  // A later call of the same turn (an assistant message after the second to last user message): the previous
-  // call ended at that user message and wrote there. A message steered in before the first call is no such end.
+  // The previous call ended at the user message just before the last assistant message (a message steered in
+  // after that assistant message does not move it).
   const msgs = out.messages as Array<Msg>
-  const prev = users.length >= 2 ? users[users.length - 2] : undefined
-  const earlier = prev !== undefined && msgs.slice(msgs.indexOf(prev) + 1).some((m) => m.role === "assistant")
-  if (prev && earlier && Array.isArray(prev.content)) add(prev.content[prev.content.length - 1], "previous call")
-  for (const k of reads) add(blocks[k], "brain read mark")
-  if (write === undefined && !earlier) {
+  let last = -1
+  for (let k = msgs.length - 1; k >= 0; k--) if (msgs[k]!.role === "assistant") ((last = k), (k = -1))
+  let prev: Msg | undefined
+  for (let k = last - 1; k >= 0; k--) if (msgs[k]!.role === "user") ((prev = msgs[k]), (k = -1))
+  // (pi-ai marked that message's last block on the previous call, so this call reads its whole prefix there.)
+  if (prev && Array.isArray(prev.content)) add(prev.content[prev.content.length - 1], "previous call")
+  // The read mark is inside an entry already written on a later call: only the first call needs it.
+  if (last < 0) for (const k of reads) add(blocks[k], "brain read mark")
+  if (write === undefined && last < 0) {
     // [frozen view blocks..., "</chat>" block, delta blocks...] (OptChat 5a): the mark goes where the previous
     // turn's request ended: its newest user block, the second to last user block of the delta. With no earlier
     // user block (the turn after a re-render), it goes on the frozen view's end.

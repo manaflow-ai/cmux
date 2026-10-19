@@ -193,19 +193,12 @@ export class ChiefBrainDO extends DurableObject<Env> {
     this.compactor = new Compactor({
       memory: this.memory,
       deps: () => {
-        const cfg = this.config()
-        const fallback = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
-        const picked = compactorModel(this.env, cfg.compactor_model, fallback)
-        // A paid compactor (Haiku) only for owners allowed paid models, as for turns (modelRefusal); else the free fallback.
-        // With no free fallback (production) the nodes stay unbuilt: a fake summary would be kept as a permanent node.
-        const refused = isMetered(picked) && !meteredOwner(this.env, cfg.owner ?? null)
-        // Else the free fallback or the Chief's own unpaid turn model.
-        const free = !isMetered(fallback) ? fallback : !isMetered(cfg.model) && cfg.model ? cfg.model : undefined
-        const name = refused ? free : picked
+        const name = this.compactorName()
         if (name === undefined) throw new Error("compactor: this owner may not use the paid compactor, and this deployment has no free one")
         return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : isClaude(name) ? "high" : "medium", prompt: "cmux", agent: AGENT, cache: compactCache, record: (_c: CallRecord) => undefined }
       },
       onBuilt: () => undefined,
+      off: () => (this.compactorName() === undefined ? "no compactor model this owner may use" : undefined),
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_brain.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
       onRetryWait: (at) => this.schedule("compact", "compact", at),
       retryBaseMs: Number(env.CHIEF_BRAIN_COMPACT_RETRY_BASE_MS) || undefined
@@ -219,7 +212,20 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (this.sql.exec(`SELECT 1 FROM cb_spawn WHERE posted = 0 LIMIT 1`).toArray().length > 0) void this.deliverReports()
     if (this.sql.exec(`SELECT 1 FROM cb_agent_out WHERE posted = 0 LIMIT 1`).toArray().length > 0) void this.flushOutcomes()
     if (this.sql.exec(`SELECT 1 FROM cb_spawn_slot LIMIT 1`).toArray().length > 0) void this.pumpSlots()
-    if (!this.memory.settled()) await this.schedule("compact", "compact", Date.now() + RETRY_MS)
+    if (!this.memory.settled() && !this.compactor.off()) await this.schedule("compact", "compact", Date.now() + RETRY_MS)
+  }
+
+  /**
+   * The compactor's model: a paid one (Haiku) only for an owner allowed paid models, as for turns (modelRefusal);
+   * else the free fallback or the Chief's own unpaid turn model. undefined: none (production with a refused owner):
+   * compaction is off and the nodes stay unbuilt, never a fake summary kept as a permanent node.
+   */
+  private compactorName(): string | undefined {
+    const cfg = this.config()
+    const fallback = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
+    const picked = compactorModel(this.env, cfg.compactor_model, fallback)
+    if (!isMetered(picked) || meteredOwner(this.env, cfg.owner ?? null)) return picked
+    return !isMetered(fallback) ? fallback : !isMetered(cfg.model) && cfg.model ? cfg.model : undefined
   }
 
   // ------------------------------------------------------------------ settings object (name = agent)
@@ -642,7 +648,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (job.fn === "spawn-post") return void (await this.deliverReports())
     if (job.fn === "spawn-gc") return this.childGc()
     if (job.fn === "agent-out") return void (await this.flushOutcomes())
-    if (job.fn !== "compact") return
+    if (job.fn !== "compact" || this.compactor.off()) return
     this.compactor.pump()
     if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + RETRY_MS }
   }

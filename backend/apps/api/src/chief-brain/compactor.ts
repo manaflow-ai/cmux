@@ -139,6 +139,8 @@ export interface PumpHost {
   onFirstFailure(l: number, i: number, error: string): void;
   /** A failed node waits RETRY; the host makes sure something wakes the object then (eviction). */
   onRetryWait(at: number): void | Promise<void>;
+  /** Why compaction is off for this object (no model it may use), or undefined: then pump starts nothing and schedules nothing. */
+  off?(): string | undefined;
   /** First retry delay in ms (default RETRY_BASE_MS); tests make it small. */
   readonly retryBaseMs?: number;
   /** Random number in [0, 1) for the jitter (default Math.random; tests inject one). */
@@ -200,7 +202,13 @@ export class Compactor {
     return Math.max(0, this.coolUntil - now);
   }
 
+  /** True when the host turned compaction off (pump starts nothing; a turn renders the view as it is). */
+  off(): boolean {
+    return this.host.off?.() !== undefined;
+  }
+
   pump(): void {
+    if (this.off()) return;
     const cool = this.cooling();
     if (cool > 0) {
       // A provider said "slow down": take no new node until the wait ends (the core would mark it busy).

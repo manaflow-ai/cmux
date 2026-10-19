@@ -32,10 +32,11 @@ export const BEDROCK_PRICES: Readonly<Record<string, Tiers>> = {
 /** The cache write rate the route's marks pay: bedrock-stream.ts marks 1-hour entries unless CHIEF_BRAIN_CACHE_TTL is "5m". */
 const writeRate = (p: Price, ttl: string | undefined) => (ttl === "5m" ? p.write5m : p.write1h)
 
-/** A pi-ai cost object (the base tier) for the credits hold, or undefined for a model this table lacks. */
+/** A pi-ai cost object for the credits hold (the highest tier, so a hold never falls short), or undefined for a model this table lacks. */
 export const bedrockCost = (id: string, ttl: string | undefined): Model<Api>["cost"] | undefined => {
   const t = BEDROCK_PRICES[id]
-  return t ? { input: t.base.input, output: t.base.output, cacheRead: t.base.cacheRead, cacheWrite: writeRate(t.base, ttl) } : undefined
+  const p = t?.long?.price ?? t?.base
+  return p ? { input: p.input, output: p.output, cacheRead: p.cacheRead, cacheWrite: writeRate(p, ttl) } : undefined
 }
 
 export interface Tokens {
@@ -43,6 +44,8 @@ export interface Tokens {
   readonly output?: number
   readonly cacheRead?: number
   readonly cacheWrite?: number
+  /** The part of cacheWrite written as 1-hour entries (the response's cache_creation.ephemeral_1h_input_tokens), when known. */
+  readonly cacheWrite1h?: number
 }
 
 /** The USD cost of `u` on `id` (the tier its prompt size picks), split as pi-ai's usage cost; undefined for a model this table lacks. */
@@ -52,7 +55,10 @@ export const costOf = (id: string, u: Tokens, ttl: string | undefined) => {
   const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0)
   const prompt = n(u.input) + n(u.cacheRead) + n(u.cacheWrite)
   const p = t.long && prompt > t.long.above ? t.long.price : t.base
-  const c = { input: (n(u.input) * p.input) / 1e6, output: (n(u.output) * p.output) / 1e6, cacheRead: (n(u.cacheRead) * p.cacheRead) / 1e6, cacheWrite: (n(u.cacheWrite) * writeRate(p, ttl)) / 1e6 }
+  // The response says how many written tokens are 1-hour entries; else the TTL the route marks decides.
+  const w1h = typeof u.cacheWrite1h === "number" ? Math.min(n(u.cacheWrite1h), n(u.cacheWrite)) : undefined
+  const write = w1h === undefined ? n(u.cacheWrite) * writeRate(p, ttl) : w1h * p.write1h + (n(u.cacheWrite) - w1h) * p.write5m
+  const c = { input: (n(u.input) * p.input) / 1e6, output: (n(u.output) * p.output) / 1e6, cacheRead: (n(u.cacheRead) * p.cacheRead) / 1e6, cacheWrite: write / 1e6 }
   return { ...c, total: c.input + c.output + c.cacheRead + c.cacheWrite }
 }
 

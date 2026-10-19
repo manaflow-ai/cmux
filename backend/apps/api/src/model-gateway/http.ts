@@ -42,6 +42,7 @@ interface Usage {
   output: number
   cacheRead: number
   cacheWrite: number
+  cacheWrite1h?: number
 }
 
 /** Reads the Messages stream's usage as it passes (message_start, message_delta); calls `end` once at the end or on cancel. */
@@ -54,12 +55,13 @@ const usageTap = (end: (u: Usage) => Promise<void>): TransformStream<Uint8Array,
     const data = block.split("\n").find((l) => l.startsWith("data:"))
     if (!data) return
     try {
-      const e = JSON.parse(data.slice(5)) as { type?: string; message?: { usage?: Record<string, number> }; usage?: Record<string, number> }
+      const e = JSON.parse(data.slice(5)) as { type?: string; message?: { usage?: Record<string, number> & { cache_creation?: Record<string, number> } }; usage?: Record<string, number> & { cache_creation?: Record<string, number> } }
       const x = e.type === "message_start" ? e.message?.usage : e.type === "message_delta" ? e.usage : undefined
       if (!x) return
       if (typeof x.input_tokens === "number") u.input = x.input_tokens
       if (typeof x.cache_read_input_tokens === "number") u.cacheRead = x.cache_read_input_tokens
       if (typeof x.cache_creation_input_tokens === "number") u.cacheWrite = x.cache_creation_input_tokens
+      if (typeof x.cache_creation?.ephemeral_1h_input_tokens === "number") u.cacheWrite1h = x.cache_creation.ephemeral_1h_input_tokens
       if (typeof x.output_tokens === "number") u.output = Math.max(u.output, x.output_tokens)
     } catch {}
   }
@@ -151,7 +153,7 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
     held = r.res
   }
   const settle = async (u: Usage): Promise<void> => {
-    // The Bedrock price (bedrock-price.ts); the client's own marks choose the TTL, so a write is charged at the 1-hour rate.
+    // The Bedrock price (bedrock-price.ts): 1-hour writes as the response counts them; with no split, the 1-hour rate (never short).
     const usd = costOf(name, u, "1h")?.total ?? (u.input * model.cost.input + u.output * model.cost.output + u.cacheRead * model.cost.cacheRead + u.cacheWrite * model.cost.cacheWrite) / 1_000_000
     await unhold(usd)
     if (!held) return

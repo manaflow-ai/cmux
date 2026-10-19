@@ -167,7 +167,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     // which the turn runs on the last rendered view plus the unsummarized messages whole.
     // A failing or rate-limited compactor costs no wait (the turn goes at once on the last view plus the whole messages).
     markPending(b.sql, "admitted")
-    const healthy = b.compactor.failures().length === 0 && b.compactor.cooling() === 0
+    const healthy = !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
     const fresh = healthy ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(SETTLE_MS)) : b.memory.first() >= b.memory.len()
     markPending(b.sql, "settled")
     // Messages that came during the wait ride along (the same conversation's queue, read again).
