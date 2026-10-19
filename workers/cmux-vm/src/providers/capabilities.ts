@@ -35,7 +35,7 @@ export const DAYTONA_CAPABILITIES: ProviderCapabilities = {
   ssh: "access-token", // https://www.daytona.io/docs/en/ssh-access.md#access-via-token
   delegatedAccess: true, // https://www.daytona.io/docs/en/ssh-access.md#access-via-token
   publicPorts: true, // https://www.daytona.io/docs/en/sandboxes.md#preview-urls
-  egressControl: "none", // https://www.daytona.io/docs/en/network-limits.md (organization tier limits are automatic; no adapter policy is exposed)
+  egressControl: "allow-deny-list", // https://www.daytona.io/docs/en/network-limits.md (CIDR/domain allowlists and block-all)
   volumes: true, // https://www.daytona.io/docs/en/volumes.md
   lifecycleEvents: "webhooks", // https://www.daytona.io/docs/en/webhooks.md#sandbox-events
   maxVcpus: 4, // https://www.daytona.io/docs/en/sandboxes.md#resources

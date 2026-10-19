@@ -141,9 +141,9 @@ describe("Daytona provider adapter", () => {
     else expect.fail("expected Daytona UpstreamError");
   });
 
-  it("refuses the capabilities the Daytona default sandbox does not provide", () => {
+  it("reports the capability boundaries of the Daytona default sandbox", () => {
     expect(DAYTONA_CAPABILITIES.pauseWithMemory).toBe(false);
-    expect(DAYTONA_CAPABILITIES.egressControl).toBe("none");
+    expect(DAYTONA_CAPABILITIES.egressControl).toBe("allow-deny-list");
     expect(DAYTONA_CAPABILITIES.fork).toBe("snapshot-create");
   });
 });
