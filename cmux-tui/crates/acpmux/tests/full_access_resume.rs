@@ -170,9 +170,11 @@ async fn a_restarted_chat_saved_in_full_access_comes_back_without_it_when_off() 
     // Each comes back on its own harness, in that harness's mode that asks: Claude's `default`,
     // the Codex bridge's `agent`, and for the harness that restored full access on load, the mode
     // acpmux then sent it explicitly (`normal`, its first mode that does not skip approvals).
-    for (id, harness, mode) in
-        [(&claude, "claude", "default"), (&codex, "codex", "agent"), (&restores, "restores", "normal")]
-    {
+    for (id, harness, mode) in [
+        (&claude, "claude", "default"),
+        (&codex, "codex", "agent"),
+        (&restores, "restores", "normal"),
+    ] {
         let r = app.call("_acpmux/info", json!({"sessionId": id})).await;
         assert_eq!(r["result"]["harness"], harness, "{r}");
         assert_eq!(r["result"]["modes"]["currentModeId"], mode, "{harness}: {r}");
