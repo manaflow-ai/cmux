@@ -46,7 +46,9 @@ pub(super) const CLOUD_RUNS_CAPABILITY: &str = "cloud-conversation-runs-v1";
 /// snapshot (advertised with `cloud-conversations-v1`).
 pub(super) const CLOUD_LIVE_CAPABILITY: &str = "cloud-chief-live-v1";
 /// `cloud-conversation-typing`: the owner's ephemeral `typing` frame
-/// through the daemon (advertised with `cloud-conversations-v1`).
+/// through the daemon, and the `cloud-conversation-typing` event (the owner's
+/// `conversation-typing` broadcast of a subscribed conversation) for a
+/// connection that echoes it (advertised with `cloud-conversations-v1`).
 pub(super) const CLOUD_TYPING_CAPABILITY: &str = "cloud-conversation-typing-v1";
 
 /// Whether `client` is the verified cmux app (the `frontend` actor: a

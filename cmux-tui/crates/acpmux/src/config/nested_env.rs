@@ -48,6 +48,31 @@ pub(crate) fn is_nested_claude_key(key: &str) -> bool {
         || key.starts_with("CMUX_CLAUDE_")
         || key.starts_with("SUBROUTER_CLAUDE_")
         || key == "NODE_OPTIONS"
+        || is_prompt_cache_key(key)
+}
+
+/// Claude Code's prompt-cache switches. A session's settings env puts them
+/// in its process env, so its Bash children inherit them: an OptChat turn
+/// that places its own cache marks runs with `DISABLE_PROMPT_CACHING=1`,
+/// and an acpmux client run from that turn started the daemon with it
+/// (2026-10-19). Every agent that daemon spawned then sent no cache marks
+/// at all and paid its whole context uncached on every request. Only a
+/// profile, preset or session that sets one of them passes it on.
+pub(crate) fn is_prompt_cache_key(key: &str) -> bool {
+    key.starts_with("DISABLE_PROMPT_CACHING")
+        || key.starts_with("ENABLE_PROMPT_CACHING_1H")
+        || key == "FORCE_PROMPT_CACHING_5M"
+}
+
+/// The prompt-cache keys in this process's own environment
+/// ([`is_prompt_cache_key`]). An agent never inherits them from the daemon,
+/// whoever started it; the agent's profile env is applied after this
+/// removal, so a preset that sets one on purpose still wins.
+pub(crate) fn inherited_prompt_cache_keys() -> Vec<std::ffi::OsString> {
+    std::env::vars_os()
+        .map(|(k, _)| k)
+        .filter(|k| is_prompt_cache_key(&k.to_string_lossy()))
+        .collect()
 }
 
 /// The keys `scrub_nested_claude_env` removes from the daemon's own

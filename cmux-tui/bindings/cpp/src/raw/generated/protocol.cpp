@@ -33592,6 +33592,76 @@ Result<CloudConversationRunChangedEvent> Codec<CloudConversationRunChangedEvent>
     return result;
 }
 
+Result<Json> Codec<CloudConversationTypingEvent>::encode(const CloudConversationTypingEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("cloud-conversation-typing")));
+    if (value.account) {
+        auto encoded = encode_value(*value.account);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("account", std::move(encoded).value());
+    }
+    auto encoded_conversation = encode_value(value.conversation);
+    if (!encoded_conversation) return std::move(encoded_conversation).error();
+    object.emplace("conversation", std::move(encoded_conversation).value());
+    auto encoded_on = encode_value(value.on);
+    if (!encoded_on) return std::move(encoded_on).error();
+    object.emplace("on", std::move(encoded_on).value());
+    auto encoded_participant = encode_value(value.participant);
+    if (!encoded_participant) return std::move(encoded_participant).error();
+    object.emplace("participant", std::move(encoded_participant).value());
+    return Json(std::move(object));
+}
+
+Result<CloudConversationTypingEvent> Codec<CloudConversationTypingEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    CloudConversationTypingEvent result{};
+    const Json* field_account = value.find("account");
+    if (field_account) {
+        auto decoded = decode_value<std::string>(*field_account);
+        if (!decoded) return std::move(decoded).error();
+        result.account = std::move(decoded).value();
+    }
+    const Json* field_conversation = value.find("conversation");
+    if (!field_conversation) {
+        return make_error(ErrorCode::decode, "missing required field 'conversation'");
+    }
+    if (field_conversation) {
+        auto decoded = decode_value<std::string>(*field_conversation);
+        if (!decoded) return std::move(decoded).error();
+        result.conversation = std::move(decoded).value();
+    }
+    const Json* field_on = value.find("on");
+    if (!field_on) {
+        return make_error(ErrorCode::decode, "missing required field 'on'");
+    }
+    if (field_on) {
+        auto decoded = decode_value<bool>(*field_on);
+        if (!decoded) return std::move(decoded).error();
+        result.on = std::move(decoded).value();
+    }
+    const Json* field_participant = value.find("participant");
+    if (!field_participant) {
+        return make_error(ErrorCode::decode, "missing required field 'participant'");
+    }
+    if (field_participant) {
+        auto decoded = decode_value<std::string>(*field_participant);
+        if (!decoded) return std::move(decoded).error();
+        result.participant = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("cloud-conversation-typing"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<CloudInboxChangedEvent>::encode(const CloudInboxChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -40183,6 +40253,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "cloud-conversation-typing") {
+        auto decoded = decode_value<CloudConversationTypingEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "cloud-inbox-changed") {
         auto decoded = decode_value<CloudInboxChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -41017,7 +41092,7 @@ constexpr std::array<CommandMetadata, 274> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 85> kEvents{{
+constexpr std::array<EventMetadata, 86> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -41035,6 +41110,7 @@ constexpr std::array<EventMetadata, 85> kEvents{{
     {"cloud-conversation-live", 12U, "cloud-chief-live-v1", "subscribe", "emitted"},
     {"cloud-conversation-resynced", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
     {"cloud-conversation-run-changed", 12U, "cloud-conversation-runs-v1", "subscribe", "emitted"},
+    {"cloud-conversation-typing", 12U, "cloud-conversation-typing-v1", "subscribe", "emitted"},
     {"cloud-inbox-changed", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
     {"cloud-inbox-reset", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
     {"cloud-mux-resynced", 12U, "cloud-conversations-v1", "subscribe", "emitted"},
