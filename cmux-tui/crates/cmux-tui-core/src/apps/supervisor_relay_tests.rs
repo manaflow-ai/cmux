@@ -98,6 +98,37 @@ fn relay_op(id: &str, op: &str) -> Value {
 }
 
 #[test]
+fn cloud_scope_provider_loss_ends_idle_credential_servers_without_another_call() {
+    let (f, outs) = setup(&[
+        Probe::new("scoped", true, vec![json!({"type": "relay.session", "id": "r1"})]),
+        Probe::new("plain", false, vec![]),
+    ]);
+    let rx = credential_provider(&f);
+    f.install("cmux/scoped");
+    f.install("cmux/plain");
+    let session = next_event(&rx, "apps-provider-request");
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            session["request_id"].as_u64().unwrap(),
+            true,
+            json!({"signed_in": true, "team": "team_a", "scope": "a".repeat(64)}),
+        )
+        .unwrap();
+    assert_eq!(frames(&outs[0], 1)[0]["type"], "relay.session");
+    f.supervisor.disconnect(PROVIDER);
+    f.wait("idle credential server teardown", |event| {
+        event["event"] == "apps-server"
+            && event["app"] == "cmux/scoped"
+            && event["state"] == "stopped"
+    });
+    assert_eq!(frames(&outs[0], 2)[1]["type"], "scope.invalidate");
+    let inner = f.supervisor.inner.lock().unwrap();
+    assert!(inner.servers.contains_key("cmux/plain"), "an unrelated server stays alive");
+    assert!(!inner.servers.contains_key("cmux/scoped"));
+}
+
+#[test]
 fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() {
     let lines = vec![
         relay_op("r1", "cloud.machine.connect_info"),
