@@ -5,6 +5,52 @@
 use super::*;
 
 wire_op! {
+    /// Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
+    TeamVmJournalReadOp {
+        name: "team_vm.journal.read",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamVmDO",
+        risk: "read",
+        principals: [Install],
+        params: TeamVmJournalReadParams,
+        result: TeamVmJournalReadResult,
+        error: TeamVmJournalReadError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalReadParams {
+    pub stream: TeamJournalStream,
+    pub from_seq: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalReadResultEntriesItem {
+    pub first_seq: i64,
+    pub last_seq: i64,
+    pub epoch: i64,
+    pub sha256: String,
+    pub bytes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmJournalReadResult {
+    pub entries: Vec<TeamVmJournalReadResultEntriesItem>,
+    pub high_water: i64,
+    pub more: bool,
+}
+
+wire_errors! {
+    /// The error codes team_vm.journal.read declares.
+    TeamVmJournalReadError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        TeamVmNotBound = "team_vm.not_bound",
+    }
+}
+
+wire_op! {
     /// Release a wake lease you hold, so the team VM may pause when no other lease is active.
     TeamVmLeaseReleaseOp {
         name: "team_vm.lease.release",
@@ -855,39 +901,5 @@ wire_errors! {
         TextConfirmLocked = "text_confirm.locked",
         TextConfirmProofRequired = "text_confirm.proof_required",
         ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the teams the caller may act in with x-cmux-team (a team not listed answers team.not_member; one with sso_required answers auth.sso_required until the person signs in with its SSO): the personal team and every shared team whose TeamDO confirms the membership now. The UserDO team index is only the candidate list; an entry TeamDO does not confirm is left out.
-    UserTeamsListOp {
-        name: "user.teams.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session],
-        params: UserTeamsListParams,
-        result: UserTeamsListResult,
-        error: UserTeamsListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTeamsListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTeamsListResult {
-    pub teams: Vec<UserTeam>,
-    pub incomplete: bool,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes user.teams.list declares.
-    UserTeamsListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        OwnerUnreachable = "owner.unreachable",
     }
 }

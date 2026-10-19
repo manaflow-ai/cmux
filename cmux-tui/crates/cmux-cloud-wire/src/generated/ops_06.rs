@@ -4,6 +4,47 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Read the team's integration policy (allowed providers, GitHub repository scope).
+    IntegrationPolicyGetOp {
+        name: "integration.policy.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: IntegrationPolicyGetParams,
+        result: TeamIntegrationPolicy,
+        error: IntegrationPolicyGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationPolicyGetParams {}
+
+wire_errors! {
+    /// The error codes integration.policy.get declares.
+    IntegrationPolicyGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).
+    IntegrationPolicySetOp {
+        name: "integration.policy.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: IntegrationPolicySetParams,
+        result: TeamIntegrationPolicy,
+        error: IntegrationPolicySetError,
+    }
+}
+
 wire_enum! {
     IntegrationPolicySetParamsGithubScope {
         LinkingUserRepos = "linking_user_repos",
@@ -858,44 +899,5 @@ wire_enum! {
         ImageJpeg = "image/jpeg",
         ImageGif = "image/gif",
         ImageWebp = "image/webp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarGetResultAvatar {
-    pub sha256: String,
-    pub media_type: ParticipantAvatarGetResultAvatarMediaType,
-    pub bytes: i64,
-    /// The image, base64.
-    pub data: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarGetResult {
-    pub participant_id: ParticipantId,
-    pub avatar: Option<ParticipantAvatarGetResultAvatar>,
-}
-
-wire_errors! {
-    /// The error codes participant.avatar.get declares.
-    ParticipantAvatarGetError {
-        AuthForbidden = "auth.forbidden",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's.
-    ParticipantAvatarSetOp {
-        name: "participant.avatar.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ParticipantAvatarSetParams,
-        result: ParticipantAvatarSetResult,
-        error: ParticipantAvatarSetError,
     }
 }

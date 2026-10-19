@@ -85,6 +85,7 @@ pub mod op_names {
     pub const HOME_SETTINGS_SET: &str = "home.settings.set";
     pub const HOST_ENROLL: &str = "host.enroll";
     pub const HOST_NETWORK_BIND: &str = "host.network.bind";
+    pub const HOST_NETWORK_TARGET: &str = "host.network.target";
     pub const HOST_REMOVE: &str = "host.remove";
     pub const INBOX_ARCHIVE: &str = "inbox.archive";
     pub const INBOX_DM_PEER: &str = "inbox.dm_peer";
@@ -277,6 +278,7 @@ pub mod op_names {
         HOME_SETTINGS_SET,
         HOST_ENROLL,
         HOST_NETWORK_BIND,
+        HOST_NETWORK_TARGET,
         HOST_REMOVE,
         INBOX_ARCHIVE,
         INBOX_DM_PEER,
@@ -472,6 +474,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "home.settings.set" => visitor.visit::<HomeSettingsSetOp>(),
         "host.enroll" => visitor.visit::<HostEnrollOp>(),
         "host.network.bind" => visitor.visit::<HostNetworkBindOp>(),
+        "host.network.target" => visitor.visit::<HostNetworkTargetOp>(),
         "host.remove" => visitor.visit::<HostRemoveOp>(),
         "inbox.archive" => visitor.visit::<InboxArchiveOp>(),
         "inbox.dm_peer" => visitor.visit::<InboxDmPeerOp>(),

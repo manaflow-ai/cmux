@@ -5,6 +5,42 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitSetParams {
+    pub default_usd: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitSetResult {
+    pub default_usd: Option<WireNumber>,
+}
+
+wire_errors! {
+    /// The error codes team.ai_limit.set declares.
+    TeamAiLimitSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read the team's audit records, newest first (owners and admins: all; billing: billing records only).
+    TeamAuditListOp {
+        name: "team.audit.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session],
+        params: TeamAuditListParams,
+        result: TeamAuditListResult,
+        error: TeamAuditListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamAuditListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<TeamId>,
@@ -853,52 +889,6 @@ pub struct TeamVmJournalHighWaterResult {
 wire_errors! {
     /// The error codes team_vm.journal.high_water declares.
     TeamVmJournalHighWaterError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        TeamVmNotBound = "team_vm.not_bound",
-    }
-}
-
-wire_op! {
-    /// Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).
-    TeamVmJournalReadOp {
-        name: "team_vm.journal.read",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamVmDO",
-        risk: "read",
-        principals: [Install],
-        params: TeamVmJournalReadParams,
-        result: TeamVmJournalReadResult,
-        error: TeamVmJournalReadError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmJournalReadParams {
-    pub stream: TeamJournalStream,
-    pub from_seq: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmJournalReadResultEntriesItem {
-    pub first_seq: i64,
-    pub last_seq: i64,
-    pub epoch: i64,
-    pub sha256: String,
-    pub bytes: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmJournalReadResult {
-    pub entries: Vec<TeamVmJournalReadResultEntriesItem>,
-    pub high_water: i64,
-    pub more: bool,
-}
-
-wire_errors! {
-    /// The error codes team_vm.journal.read declares.
-    TeamVmJournalReadError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         TeamVmNotBound = "team_vm.not_bound",

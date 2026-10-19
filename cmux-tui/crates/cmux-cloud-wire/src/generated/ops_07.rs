@@ -5,6 +5,45 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetResultAvatar {
+    pub sha256: String,
+    pub media_type: ParticipantAvatarGetResultAvatarMediaType,
+    pub bytes: i64,
+    /// The image, base64.
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ParticipantAvatarGetResult {
+    pub participant_id: ParticipantId,
+    pub avatar: Option<ParticipantAvatarGetResultAvatar>,
+}
+
+wire_errors! {
+    /// The error codes participant.avatar.get declares.
+    ParticipantAvatarGetError {
+        AuthForbidden = "auth.forbidden",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's.
+    ParticipantAvatarSetOp {
+        name: "participant.avatar.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: ParticipantAvatarSetParams,
+        result: ParticipantAvatarSetResult,
+        error: ParticipantAvatarSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ParticipantAvatarSetParams {
     pub participant_id: ParticipantId,
     /// The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature.
@@ -862,41 +901,5 @@ wire_op! {
         params: TeamAiLimitSetParams,
         result: TeamAiLimitSetResult,
         error: TeamAiLimitSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitSetParams {
-    pub default_usd: Option<WireNumber>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitSetResult {
-    pub default_usd: Option<WireNumber>,
-}
-
-wire_errors! {
-    /// The error codes team.ai_limit.set declares.
-    TeamAiLimitSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read the team's audit records, newest first (owners and admins: all; billing: billing records only).
-    TeamAuditListOp {
-        name: "team.audit.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session],
-        params: TeamAuditListParams,
-        result: TeamAuditListResult,
-        error: TeamAuditListError,
     }
 }

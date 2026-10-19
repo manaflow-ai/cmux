@@ -255,6 +255,48 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Discover the configured Native origin and canonical team tenant for an active client install with read and mutate-own grants. Verify the requested mesh or select the tenant's sole mesh. This read creates no tenant, mesh, device or serving grant and returns no service credential.
+    HostNetworkTargetOp {
+        name: "host.network.target",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Install],
+        params: HostNetworkTargetParams,
+        result: HostNetworkTargetResult,
+        error: HostNetworkTargetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkTargetParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh: Option<NativeMeshId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostNetworkTargetResult {
+    pub team: TeamId,
+    pub tenant: NativeTenantId,
+    pub project: String,
+    pub origin: String,
+    pub mesh: NativeMeshId,
+    pub ipv4_cidr: String,
+}
+
+wire_errors! {
+    /// The error codes host.network.target declares.
+    HostNetworkTargetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Remove a host from the team directory (its owner or a team admin).
     HostRemoveOp {
         name: "host.remove",
@@ -856,46 +898,5 @@ wire_errors! {
     IntegrationListError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Read the team's integration policy (allowed providers, GitHub repository scope).
-    IntegrationPolicyGetOp {
-        name: "integration.policy.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: IntegrationPolicyGetParams,
-        result: TeamIntegrationPolicy,
-        error: IntegrationPolicyGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicyGetParams {}
-
-wire_errors! {
-    /// The error codes integration.policy.get declares.
-    IntegrationPolicyGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).
-    IntegrationPolicySetOp {
-        name: "integration.policy.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationPolicySetParams,
-        result: TeamIntegrationPolicy,
-        error: IntegrationPolicySetError,
     }
 }
