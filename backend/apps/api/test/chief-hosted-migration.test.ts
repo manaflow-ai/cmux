@@ -82,6 +82,11 @@ describe("Hosted Chief migration from a Mac Chief", { timeout: 120_000 }, () => 
     const late = await memory(token, chief, { after: 0, main: main.slice(2), tree: [] })
     expect([late.status, late.json.error.code, late.json.error.count]).toEqual([409, "out_of_order", 2])
     const tree = [line({ l: 1, i: 0, text: "user asked to remember the blue door", size: 0 }), line({ l: 1, i: 1, text: "release friday", size: 0 }), line({ l: 2, i: 0, text: "blue door; release friday", size: 0 })]
+    // Not into another conversation's brain, and not while the brain is on.
+    expect((await http("PUT", `/v1/chiefs/${chief.id}/memory?conversation=conv_00000000000000000000000000`, token, { after: 2, main: [], tree: [] })).status).toBe(400)
+    expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true })).status).toBe(200)
+    expect((await memory(token, chief, { after: 2, main: main.slice(2), tree, done: true })).json.error.code).toBe("brain_on")
+    expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: false })).status).toBe(200)
     // A node past the copied messages is refused.
     expect((await memory(token, chief, { after: 2, main: main.slice(2), tree: [line({ l: 2, i: 1, text: "x", size: 0 })], done: true })).status).toBe(400)
     expect((await memory(token, chief, { after: 2, main: main.slice(2), tree, done: true })).json.value).toEqual({ count: 4, nodes: 3, state: "done" })
@@ -111,5 +116,8 @@ describe("Hosted Chief migration from a Mac Chief", { timeout: 120_000 }, () => 
     const brain = brains.get(brains.idFromName(`${chief.id}/${chief.main_conversation}`))
     const kept = await runInDurableObject(brain, async (_i, state) => state.storage.sql.exec(`SELECT i, text FROM oc_message WHERE i < 4 ORDER BY i`).toArray())
     expect(kept.map((r) => r.text)).toEqual(texts)
+    // The Mac's summaries are kept as they were (the compactor did not build them again during the copy).
+    const built = await runInDurableObject(brain, async (_i, state) => state.storage.sql.exec(`SELECT l, i, text FROM oc_node WHERE l > 0 AND (i + 1) * (1 << l) <= 4 ORDER BY l, i`).toArray())
+    expect(built).toEqual([{ l: 1, i: 0, text: "user asked to remember the blue door" }, { l: 1, i: 1, text: "release friday" }, { l: 2, i: 0, text: "blue door; release friday" }])
   })
 })

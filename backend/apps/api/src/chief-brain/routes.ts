@@ -3,6 +3,7 @@ import { callerOf, type Fail } from "../home-attachments.ts"
 import { chiefOwnedBy } from "./brain-io.ts"
 import { brainName, type ConfigPatch } from "./brain-do.ts"
 import { childObject } from "./brain-spawn.ts"
+import { chiefMainConversation } from "../domains/user-chief.ts"
 import { type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, parseImportBody } from "./memory-import.ts"
 
 /**
@@ -82,7 +83,7 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
 }
 
 type MemoryBrain = {
-  status(): Promise<{ config: { enabled: boolean } }>
+  status(): Promise<{ config: { enabled: boolean; brain_impl?: string } }>
   memoryImportStatus(): Promise<ImportStatus>
   memoryImport(body: ImportBody, brainOn: boolean): Promise<ImportStatus | ImportFail>
 }
@@ -99,21 +100,44 @@ const handleMemoryImport = async (request: Request, env: Env, agent: string, set
   const p = caller.principal
   if (p.kind !== "session" && !(p.grant_classes ?? []).includes("mutate-own")) return fail({ status: 403, code: "auth.forbidden", message: "grant does not cover mutate-own" })
   if (!(await chiefOwnedBy(env, agent, p))) return fail({ status: 403, code: "auth.forbidden", message: "only the chief's owner copies its memory" })
+  // Only the Chief's own main conversation (the owner and the Chief): a private memory never goes into a shared conversation's brain.
   const conversation = new URL(request.url).searchParams.get("conversation") ?? ""
-  if (!/^conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26}$/.test(conversation)) return fail({ status: 400, code: "validation.invalid", message: "conversation is required" })
+  if (conversation !== chiefMainConversation(agent)) return fail({ status: 400, code: "validation.invalid", message: "conversation is the Chief's main conversation" })
   const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
   if (!(await conv.readOp(conversation, p, "conversation.history", { limit: 1 })).ok) return fail({ status: 404, code: "not_found", message: "no such conversation" })
   const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as MemoryBrain
   if (request.method === "GET") return ok(await brain.memoryImportStatus())
-  const text = await request.text()
-  if (new TextEncoder().encode(text).length > MAX_IMPORT_BODY) return fail({ status: 413, code: "validation.too_large", message: `one batch is at most ${MAX_IMPORT_BODY} bytes` })
+  const text = await capped(request, MAX_IMPORT_BODY)
+  if (text === null) return fail({ status: 413, code: "validation.too_large", message: `one batch is at most ${MAX_IMPORT_BODY} bytes` })
   let raw: unknown = null
   try {
     raw = JSON.parse(text)
   } catch {}
   const body = parseImportBody(raw)
   if ("ok" in body) return fail(body)
-  const on = (await (settings as MemoryBrain).status()).config.enabled
+  const config = (await (settings as MemoryBrain).status()).config
+  if (config.brain_impl !== undefined && config.brain_impl !== "pi") return fail({ status: 409, code: "brain_impl", message: "this Chief's brain keeps its own memory elsewhere" })
+  const on = config.enabled
   const r = await brain.memoryImport(body, on)
   return "ok" in r ? fail(r) : ok(r)
+}
+
+/** The body as text, or null when it is longer than `max` bytes (read with a cap: a large body is never held whole). */
+const capped = async (request: Request, max: number): Promise<string | null> => {
+  if (Number(request.headers.get("content-length") ?? 0) > max) return null
+  if (!request.body) return ""
+  const reader = request.body.getReader()
+  const chunks: Array<Uint8Array> = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > max) return void (await reader.cancel().catch(() => undefined)), null
+    chunks.push(value)
+  }
+  const all = new Uint8Array(size)
+  let at = 0
+  for (const c of chunks) all.set(c, (at += c.byteLength) - c.byteLength)
+  return new TextDecoder().decode(all)
 }

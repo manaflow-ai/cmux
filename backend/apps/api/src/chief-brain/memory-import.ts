@@ -20,13 +20,16 @@ const MAX_LINES = 20_000
 const MAX_LEVEL = 40
 export const MAX_IMPORT_BODY = 1024 * 1024
 
-const SCHEMA = `CREATE TABLE IF NOT EXISTS oc_import (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL)`
+export const IMPORT_SCHEMA = `CREATE TABLE IF NOT EXISTS oc_import (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL)`
+
+/** A copy is under way: the brain runs no turn and no compactor call until its last batch (cheap: one row). */
+export const importing = (sql: SqlStorage): boolean => sql.exec<{ state: string }>(`SELECT state FROM oc_import WHERE id = 1`).toArray()[0]?.state === "importing"
 
 const bad = (message: string, extra?: Record<string, unknown>): ImportFail => ({ ok: false, status: 400, code: "validation.invalid", message, ...(extra ? { extra } : {}) })
 const conflict = (code: string, message: string, extra?: Record<string, unknown>): ImportFail => ({ ok: false, status: 409, code, message, ...(extra ? { extra } : {}) })
 
 export const importStatus = (sql: SqlStorage): ImportStatus => {
-  sql.exec(SCHEMA)
+  sql.exec(IMPORT_SCHEMA)
   const count = Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM oc_message`).one().n)
   const nodes = Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM oc_node`).one().n)
   const saved = sql.exec<{ state: string }>(`SELECT state FROM oc_import WHERE id = 1`).toArray()[0]?.state
@@ -65,6 +68,9 @@ export const importBatch = (sql: SqlStorage, storage: DurableObjectStorage, body
   if (before.state === "done") return conflict("memory_import_done", "this Chief's memory copy is done", { count: before.count })
   if (before.state === "live") return conflict("memory_not_empty", "this Chief already has its own memory", { count: before.count })
   if (brainOn) return conflict("brain_on", "turn the Chief's brain off for the copy, then on again")
+  // A turn of this brain that runs or waits (it started before the brain was turned off) would append to the log.
+  const busy = sql.exec(`SELECT 1 FROM cb_inbox WHERE state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE status NOT IN ('done', 'failed') LIMIT 1`).toArray().length > 0
+  if (busy) return conflict("brain_busy", "a Chief turn runs here: copy after it ends")
   if (body.after !== before.count) return conflict("out_of_order", `the memory holds ${before.count} messages, not ${body.after}`, { count: before.count })
   const messages: Array<{ i: number; kind: string; text: string; size: number; date: string }> = []
   for (const [k, line] of body.main.entries()) {
