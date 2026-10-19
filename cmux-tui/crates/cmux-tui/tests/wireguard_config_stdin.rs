@@ -99,5 +99,11 @@ async fn wg_hub_stdin_config_connects_through_a_real_loopback_tunnel() {
     }
     assert!(timeout(Duration::from_secs(5), child.wait()).await.unwrap().unwrap().success());
     assert!(!socket.exists());
-    assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    // The stable lock inode is intentionally retained across socket owners.
+    // It is the only file allowed here and must contain no configuration.
+    let files: Vec<_> =
+        std::fs::read_dir(directory.path()).unwrap().map(|entry| entry.unwrap().path()).collect();
+    let lock = directory.path().join("hub.sock.lock");
+    assert_eq!(files, vec![lock.clone()]);
+    assert!(std::fs::read(lock).unwrap().is_empty());
 }
