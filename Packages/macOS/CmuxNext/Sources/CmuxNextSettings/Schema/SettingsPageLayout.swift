@@ -12,7 +12,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, advancedInfo, advancedActions, backdrops
+        case machines, accounts, agentHarnesses, advancedInfo, advancedActions, backdrops, devices
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -169,6 +169,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle", groups: [],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+        // This Mac and the person's other devices on the device hub: names, fingerprints, Mac
+        // Screen access, relays and the access history (docs/device-hub). DEV builds only for now.
+        CategorySpec(
+            id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
+            groups: [], lead: [.devices], devOnly: true),
         CategorySpec(
             id: "advanced", title: section(.advanced), symbol: "curlybraces", groups: [],
             lead: [.advancedInfo], trail: [.advancedActions], actions: [.advanced], aliases: [.advanced]),

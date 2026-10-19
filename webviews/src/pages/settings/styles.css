@@ -880,6 +880,133 @@ mark {
   max-width: 320px;
 }
 
+/* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
+.devices-header {
+  justify-content: flex-start;
+}
+
+.devices-header > .devices-status {
+  margin-right: auto;
+}
+
+.devices-status[data-tone="success"] .accounts-dot {
+  border-color: var(--success, var(--text));
+}
+
+.devices-status[data-tone="attention"] .accounts-dot {
+  border-color: var(--warning);
+}
+
+.devices-status[data-tone="danger"] .accounts-dot {
+  border-color: var(--danger);
+}
+
+.devices-status[data-tone="neutral"] .accounts-dot {
+  opacity: 0.4;
+}
+
+.devices-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-badge {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.devices-access,
+.devices-field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.devices-relays-header {
+  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.devices-form {
+  margin-top: 6px;
+}
+
+.devices-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.devices-field > .field,
+.devices-field > .select {
+  max-width: 360px;
+}
+
+.devices-urls {
+  resize: vertical;
+}
+
+.devices-priority {
+  width: 80px;
+}
+
+.devices-history-scroll {
+  overflow-x: auto;
+}
+
+.devices-history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.devices-history th,
+.devices-history td {
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.devices-history th {
+  font-weight: 600;
+  color: var(--muted-text);
+}
+
+.devices-history tbody tr:last-child td {
+  box-shadow: none;
+}
+
+.devices-nowrap {
+  white-space: nowrap;
+}
+
+.devices-pill {
+  display: inline-flex;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+  color: var(--muted-text);
+}
+
+.devices-pill[data-tone="success"] {
+  color: var(--success, var(--text));
+}
+
+.devices-pill[data-tone="attention"] {
+  color: var(--warning);
+}
+
+.devices-pill[data-tone="danger"] {
+  color: var(--danger);
+}
+
 /* All Workspaces | This Workspace (cx-t2x.5). */
 .backdrop-scope {
   margin-bottom: 8px;

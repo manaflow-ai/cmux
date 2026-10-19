@@ -275,6 +275,158 @@ export type HarnessesRun = {
   recheck?: boolean;
 };
 
+/** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
+ * the device hub, Mac Screen access to this Mac, relays and the access history. The host sends
+ * every text localized; the page draws and forwards each gesture (`cmux.settings.devices.run`). */
+export type DevicesTone = "success" | "attention" | "danger" | "neutral";
+export type DevicesScope = "none" | "ask" | "view" | "full";
+export type DevicesState = {
+  /** The device hub is configured in this build (deviceHub.url set). */
+  available: boolean;
+  /** Connection line under the header: "Connected", "Connecting…", "Not signed in", "Off" … */
+  status: { text: string; tone: DevicesTone };
+  /** Button title when this Mac left the hub (it removed itself) and may sign in again; else null. */
+  signIn: string | null;
+  /** The last failure, localized; null when none. */
+  error: string | null;
+  labels: DevicesLabels;
+  thisDevice: DevicesDevice | null;
+  others: DevicesDevice[];
+  /** "Allow Mac Screen on this Mac"; null until this Mac is registered. */
+  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[] } | null;
+  relays: DevicesRelay[];
+  /** Newest first. */
+  history: DevicesHistoryRow[];
+};
+export type DevicesPermissionId = "screenRecording" | "accessibility";
+export type DevicesPermission = { id: DevicesPermissionId; title: string; detail: string; granted: boolean };
+export type DevicesDevice = {
+  id: string;
+  name: string;
+  /** Localized platform: "Mac", "iPhone". */
+  platform: string;
+  /** Display fingerprint ("1A2B 3C4D …"), null when unknown. */
+  fingerprint: string | null;
+  online: boolean;
+  /** "Online", "Offline · seen 5 minutes ago". */
+  presence: string;
+  thisDevice: boolean;
+  /** Whether it shares its Mac Screen; with a localized note when it does ("Shares Mac Screen"). */
+  sharesText: string | null;
+  /** This device's Mac Screen access to THIS Mac (null for this device). */
+  access: DevicesScope | null;
+  /** Removal confirmation texts for this row. */
+  removeConfirm: { title: string; body: string; confirm: string };
+};
+export type DevicesRelayMode = "shared_secret" | "static";
+export type DevicesRelay = {
+  id: string;
+  name: string;
+  urls: string[];
+  mode: DevicesRelayMode;
+  /** Localized mode: "Shared secret", "Username and password". */
+  modeText: string;
+  enabled: boolean;
+  priority: number;
+  /** This Mac holds the relay's secret (it can use and check it). */
+  hasSecret: boolean;
+  checking: boolean;
+  /** The last Check Relay result, null when never checked. */
+  check: { tone: DevicesTone; text: string } | null;
+};
+export type DevicesHistoryRow = {
+  id: string;
+  /** Localized date and time. */
+  time: string;
+  /** Raw audit event (shared, unshared, requested, approved, denied, started, ended,
+   * permission_changed, device_added, device_removed) for styling, and its localized pill text. */
+  event: string;
+  eventText: string;
+  tone: DevicesTone;
+  /** Viewer device name (or "—"). */
+  device: string;
+  /** Host device name (or "—"). */
+  host: string;
+  /** Localized scope ("View only", "Full control", "—"). */
+  scope: string;
+  detail: string;
+  /** "22m 27s" or "". */
+  duration: string;
+};
+export type DevicesLabels = {
+  thisDeviceSection: string;
+  thisDeviceBadge: string;
+  othersSection: string;
+  noOthers: string;
+  fingerprint: string;
+  rename: string;
+  renameTitle: string;
+  nameField: string;
+  save: string;
+  cancel: string;
+  remove: string;
+  access: string;
+  accessOptions: Array<{ value: DevicesScope; title: string }>;
+  sharingSection: string;
+  sharingToggle: string;
+  sharingDetail: string;
+  openSettings: string;
+  allowed: string;
+  relaysSection: string;
+  relaysEmpty: string;
+  relaysHelp: string;
+  addRelay: string;
+  editRelay: string;
+  deleteRelay: string;
+  deleteRelayTitle: string;
+  deleteRelayBody: string;
+  checkRelay: string;
+  relayOff: string;
+  relayName: string;
+  relayURLs: string;
+  relayURLsHelp: string;
+  relayMode: string;
+  modeOptions: Array<{ value: DevicesRelayMode; title: string }>;
+  relaySecret: string;
+  relaySecretKeep: string;
+  relayUsername: string;
+  relayPassword: string;
+  relayEnabled: string;
+  relayPriority: string;
+  relayPriorityHelp: string;
+  historySection: string;
+  historyEmpty: string;
+  historyColumns: { time: string; event: string; device: string; host: string; scope: string; detail: string; duration: string };
+  refresh: string;
+};
+export type DevicesRelayDraft = {
+  /** Absent for a new relay. */
+  id?: string;
+  name: string;
+  urls: string[];
+  mode: DevicesRelayMode;
+  /** shared_secret mode; empty/absent on edit keeps the saved secret. */
+  secret?: string;
+  /** static mode; both empty/absent on edit keep the saved credentials. */
+  username?: string;
+  password?: string;
+  enabled: boolean;
+  priority: number;
+};
+export type DevicesRun =
+  | { action: "refresh" }
+  | { action: "signIn" }
+  | { action: "rename"; id: string; name: string }
+  | { action: "remove"; id: string }
+  | { action: "setAccess"; id: string; scope: DevicesScope }
+  | { action: "setSharing"; on: boolean }
+  | { action: "openPermission"; id: DevicesPermissionId }
+  | { action: "saveRelay"; relay: DevicesRelayDraft }
+  | { action: "checkRelay"; id?: string; relay?: DevicesRelayDraft }
+  | { action: "deleteRelay"; id: string };
+/** `error`: a localized failure to show near the control; `text`: a result line (Check Relay). */
+export type DevicesRunResult = { error?: string; text?: string; ok?: boolean };
+
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
 
@@ -301,6 +453,10 @@ export type SettingsOps = {
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
   "cmux.settings.harnesses.run": [HarnessesRun, unknown];
+  /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
+  "cmux.settings.devices.state": [Record<string, never>, DevicesState];
+  /** Native: one Devices gesture; a failure answers its localized text in `error`. */
+  "cmux.settings.devices.run": [DevicesRun, DevicesRunResult];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
@@ -359,6 +515,8 @@ export type SettingsStreams = {
   "cmux.settings.agents.changed": AgentsState;
   /** The Harnesses part changed (the event carries the new state). */
   "cmux.settings.harnesses.changed": HarnessesState;
+  /** The Devices part changed (the event carries the new state). */
+  "cmux.settings.devices.changed": DevicesState;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** The page bridge's link to the daemon (one stream for every page). */

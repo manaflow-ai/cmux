@@ -856,6 +856,30 @@
       },
       {
         "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "dev_only" : true,
+        "groups" : [
+
+        ],
+        "id" : "devices",
+        "lead" : [
+          "devices"
+        ],
+        "symbol" : "laptopcomputer",
+        "title" : {
+          "key" : "settings.category.devices",
+          "text" : "Devices"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
           "advanced"
         ],
         "aliases" : [

@@ -14,6 +14,7 @@ import {
   scopeData,
   settingsKeys,
   type AccountsData,
+  type DevicesData,
   type HarnessesData,
   type HostData,
   type ScopeData,
@@ -30,6 +31,9 @@ import {
   type AccountsState,
   type AgentsRun,
   type AgentsState,
+  type DevicesRun,
+  type DevicesRunResult,
+  type DevicesState,
   type Domains,
   type HarnessesRun,
   type HarnessesState,
@@ -69,6 +73,8 @@ export type SettingsState = {
   accounts: AccountsState | null;
   /** The Harnesses part (Settings > Agents); null until read, or when the host has none. */
   harnesses: HarnessesState | null;
+  /** The Devices part (Settings > Devices); null until read, or when the host has none. */
+  devices: DevicesState | null;
   /** Theme colors by name (cmux.settings.theme.colors); null until read or when the host has none. */
   themeColors: ReadonlyMap<string, GhosttyTheme> | null;
 };
@@ -84,6 +90,7 @@ export type CacheView = {
   host: HostData | undefined;
   accounts: AccountsData | undefined;
   harnesses?: HarnessesData | undefined;
+  devices?: DevicesData | undefined;
   themeColors: ThemeColorsData | undefined;
 };
 
@@ -111,6 +118,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     host: cache.host ?? null,
     accounts: cache.accounts ?? null,
     harnesses: cache.harnesses ?? null,
+    devices: cache.devices ?? null,
     themeColors: cache.themeColors ?? null,
   };
 }
@@ -141,6 +149,9 @@ export class SettingsStore {
     });
     this.queryClient.setQueryDefaults(settingsKeys.harnesses, {
       queryFn: () => this.native("cmux.settings.harnesses.state"),
+    });
+    this.queryClient.setQueryDefaults(settingsKeys.devices, {
+      queryFn: () => this.native("cmux.settings.devices.state"),
     });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
@@ -178,6 +189,9 @@ export class SettingsStore {
       ),
       this.listen("cmux.settings.harnesses.changed", (harnesses) =>
         this.queryClient.setQueryData(settingsKeys.harnesses, harnesses),
+      ),
+      this.listen("cmux.settings.devices.changed", (devices) =>
+        this.queryClient.setQueryData(settingsKeys.devices, devices),
       ),
       this.listen("cmux.page.command", (event) => {
         for (const listener of this.commandListeners) listener(event.command);
@@ -220,6 +234,11 @@ export class SettingsStore {
   /** Reads the Accounts part. */
   async refreshAccounts(): Promise<void> {
     await this.fetchNative(settingsKeys.accounts);
+  }
+
+  /** Reads the Devices part (a host without a device hub rejects, and the part stays null). */
+  async refreshDevices(): Promise<void> {
+    await this.fetchNative(settingsKeys.devices);
   }
 
   /** Reads the theme colors once (the Theme section asks when it first draws). */
@@ -377,6 +396,15 @@ export class SettingsStore {
     await this.fetchNative(settingsKeys.harnesses);
   }
 
+  /** One Devices gesture, then a fresh read of the part; answers the host's result (a refusal
+   * as its `error` text). Secrets in a relay draft pass through here and are never kept. */
+  async runDevices(run: DevicesRun): Promise<DevicesRunResult> {
+    const reply = await this.request("cmux.settings.devices.run", run);
+    await this.refreshDevices();
+    if (!reply.ok) return { error: reply.error.message, ok: false };
+    return reply.value ?? {};
+  }
+
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
   async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
     await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
@@ -408,6 +436,7 @@ export class SettingsStore {
       host: this.queryClient.getQueryData<HostData>(settingsKeys.host),
       accounts: this.queryClient.getQueryData<AccountsData>(settingsKeys.accounts),
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
+      devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
       themeColors: this.queryClient.getQueryData<ThemeColorsData>(settingsKeys.themeColors),
     };
   }
