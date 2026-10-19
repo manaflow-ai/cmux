@@ -353,8 +353,8 @@ final class SettingsPageProvider: PageProvider {
         } catch let userOnly as SettingUserOnly {
             throw Self.userOnlyError(userOnly)
         }
-        // The watcher applies the write; reading it back now keeps the page's refresh current.
-        await settings.reload()
+        // setSetting returns once its own load applied the write (reloadAfterWrite), so the
+        // page's next read is current without a second full load and apply.
     }
 
     static func managedInfo(_ source: ManagedSource) -> JSONValue {

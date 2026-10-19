@@ -184,6 +184,7 @@
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
         "CmuxNextCLIInstall",
+        "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -417,6 +418,25 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextChromiumWarmup": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumWarmup",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextChromiumWarmupTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextChromiumWarmupTests",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextChromiumWarmup"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextCloud": {
       "kind": "regular",
