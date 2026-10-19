@@ -50,7 +50,7 @@ if "continue-on-error: true" not in macos15:
 # SecItemAdd raises the "keychain not found" dialog, nobody answers it on a
 # runner, and the Chromium tab never loads (every run from 2026-10-17 to
 # 2026-10-18). The probe runs as the runner's own user, as on the Tart VMs.
-if re.search(r"^\s*HOME=", macos15, re.MULTILINE):
+if re.search(r"(?:^|[\s;])(?:export\s+|env\s+)?HOME=|^\s+HOME:\s", macos15, re.MULTILINE):
     failures.append("macOS 15 launch must run the probe with the runner's HOME: a scratch HOME has no login keychain")
 
 legacy = job("legacy-identity-target")
