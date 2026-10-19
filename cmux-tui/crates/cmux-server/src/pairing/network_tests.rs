@@ -258,9 +258,8 @@ fn handshake_status(status: u16) -> Result<Waited> {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let error = runtime.block_on(async {
         let stream = tokio::net::TcpStream::connect(&address).await.unwrap();
-        let request = format!("ws://{address}/v1/pair/wait?code=7KQ4M2XD")
-            .into_client_request()
-            .unwrap();
+        let request =
+            format!("ws://{address}/v1/pair/wait?code=7KQ4M2XD").into_client_request().unwrap();
         tokio_tungstenite::client_async_with_config(request, stream, Some(socket_config()))
             .await
             .map(|_| ())
