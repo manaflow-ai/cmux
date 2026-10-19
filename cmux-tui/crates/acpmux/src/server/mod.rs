@@ -42,6 +42,8 @@ pub struct Conn {
     pub origin: Origin,
     /// The proof it presented (`conn_auth.rs`); what the mode rule reads.
     pub auth: ConnAuth,
+    /// It reads session text raw (`peer_text.rs`): every origin but a peer.
+    raw_text: bool,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
@@ -112,7 +114,8 @@ impl Conn {
     }
 
     fn send(&self, msg: &Message) {
-        let _ = self.out.try_send(msg.to_line());
+        let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
+        let _ = self.out.try_send(masked.as_ref().unwrap_or(msg).to_line());
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
@@ -701,10 +704,12 @@ async fn serve_connection_from(
         refuse_unauthenticated(&mut inbound, &out, origin).await;
         return;
     }
+    let raw_text = !peer_text::masks(origin);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
         origin,
         auth,
+        raw_text,
         name: StdMutex::new(String::new()),
         out,
         subs: StdMutex::new(HashMap::new()),
@@ -952,6 +957,7 @@ mod inventory_watch;
 pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
+pub mod peer_text;
 mod pending;
 mod processes;
 pub use pending::event_value;
