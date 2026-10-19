@@ -4,7 +4,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
-import { dueWakes, nextDeliveryAt, pendWake, sendWake, settleWake, type Wake } from "./mux-wake-delivery.ts"
+import { dueWakes, nextDeliveryAt, nextWaiting, pendWake, sendWake, settleWake, type Wake } from "./mux-wake-delivery.ts"
 
 /**
  * MuxDO, one per chief (home-messaging.md sections 3 and 4.3): the chief's wake queue, run by
@@ -88,7 +88,24 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     return this.env.CHIEF_OPENCODE_ENABLED === "1" && this.env.OPENCODE_BRAIN_DO !== undefined && this.brainImpl() === "opencode"
   }
 
-  private async deliver(wake: Wake): Promise<boolean> {
+  /**
+   * Sends `wake`, then (when it was delivered) the conversation's wakes that came while it was in flight,
+   * in seq order, at once (a burst of messages reaches the brain in one run, not at the next alarm).
+   * `chain` false: only this wake (the alarm walks its own due rows in order).
+   */
+  private async deliver(wake: Wake, chain = true): Promise<boolean> {
+    const ok = await this.sendOne(wake)
+    let w: Wake = wake
+    for (let sent = ok; sent && chain; ) {
+      const next = nextWaiting(this.ctx.storage.sql, w, Date.now())
+      if (!next) break
+      w = { agent: wake.agent, owner: wake.owner, ...next }
+      sent = await this.sendOne(w)
+    }
+    return ok
+  }
+
+  private async sendOne(wake: Wake): Promise<boolean> {
     const ok = await sendWake(this.env, wake, this.opencode())
     settleWake(this.ctx.storage.sql, wake, ok, Date.now())
     this.scheduleAlarm()
@@ -106,7 +123,7 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     const { agent, owner_user: owner } = head
     // Conversations in parallel, each in seq order, stopping at its first failure (order kept); every send is time-limited.
     await Promise.allSettled([...due.values()].map(async (rows) => {
-      for (const d of rows) if (!(await this.deliver({ agent, owner, ...d }))) return
+      for (const d of rows) if (!(await this.deliver({ agent, owner, ...d }, false))) return
     }))
   }
 

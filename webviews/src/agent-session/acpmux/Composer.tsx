@@ -85,6 +85,8 @@ export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
   placeholderQueued: "composer.placeholderQueued",
+  placeholderSteer: "composer.placeholderSteer",
+  placeholderInterrupt: "composer.placeholderInterrupt",
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
@@ -932,6 +934,16 @@ export function Composer({
   const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
   // While a turn runs, what is sent waits behind it, so the empty prompt says so.
   const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
+  // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
+  // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
+  // typed text, so with only attachments staged it says just that Return queues.
+  const placeholder = !queues
+    ? COMPOSER_LABELS.placeholder
+    : onOpenInWindow || attachments.length > 0
+      ? COMPOSER_LABELS.placeholderQueued
+      : steerKind === "steer"
+        ? COMPOSER_LABELS.placeholderSteer
+        : COMPOSER_LABELS.placeholderInterrupt;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1142,7 +1154,7 @@ export function Composer({
             ref={fieldRef}
             className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
             value={text}
-            placeholder={t(queues ? COMPOSER_LABELS.placeholderQueued : COMPOSER_LABELS.placeholder)}
+            placeholder={t(placeholder)}
             attributes={{
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
