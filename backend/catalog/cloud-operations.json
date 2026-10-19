@@ -40296,6 +40296,167 @@
         }
       }
     },
+    "host.network.target": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "mesh": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "NativeMeshId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "tenant": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeTenantId"
+            }
+          },
+          "project": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "origin": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "mesh": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeMeshId"
+            }
+          },
+          "ipv4_cidr": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "owner.unreachable",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "host network target",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Discover the configured Native origin and canonical team tenant for an active client install with read and mutate-own grants. Verify the requested mesh or select the tenant's sole mesh. This read creates no tenant, mesh, device or serving grant and returns no service credential.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "mesh": {
+            "$ref": "#/$defs/NativeMeshId"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "tenant": {
+            "$ref": "#/$defs/NativeTenantId"
+          },
+          "project": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "mesh": {
+            "$ref": "#/$defs/NativeMeshId"
+          },
+          "ipv4_cidr": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "tenant",
+          "project",
+          "origin",
+          "mesh",
+          "ipv4_cidr"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          }
+        }
+      }
+    },
     "host.remove": {
       "class": "mutation",
       "idempotency": "required",
