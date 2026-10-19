@@ -3122,6 +3122,9 @@ export class AcpmuxDirectClient {
     this.closed = true;
     this.sessionPages.stop();
     clearTimeout(this.sessionReread);
+    this.sessionReread = undefined;
+    clearTimeout(this.stopTimer);
+    this.stopTimer = undefined;
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;

@@ -130,7 +130,7 @@ public extension PageDescriptor {
     static let markdown = PageDescriptor(
         id: "cmux.markdown", resource: diffResource, namespaces: ["cmux.markdown."],
         nativeOps: [PageNativeOp.clipboardWrite],
-        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), entry: markdownEntry,
+        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), csp: PageCSP(inlineScript: false), entry: markdownEntry,
         dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage])
 
     /// The code editor page (diff-host.md "Editor page", Monaco): the strict CSP plus

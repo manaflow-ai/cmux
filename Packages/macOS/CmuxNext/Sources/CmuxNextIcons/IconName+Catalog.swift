@@ -67,6 +67,8 @@ extension IconName {
         .browserIncognito,
         .browserNew,
         .browserStop,
+        .browserToolbarDownloads,
+        .browserToolbarExtensions,
         .browserprofileBadge,
         .browserprofileDot,
         .checkboxOff,

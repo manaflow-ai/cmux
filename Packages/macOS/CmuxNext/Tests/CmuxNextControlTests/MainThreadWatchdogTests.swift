@@ -67,6 +67,24 @@ import Testing
         #expect(watchdog.log.summary.count == 1)
     }
 
+    /// Each finished stall reaches `onStall` (the lag-spike reporter) once,
+    /// with the duration the log holds; time asleep sends nothing.
+    @MainActor
+    @Test func everyFinishedStallReachesOnStall() {
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
+        let seen = StallDurations()
+        watchdog.onStall = { record in seen.values.withLock { $0.append(record.duration) } }
+        watchdog.heartbeat(.afterWaiting)
+        clock.advance(by: .milliseconds(300))
+        watchdog.heartbeat(.beforeWaiting)
+        clock.advance(by: .seconds(5))
+        watchdog.heartbeat(.afterWaiting)
+        clock.advance(by: .milliseconds(20))
+        watchdog.heartbeat(.beforeWaiting)
+        #expect(seen.values.withLock { $0 } == [.milliseconds(300)])
+    }
+
     /// AppKit lays out, displays and commits Core Animation in
     /// before-waiting observers (order 2,000,000 for the CA commit). That
     /// work is main-thread time before the loop sleeps; a stall there must
@@ -177,4 +195,9 @@ final class SampleSignal: Sendable {
     private let fired = Atomic(false)
     var hasFired: Bool { fired.load(ordering: .acquiring) }
     func fire() { fired.store(true, ordering: .releasing) }
+}
+
+/// Durations `onStall` received (a class: `Mutex` cannot be captured).
+final class StallDurations: Sendable {
+    let values = Mutex<[Duration]>([])
 }
