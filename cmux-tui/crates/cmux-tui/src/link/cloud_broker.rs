@@ -35,7 +35,7 @@ pub(super) fn inherited(fd: &str) -> io::Result<StdStream> {
     // SAFETY: copy is the fresh descriptor returned by F_DUPFD_CLOEXEC.
     let stream = unsafe { StdStream::from_raw_fd(copy) };
     let mut kind = 0_i32;
-    let mut size = std::mem::size_of_val(&kind) as libc::socklen_t;
+    let mut size = size_of_val(&kind) as libc::socklen_t;
     // SAFETY: kind is writable for size bytes; getsockopt validates the socket.
     if unsafe {
         libc::getsockopt(
@@ -92,7 +92,7 @@ struct Refusal {
 }
 
 enum Value {
-    Info(ConnectInfo),
+    Info(Box<ConnectInfo>),
     Token(LinkTokenGrant),
 }
 
@@ -146,7 +146,7 @@ impl ConnectInfoSource for BrokerSource {
             return Err(ConnectInfoError::Forbidden);
         }
         match self.call(Request::Fetch { host: host.into() }).await? {
-            Value::Info(value) => Ok(value),
+            Value::Info(value) => Ok(*value),
             Value::Token(_) => Err(unavailable()),
         }
     }
@@ -227,7 +227,7 @@ fn decode(request: &Request, value: serde_json::Value) -> io::Result<Value> {
         Request::Fetch { host } => {
             let info: ConnectInfo = serde_json::from_value(value).map_err(|_| invalid())?;
             info.validate(host).map_err(|_| invalid())?;
-            Ok(Value::Info(info))
+            Ok(Value::Info(Box::new(info)))
         }
         Request::Mint { host, services } => {
             let grant: LinkTokenGrant = serde_json::from_value(value).map_err(|_| invalid())?;
