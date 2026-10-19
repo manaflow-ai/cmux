@@ -1,7 +1,8 @@
 import CmuxNextSettings
 
-/// Whether this Mac holds off idle system sleep, from who asks and the power
-/// source. Free of AppKit and IOKit so the rule is tested on its own.
+/// Whether this Mac holds off idle system sleep, from who asks (the action,
+/// working agents, phone access) and the power source. Free of AppKit and
+/// IOKit so the rule is tested on its own.
 nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     /// The Keep Mac Awake action is on. The person asked, so it holds on battery too.
     var manual = false
@@ -9,11 +10,16 @@ nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     var agentsWorking = false
     /// `sessions.keepAwake`.
     var agents: SessionKeepAwakeSetting = SessionSettings.keepAwakeDefault
+    /// Phones can reach this Mac (signed in, `phone.allowConnections` on).
+    var phoneServing = false
+    /// `phone.keepAwake`.
+    var phone: PhoneKeepAwakeSetting = SessionSettings.phoneKeepAwakeDefault
     /// The battery provides power (false on adapter power and on a Mac with no battery).
     var onBattery = false
 
     var holds: Bool {
         manual || (agentsWorking && Self.allows(agents, onBattery: onBattery))
+            || (phoneServing && Self.allows(SessionKeepAwakeSetting(rawValue: phone.rawValue) ?? .off, onBattery: onBattery))
     }
 
     /// Whether a keep-awake choice applies on the current power source.
