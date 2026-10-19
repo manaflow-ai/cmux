@@ -75,6 +75,8 @@ impl Dialer for OsTcpDialer {
             match TcpStream::connect(address).await {
                 Ok(stream) => {
                     let _ = stream.set_nodelay(true);
+                    #[cfg(unix)]
+                    crate::mux_echo::set_notsent_lowat(&stream);
                     return Ok(Box::new(stream));
                 }
                 Err(error) => last_error = Some(error),

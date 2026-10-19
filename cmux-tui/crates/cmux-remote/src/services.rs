@@ -449,8 +449,13 @@ impl DaemonServices {
                 Self::serve_tcp_tunnel(workspace, incoming.stream, incoming.metadata).await
             }
             Service::MuxControl => {
-                Self::serve_mux_control_with_budget(mux_socket, incoming.stream, mux_upload_budget)
-                    .await
+                Self::serve_mux_control_with_budget(
+                    mux_socket,
+                    incoming.stream,
+                    incoming.metadata,
+                    mux_upload_budget,
+                )
+                .await
             }
             Service::ComputerUse => {
                 incoming
@@ -805,22 +810,25 @@ impl DaemonServices {
     async fn serve_mux_control_with_budget(
         mux_socket: Option<PathBuf>,
         stream: ServiceStream,
+        metadata: BTreeMap<String, String>,
         upload_budget: MuxUploadBudget,
     ) -> Result<(), ServicesError> {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
         let socket = connect_owned_unix_socket(path).await?;
+        let echo = crate::mux_echo::EchoLanes::for_stream(&stream, &metadata).await.map(Arc::new);
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();
-        pump_mux_server_with_budget(stream, reader, writer, upload_budget).await
+        pump_mux_server_with_budget(stream, reader, writer, upload_budget, echo).await
     }
 
     #[cfg(not(unix))]
     async fn serve_mux_control_with_budget(
         _mux_socket: Option<PathBuf>,
         stream: ServiceStream,
+        _metadata: BTreeMap<String, String>,
         _upload_budget: MuxUploadBudget,
     ) -> Result<(), ServicesError> {
         stream
@@ -1303,11 +1311,15 @@ where
 
 struct MuxUploadMessage {
     packets: Vec<Bytes>,
+    scope: crate::mux_echo::Scope,
     _permit: MuxUploadPermit,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn read_mux_uploads<R>(
     local_reader: R,
+    remote: Arc<ServiceStream>,
+    echo: Option<Arc<crate::mux_echo::EchoLanes>>,
     tracker: Arc<crate::mux_lanes::MuxLaneTracker>,
     upload_budget: MuxUploadBudget,
     interactive: mpsc::Sender<MuxUploadMessage>,
@@ -1356,8 +1368,13 @@ where
         let Some(encoded_bytes) = encoded_bytes else {
             return Err(ServicesError::MessageTooLarge(usize::MAX));
         };
+        let (lane, scope) = match &echo {
+            Some(echo) if lane == Lane::Bulk => echo.route(&remote, &line, encoded_bytes).await,
+            _ => (lane, crate::mux_echo::Scope::Untracked),
+        };
         let upload = MuxUploadMessage {
             packets,
+            scope,
             _permit: upload_budget.acquire(lane, encoded_bytes).await?,
         };
         let sender = match lane {
@@ -1377,11 +1394,16 @@ where
 async fn send_mux_uploads(
     remote: Arc<ServiceStream>,
     lane: Lane,
+    echo: Option<Arc<crate::mux_echo::EchoLanes>>,
     mut uploads: mpsc::Receiver<MuxUploadMessage>,
 ) -> Result<(), ServicesError> {
     while let Some(upload) = uploads.recv().await {
+        let mut last = 0;
         for packet in upload.packets {
-            remote.send_on(lane, packet).await?;
+            last = remote.send_on_sequenced(lane, packet).await?;
+        }
+        if let Some(echo) = &echo {
+            echo.sent(upload.scope, last);
         }
     }
     Ok(())
@@ -1392,6 +1414,7 @@ async fn pump_mux_server_with_budget<R, W>(
     local_reader: R,
     mut local_writer: W,
     upload_budget: MuxUploadBudget,
+    echo: Option<Arc<crate::mux_echo::EchoLanes>>,
 ) -> Result<(), ServicesError>
 where
     R: AsyncRead + Unpin,
@@ -1405,9 +1428,12 @@ where
     let upload = {
         let remote = remote.clone();
         let tracker = tracker.clone();
+        let echo = echo.clone();
         async move {
             let read = read_mux_uploads(
                 local_reader,
+                remote.clone(),
+                echo.clone(),
                 tracker,
                 upload_budget,
                 interactive_tx,
@@ -1415,9 +1441,10 @@ where
                 bulk_tx,
             );
             let send_interactive =
-                send_mux_uploads(remote.clone(), Lane::Interactive, interactive_rx);
-            let send_control = send_mux_uploads(remote.clone(), Lane::Control, control_rx);
-            let send_bulk = send_mux_uploads(remote.clone(), Lane::Bulk, bulk_rx);
+                send_mux_uploads(remote.clone(), Lane::Interactive, echo.clone(), interactive_rx);
+            let send_control =
+                send_mux_uploads(remote.clone(), Lane::Control, echo.clone(), control_rx);
+            let send_bulk = send_mux_uploads(remote.clone(), Lane::Bulk, echo.clone(), bulk_rx);
             tokio::try_join!(read, send_interactive, send_control, send_bulk)?;
             remote.close().await?;
             Ok::<_, ServicesError>(())
@@ -1431,6 +1458,9 @@ where
         while let Some(mut chunk) = remote.receive().await? {
             if !chunk.payload.is_empty() {
                 if let Some(input) = crate::mux_input::decode_packet(&chunk.payload)? {
+                    if let Some(echo) = &echo {
+                        echo.note_input(input.surface);
+                    }
                     tracker.suppress_response(input.request);
                     local_writer.write_all(&input.into_local_line()?).await?;
                 } else {
@@ -1439,6 +1469,12 @@ where
                         assembler.push_retaining(chunk.lane, chunk.payload, budget)?
                     {
                         tracker.observe_request(line.payload(), line.lane());
+                        if let Some(echo) = &echo {
+                            echo.note_request(line.payload(), line.lane());
+                            if let Some(surface) = crate::mux_lanes::input_surface(line.payload()) {
+                                echo.note_input(surface);
+                            }
+                        }
                         local_writer.write_all(line.payload()).await?;
                     }
                 }

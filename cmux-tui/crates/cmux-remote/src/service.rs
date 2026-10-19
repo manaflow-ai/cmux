@@ -57,6 +57,17 @@ pub trait SessionEndpoint: Send + Sync {
     async fn receive_frame(&self) -> Result<Option<ReceivedFrame>, ServiceError>;
     fn subscribe_generation(&self) -> watch::Receiver<u64>;
     async fn close_session(&self) -> Result<(), ServiceError>;
+    /// The highest sequence on `lane` the peer has acknowledged, when the
+    /// endpoint tracks acknowledgements; `None` means unknown, so callers
+    /// must treat nothing as acknowledged.
+    async fn acknowledged(&self, _lane: Lane) -> Option<u64> {
+        None
+    }
+    /// Waits until the peer has acknowledged `sequence` on `lane`. Returns
+    /// false at once when the endpoint does not track acknowledgements.
+    async fn wait_acknowledged(&self, _lane: Lane, _sequence: u64) -> bool {
+        false
+    }
 }
 
 #[async_trait]
@@ -80,6 +91,15 @@ impl SessionEndpoint for ClientConnection {
 
     fn subscribe_generation(&self) -> watch::Receiver<u64> {
         ClientConnection::subscribe_generation(self)
+    }
+
+    async fn acknowledged(&self, lane: Lane) -> Option<u64> {
+        Some(ClientConnection::acknowledged(self, lane).await)
+    }
+
+    async fn wait_acknowledged(&self, lane: Lane, sequence: u64) -> bool {
+        ClientConnection::wait_acknowledged(self, lane, sequence).await;
+        true
     }
 
     async fn close_session(&self) -> Result<(), ServiceError> {
@@ -108,6 +128,15 @@ impl SessionEndpoint for ServerConnection {
 
     fn subscribe_generation(&self) -> watch::Receiver<u64> {
         ServerConnection::subscribe_generation(self)
+    }
+
+    async fn acknowledged(&self, lane: Lane) -> Option<u64> {
+        Some(ServerConnection::acknowledged(self, lane).await)
+    }
+
+    async fn wait_acknowledged(&self, lane: Lane, sequence: u64) -> bool {
+        ServerConnection::wait_acknowledged(self, lane, sequence).await;
+        true
     }
 
     async fn close_session(&self) -> Result<(), ServiceError> {
@@ -685,6 +714,16 @@ impl ServiceStream {
     }
 
     pub async fn send_on(&self, lane: Lane, payload: Bytes) -> Result<(), ServiceError> {
+        self.send_on_sequenced(lane, payload).await.map(|_| ())
+    }
+
+    /// [`Self::send_on`], returning the session sequence of the last frame
+    /// it sent (0 when it sent none).
+    pub(crate) async fn send_on_sequenced(
+        &self,
+        lane: Lane,
+        payload: Bytes,
+    ) -> Result<u64, ServiceError> {
         let lane = if self.service == Service::TcpTunnel { Lane::Tunnel } else { lane };
         let _outbound = self.outbound[lane as usize].lock().await;
         self.require_active()?;
@@ -701,13 +740,15 @@ impl ServiceStream {
             return Err(ServiceError::Closed);
         }
         if payload.is_empty() {
-            self.endpoint
+            return self
+                .endpoint
                 .send_frame(self.generation, lane, self.id, payload, FrameFlags::empty())
-                .await?;
-            return Ok(());
+                .await;
         }
+        let mut last = 0;
         for chunk in payload.chunks(MAX_FRAME_PAYLOAD) {
-            self.endpoint
+            last = self
+                .endpoint
                 .send_frame(
                     self.generation,
                     lane,
@@ -717,7 +758,17 @@ impl ServiceStream {
                 )
                 .await?;
         }
-        Ok(())
+        Ok(last)
+    }
+
+    /// See [`SessionEndpoint::acknowledged`].
+    pub(crate) async fn acknowledged(&self, lane: Lane) -> Option<u64> {
+        self.endpoint.acknowledged(lane).await
+    }
+
+    /// See [`SessionEndpoint::wait_acknowledged`].
+    pub(crate) async fn wait_acknowledged(&self, lane: Lane, sequence: u64) -> bool {
+        self.endpoint.wait_acknowledged(lane, sequence).await
     }
 
     pub async fn receive(&self) -> Result<Option<StreamChunk>, ServiceError> {

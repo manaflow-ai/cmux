@@ -189,7 +189,7 @@ pub async fn serve_mux_bridge(
                 let Ok((socket, _)) = accepted else { break };
                 let multiplexer = multiplexer.clone();
                 connections.spawn(async move {
-                    let Ok(stream) = multiplexer.open(Service::MuxControl, BTreeMap::new()).await else { return };
+                    let Ok(stream) = multiplexer.open(Service::MuxControl, crate::mux_echo::client_metadata()).await else { return };
                     let Ok(opened) = await_opened(&stream).await else { return };
                     let (reader, writer) = socket.into_split();
                     let _ = pump_mux_client_buffered(
