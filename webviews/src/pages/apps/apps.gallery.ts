@@ -82,5 +82,11 @@ export default appsPageEntry({
       hash: "#/discover?layout=split&app=sample.missing",
       data: base,
     },
+    "detail-error": {
+      note: "The selected app detail fails once, then can be retried without losing selection.",
+      detailError: { code: "cmux.apps.backend_unavailable", message: "The app details are temporarily unavailable." },
+      hash: "#/discover?layout=split&app=cmux.coderouter",
+      data: base,
+    },
   },
 });
