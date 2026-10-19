@@ -1164,6 +1164,7 @@ dependencies = [
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-wire",
  "cmux-terminal-sizing",
  "serde_json",
 ]
@@ -1184,6 +1185,14 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-mux2"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+ "libc",
 ]
 
 [[package]]
@@ -1340,6 +1349,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote-transcript"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -1476,6 +1496,7 @@ dependencies = [
  "bytes",
  "cmux-agent-pane-policy",
  "cmux-build-identity",
+ "cmux-config",
  "cmux-host",
  "cmux-link",
  "cmux-pty",
@@ -1539,6 +1560,7 @@ name = "cmux-tui-cloud-conversations"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-wire",
  "serde",
  "serde_json",
  "url",

@@ -34,7 +34,7 @@ public final class CardSurfaceView: NSView {
         set { layer?.cornerRadius = newValue }
     }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     public override func updateLayer() {

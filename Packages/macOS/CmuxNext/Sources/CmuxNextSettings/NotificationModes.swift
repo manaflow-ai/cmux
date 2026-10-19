@@ -25,3 +25,13 @@ public nonisolated enum DesktopNotificationMode: String, Hashable, Sendable, Cas
     case whenInactive
     case never
 }
+
+/// Whether the Dock icon bounces when a notification alerts while cmux is not
+/// the active app (`notifications.dockBounce`).
+public nonisolated enum DockBounceMode: String, Hashable, Sendable, CaseIterable {
+    case off
+    /// One bounce (default).
+    case once
+    /// Bounces until the user switches to cmux.
+    case untilActive
+}
