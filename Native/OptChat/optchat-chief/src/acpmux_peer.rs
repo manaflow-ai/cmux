@@ -85,6 +85,16 @@ struct Peer {
     uid: u32,
 }
 
+/// The pid of `stream`'s peer (the tools socket's caller, `turn_caller.rs`).
+pub(crate) fn peer_pid(stream: &UnixStream) -> Result<i32, String> {
+    peer(stream).map(|p| p.pid)
+}
+
+/// The executable of `pid`, symlinks resolved where the OS gives a path.
+pub(crate) fn executable_of(pid: i32) -> Result<PathBuf, String> {
+    executable(pid)
+}
+
 #[cfg(target_os = "macos")]
 fn peer(stream: &UnixStream) -> Result<Peer, String> {
     const SOL_LOCAL: libc::c_int = 0;

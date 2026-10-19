@@ -85,6 +85,10 @@ pub struct HostState {
     /// Section 9: each `spawn` call and its subagents, by spawn id.
     #[serde(default)]
     pub spawns: BTreeMap<String, SpawnRecord>,
+    /// `control cap N`: the live cap set at run time (0: no cap); None: the
+    /// env's (`OPTCHAT_MAX_LIVE_SUBAGENTS`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live_cap: Option<usize>,
     /// The number of the next subagent id (`a<N>`), unique for this home.
     #[serde(default)]
     pub next_subagent: u64,
@@ -251,9 +255,71 @@ pub struct SubRecord {
     /// 0 again after a run that ends with a real report.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub resume_attempts: u32,
+    /// Messages the Chief sent it that it has not got yet (queued or
+    /// starting, or held while paused), oldest first. Saved, so a restart
+    /// never drops one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inbox: Vec<InboxMessage>,
+    /// Keys of the tells already taken (newest last, at most
+    /// [`TELL_KEYS_KEPT`]): a repeat with one of them is not sent again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tell_keys: Vec<String>,
+    /// The prompt to send the moment the interrupted turn stops
+    /// (`control interrupt|restart` with a message).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_stop: Option<String>,
+    /// `control pause`: no auto-resume, the inbox is held until `resume`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
+    /// `control cancel`: it is over; nothing starts or resumes it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cancelled: bool,
+    /// `control priority`: a queued one with a higher value starts first.
+    #[serde(default, skip_serializing_if = "is_zero_i64")]
+    pub priority: i64,
+    /// Its pending permission request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission: Option<PendingPermission>,
+    /// When its session last changed (ms since the epoch): stuck detection.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub active_ms: u64,
+    /// The stuck note of this run was sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stuck_noted: bool,
+    /// Its session exists but its first prompt (view and task) is not sent
+    /// yet: tells wait in the inbox so they never arrive before the task.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub awaiting_task: bool,
+}
+
+/// How many tell keys a subagent keeps for dedupe.
+pub const TELL_KEYS_KEPT: usize = 64;
+
+/// A message for a subagent that has not reached it yet.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InboxMessage {
+    pub text: String,
+    /// When the Chief sent it (ms since the epoch).
+    #[serde(default)]
+    pub at_ms: u64,
+}
+
+/// A subagent's permission request that waits for an answer.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingPermission {
+    pub id: String,
+    pub request: Value,
 }
 
 fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+fn is_zero_i64(n: &i64) -> bool {
+    *n == 0
+}
+
+fn is_zero_u64(n: &u64) -> bool {
     *n == 0
 }
 

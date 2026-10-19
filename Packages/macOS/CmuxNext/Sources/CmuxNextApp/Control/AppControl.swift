@@ -83,7 +83,9 @@ final class AppControl {
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
-            .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.handle(call.params)) },
+            .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
+            // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
+            .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
             // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).

@@ -176,7 +176,7 @@ class WorkflowRoutingTests(unittest.TestCase):
         for name, native_runner in (("build-nightly-app", "blacksmith-12vcpu-macos-26"),
                                     ("build-nightly-ghostty-cli-helper", "blacksmith-6vcpu-macos-15")):
             with self.subTest(name=name):
-                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), "ubuntu-24.04")
+                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), "blacksmith-4vcpu-ubuntu-2404")
                 self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], False), native_runner)
 
     def test_resume_selects_restore_and_zero_native_or_cache_work(self):
