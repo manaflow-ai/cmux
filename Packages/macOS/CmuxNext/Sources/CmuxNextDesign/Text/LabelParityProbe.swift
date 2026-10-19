@@ -34,7 +34,8 @@ public struct LabelParityProbe {
     private static let texts = ["", "Hi", "Workspace notes 0123 quick brown fox jumps over the lazy dog again",
                                 "line one\nline two is longer"]
     private static let fonts: [(String, NSFont)] = [
-        ("13r", .systemFont(ofSize: 13)), ("11r", .systemFont(ofSize: 11)), ("12m", .systemFont(ofSize: 12, weight: .medium)),
+        ("13r", .systemFont(ofSize: TypeScale.body)), ("11r", .systemFont(ofSize: TypeScale.caption)),
+        ("12m", .systemFont(ofSize: TypeScale.detail, weight: .medium)),
         ("10.5r", .systemFont(ofSize: 10.5)),
     ]
     private static let lineCounts: [Int?] = [nil, 1, 2, 0]

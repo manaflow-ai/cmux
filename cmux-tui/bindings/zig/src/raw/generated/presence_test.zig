@@ -52,6 +52,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.FeedLocalListRequest, "unread");
     try expectExplicitNullRejected(protocol.ForgetSessionRequest, "force");
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
+    try expectExplicitNullRejected(protocol.IdentifyRequest, "machine_metadata");
     try expectExplicitNullRejected(protocol.ImportBookmarksRequest, "replace");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "groups");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "workspaces");
@@ -206,7 +207,10 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.HomeInboxRow, "preview");
     try expectExplicitNullRejected(protocol.IdentifyResult, "capabilities");
     try expectExplicitNullRejected(protocol.IdentifyResult, "lifecycle_ready");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "machine_capabilities");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "machine_id");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_name");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "machine_platform");
     try expectExplicitNullRejected(protocol.IdentifyResult, "session_id");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split_id");
