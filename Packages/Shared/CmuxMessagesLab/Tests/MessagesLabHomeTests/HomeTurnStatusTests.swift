@@ -19,14 +19,14 @@ import Testing
     }
 
     @Test func theStatusLineSitsAboveTheTypingIndicator() throws {
-        let keys = Layout.rows(Self.state(typing: true, notice: "Telling a31 · 1s"), messages: [], now: Self.t0).map(\.key)
+        let keys = RowBuilder.rows(Self.state(typing: true, notice: "Telling a31 · 1s"), messages: [], now: Self.t0).map { $0.key }
         let line = try #require(keys.firstIndex(of: "notice"))
         let dots = try #require(keys.firstIndex(of: "typing"))
         #expect(line < dots, "rows: \(keys)")
     }
 
     @Test func theStatusLineShowsWithoutTypingToo() {
-        let keys = Layout.rows(Self.state(typing: false, notice: "Thinking"), messages: [], now: Self.t0).map(\.key)
+        let keys = RowBuilder.rows(Self.state(typing: false, notice: "Thinking"), messages: [], now: Self.t0).map { $0.key }
         #expect(keys.contains("notice"))
         #expect(!keys.contains("typing"))
     }
