@@ -58,6 +58,22 @@ public nonisolated enum AgentPaneThoughtHeader: String, Sendable, CaseIterable, 
     }
 }
 
+/// How tall a done thought must be to fold (webviews conversation/ThoughtRow.tsx):
+/// `agentPane.debug.thoughtFoldThreshold`. `viewport` sets nothing on the page.
+public nonisolated enum AgentPaneThoughtFoldThreshold: String, Sendable, CaseIterable, TunableChoice {
+    /// Taller than the transcript's view, never under 400px (#20948).
+    case viewport
+    /// Taller than seven 20px lines, the 140px Codex gives a reasoning trace (#20963).
+    case codex
+
+    public var tunableTitle: String {
+        switch self {
+        case .viewport: "Taller than the transcript (default)"
+        case .codex: "Taller than seven lines (Codex)"
+        }
+    }
+}
+
 /// Where the quiet answer-footer actions sit under a completed turn.
 public nonisolated enum AgentPaneTurnActionsPlacement: String, Sendable, CaseIterable, TunableChoice {
     case right
@@ -188,12 +204,20 @@ public nonisolated struct AgentPaneTunables {
         default: false, code: "AgentPaneTunables.sideSessions")
 
     /// Long thoughts fold once done (webviews conversation/ThoughtRow.tsx): a thought taller than
-    /// the transcript's view folds to one line that opens to its text. Off keeps every thought in
-    /// full (Leo 2026-10-13, #20330) until Leo picks the default. New agent tabs read it.
+    /// ``thoughtFoldThreshold`` folds to one line that opens to its text. On by default (Leo
+    /// 2026-10-18, #20963); off keeps every thought in full, as #20330 drew it. New agent tabs read it.
     public static let foldLongThoughts = Tunable<Bool>.toggle(
         "agentPane.debug.foldLongThoughts", PageTunables.section, "Fold long thoughts in the agent pane",
-        help: "A finished thought taller than the transcript folds to one line that opens to its text. New agent tabs.",
-        default: false, code: "AgentPaneTunables.foldLongThoughts")
+        help: "A finished long thought folds to one line that opens to its text. New agent tabs.",
+        default: true, code: "AgentPaneTunables.foldLongThoughts")
+
+    /// How tall a thought must be to fold (``foldLongThoughts``) while ``liveThoughtViewport`` is
+    /// off. With the live viewport on, a thought it clipped always folds once done (140px), so
+    /// nothing grows after it streams. New agent tabs read it.
+    public static let thoughtFoldThreshold = Tunable<AgentPaneThoughtFoldThreshold>.choice(
+        "agentPane.debug.thoughtFoldThreshold", PageTunables.section, "Long thought fold threshold",
+        help: "With Live thought viewport off: fold a finished thought taller than the transcript (never under 400px), or taller than Codex's seven lines (140px). With it on, thoughts fold past 140px. New agent tabs.",
+        default: .viewport, code: "AgentPaneTunables.thoughtFoldThreshold")
 
     /// The thoughts' look (webviews conversation/thoughtStyle.ts): `plain` sets nothing, so the
     /// page draws as before; `brain` sets `data-thought-style` on `<html>`. New agent tabs read it.
@@ -321,16 +345,19 @@ public nonisolated struct AgentPaneTunables {
         attributes(
             foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
             thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
+            thoughtFoldThreshold: thoughtFoldThreshold.value,
             thoughtStyle: thoughtStyle.value, labs: labTunables.mapValues { $0.value })
     }
 
     static func attributes(
         foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
         thoughtHeader: AgentPaneThoughtHeader = .duration, liveThoughtViewport: Bool = true,
+        thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport,
         thoughtStyle: AgentPaneThoughtStyle = .plain, labs: [String: Bool] = [:]
     ) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
+        if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
@@ -375,5 +402,5 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
         default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtFoldThreshold.descriptor, thoughtHeader.descriptor, liveThoughtViewport.descriptor, thoughtStyle.descriptor, liveRender.descriptor, renderGuide.descriptor, renderKit.descriptor, renderPreview.descriptor, renderExpand.descriptor, tableScroll.descriptor, contextMeter.descriptor, promptCollapse.descriptor, messageTimes.descriptor, codeWrap.descriptor, planProgress.descriptor, shortcutsHelp.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, panelTabs.descriptor, sideColumn.descriptor, dockBesideTabs.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
 }
