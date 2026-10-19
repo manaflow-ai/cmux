@@ -165,11 +165,17 @@ struct AgentPaneProjectIconTests {
         try fixture.write(Data("{}".utf8), "code/web/tsconfig.json")
         try fixture.write(Data("export default {}".utf8), "code/web/next.config.mjs")
         try fixture.write(Data("[package]".utf8), "code/tui/Cargo.toml")
+        try fixture.write(Data("export default {}".utf8), "code/app/vite.config.mts")
+        try fixture.write(Data("{}".utf8), "code/app/package.json")
+        try fixture.write(Data("export default {}".utf8), "code/blog/astro.config.ts")
+        try fixture.write(Data("export default {}".utf8), "code/blog/vite.config.js")
         try FileManager.default.createDirectory(atPath: fixture.home + "/code/notes", withIntermediateDirectories: true)
         let reader = fixture.reader
         #expect(reader.language(in: fixture.home + "/code/kit") == "swift")
         #expect(reader.language(in: fixture.home + "/code/web") == "nextjs")
         #expect(reader.language(in: fixture.home + "/code/tui/") == "rust")
+        #expect(reader.language(in: fixture.home + "/code/app") == "vite")
+        #expect(reader.language(in: fixture.home + "/code/blog") == "astro")
         #expect(reader.language(in: fixture.home + "/code/notes") == nil)
         // A folder named like a marker is not one.
         try FileManager.default.createDirectory(atPath: fixture.home + "/code/odd/go.mod", withIntermediateDirectories: true)
@@ -201,6 +207,18 @@ struct AgentPaneProjectIconTests {
         let model = AgentPaneModel(host: NoHost())
         let value = await model.respond(to: .projectIcon(fixture.home + "/code/svc"))["value"] as? [String: Any]
         #expect(value?["src"] == nil)
+        #expect(value?["language"] as? String == "go")
+    }
+
+    @Test func theRequestAnswersTheLanguageWithTheFavicon() async throws {
+        // A favicon WebKit cannot draw falls back to the language's icon rather than the letters.
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(Self.png, "code/api/favicon.png")
+        try fixture.write(Data("module example.com/api\n".utf8), "code/api/go.mod")
+        let model = AgentPaneModel(host: NoHost())
+        let value = await model.respond(to: .projectIcon(fixture.home + "/code/api"))["value"] as? [String: Any]
+        #expect((value?["src"] as? String)?.hasPrefix("data:image/png;base64,") == true)
         #expect(value?["language"] as? String == "go")
     }
 
