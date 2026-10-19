@@ -219,8 +219,12 @@ jobs:
           python3 scripts/ci/prune_media_derived_data.py \
             --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" --keep-others 2
 
+      # The archive cache is the one glaeda CI jobs on these Macs already share
+      # (ci-macos.yml): the two downloads took 2-7 min a tour without it.
       - name: Download pre-built GhosttyKit.xcframework for both revisions
         if: steps.scope.outputs.is_ui == 'true'
+        env:
+          GHOSTTYKIT_ARCHIVE_CACHE_DIR: /Users/Shared/cmux-build-fleet/ci/ghosttykit-archives
         run: |
           set -euo pipefail
           GHOSTTY_SHA="$(git rev-parse "$HEAD_SHA:ghostty")" ./scripts/download-prebuilt-ghosttykit.sh
@@ -244,6 +248,10 @@ jobs:
         # pin changed since the tag's last good build.
         run: |
           set -euo pipefail
+          # The checkout is cleaned and the base worktree recreated every run,
+          # so optchat-chief built cold (~100 s) for each app; keep its Cargo
+          # target dir on the Mac instead (Cargo locks it across tours).
+          export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target"
           stamp="$GITHUB_WORKSPACE/scripts/ci/media_module_cache_stamp.py"
           build_one() {
             local dir="$1" tag="$2" log="$3" output="$4" app
