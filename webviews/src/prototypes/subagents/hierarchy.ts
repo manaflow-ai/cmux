@@ -3,7 +3,7 @@
 // own. It maps onto plans/cmux-next/subagents/PROTOCOL.md: startedBy (the tree), depth, children,
 // the live status, and subsessionLimits with their source. Fields: id, parentId, name, startedBy,
 // depth, harness, state, lastEvent, childCount, limits {width, depth}.
-// so a screenshot of a variant is the same on every run.
+// Everything is deterministic (no Math.random, no clock): a screenshot is the same on every run.
 
 export type Harness = "claude" | "codex" | "opencode" | "pi";
 export type AgentState = "running" | "waiting" | "queued" | "done" | "failed" | "stopped";
