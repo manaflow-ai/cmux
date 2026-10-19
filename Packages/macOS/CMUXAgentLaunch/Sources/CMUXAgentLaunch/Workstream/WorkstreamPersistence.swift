@@ -250,14 +250,7 @@ public actor WorkstreamPersistence {
     /// resolution behind a stale `feed.changed` event.
     public func loadRevision() throws -> Int {
         let fileRevision = (try? fileSize()) ?? 0
-        let durableRevision: UInt64
-        if let data = FileManager.default.contents(atPath: revisionURL.path),
-           let text = String(data: data, encoding: .utf8),
-           let value = UInt64(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            durableRevision = value
-        } else {
-            durableRevision = 0
-        }
+        let durableRevision = loadSidecarRevision()
         return Int(min(max(fileRevision, durableRevision), Self.maximumRevision))
     }
 
@@ -266,15 +259,24 @@ public actor WorkstreamPersistence {
     /// paging that change the remote validator without appending an item.
     public func recordRevision(_ revision: Int) throws {
         guard revision > 0 else { return }
-        let current = try loadRevision()
-        let next = max(current, revision)
-        guard UInt64(next) > current else { return }
+        let current = loadSidecarRevision()
+        let next = max(current, UInt64(revision))
+        guard next > current else { return }
         let data = Data(String(next).utf8)
         try FileManager.default.createDirectory(
             at: revisionURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         try data.write(to: revisionURL, options: .atomic)
+    }
+
+    private func loadSidecarRevision() -> UInt64 {
+        guard let data = FileManager.default.contents(atPath: revisionURL.path),
+              let text = String(data: data, encoding: .utf8),
+              let value = UInt64(text.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return 0
+        }
+        return min(value, Self.maximumRevision)
     }
 
     private struct Tail {

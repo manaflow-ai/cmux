@@ -28,6 +28,44 @@ struct WorkstreamStoreStartTests {
         #expect(store.revision >= 1_000_000)
     }
 
+    @Test("Missing or hard-budget startup retains a durable revision floor")
+    func startupRetainsFloorWhenHistoryIsUnavailable() async throws {
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-start-missing-floor-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: missingURL)
+            try? FileManager.default.removeItem(at: missingURL.appendingPathExtension("revision"))
+        }
+        let missingPersistence = WorkstreamPersistence(fileURL: missingURL)
+        try await missingPersistence.recordRevision(2_000)
+        let missingStore = WorkstreamStore(
+            persistence: WorkstreamPersistence(fileURL: missingURL)
+        )
+        await missingStore.start()
+        #expect(missingStore.revision >= 2_000)
+
+        let cutoffURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-start-cutoff-floor-\(UUID().uuidString).jsonl")
+        defer {
+            try? FileManager.default.removeItem(at: cutoffURL)
+            try? FileManager.default.removeItem(at: cutoffURL.appendingPathExtension("revision"))
+        }
+        let cutoffPersistence = WorkstreamPersistence(fileURL: cutoffURL)
+        try await cutoffPersistence.recordRevision(3_000)
+        try await cutoffPersistence.append(WorkstreamItem(
+            workstreamId: "cutoff-row",
+            source: .claude,
+            kind: .sessionStart,
+            payload: .sessionStart
+        ))
+        let cutoffStore = WorkstreamStore(
+            persistence: WorkstreamPersistence(fileURL: cutoffURL),
+            startupHardBudgetNanoseconds: 0
+        )
+        await cutoffStore.start()
+        #expect(cutoffStore.revision >= 3_000)
+    }
+
     @Test("Repeated and concurrent starts load history and subscribe once (#21352)")
     func repeatedStartsShareOnePass() async throws {
         let tmp = FileManager.default.temporaryDirectory
