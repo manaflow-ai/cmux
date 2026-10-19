@@ -39,6 +39,18 @@ struct AgentChatViewTests {
         #expect(opened.map(\.watch) == [nil])
     }
 
+    /// A profile is named freely (`claude-work`, a subrouter account): the plan's family, not the
+    /// profile's name, says it is a Claude Code chat, so it still opens View Only.
+    @Test func viewOnlyGoesByFamilyNotProfileName() throws {
+        let plan = try #require(AcpmuxChatOpenPlan(result: [
+            "kind": "adopt", "cwd": "/tmp", "family": "claude",
+            "adopt": ["harness": "claude-work", "agentSessionId": "x"], "sessionNew": ["cwd": "/tmp"],
+        ]))
+        var opened: [AgentPaneAdopt] = []
+        _ = ChatOpenRoute.route(plan, chat: Self.subject, watch: true, openTab: { opened.append($0); return "tab" })
+        #expect(opened.map(\.watch) == [true])
+    }
+
     @Test func theRowMenuAndTheActionTakeOnlyChatKeys() {
         let request = AgentPaneRequest(body: ["method": "chats.watch", "params": ["key": Self.key]])
         guard case .watchChat(let key) = request else { Issue.record("\(request)"); return }
