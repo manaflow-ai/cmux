@@ -116,6 +116,11 @@ public final class DaemonStore: StateResourceQueries {
     /// The one model of each pending split's provisional pane, by public pane id: every overlay
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
+    /// The one model of each pending workspace create, by key, and of its provisional screen:
+    /// every restore shows the same objects, and the daemon's workspace takes the model over in
+    /// place (`confirmedWorkspace`), so the window showing it keeps its content.
+    @ObservationIgnored var provisionalWorkspaces: [String: WorkspaceModel] = [:]
+    @ObservationIgnored var provisionalScreens: [String: ScreenModel] = [:]
     /// This app's own live divider and column drags and their held echoes (DaemonStore+LayoutEchoes.swift).
     @ObservationIgnored var layoutEchoes = LayoutEchoes()
     /// True while daemon state applies to the confirmed records (the
@@ -285,7 +290,7 @@ public final class DaemonStore: StateResourceQueries {
             savedTabGroups = reordered
         }
         savedOpenGroups = Set(savedTabGroups.compactMap(\.openGroup))
-        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: WorkspaceModel.init,
+        if let reordered = reconcile(workspaces, with: tree.workspaces, id: WorkspaceModel.identity, make: confirmedWorkspace,
                                      update: { $0.update($1) }) {
             workspaces = reordered
         }

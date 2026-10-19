@@ -27,8 +27,17 @@ import Foundation
     /// while the records hold what it made (``CancelledCreation``).
     static func awaitsRecords(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
         if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: store) }
-        guard case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
-        return !daemonPlaces(provisional, in: store)
+        switch intent.kind {
+        case .splitPane(_, _, _, let provisional):
+            return !daemonPlaces(provisional, in: store)
+        case .createWorkspace(let provisional, _):
+            // Cmd-N's workspace settles only once the daemon's workspace holds a tab: before
+            // that, undoing the overlay would show the window an empty workspace for a turn.
+            guard let workspace = store.workspacesByKey[provisional.key] else { return true }
+            return !workspace.screens.contains { $0.panes.contains { !$0.tabs.isEmpty } }
+        default:
+            return false
+        }
     }
 
     private static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {

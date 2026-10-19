@@ -24,6 +24,9 @@ enum IntentUndo: Equatable {
     /// The daemon's tab or pane of a creation the person closed first (``CancelledCreation``).
     case hiddenTab(HiddenTab)
     case hiddenPane(HiddenPane)
+    /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
+    /// provisional one (inserted) rather than the daemon's.
+    case createdWorkspace(key: WorkspaceKey, inserted: Bool)
 }
 
 struct PendingIntent {

@@ -139,8 +139,13 @@ final class SidebarBridge {
             return ((sections, services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(layout.document))
         }) { [weak self] value in
-            let ((sections, decorations), launching, failed, profiles, active, shown) = value
+            let ((listed, decorations), launching, failed, profiles, active, shown) = value
             guard let self else { return }
+            // A workspace Cmd-N shows before the daemon has it lists as its pending row, at its slot
+            // (PendingWorkspaceRows), until the daemon's workspace takes its model over.
+            let sections = PendingWorkspaceRows.removing(PendingWorkspaceRows.shared.ids(in: windowState.id, provisional: { id in
+                machines.workspace(id: id)?.0.isProvisional == true
+            }), from: listed)
             self.showProfiles(profiles, active: active, launching: launching)
             self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
             // A workspace the window lists shows its own row from here on (cx-9a7wx).
