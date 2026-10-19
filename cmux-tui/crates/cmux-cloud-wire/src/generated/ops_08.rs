@@ -5,6 +5,48 @@
 use super::*;
 
 wire_op! {
+    /// Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token.
+    TeamDeviceComplianceOp {
+        name: "team.device.compliance",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamDeviceComplianceParams,
+        result: TeamDeviceComplianceResult,
+        error: TeamDeviceComplianceError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceComplianceParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceComplianceResultDevicesItem {
+    pub device: ManagedDevice,
+    pub status: Option<DeviceStatus>,
+    pub compliant: bool,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceComplianceResult {
+    pub team: TeamId,
+    pub policy_version: i64,
+    pub devices: Vec<TeamDeviceComplianceResultDevicesItem>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.device.compliance declares.
+    TeamDeviceComplianceError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
     /// Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance.
     TeamDeviceEnrollOp {
         name: "team.device.enroll",
@@ -861,42 +903,4 @@ pub struct TeamVmLeaseReleaseParams {
 pub struct TeamVmLeaseReleaseResult {
     pub lease: TeamVmLeaseId,
     pub released: bool,
-}
-
-wire_errors! {
-    /// The error codes team_vm.lease.release declares.
-    TeamVmLeaseReleaseError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (download its files first with team_vm.retired.export); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.
-    TeamVmRebuildOp {
-        name: "team_vm.rebuild",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: TeamVmRebuildParams,
-        result: TeamVmRebuildResult,
-        error: TeamVmRebuildError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRebuildParams {
-    pub epoch: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRebuildResult {
-    pub retired: String,
-    pub epoch: i64,
 }

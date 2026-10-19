@@ -359,6 +359,48 @@ wire_errors! {
 }
 
 wire_op! {
+    /// The paired daemon confirms its approved network reservation with a fresh signed policy read. Tenant, device and public keys must match the current owners. This records identity only; it does not activate transport or serving roles.
+    ServerNetworkConfirmOp {
+        name: "server.network.confirm",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: ServerNetworkConfirmParams,
+        result: ServerNetworkConfirmResult,
+        error: ServerNetworkConfirmError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkConfirmParams {
+    pub host: HostId,
+    pub mesh: NativeMeshId,
+    pub device: NativeDeviceId,
+    pub proof: ServerNetworkProof,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ServerNetworkConfirmResult {
+    pub host: HostId,
+    pub network: ServerNetworkBinding,
+}
+
+wire_errors! {
+    /// The error codes server.network.confirm declares.
+    ServerNetworkConfirmError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution.
     ServerPairApproveOp {
         name: "server.pair.approve",
@@ -379,15 +421,7 @@ pub struct ServerPairApproveParams {
     pub team: TeamId,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mesh: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ServerPairApproveResultNetwork {
-    pub state: LitReserved,
-    pub tenant: String,
-    pub mesh: String,
-    pub device: String,
+    pub mesh: Option<NativeMeshId>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -397,7 +431,7 @@ pub struct ServerPairApproveResult {
     pub user: UserId,
     pub install: InstallId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub network: Option<ServerPairApproveResultNetwork>,
+    pub network: Option<ServerNetworkReservation>,
 }
 
 wire_errors! {
@@ -856,48 +890,6 @@ pub struct TeamAuditListResult {
 wire_errors! {
     /// The error codes team.audit.list declares.
     TeamAuditListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token.
-    TeamDeviceComplianceOp {
-        name: "team.device.compliance",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamDeviceComplianceParams,
-        result: TeamDeviceComplianceResult,
-        error: TeamDeviceComplianceError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceComplianceParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceComplianceResultDevicesItem {
-    pub device: ManagedDevice,
-    pub status: Option<DeviceStatus>,
-    pub compliant: bool,
-    pub reasons: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceComplianceResult {
-    pub team: TeamId,
-    pub policy_version: i64,
-    pub devices: Vec<TeamDeviceComplianceResultDevicesItem>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.device.compliance declares.
-    TeamDeviceComplianceError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
     }

@@ -3870,6 +3870,13 @@
             }
           }
         },
+        "network": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ServerNetworkState"
+          }
+        },
         "orphaned": {
           "required": false,
           "type": {
@@ -4128,6 +4135,21 @@
         "egress.requests",
         "model.spend_usd"
       ]
+    },
+    "NativeDeviceId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+    },
+    "NativeMeshId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+    },
+    "NativeTenantId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
     },
     "OpClass": {
       "kind": "enum",
@@ -4853,6 +4875,124 @@
       "kind": "primitive",
       "name": "string",
       "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+    },
+    "ServerNetworkBinding": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "confirmed"
+            ]
+          }
+        },
+        "tenant": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeTenantId"
+          }
+        },
+        "mesh": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeMeshId"
+          }
+        },
+        "device": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeDeviceId"
+          }
+        },
+        "confirmed_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "ServerNetworkProof": {
+      "kind": "object",
+      "fields": {
+        "signedAt": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "nonce": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          }
+        },
+        "signature": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          }
+        }
+      }
+    },
+    "ServerNetworkReservation": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "reserved"
+            ]
+          }
+        },
+        "tenant": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeTenantId"
+          }
+        },
+        "mesh": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeMeshId"
+          }
+        },
+        "device": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "NativeDeviceId"
+          }
+        }
+      }
+    },
+    "ServerNetworkState": {
+      "kind": "union",
+      "variants": [
+        {
+          "kind": "ref",
+          "name": "ServerNetworkReservation"
+        },
+        {
+          "kind": "ref",
+          "name": "ServerNetworkBinding"
+        }
+      ]
     },
     "SnapshotId": {
       "kind": "primitive",
@@ -36814,6 +36954,86 @@
             "pattern": "^[A-Za-z0-9+/]{43}=$",
             "description": "A WireGuard public key, standard base64 of 32 bytes."
           },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkReservation": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reserved"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkState": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServerNetworkReservation"
+              },
+              {
+                "$ref": "#/$defs/ServerNetworkBinding"
+              }
+            ]
+          },
           "Host": {
             "type": "object",
             "properties": {
@@ -36848,6 +37068,9 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "network": {
+                "$ref": "#/$defs/ServerNetworkState"
               },
               "orphaned": {
                 "type": "object",
@@ -47629,6 +47852,241 @@
         }
       }
     },
+    "server.network.confirm": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "host",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "mesh": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeMeshId"
+            }
+          },
+          "device": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "NativeDeviceId"
+            }
+          },
+          "proof": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ServerNetworkProof"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              },
+              "network": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ServerNetworkBinding"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "servers network confirm",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "servers"
+      },
+      "docs": "The paired daemon confirms its approved network reservation with a fresh signed policy read. Tenant, device and public keys must match the current owners. This records identity only; it does not activate transport or serving roles.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "mesh": {
+            "$ref": "#/$defs/NativeMeshId"
+          },
+          "device": {
+            "$ref": "#/$defs/NativeDeviceId"
+          },
+          "proof": {
+            "$ref": "#/$defs/ServerNetworkProof"
+          }
+        },
+        "required": [
+          "host",
+          "mesh",
+          "device",
+          "proof"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkProof": {
+            "type": "object",
+            "properties": {
+              "signedAt": {
+                "type": "integer"
+              },
+              "nonce": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{22}$"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9+/]{86}==$"
+              }
+            },
+            "required": [
+              "signedAt",
+              "nonce",
+              "signature"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "network": {
+            "$ref": "#/$defs/ServerNetworkBinding"
+          }
+        },
+        "required": [
+          "host",
+          "network"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "server.pair.approve": {
       "class": "mutation",
       "idempotency": "required",
@@ -47665,9 +48123,8 @@
           "mesh": {
             "required": false,
             "type": {
-              "kind": "primitive",
-              "name": "string",
-              "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+              "kind": "ref",
+              "name": "NativeMeshId"
             }
           },
           "expected_revision": {
@@ -47719,39 +48176,8 @@
               "network": {
                 "required": false,
                 "type": {
-                  "kind": "object",
-                  "fields": {
-                    "state": {
-                      "required": true,
-                      "type": {
-                        "kind": "enum",
-                        "values": [
-                          "reserved"
-                        ]
-                      }
-                    },
-                    "tenant": {
-                      "required": true,
-                      "type": {
-                        "kind": "primitive",
-                        "name": "string"
-                      }
-                    },
-                    "mesh": {
-                      "required": true,
-                      "type": {
-                        "kind": "primitive",
-                        "name": "string"
-                      }
-                    },
-                    "device": {
-                      "required": true,
-                      "type": {
-                        "kind": "primitive",
-                        "name": "string"
-                      }
-                    }
-                  }
+                  "kind": "ref",
+                  "name": "ServerNetworkReservation"
                 }
               }
             }
@@ -47805,8 +48231,7 @@
             "maxLength": 80
           },
           "mesh": {
-            "type": "string",
-            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+            "$ref": "#/$defs/NativeMeshId"
           }
         },
         "required": [
@@ -47825,6 +48250,10 @@
             "type": "string",
             "pattern": "^team_[a-z0-9]{20}$",
             "description": "A team; a personal account is a team of one."
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
           }
         }
       },
@@ -47844,35 +48273,7 @@
             "$ref": "#/$defs/InstallId"
           },
           "network": {
-            "type": "object",
-            "properties": {
-              "state": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "enum": [
-                      "reserved"
-                    ]
-                  }
-                ]
-              },
-              "tenant": {
-                "type": "string"
-              },
-              "mesh": {
-                "type": "string"
-              },
-              "device": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "state",
-              "tenant",
-              "mesh",
-              "device"
-            ],
-            "additionalProperties": true
+            "$ref": "#/$defs/ServerNetworkReservation"
           }
         },
         "required": [
@@ -47902,6 +48303,45 @@
             "type": "string",
             "pattern": "^inst_[a-z0-9]{20}$",
             "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkReservation": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reserved"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device"
+            ],
+            "additionalProperties": true
           }
         }
       }
@@ -54622,6 +55062,86 @@
             "pattern": "^[A-Za-z0-9+/]{43}=$",
             "description": "A WireGuard public key, standard base64 of 32 bytes."
           },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkReservation": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reserved"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkState": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServerNetworkReservation"
+              },
+              {
+                "$ref": "#/$defs/ServerNetworkBinding"
+              }
+            ]
+          },
           "Host": {
             "type": "object",
             "properties": {
@@ -54656,6 +55176,9 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "network": {
+                "$ref": "#/$defs/ServerNetworkState"
               },
               "orphaned": {
                 "type": "object",
@@ -55541,6 +56064,86 @@
             "pattern": "^[A-Za-z0-9+/]{43}=$",
             "description": "A WireGuard public key, standard base64 of 32 bytes."
           },
+          "NativeTenantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+          },
+          "NativeMeshId": {
+            "type": "string",
+            "pattern": "^mesh_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "NativeDeviceId": {
+            "type": "string",
+            "pattern": "^dev_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "ServerNetworkReservation": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reserved"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkBinding": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "confirmed"
+                ]
+              },
+              "tenant": {
+                "$ref": "#/$defs/NativeTenantId"
+              },
+              "mesh": {
+                "$ref": "#/$defs/NativeMeshId"
+              },
+              "device": {
+                "$ref": "#/$defs/NativeDeviceId"
+              },
+              "confirmed_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "state",
+              "tenant",
+              "mesh",
+              "device",
+              "confirmed_at"
+            ],
+            "additionalProperties": true
+          },
+          "ServerNetworkState": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ServerNetworkReservation"
+              },
+              {
+                "$ref": "#/$defs/ServerNetworkBinding"
+              }
+            ]
+          },
           "Host": {
             "type": "object",
             "properties": {
@@ -55575,6 +56178,9 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "network": {
+                "$ref": "#/$defs/ServerNetworkState"
               },
               "orphaned": {
                 "type": "object",

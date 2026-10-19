@@ -132,6 +132,7 @@ pub mod op_names {
     pub const READ_CURSOR_SET: &str = "read_cursor.set";
     pub const RUN_GET: &str = "run.get";
     pub const RUN_LIST: &str = "run.list";
+    pub const SERVER_NETWORK_CONFIRM: &str = "server.network.confirm";
     pub const SERVER_PAIR_APPROVE: &str = "server.pair.approve";
     pub const SERVER_PAIR_PREVIEW: &str = "server.pair.preview";
     pub const SERVER_REVOKE: &str = "server.revoke";
@@ -322,6 +323,7 @@ pub mod op_names {
         READ_CURSOR_SET,
         RUN_GET,
         RUN_LIST,
+        SERVER_NETWORK_CONFIRM,
         SERVER_PAIR_APPROVE,
         SERVER_PAIR_PREVIEW,
         SERVER_REVOKE,
@@ -515,6 +517,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "read_cursor.set" => visitor.visit::<ReadCursorSetOp>(),
         "run.get" => visitor.visit::<RunGetOp>(),
         "run.list" => visitor.visit::<RunListOp>(),
+        "server.network.confirm" => visitor.visit::<ServerNetworkConfirmOp>(),
         "server.pair.approve" => visitor.visit::<ServerPairApproveOp>(),
         "server.pair.preview" => visitor.visit::<ServerPairPreviewOp>(),
         "server.revoke" => visitor.visit::<ServerRevokeOp>(),

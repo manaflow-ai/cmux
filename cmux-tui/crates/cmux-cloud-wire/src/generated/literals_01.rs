@@ -33,6 +33,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitConfirmed = "confirmed"
+}
+
+wire_literal! {
     LitContinue = "continue"
 }
 
