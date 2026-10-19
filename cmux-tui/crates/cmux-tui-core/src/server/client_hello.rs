@@ -142,6 +142,14 @@ impl HelloGate {
         self.window = Window::Closed;
     }
 
+    /// A binary input frame (`terminal-binary-frames-v1`) counts as a line
+    /// and closes the window. False on a page relay or a page-scoped
+    /// connection: they may not send terminal input at all.
+    pub(super) fn admits_binary_input(&mut self) -> bool {
+        self.window = Window::Closed;
+        !self.page_relay && self.scoped_raw.is_none()
+    }
+
     /// Sees every line before dispatch. `Some(reply)` answers the line here
     /// (a `client-hello`, or a page relay's legacy line) and nothing else
     /// sees it; `None` dispatches it as usual.

@@ -54,7 +54,9 @@ extension TerminalAttachment {
         var cols: Int?
         var rows: Int?
         var colors: TerminalColors?
-        var data: Data
+        /// Absent from the JSON of a binary event frame, which carries the
+        /// bytes beside it.
+        var data: Data?
         /// History chunks: `deflate` (raw DEFLATE) and the inflated length.
         var compression: String?
         var rawBytes: Int?
@@ -92,6 +94,82 @@ extension TerminalAttachment {
         }
     }
 
+    /// A snapshot event with its data (from its JSON line or beside the JSON
+    /// of a binary frame).
+    private static func snapshotLine(_ snapshot: Snapshot, data packed: Data, surface: SurfaceID) -> DecodedAttachLine? {
+        guard snapshot.surface == nil || snapshot.surface == surface,
+              let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase),
+              phase != .ready || (snapshot.cols != nil && snapshot.rows != nil)
+        else { return nil }  // A READY without its grid cannot lock the mirror's grid.
+        // An unknown codec or a bad chunk would corrupt the restore: refused.
+        guard let data = TerminalSnapshotInflate.inflate(packed, compression: snapshot.compression,
+                                                         rawBytes: snapshot.rawBytes)
+        else {
+            decodeLogger.error("""
+                snapshot \(snapshot.phase, privacy: .public) chunk refused: compression \(snapshot.compression ?? "none", privacy: .public), \
+                raw_bytes \(snapshot.rawBytes ?? -1), \(packed.count) bytes
+                """)
+            return nil
+        }
+        return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
+            phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
+            cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
+            localHistory: snapshot.localHistory, skippedImages: snapshot.skippedImages, data: data)))
+    }
+
+    /// The JSON and the data of an event frame.
+    private static func eventParts(_ frame: BinaryFrame) -> (json: Data, data: Data)? {
+        guard frame.kind == BinaryFrame.eventData, frame.payload.count >= 4 else { return nil }
+        let jsonLength = Int(frame.payload.withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(as: UInt32.self)) })
+        guard jsonLength <= frame.payload.count - 4 else { return nil }
+        let start = frame.payload.startIndex + 4
+        return (frame.payload[start..<(start + jsonLength)], frame.payload[(start + jsonLength)...])
+    }
+
+    /// The surface named by the first frame of an attach (the READY of a
+    /// snapshot attach, or an output frame); names an `unplaced` target.
+    static func initialSurface(frame: BinaryFrame) -> SurfaceID? {
+        switch frame.kind {
+        case BinaryFrame.output: return frame.word(at: 0).map(SurfaceID.init(rawValue:))
+        case BinaryFrame.eventData:
+            guard let (json, _) = eventParts(frame) else { return nil }
+            return try? WireCoding.decoder().decode(SurfaceScoped.self, from: json).surface
+        default: return nil
+        }
+    }
+
+    /// Maps one binary frame (`terminal-binary-frames-v1`) to a channel
+    /// event, as ``decodeAttachLine(name:line:surface:)`` maps the JSON
+    /// event it stands for. Output needs no JSON decoder and no base64.
+    static func decodeAttachFrame(_ frame: BinaryFrame, surface: SurfaceID) -> DecodedAttachLine? {
+        switch frame.kind {
+        case BinaryFrame.output:
+            guard let id = frame.word(at: 0), let generation = frame.word(at: 8), frame.word(at: 16) != nil else { break }
+            guard SurfaceID(rawValue: id) == surface else { return nil }
+            let data = frame.payload.dropFirst(24)
+            let positioned = frame.flags & BinaryFrame.outputPosition != 0
+            return DecodedAttachLine(event: .output(Data(data), colors: nil), generation: positioned ? generation : nil)
+        case BinaryFrame.eventData:
+            guard let (json, data) = eventParts(frame) else { break }
+            let decoder = WireCoding.decoder()
+            guard let name = try? decoder.decode(EventName.self, from: json).event else { break }
+            // Only snapshot data travels this way today; another event is
+            // a contract drift, counted like an undecodable line.
+            if name == "snapshot", let snapshot = try? decoder.decode(Snapshot.self, from: json) {
+                return snapshotLine(snapshot, data: Data(data), surface: surface)
+            }
+        default:
+            break
+        }
+        let count = undecodableLines.add(1, ordering: .relaxed).newValue
+        decodeLogger.error("attach frame of kind \(frame.kind) failed to decode (\(count) so far)")
+        return nil
+    }
+
+    private struct EventName: Decodable {
+        var event: String?
+    }
+
     /// The surface named by the first line of an attach (`vt-state`, or the
     /// READY `snapshot` of a snapshot attach); names an `unplaced` target.
     static func initialSurface(name: String, line: Data) -> SurfaceID? {
@@ -122,23 +200,8 @@ extension TerminalAttachment {
                 return DecodedAttachLine(event: .replay(state.terminalReplay))
             case "snapshot":
                 let snapshot = try decoder.decode(Snapshot.self, from: line)
-                guard scoped(snapshot.surface), let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase),
-                      phase != .ready || (snapshot.cols != nil && snapshot.rows != nil)
-                else { return nil }  // A READY without its grid cannot lock the mirror's grid.
-                // An unknown codec or a bad chunk would corrupt the restore: refused.
-                guard let data = TerminalSnapshotInflate.inflate(snapshot.data, compression: snapshot.compression,
-                                                                 rawBytes: snapshot.rawBytes)
-                else {
-                    decodeLogger.error("""
-                        snapshot \(snapshot.phase, privacy: .public) chunk refused: compression \(snapshot.compression ?? "none", privacy: .public), \
-                        raw_bytes \(snapshot.rawBytes ?? -1), \(snapshot.data.count) bytes
-                        """)
-                    return nil
-                }
-                return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
-                    phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
-                    cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
-                    localHistory: snapshot.localHistory, skippedImages: snapshot.skippedImages, data: data)))
+                guard let data = snapshot.data else { throw DecodingError.valueNotFound(Data.self, .init(codingPath: [], debugDescription: "snapshot data")) }
+                return snapshotLine(snapshot, data: data, surface: surface)
             case "output":
                 let output = try decoder.decode(Output.self, from: line)
                 guard scoped(output.surface) else { return nil }

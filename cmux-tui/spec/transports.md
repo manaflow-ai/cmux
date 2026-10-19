@@ -162,6 +162,49 @@ remote session messages, including render attach and VT replay responses, may
 use the separate 33,554,432-byte budget. Receivers reject an oversized message
 before decoding or allocating its payload.
 
+### Binary frames
+
+`terminal-binary-frames-v1` carries terminal bytes without base64 or JSON on
+the local Unix socket. The daemon advertises it in `identify`. A client opts in
+by listing it in `set-client-info` `capabilities`; an older daemon drops the
+unknown name and keeps JSON lines, and a client that does not list it gets
+JSON lines only. The daemon honors it only on a local Unix connection: a
+WebSocket, `cmux link` remote entry or relay keeps JSON lines even when the
+client lists it, so a client that reaches the daemon through a relay or bridge
+must not send input frames.
+
+A negotiated connection keeps its JSON lines. The daemon may write a binary
+frame between two lines wherever it would have written the equivalent JSON
+event, in the same order; the client may write input frames between its
+request lines. A frame starts with byte `0x00`, which never starts a JSON line,
+so every message boundary says which of the two follows:
+
+```text
+offset  size  field
+0       1     0x00
+1       1     kind
+2       2     flags, u16 little endian; undefined bits are zero
+4       4     payload length n, u32 little endian
+8       n     payload
+```
+
+| Kind | Direction | Payload | Stands for |
+| --- | --- | --- | --- |
+| `0x01` output | daemon to client | `surface:u64, generation:u64, offset:u64` (little endian), then the PTY bytes | the `output` event of a byte attach (`attach-surface` `mode:"bytes"`); flag `0x0001` means `generation` and `offset` are the event's fields (snapshot attach), otherwise both are zero and absent |
+| `0x02` event with data | daemon to client | `json_len:u32`, the event's JSON object without `data`, then the bytes `data` would carry in base64 | the `snapshot` events of a snapshot attach (READY, `history` and `images` chunks); a history chunk's bytes are its raw DEFLATE stream |
+| `0x11` input | client to daemon | `id:u64, surface:u64`, then the bytes | `{"id":id,"cmd":"send","surface":surface,"bytes":...}`; flag `0x0001` is `paste:true`. It passes the same gates, ordering and dispatch as that line and gets that line's JSON response |
+
+An `output` with colors (`OutputWithColors`), `vt-state`, `resized`,
+`colors-changed` and every other event stay JSON lines. Every attach rule is
+unchanged: the stream has no gap or duplicated byte, a snapshot viewer's
+`generation` and `offset` are those of the JSON events, and the viewer backlog
+(`viewer_backlog_bytes`, default 8 MiB) still turns into a fresh READY. A
+frame's payload is at most 33,554,432 bytes from the daemon and 16,777,216
+bytes from the client. The daemon closes a connection that sends a frame
+without the negotiation, on a transport other than the local socket, of an
+unknown kind or with a malformed payload, and a page relay or page-scoped
+connection may not send input frames.
+
 ## Relay Stdio
 
 | Field | Value |

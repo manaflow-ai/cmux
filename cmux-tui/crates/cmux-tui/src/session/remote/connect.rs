@@ -28,11 +28,8 @@ impl RemoteSession {
             cmux_tui_core::server::connect_session_socket(path, is_derived).map_err(|e| {
                 anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
             })?;
-        if subscribe {
-            Self::connect_stream(stream)
-        } else {
-            Self::connect_stream_with_subscription(stream, false)
-        }
+        // The daemon's own socket: output and input may use binary frames.
+        Self::connect_stream_with_subscription(stream, subscribe, true)
     }
 
     /// Connect over an already-established full-duplex byte stream.
@@ -40,19 +37,25 @@ impl RemoteSession {
     /// The cmux protocol is transport-independent JSONL. Keeping stream
     /// establishment outside `RemoteSession` lets clients use a local socket,
     /// an SSH relay, or another authenticated tunnel without teaching the
-    /// session and rendering layers about those transports.
+    /// session and rendering layers about those transports. Such a stream
+    /// keeps JSON lines only: it may be a relay that cannot carry binary
+    /// frames.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn connect_stream(stream: Box<dyn transport::Stream>) -> anyhow::Result<Arc<Self>> {
-        Self::connect_stream_with_subscription(stream, true)
+        Self::connect_stream_with_subscription(stream, true, false)
     }
 
+    /// `local_socket`: the stream is the daemon's own socket, never a relay
+    /// that may carry only JSON lines.
     fn connect_stream_with_subscription(
         stream: Box<dyn transport::Stream>,
         subscribe: bool,
+        local_socket: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let transport = RemoteTransport::json_lines(stream).map_err(|error| {
             anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
         })?;
-        Self::connect_transport_with_initial_subscription(transport, subscribe)
+        Self::connect_transport_with_provider_authority(transport, None, subscribe, local_socket)
     }
 
     pub fn connect_transport(transport: RemoteTransport) -> anyhow::Result<Arc<Self>> {
@@ -63,20 +66,21 @@ impl RemoteSession {
         transport: RemoteTransport,
         subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, None, subscribe)
+        Self::connect_transport_with_provider_authority(transport, None, subscribe, false)
     }
 
     pub fn connect_provider_transport(
         transport: RemoteTransport,
         authority: BearerToken,
     ) -> anyhow::Result<Arc<Self>> {
-        Self::connect_transport_with_provider_authority(transport, Some(authority), true)
+        Self::connect_transport_with_provider_authority(transport, Some(authority), true, false)
     }
 
     fn connect_transport_with_provider_authority(
         transport: RemoteTransport,
         provider_workspace_authority: Option<BearerToken>,
         subscribe: bool,
+        binary_frames_allowed: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer, abort } = transport;
         let interactive_writer = InteractiveWriter::spawn(writer, abort)
@@ -114,6 +118,8 @@ impl RemoteSession {
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
             sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
+            binary_frames_allowed,
+            binary_frames: AtomicBool::new(false),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -124,7 +130,19 @@ impl RemoteSession {
                 }
             };
             let reason = loop {
-                let received = reader.receive_with_progress(&mut report_progress);
+                let received = reader.receive_message_with_progress(&mut report_progress);
+                let received = match received {
+                    Ok(Some(RemoteMessage::Frame(frame))) => {
+                        let Some(session) = reader_session.upgrade() else { break None };
+                        if let Err(error) = session.handle_frame(&frame) {
+                            break Some(format!("remote binary frame refused: {error}"));
+                        }
+                        continue;
+                    }
+                    Ok(Some(RemoteMessage::Json(message))) => Ok(Some(message)),
+                    Ok(None) => Ok(None),
+                    Err(error) => Err(error),
+                };
                 if let Some(reason) = remote_reader_end_reason(&received) {
                     break Some(reason);
                 }
@@ -216,10 +234,18 @@ impl RemoteSession {
         if self.supports_capability(PLACEMENT_SHIFT_CAPABILITY) {
             negotiated.push(PLACEMENT_SHIFT_CAPABILITY);
         }
+        // Raw PTY bytes instead of base64 in JSON, both ways, on the
+        // daemon's local socket only.
+        let binary_frames = self.binary_frames_allowed
+            && self.supports_capability(cmux_tui_core::binary_frames::BINARY_FRAMES_CAPABILITY);
+        if binary_frames {
+            negotiated.push(cmux_tui_core::binary_frames::BINARY_FRAMES_CAPABILITY);
+        }
         if !negotiated.is_empty() {
             client_info["capabilities"] = json!(negotiated);
         }
         self.request(client_info)?;
+        self.binary_frames.store(binary_frames, Ordering::Release);
         if subscribe {
             self.prime_local_subscription();
             if let Err(error) = self.request(self.subscription_request()) {

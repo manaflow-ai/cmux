@@ -13,6 +13,7 @@ pub mod agent_launch;
 pub mod agent_message_prompt;
 pub mod agent_view;
 mod apps;
+pub mod binary_frames;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
 mod browser;

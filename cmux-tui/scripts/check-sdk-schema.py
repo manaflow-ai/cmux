@@ -172,6 +172,10 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         name, rust_type = field.groups()
         if name in fields:
             fail(f"duplicate {label} field {name!r}")
+        # `#[serde(skip)]` is never read from or written to the wire.
+        if any(part.strip() == "skip" for attribute in attributes for part in attribute.split(",")):
+            attributes.clear()
+            continue
         fields[name] = RuntimeField(rust_type, tuple(attributes))
         attributes.clear()
     if attributes:
