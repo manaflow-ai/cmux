@@ -88,6 +88,26 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
     @ObservationIgnored var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    /// Mirrors `restoredTerminalScrollbackByPanelId` when that tail dropped older output.
+    @ObservationIgnored var restoredTerminalScrollbackWasTruncatedByPanelId: [UUID: Bool] = [:]
+
+    func rememberRestoredTerminalScrollback(
+        _ text: String?,
+        panelId: UUID,
+        wasTruncated: Bool
+    ) {
+        if let text {
+            restoredTerminalScrollbackByPanelId[panelId] = text
+            if wasTruncated {
+                restoredTerminalScrollbackWasTruncatedByPanelId[panelId] = true
+            } else {
+                restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
+            }
+        } else {
+            restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+            restoredTerminalScrollbackWasTruncatedByPanelId.removeValue(forKey: panelId)
+        }
+    }
     @ObservationIgnored let terminalStartupRestoreCoordinator: TerminalStartupRestoreCoordinator
     var restoredAgentLifecycle: RestoredAgentLifecycleCoordinator {
         terminalStartupRestoreCoordinator.lifecycle

@@ -6,6 +6,7 @@ actor RemoteDisconnectPreparationService {
         target: String,
         reconnectCommand: String?,
         scrollback: String?,
+        scrollbackWasTruncated: Bool = false,
         temporaryDirectory: URL
     ) -> (placeholderCommand: String, replayFileURL: URL?)? {
         guard let placeholderCommand = Workspace.remoteDisconnectPlaceholderScript(
@@ -19,6 +20,7 @@ actor RemoteDisconnectPreparationService {
             placeholderCommand: placeholderCommand,
             replayFileURL: SessionScrollbackReplayStore.replayFileURL(
                 for: scrollback,
+                scrollbackWasTruncated: scrollbackWasTruncated,
                 tempDirectory: temporaryDirectory
             )
         )

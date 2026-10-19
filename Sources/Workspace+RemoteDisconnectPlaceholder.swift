@@ -56,8 +56,8 @@ extension Workspace {
         temporaryDirectory: URL
     ) async {
         let capturedScrollback = await runtimeSurface.boundedScreenTailVT(
-            maxRows: SessionPersistencePolicy.maxScrollbackLinesPerTerminal,
-            maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
+            maxRows: SessionPersistencePolicy.maxScrollbackLinesPerTerminal + 1,
+            maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal + 1
         )
         guard isCurrentRemoteDisconnectPreparation(
             surfaceId: surfaceId,
@@ -65,15 +65,26 @@ extension Workspace {
             runtimeSurface: runtimeSurface
         ) else { return }
 
-        let scrollback = if capturedScrollback?.contains(where: { !$0.isWhitespace }) == true {
-            capturedScrollback
+        let boundedCapture = SessionPersistencePolicy.persistedScrollback(capturedScrollback)
+        let scrollback: String?
+        let scrollbackWasTruncated: Bool
+        if boundedCapture.text?.contains(where: { !$0.isWhitespace }) == true {
+            scrollback = boundedCapture.text
+            scrollbackWasTruncated = boundedCapture.wasTruncated
+        } else if let fallback = Self.plainTextRemoteDisconnectFallbackScrollback(fallbackScrollback) {
+            scrollback = fallback
+            let boundedFallback = SessionPersistencePolicy.persistedScrollback(fallback)
+            scrollbackWasTruncated = boundedFallback.wasTruncated
+                || restoredTerminalScrollbackWasTruncatedByPanelId[surfaceId] == true
         } else {
-            Self.plainTextRemoteDisconnectFallbackScrollback(fallbackScrollback)
+            scrollback = nil
+            scrollbackWasTruncated = false
         }
         guard let prepared = await remoteDisconnectPreparationService.prepare(
             target: target,
             reconnectCommand: reconnectCommand,
             scrollback: scrollback,
+            scrollbackWasTruncated: scrollbackWasTruncated,
             temporaryDirectory: temporaryDirectory
         ) else {
             resetRemoteDisconnectPreparationIfCurrent(
@@ -116,7 +127,11 @@ extension Workspace {
         pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: surfaceId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
         remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
-        restoredTerminalScrollbackByPanelId[surfaceId] = scrollback
+        rememberRestoredTerminalScrollback(
+            scrollback,
+            panelId: surfaceId,
+            wasTruncated: scrollbackWasTruncated
+        )
     }
 
     private func isCurrentRemoteDisconnectPreparation(

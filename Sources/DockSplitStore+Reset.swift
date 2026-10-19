@@ -22,6 +22,7 @@ extension DockSplitStore {
         agentRuntimeByPanelId.removeAll()
         agentNeedsInputAttention.replace(with: [])
         restoredTerminalScrollbackByPanelId.removeAll()
+        restoredTerminalScrollbackWasTruncatedByPanelId.removeAll()
         terminalStartupRestoreCoordinator.removeAllRestores()
         clearDeferredAgentResumeRestores()
         surfaceResumeBindingsByPanelId.removeAll()

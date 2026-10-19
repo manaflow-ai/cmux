@@ -453,6 +453,7 @@ struct SessionScrollbackCheckpointStoreTests {
         #expect(store.loadRecords(panelIds: [kept, cleared, closed]).count == 3)
         #expect(store.loadRecords(panelIds: [kept])[kept]?.scrollback.count
             == SessionPersistencePolicy.maxScrollbackCharactersPerTerminal)
+        #expect(store.loadRecords(panelIds: [kept])[kept]?.scrollbackWasTruncated == true)
 
         store.apply(.init(
             captures: [capture(cleared, at: 20, "  \n")],
