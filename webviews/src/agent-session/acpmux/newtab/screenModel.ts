@@ -298,6 +298,9 @@ export type ChatCard = {
   /// A device chat from the acpmux chat index (`harness:sessionId`): opens through the host's
   /// shared Open Chat path (`chats.open`), not as an acpmux session.
   chatKey?: string;
+  /// The harness chat's own id (a session's agent session id, a device chat key's `harness:` tail):
+  /// the same chat under either source, so a session replacing its device row is not a new row.
+  chatId?: string;
   title: string;
   harness?: string;
   age: string;
@@ -341,6 +344,7 @@ export function recentChatCards(
     .map((chat): ChatCard => ({
       sessionId: chat.key,
       chatKey: chat.key,
+      chatId: chat.key.slice(chat.key.indexOf(":") + 1),
       title: chat.title ?? t("sidebar.newChat"),
       harness: chat.harness,
       age: ageLabel(chat.updatedAt, now, t),
@@ -366,6 +370,7 @@ function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): Ch
   return {
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
+    ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
     age: ageLabel(session.updatedAt, now, t),
     ...(session.preview ? { message: session.preview } : {}),
@@ -397,6 +402,7 @@ function indexChildren(
       card: {
         sessionId: chat.key,
         chatKey: chat.key,
+        chatId: chat.key.slice(chat.key.indexOf(":") + 1),
         title: chat.title ?? t("sidebar.newChat"),
         harness: chat.harness,
         age: ageLabel(chat.updatedAt, now, t),

@@ -124,6 +124,15 @@ test("the session list landing under the device chats moves nothing", async () =
   expect(animated).toEqual([]);
 });
 
+// One active chat: its session takes its device row's slot under another key. The same chat
+// (its agent session id is the device key's tail) keeps its row, so nothing moves.
+test("one session replacing its own device row moves nothing", async () => {
+  const withIds = device.map((row) => ({ ...row, chatKey: row.sessionId, chatId: row.sessionId.slice(12) }));
+  await render(withIds);
+  await render([{ ...card("lane-1", "Fix the flaky upload test"), chatId: "a" }, ...withIds.slice(1)]);
+  expect(animated).toEqual([]);
+});
+
 test("a chat that starts while the page shows still fades in", async () => {
   await render(device);
   await render([card("lane-9", "A new chat"), ...device.slice(0, 3)]);
