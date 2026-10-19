@@ -2,8 +2,8 @@
 // path is (inside the session's folders, outside, on the deny list, missing) and the favicon and
 // title cmux already has for each URL. Requests from one render are batched into one call; the
 // answers are kept for the page's life. The host never fetches anything for this; the one
-// exception is a Thread details source's site icon (`link.favicon`, labs `sourceIcons`), fetched
-// through the host's guarded queue, without cookies.
+// exception is an opted-in reply or Thread details source icon (`link.favicon`, labs
+// `sourceIcons`), fetched through the host's guarded queue, without cookies.
 import { useEffect, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 
@@ -20,7 +20,13 @@ type Inspect = {
 
 const MAX_BATCH = 64;
 const MAX_KEPT = 2000;
-const MAX_FAVICONS = 128;
+const MAX_FAVICONS = 64;
+const MAX_CHAT_ORIGINS = 32;
+type IconScope = "source" | "chat";
+// Cache expiry and reader cancellation must not restore the tracking budget. Thread details
+// and chat share 64 distinct origins per pane lifetime; chat can use at most 32 of them.
+const requestedIconOrigins = new Set<string>();
+const chatIconOrigins = new Set<string>();
 const NEGATIVE_ICON_MS = 30_000;
 
 const paths = new Map<string, PathInfo | null>();
@@ -167,7 +173,14 @@ function cachedIcon(origin: string) {
   return entry;
 }
 
-function fetchIcon(url: string, origin: string) {
+function fetchIcon(url: string, origin: string, scope: IconScope) {
+  if (!requestedIconOrigins.has(origin) && requestedIconOrigins.size >= MAX_FAVICONS) return;
+  if (scope === "chat" && !chatIconOrigins.has(origin)) {
+    if (chatIconOrigins.size >= MAX_CHAT_ORIGINS) return;
+    chatIconOrigins.add(origin);
+    // A source may already hold this icon. Notify snapshot readers when chat admits it too.
+    changed();
+  }
   const entry = cachedIcon(origin);
   if (entry) {
     favicons.delete(origin);
@@ -179,6 +192,7 @@ function fetchIcon(url: string, origin: string) {
     existing.readers += 1;
     return () => releaseIcon(origin, existing);
   }
+  requestedIconOrigins.add(origin);
   const pending = { url, readers: 1 };
   fetchingIcons.set(origin, pending);
   const current = generation;
@@ -211,7 +225,11 @@ function releaseIcon(origin: string, pending: { url: string; readers: number }) 
 }
 
 /// A held icon wins before the site's own icon is fetched, with labs `sourceIcons` on.
-export function useSourceIcon(url: string | undefined, fetch: boolean): string | undefined {
+export function useSourceIcon(
+  url: string | undefined,
+  fetch: boolean,
+  scope: IconScope = "source",
+): string | undefined {
   const parsed = sourceURL(url);
   const valid = parsed ? url : undefined;
   if (valid) ask(undefined, valid);
@@ -221,17 +239,21 @@ export function useSourceIcon(url: string | undefined, fetch: boolean): string |
     () => (valid ? sites.get(valid)?.icon : undefined),
     () => undefined,
   );
-  const answered = useSyncExternalStore(subscribe, () => !!valid && !askingUrls.has(valid), () => false);
+  const answered = useSyncExternalStore(
+    subscribe,
+    () => !!valid && !askingUrls.has(valid),
+    () => false,
+  );
   // Passive fetches use TLS only. An HTTP source can still use an icon held by an open tab.
   const origin = parsed?.protocol === "https:" ? parsed.origin : undefined;
   const icon = useSyncExternalStore(
     subscribe,
-    () => (fetch && origin ? cachedIcon(origin)?.icon : undefined),
+    () => (fetch && origin && (scope !== "chat" || chatIconOrigins.has(origin)) ? cachedIcon(origin)?.icon : undefined),
     () => undefined,
   );
   useEffect(() => {
-    if (valid && origin && fetch && answered && !held) return fetchIcon(valid, origin);
-  }, [valid, origin, fetch, answered, held]);
+    if (valid && origin && fetch && answered && !held) return fetchIcon(valid, origin, scope);
+  }, [valid, origin, fetch, answered, held, scope]);
   return held ?? icon;
 }
 
@@ -248,6 +270,8 @@ export function resetLinkStore(): void {
   asking.clear();
   sites.clear();
   favicons.clear();
+  requestedIconOrigins.clear();
+  chatIconOrigins.clear();
   fetchingIcons.clear();
   askingUrls.clear();
   generation += 1;

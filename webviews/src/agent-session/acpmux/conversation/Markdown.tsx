@@ -23,6 +23,7 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
+import { ReplySourceIconsContext } from "../chips/ReplySourceIconsContext";
 import { codePath, linkPath } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
@@ -623,14 +624,17 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks
-            blocks={block.children}
-            opts={opts}
-            depth={depth}
-            code={code === "plain" ? "plain" : undefined}
-            renderId={renderId}
-            turnStreaming={turnStreaming}
-          />
+          {/* Quotes can reproduce tool output or reviewer text, so they never opt in. */}
+          <ReplySourceIconsContext.Provider value={false}>
+            <Blocks
+              blocks={block.children}
+              opts={opts}
+              depth={depth}
+              code={code === "plain" ? "plain" : undefined}
+              renderId={renderId}
+              turnStreaming={turnStreaming}
+            />
+          </ReplySourceIconsContext.Provider>
         </blockquote>
       );
     case "list": {

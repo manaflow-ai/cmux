@@ -4,8 +4,9 @@
 // symlinks, then a user gesture; outside the folders, `agentPane.links.outsideRoots` decides and
 // the host's own sheet asks). A web chip is an ordinary link, which the host opens outside the
 // pane after a real click; its icon is the site's favicon when cmux already has one.
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import { useContext, useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { callChipHost } from "./host";
+import { ReplySourceIconsContext } from "./ReplySourceIconsContext";
 import { FileDoc, Folder, Globe, Lock } from "../conversation/icons";
 import { useLab } from "../labs";
 import { usePathInfo, useSiteInfo, useSourceIcon } from "./linkStore";
@@ -45,12 +46,14 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
 }
 
 /// A web chip: the site's favicon when cmux has one, else `icon` (GitHub, arXiv), else the site's own
-/// icon fetched by the host (labs sourceIcons, as Thread details sources), else a globe; the link
+/// icon fetched by the host for opted-in reply prose (labs sourceIcons), else a globe; the link
 /// text; the full URL in the tooltip. The anchor keeps the host's link-click path.
 export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
   const t = useT();
   const site = useSiteInfo(href);
-  const fetched = useSourceIcon(href, useLab("sourceIcons") && !icon);
+  const replyIcons = useContext(ReplySourceIconsContext);
+  const sourceIcons = useLab("sourceIcons");
+  const fetched = useSourceIcon(href, replyIcons && sourceIcons && !icon, "chat");
   const favicon = site?.icon ?? (icon ? undefined : fetched);
   const mark = favicon ? (
     <img className="cv-chip__icon cv-chip__favicon" src={favicon} alt="" width={14} height={14} />
