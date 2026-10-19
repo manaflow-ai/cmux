@@ -31,15 +31,19 @@ public enum WorkspaceSlot: Hashable, Sendable {
     /// (`DropPosition`). Nil when the anchor or group is not listed there.
     public func position(moving: Set<String>, section: SectionID, in sections: [SidebarRowSection]) -> DropPosition? {
         guard let listed = sections.first(where: { $0.id == section }) else { return nil }
-        // Top-level slots: a nested group lists in its parent's slot (`workspace-group-nest-v1`).
-        let nodes = listed.nodes.filter { node in
+        let all = listed.nodes.filter { node in
             if case let .workspace(workspace) = node { return !moving.contains(workspace.id.rawValue) }
+            return true
+        }
+        // Top-level slots: a nested group lists in its parent's slot (`workspace-group-nest-v1`); a group of any
+        // level is a container.
+        let nodes = all.filter { node in
             if case let .group(group) = node { return group.parent == nil }
             return true
         }
         switch self {
         case .top(let anchor?), .bottom(let anchor?):
-            if let group = Self.group(containing: anchor, in: nodes) {
+            if let group = Self.group(containing: anchor, in: all) {
                 return DropPosition(section: section, group: group.id, index: isTop ? 0 : Self.members(group, moving).count)
             }
             return Self.loose(isTop, nodes: nodes, section: section)
@@ -47,7 +51,7 @@ public enum WorkspaceSlot: Hashable, Sendable {
             return Self.loose(isTop, nodes: nodes, section: section)
         case .above(let anchor), .below(let anchor):
             let offset = if case .below = self { 1 } else { 0 }
-            if let group = Self.group(containing: anchor, in: nodes) {
+            if let group = Self.group(containing: anchor, in: all) {
                 guard let index = Self.members(group, moving).firstIndex(of: anchor) else { return nil }
                 return DropPosition(section: section, group: group.id, index: index + offset)
             }
@@ -56,7 +60,7 @@ public enum WorkspaceSlot: Hashable, Sendable {
         case .at(let position):
             return position.section == section ? position : nil
         case .endOfGroup(let group):
-            guard let node = nodes.lazy.compactMap(\.group).first(where: { $0.id == group }) else { return nil }
+            guard let node = all.lazy.compactMap(\.group).first(where: { $0.id == group }) else { return nil }
             return DropPosition(section: section, group: group, index: Self.members(node, moving).count)
         }
     }
