@@ -68,6 +68,9 @@ public struct DaemonCapabilities: Sendable {
     /// The manual workspace unread mark: `marked_unread` on
     /// `set-workspace-metadata` and workspaces.
     public let notificationMarkUnread = "notification-mark-unread-v1"
+    /// The manual tab unread mark (Mark Tab Unread): `marked_unread` on
+    /// `tab.update` and the tab's `extra.marked_unread`; no notification needed.
+    public let tabMarkUnread = "tab-mark-unread-v1"
     /// Screen color, icon, pin, and order (`set-screen-metadata`,
     /// `set-screen-pinned`, `move-screen`; `screen.update` and `screen.move`
     /// with `stateResources`, over the same storage).
@@ -416,7 +419,7 @@ public struct DaemonCapabilities: Sendable {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread, tabMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,

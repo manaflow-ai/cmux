@@ -28937,6 +28937,14 @@
             },
             "description": "The tab's user icon: an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the tab's extra.icon on every client."
           },
+          "marked_unread": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "tab-mark-unread-v1: true marks the tab unread by hand (no notification needed), false clears the mark. Shown as the tab's extra.marked_unread (present only while marked) on every client; a client clears it when the person views the tab."
+          },
           "expected_revision": {
             "required": false,
             "type": {
