@@ -122,5 +122,19 @@ class LeftSidebarCLITests(unittest.TestCase):
                 self.assertEqual(self.server.v2_requests, [])
 
 
+class LeftSidebarReplyPrefixTests(unittest.TestCase):
+    def test_translated_errors_keep_the_error_marker(self):
+        # The CLI treats a socket reply as a failure only when it starts with
+        # "ERROR:", so translations must keep that marker untranslated.
+        catalog = Path(__file__).resolve().parents[1] / "Resources" / "Localizable.xcstrings"
+        strings = json.loads(catalog.read_text())["strings"]
+        keys = [key for key in strings if key.startswith("leftSidebar.remote.error.")]
+        self.assertTrue(keys)
+        for key in keys:
+            for locale, entry in strings[key]["localizations"].items():
+                with self.subTest(key=key, locale=locale):
+                    self.assertTrue(entry["stringUnit"]["value"].startswith("ERROR: "))
+
+
 if __name__ == "__main__":
     unittest.main()
