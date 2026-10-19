@@ -337,6 +337,16 @@ impl Brain {
         };
         let (_, options) = prompt_parts(&p.request);
         let deny = option.eq_ignore_ascii_case("deny");
+        // Spawned under the ask floor (a remote-origin turn): a person
+        // answers its prompts, never the Chief.
+        if !deny && sub.policy.as_deref() == Some(crate::approval::ASK) {
+            return outcome(
+                "refused",
+                format!(
+                    "{id} runs under the ask floor: a person answers its prompts in the Chief chat; you may deny or steer it"
+                ),
+            );
+        }
         if !deny && !options.is_empty() && !options.iter().any(|(o, _)| o == option) {
             let ids: Vec<&str> = options.iter().map(|(o, _)| o.as_str()).collect();
             return outcome(
