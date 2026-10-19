@@ -1,0 +1,61 @@
+/* The running plan joins the bottom stack in flow (Lucas 2026-10-18). */
+:root[data-lab-plan-progress="on"] .acpmux-plan-progress {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 var(--cv-inset, max(18px, calc((100% - 760px) / 2))) 8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  text-align: start;
+  cursor: pointer;
+}
+:root[data-lab-plan-progress="on"] .acpmux-plan-progress:hover {
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  color: var(--agent-text);
+}
+:root[data-lab-plan-progress="on"] .acpmux-plan-progress:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 1px;
+}
+.acpmux-plan-progress__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-plan-progress__count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acpmux-plan-progress progress {
+  appearance: none;
+  flex: none;
+  width: 56px;
+  height: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  color: var(--agent-muted);
+}
+.acpmux-plan-progress progress::-webkit-progress-bar {
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  border-radius: 2px;
+}
+.acpmux-plan-progress progress::-webkit-progress-value {
+  background: var(--agent-muted);
+  border-radius: 2px;
+}
+.acpmux-plan-progress progress::-moz-progress-bar {
+  background: var(--agent-muted);
+  border-radius: 2px;
+}

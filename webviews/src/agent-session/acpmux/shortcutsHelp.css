@@ -1,0 +1,76 @@
+:root[data-lab-shortcuts-help="on"] .acpmux-shortcuts-help {
+  box-sizing: border-box;
+  width: min(460px, calc(100vw - 32px));
+  max-height: 76vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px;
+  border-radius: var(--ui-popup-radius);
+  background: var(--surface-popup, var(--agent-accent-text, Canvas));
+  box-shadow: var(--ui-popup-shadow);
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-control);
+}
+.acpmux-shortcuts-help__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.acpmux-shortcuts-help h2 {
+  margin: 0;
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+.acpmux-shortcuts-help__heading button {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.acpmux-shortcuts-help__heading button:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+}
+:root[data-lab-shortcuts-help="on"] .acpmux-shortcuts-help__heading button {
+  box-shadow: none;
+}
+.acpmux-shortcuts-help__heading button:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 1px;
+}
+:root[data-lab-shortcuts-help="on"] .acpmux-shortcuts-help h3 {
+  margin: 16px 0 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-weight: 500;
+}
+.acpmux-shortcuts-help dl {
+  margin: 0;
+}
+:root[data-lab-shortcuts-help="on"] .acpmux-shortcuts-help dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 4px;
+}
+.acpmux-shortcuts-help dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.acpmux-shortcuts-help dd {
+  flex: none;
+  margin: 0;
+}
+.acpmux-shortcuts-help__spoken {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}

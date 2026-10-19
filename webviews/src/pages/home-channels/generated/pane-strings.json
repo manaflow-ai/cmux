@@ -54,6 +54,7 @@
     "tools.searched": "Ran {n} searches",
     "tools.thought": "Thought",
     "tools.thoughtFor": "Thought for {time}",
+    "tools.thoughts": "Thoughts",
     "turn.copied": "Copied",
     "turn.copy": "Copy"
   },
@@ -112,6 +113,7 @@
     "tools.searched": "تم تشغيل {n} عمليات بحث",
     "tools.thought": "تفكير",
     "tools.thoughtFor": "فكّر لمدة {time}",
+    "tools.thoughts": "أفكار",
     "turn.copied": "تم النسخ",
     "turn.copy": "نسخ"
   },
@@ -170,6 +172,7 @@
     "tools.searched": "Pokrenuto pretraga: {n}",
     "tools.thought": "Razmišljanje",
     "tools.thoughtFor": "Razmišljao {time}",
+    "tools.thoughts": "Razmišljanja",
     "turn.copied": "Kopirano",
     "turn.copy": "Kopiraj"
   },
@@ -228,6 +231,7 @@
     "tools.searched": "Kørte {n} søgninger",
     "tools.thought": "Tanke",
     "tools.thoughtFor": "Tænkte i {time}",
+    "tools.thoughts": "Tanker",
     "turn.copied": "Kopieret",
     "turn.copy": "Kopiér"
   },
@@ -286,6 +290,7 @@
     "tools.searched": "{n} Suchen ausgeführt",
     "tools.thought": "Gedanke",
     "tools.thoughtFor": "Nachgedacht für {time}",
+    "tools.thoughts": "Gedanken",
     "turn.copied": "Kopiert",
     "turn.copy": "Kopieren"
   },
@@ -344,6 +349,7 @@
     "tools.searched": "Ejecutó {n} búsquedas",
     "tools.thought": "Razonamiento",
     "tools.thoughtFor": "Razonó durante {time}",
+    "tools.thoughts": "Razonamientos",
     "turn.copied": "Copiado",
     "turn.copy": "Copiar"
   },
@@ -402,6 +408,7 @@
     "tools.searched": "{n} recherches effectuées",
     "tools.thought": "Réflexion",
     "tools.thoughtFor": "A réfléchi pendant {time}",
+    "tools.thoughts": "Réflexions",
     "turn.copied": "Copié",
     "turn.copy": "Copier"
   },
@@ -460,6 +467,7 @@
     "tools.searched": "Eseguite {n} ricerche",
     "tools.thought": "Ragionamento",
     "tools.thoughtFor": "Ha ragionato per {time}",
+    "tools.thoughts": "Ragionamenti",
     "turn.copied": "Copiato",
     "turn.copy": "Copia"
   },
@@ -518,6 +526,7 @@
     "tools.searched": "{n} 回検索しました",
     "tools.thought": "思考",
     "tools.thoughtFor": "{time} 思考しました",
+    "tools.thoughts": "思考",
     "turn.copied": "コピーしました",
     "turn.copy": "コピー"
   },
@@ -576,6 +585,7 @@
     "tools.searched": "បានដំណើរការការស្វែងរក {n}",
     "tools.thought": "ការគិត",
     "tools.thoughtFor": "បានគិតរយៈពេល {time}",
+    "tools.thoughts": "ការគិត",
     "turn.copied": "បានចម្លង",
     "turn.copy": "ចម្លង"
   },
@@ -634,6 +644,7 @@
     "tools.searched": "검색 {n}회 실행함",
     "tools.thought": "생각",
     "tools.thoughtFor": "{time} 동안 생각함",
+    "tools.thoughts": "생각",
     "turn.copied": "복사됨",
     "turn.copy": "복사"
   },
@@ -692,6 +703,7 @@
     "tools.searched": "Kjørte {n} søk",
     "tools.thought": "Tanke",
     "tools.thoughtFor": "Tenkte i {time}",
+    "tools.thoughts": "Tanker",
     "turn.copied": "Kopiert",
     "turn.copy": "Kopier"
   },
@@ -750,6 +762,7 @@
     "tools.searched": "Wykonano wyszukiwań: {n}",
     "tools.thought": "Myśl",
     "tools.thoughtFor": "Myślał przez {time}",
+    "tools.thoughts": "Myśli",
     "turn.copied": "Skopiowano",
     "turn.copy": "Kopiuj"
   },
@@ -808,6 +821,7 @@
     "tools.searched": "{n} pesquisas executadas",
     "tools.thought": "Raciocínio",
     "tools.thoughtFor": "Raciocinou por {time}",
+    "tools.thoughts": "Raciocínios",
     "turn.copied": "Copiado",
     "turn.copy": "Copiar"
   },
@@ -866,6 +880,7 @@
     "tools.searched": "Выполнено поисков: {n}",
     "tools.thought": "Размышление",
     "tools.thoughtFor": "Размышлял {time}",
+    "tools.thoughts": "Размышления",
     "turn.copied": "Скопировано",
     "turn.copy": "Копировать"
   },
@@ -924,6 +939,7 @@
     "tools.searched": "ค้นหาแล้ว {n} ครั้ง",
     "tools.thought": "ความคิด",
     "tools.thoughtFor": "คิดเป็นเวลา {time}",
+    "tools.thoughts": "ความคิด",
     "turn.copied": "คัดลอกแล้ว",
     "turn.copy": "คัดลอก"
   },
@@ -982,6 +998,7 @@
     "tools.searched": "{n} arama yapıldı",
     "tools.thought": "Düşünce",
     "tools.thoughtFor": "Şu kadar düşündü: {time}",
+    "tools.thoughts": "Düşünceler",
     "turn.copied": "Kopyalandı",
     "turn.copy": "Kopyala"
   },
@@ -1040,6 +1057,7 @@
     "tools.searched": "Виконано пошуків: {n}",
     "tools.thought": "Роздуми",
     "tools.thoughtFor": "Розмірковував {time}",
+    "tools.thoughts": "Роздуми",
     "turn.copied": "Скопійовано",
     "turn.copy": "Копіювати"
   },
@@ -1098,6 +1116,7 @@
     "tools.searched": "Đã chạy {n} lượt tìm kiếm",
     "tools.thought": "Suy nghĩ",
     "tools.thoughtFor": "Đã suy nghĩ trong {time}",
+    "tools.thoughts": "Suy nghĩ",
     "turn.copied": "Đã sao chép",
     "turn.copy": "Sao chép"
   },
@@ -1156,6 +1175,7 @@
     "tools.searched": "运行了 {n} 次搜索",
     "tools.thought": "思考",
     "tools.thoughtFor": "已思考 {time}",
+    "tools.thoughts": "思考",
     "turn.copied": "已拷贝",
     "turn.copy": "拷贝"
   },
@@ -1214,6 +1234,7 @@
     "tools.searched": "執行了 {n} 次搜尋",
     "tools.thought": "思考",
     "tools.thoughtFor": "已思考 {time}",
+    "tools.thoughts": "思考",
     "turn.copied": "已拷貝",
     "turn.copy": "複製"
   }
