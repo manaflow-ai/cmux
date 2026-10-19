@@ -24,6 +24,7 @@ optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
 optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
+optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...  long-term memory shared by Codex and Claude Code sessions (see `optchat-chief agent-memory`)
 optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
                                                              answer the chief's cloud conversation (an always-on brain host)
 optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
@@ -41,6 +42,13 @@ fn main() -> std::process::ExitCode {
     // argument as its value.
     let append_after_live = args.iter().any(|a| a == "--append-after-live");
     args.retain(|a| a != "--append-after-live");
+    // `memory search --json` (and only there: `trace` and `stats` read their
+    // own `--json` from the raw arguments).
+    let memory_json =
+        args.first().is_some_and(|a| a == "memory") && args.iter().any(|a| a == "--json");
+    if memory_json {
+        args.retain(|a| a != "--json");
+    }
     let flags = Flags::parse(&args);
     let code = match flags.words.first().map(String::as_str) {
         Some("host") => optchat_chief::host::run(&flags, started_ms),
@@ -254,16 +262,30 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
-        Some("memory") => match optchat_chief::memory_cli::run(&flags, &home(&flags)) {
+        Some("agent-memory") => match optchat_chief::agent_memory::run(&args[1..]) {
             Ok(out) => {
-                println!("{out}");
+                if !out.is_empty() {
+                    println!("{out}");
+                }
                 0
             }
             Err(e) => {
-                eprintln!("optchat-chief memory: {e}");
+                eprintln!("optchat-chief agent-memory: {e}");
                 1
             }
         },
+        Some("memory") => {
+            match optchat_chief::memory_cli::run(&flags, &home(&flags), memory_json) {
+                Ok(out) => {
+                    println!("{out}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief memory: {e}");
+                    1
+                }
+            }
+        }
         Some("import-claude-code") => {
             let paths = Paths::new(&home(&flags));
             let projects = flags
