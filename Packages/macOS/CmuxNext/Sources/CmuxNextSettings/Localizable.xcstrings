@@ -105058,6 +105058,399 @@
           }
         }
       }
+    },
+    "settings.group.markdownViewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown Viewer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عارض Markdown"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preglednik Markdowna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown-visning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown-Ansicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visor de Markdown"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visionneuse Markdown"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizzatore Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown ビューア"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីមើល Markdown"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown 뷰어"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown-visning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeglądarka Markdown"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizador de Markdown"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотр Markdown"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวแสดง Markdown"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown Görüntüleyici"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переглядач Markdown"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình xem Markdown"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown 查看器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown 檢視器"
+          }
+        }
+      }
+    },
+    "settings.markdown.fontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Font Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الخط الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadana veličina fonta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardskriftstørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardschriftgröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño de letra predeterminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille de police par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione predefinita del carattere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのフォントサイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំពុម្ពអក្សរលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 글꼴 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard skriftstørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domyślny rozmiar czcionki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho padrão da fonte"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер шрифта по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดฟอนต์เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan Yazı Tipi Boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Типовий розмір шрифту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cỡ chữ mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认字体大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設字體大小"
+          }
+        }
+      }
+    },
+    "settings.markdown.fontSize.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم النص الذي يُفتح به كل عارض Markdown. يغيّره Cmd-= وCmd-- في عارض واحد، ويعيده Cmd-0 إلى هذا الحجم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina teksta s kojom se otvara svaki preglednik Markdowna. Cmd-= i Cmd-- je mijenjaju u jednom pregledniku; Cmd-0 vraća ovu veličinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekststørrelsen, som hver Markdown-visning åbner med. Cmd-= og Cmd-- ændrer den i én visning; Cmd-0 går tilbage til denne størrelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Textgröße, mit der jede Markdown-Ansicht öffnet. Cmd-= und Cmd-- ändern sie in einer Ansicht; Cmd-0 kehrt zu dieser Größe zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tamaño de texto con el que se abre cada visor de Markdown. Cmd-= y Cmd-- lo cambian en un visor; Cmd-0 vuelve a este tamaño."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La taille du texte à l’ouverture de chaque visionneuse Markdown. Cmd-= et Cmd-- la modifient dans une visionneuse ; Cmd-0 revient à cette taille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dimensione del testo con cui si apre ogni visualizzatore Markdown. Cmd-= e Cmd-- la cambiano in un visualizzatore; Cmd-0 torna a questa dimensione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各 Markdown ビューアを開いたときの文字サイズです。Cmd-= と Cmd-- でビューアごとに変更でき、Cmd-0 でこのサイズに戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំអក្សរដែលកម្មវិធីមើល Markdown នីមួយៗបើកជាមួយ។ Cmd-= និង Cmd-- ប្ដូរវាក្នុងកម្មវិធីមើលមួយ; Cmd-0 ត្រឡប់ទៅទំហំនេះវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 Markdown 뷰어가 열릴 때의 텍스트 크기입니다. Cmd-=와 Cmd--로 뷰어마다 바꿀 수 있고, Cmd-0을 누르면 이 크기로 돌아갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekststørrelsen hver Markdown-visning åpner med. Cmd-= og Cmd-- endrer den i én visning; Cmd-0 går tilbake til denne størrelsen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar tekstu, z jakim otwiera się każda przeglądarka Markdown. Cmd-= i Cmd-- zmieniają go w jednej przeglądarce; Cmd-0 przywraca ten rozmiar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tamanho do texto com que cada visualizador de Markdown abre. Cmd-= e Cmd-- o alteram em um visualizador; Cmd-0 volta a este tamanho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер текста, с которым открывается каждый просмотр Markdown. Cmd-= и Cmd-- меняют его в одном окне просмотра; Cmd-0 возвращает этот размер."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดข้อความที่ตัวแสดง Markdown ทุกตัวใช้เมื่อเปิด Cmd-= และ Cmd-- เปลี่ยนขนาดในตัวแสดงหนึ่งตัว และ Cmd-0 กลับไปที่ขนาดนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her Markdown görüntüleyicinin açıldığı metin boyutu. Cmd-= ve Cmd-- bunu tek bir görüntüleyicide değiştirir; Cmd-0 bu boyuta geri döner."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір тексту, з яким відкривається кожен переглядач Markdown. Cmd-= і Cmd-- змінюють його в одному переглядачі; Cmd-0 повертає цей розмір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cỡ chữ mà mọi trình xem Markdown dùng khi mở. Cmd-= và Cmd-- thay đổi cỡ chữ trong một trình xem; Cmd-0 quay về cỡ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个 Markdown 查看器打开时的文字大小。Cmd-= 和 Cmd-- 可在单个查看器中调整，Cmd-0 恢复为此大小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個 Markdown 檢視器開啟時的文字大小。Cmd-= 和 Cmd-- 可在單一檢視器中調整，Cmd-0 會回到此大小。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
