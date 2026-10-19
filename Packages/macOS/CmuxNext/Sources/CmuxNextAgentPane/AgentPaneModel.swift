@@ -292,11 +292,12 @@ public final class AgentPaneModel {
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
         case .projectIcon(let cwd):
-            // Off the main actor, cached by file and modification date. No favicon answers the
-            // project's language from its marker files; neither keeps the page's letters.
-            if let src = await AgentPaneProjectIcons.shared.icon(for: cwd) { return AgentPaneReply.success(["src": src]) }
-            guard let language = await AgentPaneProjectIcons.shared.language(for: cwd) else { return AgentPaneReply.success() }
-            return AgentPaneReply.success(["language": language])
+            // Off the main actor, cached by file and modification date. The language from the
+            // marker files comes with the favicon, for a favicon WebKit cannot draw; neither keeps the page's letters.
+            var art: [String: Any] = [:]
+            if let src = await AgentPaneProjectIcons.shared.icon(for: cwd) { art["src"] = src }
+            if let language = await AgentPaneProjectIcons.shared.language(for: cwd) { art["language"] = language }
+            return AgentPaneReply.success(art)
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])

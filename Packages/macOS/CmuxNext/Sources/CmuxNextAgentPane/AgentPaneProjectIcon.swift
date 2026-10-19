@@ -89,10 +89,12 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
 
     /// Files at a project's top level that say what it is built with, best first: a framework's
     /// config before its language's manifest (a Next.js app has a package.json too). The page draws
-    /// the language's icon when the project has no favicon of its own.
+    /// the language's icon when the project has no favicon of its own, or WebKit cannot draw it.
     static let markers: [(name: String, language: String)] = [
         ("next.config.ts", "nextjs"), ("next.config.mjs", "nextjs"), ("next.config.js", "nextjs"),
-        ("svelte.config.js", "svelte"), ("astro.config.mjs", "astro"), ("vite.config.ts", "vite"),
+        ("svelte.config.js", "svelte"), ("svelte.config.ts", "svelte"),
+        ("astro.config.mjs", "astro"), ("astro.config.ts", "astro"), ("astro.config.js", "astro"),
+        ("vite.config.ts", "vite"), ("vite.config.js", "vite"), ("vite.config.mts", "vite"), ("vite.config.mjs", "vite"),
         ("Package.swift", "swift"), ("Cargo.toml", "rust"), ("go.mod", "go"), ("build.zig", "zig"),
         ("pyproject.toml", "python"), ("setup.py", "python"), ("requirements.txt", "python"),
         ("Gemfile", "ruby"), ("tsconfig.json", "typescript"), ("package.json", "javascript"),
