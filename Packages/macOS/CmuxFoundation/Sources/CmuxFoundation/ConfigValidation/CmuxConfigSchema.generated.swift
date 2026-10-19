@@ -2316,6 +2316,14 @@ enum CmuxEmbeddedConfigSchema {
           ],
           "description": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
         },
+        "autoSelectCertificateForUrls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Client-certificate selection rules for the embedded browser. Use one host or URL pattern per entry to select the only available certificate, or append = SERIAL to select a specific certificate by serial number."
+        },
         "showImportHintOnBlankTabs": {
           "type": "boolean",
           "default": true,

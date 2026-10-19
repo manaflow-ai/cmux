@@ -248,6 +248,7 @@ Embedded browser settings from Settings > Browser.
 | `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
 | `browser.showLinkHoverURL` | boolean | `true` | Show a link's destination at the bottom-left of a browser pane while the pointer is over the link or the link has keyboard focus. |
 | `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
+| `browser.autoSelectCertificateForUrls` | array<string> | `[]` | Client-certificate rules. Use one host or URL pattern per entry to select the only available certificate, or append `= SERIAL` to select a specific certificate by serial number. |
 
 ## markdown
 

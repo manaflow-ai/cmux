@@ -10,7 +10,8 @@ import SwiftUI
 /// (``BrowserMemorySaverSettingsRows``), Open Terminal Links / Intercept open,
 /// conditional Hosts editor and the External Patterns text editor, HTTP Hosts
 /// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
-/// subsection, React Grab Version, Browsing History.
+/// subsection, client-certificate auto-selection rules, React Grab Version,
+/// Browsing History.
 @MainActor
 public struct BrowserSection: View {
     private let catalog: SettingCatalog
@@ -31,6 +32,7 @@ public struct BrowserSection: View {
     @State private var external: DefaultsValueModel<String>
     @State private var httpAllowlist: DefaultsValueModel<String>
     @State private var urlAllowlist: DefaultsValueModel<String>
+    @State private var autoSelectCertificateForUrls: DefaultsValueModel<String>
     @State private var importHint: DefaultsValueModel<Bool>
     @State private var reactGrab: DefaultsValueModel<String>
 
@@ -41,6 +43,9 @@ public struct BrowserSection: View {
     @State private var urlAllowlistDraft: String = ""
     @State private var urlAllowlistSyncedValue: String = ""
     @State private var urlAllowlistLoaded: Bool = false
+    @State private var autoSelectCertificateForUrlsDraft: String = ""
+    @State private var autoSelectCertificateForUrlsSyncedValue: String = ""
+    @State private var autoSelectCertificateForUrlsLoaded: Bool = false
 
     /// Whether management locks the embedded-browser disable (policy key
     /// enforced, or the user key itself forced). Refreshed from
@@ -80,6 +85,7 @@ public struct BrowserSection: View {
         _external = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally))
         _httpAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser))
         _urlAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlAllowlist))
+        _autoSelectCertificateForUrls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.autoSelectCertificateForUrls))
         _importHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showImportHintOnBlankTabs))
         _reactGrab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.reactGrabVersion))
     }
@@ -103,7 +109,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, defaultZoom, askWhereToSaveDownloads, showLinkHoverURL, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, defaultZoom, askWhereToSaveDownloads, showLinkHoverURL, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, autoSelectCertificateForUrls, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -309,6 +315,11 @@ public struct BrowserSection: View {
 
             urlAllowlistRow(model: urlAllowlist)
                 .settingsSearchAnchors(["setting:browser:url-allowlist"])
+
+            SettingsCardDivider()
+
+            autoSelectCertificateForUrlsRow(model: autoSelectCertificateForUrls)
+                .settingsSearchAnchors(["setting:browser:auto-select-certificate"])
 
             SettingsCardDivider()
 
@@ -646,6 +657,89 @@ public struct BrowserSection: View {
                 || model.current == BrowserURLAllowlistPolicy.defaultAllowlistText
         )
         .accessibilityIdentifier("SettingsBrowserURLAllowlistResetButton")
+    }
+
+    @ViewBuilder
+    private func autoSelectCertificateForUrlsRow(model: DefaultsValueModel<String>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "settings.browser.autoSelectCertificateForUrls", defaultValue: "Auto-Select Client Certificates"))
+                .cmuxFont(size: 13, weight: .semibold)
+            Text(String(localized: "settings.browser.autoSelectCertificateForUrls.description", defaultValue: "Automatically answers client-certificate prompts for matching HTTPS hosts. A host-only rule applies when exactly one certificate is available; append = SERIAL to choose a specific certificate."))
+                .cmuxFont(.caption)
+                .foregroundStyle(.secondary)
+            TextEditor(text: $autoSelectCertificateForUrlsDraft)
+                .cmuxFont(size: 12, weight: .regular, design: .monospaced)
+                .frame(minHeight: 86)
+                .padding(6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+                .accessibilityIdentifier("SettingsBrowserAutoSelectCertificateForUrlsField")
+            if let validationMessage = autoSelectCertificateForUrlsValidationMessage {
+                Text(validationMessage)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.orange)
+            }
+            Text(String(localized: "settings.browser.autoSelectCertificateForUrls.hint", defaultValue: "One rule per line, for example: intranet.example.com or intranet.example.com = 01AB23. Use *.example.com for subdomains."))
+                .cmuxFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer(minLength: 0)
+                autoSelectCertificateForUrlsSaveButton(model: model)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .task {
+            if !autoSelectCertificateForUrlsLoaded {
+                autoSelectCertificateForUrlsDraft = model.current
+                autoSelectCertificateForUrlsSyncedValue = model.current
+                autoSelectCertificateForUrlsLoaded = true
+            }
+        }
+        .onChange(of: model.current) { _, newValue in
+            if !autoSelectCertificateForUrlsLoaded {
+                autoSelectCertificateForUrlsDraft = newValue
+                autoSelectCertificateForUrlsSyncedValue = newValue
+                autoSelectCertificateForUrlsLoaded = true
+                return
+            }
+            if autoSelectCertificateForUrlsDraft == autoSelectCertificateForUrlsSyncedValue {
+                autoSelectCertificateForUrlsDraft = newValue
+            }
+            autoSelectCertificateForUrlsSyncedValue = newValue
+        }
+    }
+
+    private var autoSelectCertificateForUrlsValidationMessage: String? {
+        guard !BrowserClientCertificateRuleDraftValidation.isValid(autoSelectCertificateForUrlsDraft) else {
+            return nil
+        }
+        return String(
+            localized: "settings.browser.autoSelectCertificateForUrls.invalidRule",
+            defaultValue: "One or more rules are incomplete or invalid. Finish each host, URL pattern, or serial number before saving."
+        )
+    }
+
+    private func autoSelectCertificateForUrlsSaveButton(model: DefaultsValueModel<String>) -> some View {
+        Button(String(localized: "settings.browser.urlAllowlist.save", defaultValue: "Save")) {
+            guard autoSelectCertificateForUrlsValidationMessage == nil else { return }
+            model.set(autoSelectCertificateForUrlsDraft)
+            autoSelectCertificateForUrlsSyncedValue = autoSelectCertificateForUrlsDraft
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(
+            autoSelectCertificateForUrlsValidationMessage != nil
+                || autoSelectCertificateForUrlsDraft == model.current
+        )
+        .accessibilityIdentifier("SettingsBrowserAutoSelectCertificateForUrlsSaveButton")
     }
 
     @ViewBuilder
