@@ -114,6 +114,31 @@ If the binary is absent or reports an understood incompatible probe, an npm-back
 
 Every command that selects SSH as its initial route performs the same probe and automatic install before starting its authenticated connection. This includes a raw `ssh://` route passed to `connect`, `forward`, or `rpc`. The bootstrap runs outside the short carrier-reattachment deadline, so installation can finish without making later keystroke-path reconnects wait on package setup. A later SSH fallback is expected to use the binary installed by an earlier SSH connection or by the server owner. These commands accept `--session`, `--ssh-binary`, `--remote-binary`, `--remote-state-dir`, repeated `--ssh-arg` values, `--upgrade`, and `--no-install`. Repeat `--session dev` on later connections to a non-main SSH session; the known-daemon record stores routes and keys, not the remote session name.
 
+## Diagnose SSH reachability
+
+`cmux remote doctor HOST` explains why this machine can't reach HOST over SSH. It changes nothing on either machine.
+
+```sh
+cmux remote doctor cosmic-gray
+cmux remote doctor cosmic-gray --user leoli --port 22 --timeout-seconds 5 --json
+```
+
+HOST may be an SSH config alias or `user@host`; the probes aim at the `HostName` and `Port` that `ssh -G HOST` reports. It runs three probes in order: a Tailscale TSMP ping (`tailscale ping --tsmp`), a TCP connect to the SSH port, and, only when TCP connects, `ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes HOST true` with agent, X11 and port forwarding disabled. The combined result is one diagnosis:
+
+| `diagnosis` | Probes | Meaning |
+| --- | --- | --- |
+| `ok` | TCP open, SSH works | cmux can use the host directly. |
+| `key-not-authorized` | TCP open, `Permission denied` | No offered key is in the target user's `authorized_keys`, or the login name differs (`--user`). |
+| `host-key-unknown` | TCP open, host key check failed | Connect once with plain `ssh` to verify and trust the key. |
+| `host-key-changed` | TCP open, `REMOTE HOST IDENTIFICATION HAS CHANGED` | Don't accept the new key until it's checked on the host itself. |
+| `ssh-failed` | TCP open, other SSH error | Run `ssh -v` for details. |
+| `ssh-off` | TCP refused | Nothing listens on the port. On a Mac, turn on Remote Login. |
+| `tailnet-policy-blocks` | TSMP answers, TCP times out | The tailnet access policy drops this direction. TSMP is answered before the packet filter, so it still works. Ask a tailnet admin for a rule, or connect from the other machine. cmux never edits the policy. |
+| `unreachable` | No TSMP answer, TCP times out | The host is offline or not on this tailnet. |
+| `unresolved` | Name lookup failed | Use the tailnet name or the 100.x address. |
+
+When the SSH config routes HOST through `ProxyJump` or `ProxyCommand`, the TCP and tailnet probes are skipped (`tcp: proxied`, `tailnet: not-tried`) and only the SSH probe runs. The SSH probe also overrides config options that could change state or skip the test: `UpdateHostKeys`, `ControlMaster`/`ControlPath`, `RemoteCommand` and `PermitLocalCommand`. `tailnet` is `unavailable` when the `tailscale` CLI is missing or not running; the TCP and SSH probes still run. The command exits 0 only for `ok`. HOST and `--user` must not start with `-` or contain spaces or control characters.
+
 ## Share one WireGuard tunnel between clients
 
 One WireGuard key supports one live session: the server keeps the endpoint of the last authenticated sender, so two processes handshaking with the same key steal each other's traffic. When several `remote connect` processes on one machine must reach the same private network, run one hub and point each client at it:

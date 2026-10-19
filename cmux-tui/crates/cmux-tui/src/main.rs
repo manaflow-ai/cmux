@@ -64,6 +64,8 @@ mod remote_cli {
     }
 }
 #[cfg(unix)]
+mod remote_doctor;
+#[cfg(unix)]
 mod remote_runtime;
 mod session;
 mod sidebar_files;
