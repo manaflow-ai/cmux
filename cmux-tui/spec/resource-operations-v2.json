@@ -28129,6 +28129,7 @@
         "extra": false,
         "constraints": [
           "Restored members leave the stash in the commit that stores the result; the stash is removed with its last member. A retry with the same key replays.",
+          "All or nothing: when a member cannot reopen, or the commit fails, the pages this call opened close again (unrecorded), every member stays in the stash, and the error is returned; a retry opens each page once.",
           "A page reopens with its back/forward history, its browser profile and its engine."
         ]
       },
