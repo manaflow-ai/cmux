@@ -129,6 +129,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green.py
 
+      - name: Validate the bug-fix proof-section warning
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_pr_proof_section.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
