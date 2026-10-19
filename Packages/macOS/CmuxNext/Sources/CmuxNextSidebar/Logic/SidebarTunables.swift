@@ -77,6 +77,13 @@ public nonisolated enum SidebarTunables {
         help: "A round dot per agent acting right now, in the agent's theme color: on its workspace row (hover lists what each one touches) and on its tab chip (prototype).",
         default: false, code: "SidebarTunables.presenceDots")
 
+    /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
+    /// `sidebar.sessionTree`); on by default.
+    public static let pullRequestCard = Tunable<Bool>.toggle(
+        "sidebar.pullRequestCard", .sidebar, "Pull request hover card",
+        help: "Hovering a row's pull request badge (with the session tree on) lists each pull request with its state, repository and size; a click opens it.",
+        default: true, code: "SidebarTunables.pullRequestCard")
+
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
         "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
@@ -109,6 +116,7 @@ public nonisolated enum SidebarTunables {
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
+            pullRequestCard.descriptor,
             rowBadgePreview.descriptor,
             sectionTopFraction.descriptor,
             SidebarChatsDesign.tunable.descriptor,

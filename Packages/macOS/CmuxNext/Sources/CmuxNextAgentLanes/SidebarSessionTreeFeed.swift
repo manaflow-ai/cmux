@@ -5,6 +5,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -40,7 +41,7 @@ public final class SidebarSessionTreeFeed {
                                  pullRequests: pullRequests.answers)
             }) {
                 if tree.state != pass?.state { tree.state = pass?.state }
-                if let pass { pullRequests.refresh(pass.asks) }
+                if let pass { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
     }
@@ -81,28 +82,43 @@ public final class SidebarSessionTreeFeed {
         return folders + opened
     }
 
-    /// The badge of `asks`' answers: each pull request once, though a folder's branch's and an
-    /// opened one's URL, or two sessions in one folder, name the same.
+    /// The badge of `asks`' answers, with each one's line for the hover card: each pull request
+    /// once, though a folder's branch's and an opened one's URL, or two sessions in one folder,
+    /// name the same.
     static func badge(_ asks: [String], answers: [String: AgentPanePullRequest]) -> SidebarPullRequestBadge? {
         var seen: Set<String> = []
-        let statuses = asks.compactMap { answers[$0] }.filter { seen.insert($0.url).inserted }.compactMap(Self.status)
-        return SidebarPullRequestBadge.combining(statuses)
+        let items = asks.compactMap { answers[$0] }.filter { seen.insert($0.url).inserted }.map(Self.item)
+        return SidebarPullRequestBadge.combining(items: items)
     }
 
     /// The badge color of one pull request; nil for a closed one, which the badge leaves out.
     static func status(_ pullRequest: AgentPanePullRequest) -> SidebarPullRequestBadge.Status? {
-        switch pullRequest.state {
+        item(pullRequest).state.badgeStatus
+    }
+
+    /// One pull request's line in the hover card. Failed checks say so before a conflict (red wins
+    /// over orange); a pending check reads as passing until it fails.
+    static func item(_ pullRequest: AgentPanePullRequest) -> SidebarPullRequestItem {
+        let state: SidebarPullRequestItem.State = switch pullRequest.state {
         case "merged": .merged
-        case "closed": nil
-        case "draft": .attention
-        default: pullRequest.mergeable == "conflicting" || pullRequest.checks.state == "failing" ? .attention : .passing
+        case "closed": .closed
+        case "draft": .draft
+        default: pullRequest.checks.state == "failing" ? .failing : pullRequest.mergeable == "conflicting" ? .conflict : .passing
         }
+        return SidebarPullRequestItem(url: pullRequest.url, repository: SidebarPullRequestItem.repository(of: pullRequest.url),
+                                      number: pullRequest.number, title: pullRequest.title, state: state,
+                                      additions: pullRequest.additions, deletions: pullRequest.deletions,
+                                      createdAt: pullRequest.createdAt)
     }
 }
 
 /// The pull request of each session folder's branch and of each pull request URL a session opened,
 /// for the sidebar's session tree: read with the chat header's reader (two gh calls at a time, never
-/// prompting), at most once every five minutes per folder or URL, when the tree passes again (a lane or a workspace changed). Nothing else polls. The
+/// prompting), at most once every five minutes per folder or URL: when the tree passes again (a
+/// lane or a workspace changed), and once every five minutes on its own while the tree shows
+/// open pull requests (an idle session's CI can still fail). A folder is one `gh pr view` there; every stale github.com URL
+/// goes in one batched GraphQL read (`read(urls:)`), never one call per pull request; a failed read
+/// keeps the last answers. The
 /// chat header's chip shares those two calls, so the sidebar asks seldom and never stalls it.
 @MainActor @Observable
 final class SidebarPullRequestStore {
@@ -110,7 +126,15 @@ final class SidebarPullRequestStore {
     private(set) var answers: [String: AgentPanePullRequest] = [:]
     @ObservationIgnored private var asked: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var asking: Set<String> = []
+    /// Failed reads in a row, by URL: each doubles its wait, up to ``maximumBackoff``.
+    @ObservationIgnored private var failures: [String: Int] = [:]
+    /// The most doublings of `freshness` a failing URL waits (5 minutes become 80).
+    static let maximumBackoff = 4
     @ObservationIgnored private let reader: AgentChatPullRequestReader
+    /// What the tree showed last, read again by ``recheck``.
+    @ObservationIgnored private var shown: Set<String> = []
+    /// Reads `shown` again once `freshness` passes, though nothing in the tree changed.
+    @ObservationIgnored private let recheck = DemandTimer(owner: "sidebar.pullRequests.recheck")
     @ObservationIgnored private let freshness: Duration
 
     init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(300)) {
@@ -121,22 +145,89 @@ final class SidebarPullRequestStore {
     /// Asks again for each of `asks` (a folder, or a pull request's `https://` URL) whose answer is
     /// missing or older than `freshness`.
     func refresh(_ asks: Set<String>) {
-        for key in asks where !asking.contains(key) {
-            if let at = asked[key], ContinuousClock.now - at < freshness { continue }
-            ask(key)
+        shown = asks
+        // Drop what the tree no longer shows (closed workspaces, ended sessions).
+        let kept = asks.union(asking)
+        let pruned = answers.filter { kept.contains($0.key) }
+        if pruned.count != answers.count { answers = pruned } // a set always notifies the tree's observation
+        asked = asked.filter { kept.contains($0.key) }
+        failures = failures.filter { kept.contains($0.key) }
+        if freshness > .zero, asks.contains(where: inFlight) {
+            recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
+                guard let self else { return }
+                refresh(shown)
+            }
+        } else {
+            recheck.cancel()
+        }
+        let stale = asks.filter { key in
+            !asking.contains(key) && !isSettled(key) && asked[key].map { ContinuousClock.now - $0 >= wait(key) } ?? true
+        }
+        let urls = stale.filter { $0.hasPrefix("https://") }.sorted()
+        for folder in stale.subtracting(urls).sorted() { ask(folder) }
+        if !urls.isEmpty { ask(urls: urls) }
+    }
+
+    private func ask(_ folder: String) {
+        asking.insert(folder)
+        asked[folder] = .now
+        let reader = reader
+        // task-owner: one gh read per stale folder; its answer lands in `answers`.
+        Task { [weak self] in
+            let answer = await reader.read(in: folder)
+            guard let self else { return }
+            asking.remove(folder)
+            if answers[folder] != answer { answers[folder] = answer }
         }
     }
 
-    private func ask(_ key: String) {
-        asking.insert(key)
-        asked[key] = .now
+    private func ask(urls: [String]) {
+        asking.formUnion(urls)
+        for url in urls { asked[url] = .now }
         let reader = reader
-        // task-owner: one gh read per stale folder or URL; its answer lands in `answers`.
+        // task-owner: one batched gh read for every stale URL; the answers land in `answers`.
         Task { [weak self] in
-            let answer = if key.hasPrefix("https://") { await reader.read(url: key) } else { await reader.read(in: key) }
+            let read = await reader.read(urls: urls)
             guard let self else { return }
-            asking.remove(key)
-            if answers[key] != answer { answers[key] = answer }
+            asking.subtract(urls)
+            // A URL whose read failed keeps its last answer and waits longer; one GitHub has no pull
+            // request for clears.
+            for url in urls {
+                guard let answer = read[url] else {
+                    failures[url, default: 0] += 1
+                    continue
+                }
+                failures[url] = nil
+                if answers[url] != answer { answers[url] = answer }
+            }
         }
+    }
+
+    /// Whether the five-minute recheck is pending.
+    var rechecks: Bool { recheck.isScheduled }
+
+    /// Stops the recheck: the tree is off.
+    func stop() {
+        shown = []
+        recheck.cancel()
+    }
+
+    /// A merged pull request's URL: it never changes again, so it is not asked again. (A closed one
+    /// can be reopened; a folder's branch can get a new pull request after one merges, so both are.)
+    func isSettled(_ key: String) -> Bool {
+        key.hasPrefix("https://") && answers[key]?.state == "merged"
+    }
+
+    /// A shown pull request whose CI or review can still change on its own (open or draft): what
+    /// keeps the five-minute recheck. A folder without one, or a merged or closed one, changes only
+    /// with a lane or a workspace, which passes the tree again anyway.
+    func inFlight(_ key: String) -> Bool {
+        guard let state = answers[key]?.state else { return false }
+        return state != "merged" && state != "closed"
+    }
+
+    /// How long `key`'s answer stays fresh: `freshness`, doubled for each failed read in a row.
+    func wait(_ key: String) -> Duration {
+        freshness * (1 << min(failures[key] ?? 0, Self.maximumBackoff))
     }
 }

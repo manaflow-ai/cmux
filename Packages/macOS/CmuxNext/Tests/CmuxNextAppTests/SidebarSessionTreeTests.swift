@@ -60,6 +60,7 @@ import Testing
         #expect(SidebarPullRequestBadge.combining([]) == nil)
         #expect(SidebarPullRequestBadge.combining([.merged, .passing]) == SidebarPullRequestBadge(count: 2, status: .passing))
         #expect(SidebarPullRequestBadge.combining([.passing, .attention, .merged])?.status == .attention)
+        #expect(SidebarPullRequestBadge.combining([.attention, .failing, .passing])?.status == .failing)
         #expect(SidebarPullRequestBadge.combining([.merged])?.status == .merged)
     }
 
@@ -70,7 +71,7 @@ import Testing
         }
         #expect(SidebarSessionTreeFeed.status(pr("open")) == .passing)
         #expect(SidebarSessionTreeFeed.status(pr("open", checks: "pending")) == .passing)
-        #expect(SidebarSessionTreeFeed.status(pr("open", checks: "failing")) == .attention)
+        #expect(SidebarSessionTreeFeed.status(pr("open", checks: "failing")) == .failing)
         #expect(SidebarSessionTreeFeed.status(pr("open", mergeable: "conflicting")) == .attention)
         #expect(SidebarSessionTreeFeed.status(pr("draft")) == .attention)
         #expect(SidebarSessionTreeFeed.status(pr("merged")) == .merged)
@@ -119,7 +120,10 @@ import Testing
         // The folder's branch is pull/2; pull/3 has no answer yet.
         let answers = ["/src/app": pr(2, "open"), "https://github.com/o/r/pull/1": pr(1, "merged"),
                        "https://github.com/o/r/pull/2": pr(2, "open")]
-        #expect(SidebarSessionTreeFeed.badge(asks, answers: answers) == SidebarPullRequestBadge(count: 2, status: .passing))
+        let badge = SidebarSessionTreeFeed.badge(asks, answers: answers)
+        #expect(badge?.count == 2)
+        #expect(badge?.status == .passing)
+        #expect(badge?.items.map(\.number) == [2, 1])
         #expect(SidebarSessionTreeFeed.badge(asks, answers: [:]) == nil)
     }
 
