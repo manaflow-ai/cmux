@@ -74,6 +74,8 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
+- Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
+  the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
   first; a second model is not a review gate. Wait for checks relevant to the
   change; disclose skipped verification on the PR. `main` is nightly: fix forward,
