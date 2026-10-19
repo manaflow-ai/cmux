@@ -447,32 +447,26 @@
   padding-inline: var(--acpmux-row-inset);
 }
 /* Hover is the shared quiet wash (ui/ui.css --ui-hover, which the agent pane does not load): the
-   control's own ink at 6% over the card, tight to the control, a step further on press; no
-   opaque block. */
+   control's own ink at 6% over the card, tight to the control; no opaque block. */
 .acpmux-composer-bar {
   --acpmux-row-hover: var(--acpmux-pill-hover, var(--ui-hover, color-mix(in srgb, currentcolor 6%, transparent)));
-  --acpmux-row-press: var(--acpmux-pill-press, color-mix(in srgb, currentcolor 12%, transparent));
 }
 .acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"] {
   background: var(--acpmux-pill-open, var(--acpmux-row-hover));
   box-shadow: inset 0 0 0 1px var(--acpmux-pill-edge, transparent);
 }
-/* Hover only under a fine pointer (cg-composer click polish): a tap never leaves a wash behind. */
+/* No control draws a pill at rest; the one under the pointer gets the soft pill, as the Claude app's
+   chips do (Leo 2026-10-19). Hover only under a fine pointer (cg-composer click polish): a tap never
+   leaves a wash behind. A press keeps that same pill (no brighter or tinted press tone); its
+   feedback is the small shrink in composerStates.css. */
 @media (hover: hover) and (pointer: fine) {
   .acpmux-composer-bar .acpmux-picker-button:hover,
   .acpmux-composer-bar .acpmux-plan:hover,
   .acpmux-composer-bar .acpmux-steer:hover,
   .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
-    /* Keep hover on the ink, not on the full transparent hit target. */
-    background: transparent;
+    background: var(--acpmux-row-hover);
     color: var(--agent-text);
   }
-}
-.acpmux-composer-bar .acpmux-picker-button:active,
-.acpmux-composer-bar .acpmux-plan:active,
-.acpmux-composer-bar .acpmux-steer:active,
-.acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):active {
-  background: var(--acpmux-row-press);
 }
 /* Opening a picker moves focus into its popup before the browser paints the held frame, which
    clears :active. Keep that first frame at the same tone as the open chip (popoverTrigger.ts). */
@@ -535,9 +529,9 @@
   font-size: var(--text-control);
 }
 /* The plain footer (Debug Settings > Pages > "Agent composer: plain footer", composerSettings.ts
-   plainFooter): Claude Code desktop's footer, text at rest. The default model, effort and mode
-   pills draw a resting fill (styles.css --acpmux-pill-fill); the plain look drops it, so a chip
-   draws no fill or ring until it is hovered, keyboard-focused, pressed or open. The model's name
+   plainFooter): Claude Code desktop's footer, text at rest. Neither look draws a pill at rest
+   (styles.css); a chip draws no fill or ring until it is hovered, keyboard-focused, pressed or
+   open. The model's name
    (any form of it) is muted like effort and the mode, the model's brand mark and the mode's lock
    are hidden (chevrons stay), and Plan when on is accent text only. Hover, keyboard focus and an
    open menu draw the row's wash. Once the row's fit steps (composerRowFit.ts: the composer's
@@ -1062,7 +1056,6 @@
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 .acpmux-fast:hover { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
-.acpmux-fast:active { background: var(--acpmux-row-press, var(--acpmux-composer-press)); }
 .acpmux-fast[aria-pressed="true"],
 .acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-accent); }
 /* A narrow composer lays the bolt out of the row (composerRowFit.ts speedHidden, the

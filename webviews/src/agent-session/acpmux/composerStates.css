@@ -1,7 +1,8 @@
 /* Interaction states for the composer and its menus: every control gets a hover and a pressed
    state (focus rings are in styles.css). Each is a tonal step mixed from the theme's text color, so no
    accent hue appears and every theme keeps its character. Only colors change (never size,
-   padding or borders), so a state never shifts the layout.
+   padding or borders), so a state never shifts the layout; the composer chips' press adds a
+   transform, which draws the chip a hair smaller in place and moves nothing around it.
 
    Motion tokens: the native host sends its MotionFade durations with the theme
    (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
@@ -17,6 +18,9 @@
   --agent-motion-move: 190ms;
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  /* A pressed chip's spring back to full size: quick, with a slight overshoot. */
+  --acpmux-press-release: 140ms;
+  --acpmux-press-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .acpmux-shell {
@@ -31,8 +35,6 @@
   /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
      none in a dark one, where a drop shadow on a dark page shows nothing. */
   --acpmux-composer-shadow: var(--elevation-1);
-  /* One step past hover, for the press. */
-  --acpmux-composer-press: color-mix(in srgb, var(--agent-text) 20%, var(--agent-page-bg, var(--acpmux-base)));
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
 }
 
@@ -40,21 +42,19 @@
   --acpmux-composer-shadow: 0 0 transparent;
 }
 
-/* Composer chips: Plan, the mode, model and effort pickers, and +. */
-.acpmux-picker-button:active,
-.acpmux-plan:active {
-  background: var(--acpmux-composer-press);
-}
+/* Composer chips: Plan, the mode, model and effort pickers, +, the mic and Steer. A press keeps the
+   hover's pill, with no brighter or tinted tone (Leo 2026-10-19): its feedback is the Claude app's,
+   a shrink of a hair with an almost invisible dip that springs back on release (below). */
 .acpmux-plan[aria-pressed="true"]:hover {
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
 }
-.acpmux-plan[aria-pressed="true"]:active {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 28%, transparent);
-}
 /* A press shows at once (cg-composer click polish, as Codex's chips): the hover's ease below never
-   delays the tone under the button going down. */
+   delays the button going down; the release eases back. */
 .acpmux-picker-button:active,
 .acpmux-plan:active,
+.acpmux-steer:active,
+.acpmux-mic:active,
+.acpmux-fast:active,
 .acpmux-location-button:active {
   transition-duration: 0s;
 }
@@ -117,17 +117,10 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-composer-hover);
   color: var(--agent-text);
 }
-.acpmux-mic:active {
-  background: var(--acpmux-composer-press);
-}
 .acpmux-mic[data-state="listening"]:hover,
 .acpmux-mic[data-state="finalizing"]:hover {
   background: color-mix(in srgb, var(--agent-danger) 24%, transparent);
   color: var(--agent-danger);
-}
-.acpmux-mic[data-state="listening"]:active,
-.acpmux-mic[data-state="finalizing"]:active {
-  background: color-mix(in srgb, var(--agent-danger) 32%, transparent);
 }
 .acpmux-dictation-settings:hover,
 .acpmux-dictation-dismiss:hover {
@@ -159,15 +152,31 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
-  .acpmux-plan {
+  .acpmux-plan,
+  .acpmux-steer {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
-      color var(--agent-motion-hover) var(--agent-ease-out);
+      color var(--agent-motion-hover) var(--agent-ease-out),
+      transform var(--acpmux-press-release) var(--acpmux-press-spring),
+      opacity var(--acpmux-press-release) var(--agent-ease-out);
+  }
+  /* The press: 0.975 and a 4% dip, at once (transition-duration 0s above), springing back over
+     the release with a slight overshoot. Nothing lingers once the button is up. */
+  :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):active {
+    transform: scale(0.975);
+    opacity: 0.96;
   }
   .acpmux-send {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
   }
   .acpmux-mic,
+  .acpmux-fast {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out),
+      transform var(--acpmux-press-release) var(--acpmux-press-spring),
+      opacity var(--acpmux-press-release) var(--agent-ease-out);
+  }
   .acpmux-dictation-settings,
   .acpmux-dictation-dismiss {
     transition:

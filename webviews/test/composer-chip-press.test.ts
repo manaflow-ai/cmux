@@ -5,7 +5,8 @@
 //
 // - The arrow cursor over every chip, as the rest of the pane's controls (macOS), never the hand.
 // - A press shows its tone the moment the button goes down: the hover's ease does not delay it,
-//   and the chip does not move.
+//   and the chip does not move: its layout box stays put, and the press's small shrink
+//   (composerStates.css, the Claude app's chips) draws around the same centre.
 // - A mouse click leaves no focus ring, on the chip or on the menu it opens, even right after
 //   typing (WebKit draws a programmatic focus as keyboard focus once a key was pressed).
 //   Keyboard focus on the same chip still shows its ring.
@@ -156,10 +157,12 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             const locator = page.locator(chip(name)).first();
             const read = () =>
               locator.evaluate((element) => {
+                // The layout box (offset size, the drawn box's centre): a press's shrink is a
+                // transform, which scales the drawn box around its centre and moves nothing.
                 const box = element.getBoundingClientRect();
                 return {
                   background: getComputedStyle(element).backgroundColor,
-                  box: [box.x, box.y, box.width, box.height].map(Math.round),
+                  box: [box.x + box.width / 2, box.y + box.height / 2, element.offsetWidth, element.offsetHeight].map(Math.round),
                 };
               });
             const box = (await locator.boundingBox())!;
@@ -174,11 +177,14 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             await page.keyboard.press("Escape");
             await page.mouse.move(1, 1);
             await page.waitForTimeout(200);
+            // The chip never moves under a press, whatever tone it shows (#21986).
+            expect({ name, box: pressed.box }).toEqual({ name, box: hover.box });
+            expect({ name, box: held.box }).toEqual({ name, box: hover.box });
             // Chromium leaves :active when focus moves into the model picker's search on the press;
-            // the open chip keeps its wash. WebKit, the app's engine, holds it.
+            // the open chip keeps its wash. WebKit, the app's engine, holds it. A press that keeps the
+            // hover tone (the quiet chips) has no separate pressed tone to compare.
             if (held.background === hover.background) continue;
             expect({ name, pressed: pressed.background }).toEqual({ name, pressed: held.background });
-            expect({ name, box: pressed.box }).toEqual({ name, box: hover.box });
           }
           await page.close();
         });

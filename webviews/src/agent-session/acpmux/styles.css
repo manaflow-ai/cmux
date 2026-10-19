@@ -85,7 +85,8 @@
 .acpmux-chips>.acpmux-plan+.acpmux-chips-spacer,.acpmux-chips>.acpmux-mode+.acpmux-chips-spacer{margin-left:0}
 /* Full access draws in the chip's own color, like Claude's mode label: the shield's mark names the risk and the menu marks its icon (Leo 2026-10-18). */
 .acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button{padding:0 6px 0 8px}
-.acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button,.acpmux-access .acpmux-picker-button{border-radius:999px;background:var(--acpmux-pill-fill,color-mix(in srgb,var(--agent-text) 6%,transparent))}
+/* No pill at rest: the label shows and the pill comes only under the pointer, while open, or on keyboard focus (the Claude app's chips, Leo 2026-10-19). */
+.acpmux-model .acpmux-picker-button,.acpmux-effort .acpmux-picker-button,.acpmux-access .acpmux-picker-button{border-radius:999px;background:none}
 /* A pill pressed or open keeps the hover step and no edge: no brighter press tone that flashes on a click (Leo 2026-10-18). */
 .acpmux-model .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-effort .acpmux-picker-button:is(:active,[aria-expanded=true]),.acpmux-access .acpmux-picker-button:is(:active,[aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));box-shadow:none}
 @media (hover:hover) and (pointer:fine){.acpmux-model .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-effort .acpmux-picker-button:hover:not([aria-expanded=true]),.acpmux-access .acpmux-picker-button:hover:not([aria-expanded=true]){background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent))}}
