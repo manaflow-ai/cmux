@@ -1098,12 +1098,8 @@ pre.cv-math-source {
 .cv-thinking {
   color: var(--cv-text-muted);
 }
-/* Static status indicators (cx-sya4n): no sweep; the word stays muted. */
-:root[data-status-indicators="static"] .cv-thinking {
-  color: var(--cv-text-muted);
-  background: none;
-  -webkit-background-clip: border-box;
-  background-clip: border-box;
+/* Static status indicators (cx-sya4n), or Reduce Motion above: the dots hold at full strength. */
+:root[data-status-indicators="static"] .cv-working-mark > span {
   animation: none;
 }
 
