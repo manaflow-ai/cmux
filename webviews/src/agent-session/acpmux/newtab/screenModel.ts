@@ -25,7 +25,12 @@ export type ScreenRow =
   | { type: "workspace"; id: string; title: string; detail?: string }
   | { type: "history"; url: string; title?: string; icon?: string }
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
-  | { type: "ask"; text: string; harness: string; agent: string; model?: string };
+  | { type: "ask"; text: string; harness: string; agent: string; model?: string }
+  /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
+  | { type: "create"; kind: CreateKind };
+
+/// What a create row opens, in the order the rows list them.
+export type CreateKind = "terminal" | "browser" | "chat";
 
 /// Which row a prompt's Return takes (Leo 2026-10-18, reversing R86): the agent's, or the web search.
 export type ScreenMode = "ask" | "search";
@@ -62,7 +67,23 @@ export function defaultHarness(agents: readonly ScreenAgent[], lastAgent?: strin
 /// matching open tabs, workspaces and visited pages, a web search (none for a local file) and Ask.
 /// Other text: Ask first, a web search (the other way round in Search mode), then the matches. One row per page: a page an open tab
 /// shows is that tab ("Switch to tab"), and addresses compare without their tracking parameters.
+/// The `create` actions end every list (Leo 2026-10-18), outside the cap.
 export function screenRows(
+  text: string,
+  context: {
+    omnibar: OmnibarContext;
+    home?: string;
+    ask?: ScreenAsk;
+    mode?: ScreenMode;
+    create?: readonly CreateKind[];
+  },
+): ScreenRow[] {
+  const rows = navigationRows(text, context);
+  if (!rows.length) return rows;
+  return [...rows, ...(context.create ?? []).map((kind): ScreenRow => ({ type: "create", kind }))];
+}
+
+function navigationRows(
   text: string,
   context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; mode?: ScreenMode },
 ): ScreenRow[] {
