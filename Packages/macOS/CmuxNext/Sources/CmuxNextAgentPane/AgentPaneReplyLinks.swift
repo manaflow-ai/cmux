@@ -72,6 +72,8 @@ extension AgentPaneModel {
             ])
         case .openPath(let path):
             return Self.replyResult(await openReplyPath(path))
+        case .readPath(let path):
+            return await readReplyPath(path)
         case .loadImage(let src):
             return await loadReplyImage(src)
         case .loadMedia(let src):
@@ -94,6 +96,42 @@ extension AgentPaneModel {
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
     func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
+        switch await checkedReplyPath(text) {
+        case .failure(let error): return .failure(error)
+        case .success(let path): return await openResolved(path)
+        }
+    }
+
+    /// A path chip's file as text for the chat's viewer (Lucas 2026-10-19: files open beside the
+    /// chat, inside it): the same checks as ``openReplyPath(_:)``; a folder still opens in Finder.
+    func readReplyPath(_ text: String) async -> [String: Any] {
+        let path: String
+        switch await checkedReplyPath(text) {
+        case .failure(let error): return Self.replyFailure(error)
+        case .success(let checked): path = checked
+        }
+        guard let canonical = AcpmuxPathPolicy.canonical(path) else { return Self.replyFailure(.pathInvalid) }
+        guard !replyPaths().isDenied(canonical) else { return Self.replyFailure(.pathDenied) }
+        if AcpmuxPathPolicy.isDirectory(canonical) {
+            replyLinks.revealFolder(URL(fileURLWithPath: canonical, isDirectory: true))
+            return AgentPaneReply.success(["kind": "folder", "path": canonical])
+        }
+        let read = await Task.detached { AgentPaneReplyRequest.FileText(path: canonical) }.value
+        guard let read else { return Self.replyFailure(.pathInvalid) }
+        // An image, a PDF or another binary file opens as a path chip's open does: the click's
+        // gesture is already spent, so the page could not ask again.
+        guard let content = read.text else {
+            guard let url = AgentPaneFileOpen.resolve(canonical), let onOpenFile else { return Self.replyFailure(.pathInvalid) }
+            return await onOpenFile(url, .tab) ? AgentPaneReply.success(["kind": "opened", "path": canonical]) : Self.replyFailure(.openFailed)
+        }
+        return AgentPaneReply.success([
+            "kind": "text", "path": canonical, "text": content, "bytes": read.bytes, "truncated": read.truncated,
+        ])
+    }
+
+    /// The path after every check a path chip's open makes: the deny list, the roots and
+    /// `agentPane.links.outsideRoots`, then a user gesture.
+    private func checkedReplyPath(_ text: String) async -> Result<String, AgentPaneReplyError> {
         guard let resolved = replyPaths().resolve(text) else { return .failure(.pathInvalid) }
         switch resolved.place {
         case .denied: return .failure(.pathDenied)
@@ -106,11 +144,11 @@ extension AgentPaneModel {
             case .confirm:
                 guard transport.gestures.consume() else { return .failure(.gestureRequired) }
                 guard await confirmOutside(resolved.path) else { return .failure(.notConfirmed) }
-                return await openResolved(resolved.path)
+                return .success(resolved.path)
             }
         }
         guard transport.gestures.consume() else { return .failure(.gestureRequired) }
-        return await openResolved(resolved.path)
+        return .success(resolved.path)
     }
 
     /// Opens `path` after every check: a folder in Finder, a file in the pane's file pages.

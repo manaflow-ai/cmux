@@ -169,7 +169,7 @@ import {
   openReportedImage,
   setMessageMenuSource,
 } from "./conversation/messageMenu";
-import { callChipHost } from "./chips/host";
+import { callChipHost, openPathChip, setPathViewer } from "./chips/host";
 import { ChatSessionContext, TranscriptRowContext } from "./conversation/viewIdentity";
 import { PromptToggleAnchor, usePromptRevision } from "./conversation/promptCollapse";
 import { useCodeWrap } from "./conversation/codeWrap";
@@ -203,6 +203,7 @@ import {
   useThreadTitle,
 } from "./header/headerStyle";
 import { configureLabs, useLab } from "./labs";
+import type { ViewedFile } from "./FileViewer";
 import { PlanProgress } from "./PlanProgress";
 import { useShortcutsHelp } from "./ShortcutsHelp";
 import { RenderBridgeContext, useRenderBridge } from "./conversation/RenderBridgeContext";
@@ -280,6 +281,8 @@ import { experimentArm } from "../../experiments/experiment";
 /// cards (conversation/CodeBlock.tsx, conversation/EditDiff.tsx), so opening it waits on nothing.
 const loadDiffPanel = () => import("./DiffPanel");
 const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
+/// A file in the chat's viewer (labs `chatViewer`): loaded on its first open.
+const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -2950,6 +2953,13 @@ function AcpmuxPane() {
     /// The palette's Commit or Push for the open view (DiffPanel `gitIntent`).
     gitIntent?: { op: GitWriteOp; nonce: number };
   }>();
+  // The chat's viewer (labs `chatViewer`, Lucas 2026-10-19): changes and files open beside the
+  // transcript, inside the chat, never in a new column or a tab over it. One viewer: a file there
+  // closes the changes view and opening changes closes the file.
+  const chatViewer = useLab("chatViewer");
+  const chatViewerRef = useRef(chatViewer);
+  chatViewerRef.current = chatViewer;
+  const [fileView, setFileView] = useState<ViewedFile>();
   const toggleInspector = useCallback((open?: boolean) => {
     if (inspectorHiddenSurfaceRef.current) {
       inspectorOpenRef.current = false;
@@ -2960,6 +2970,7 @@ function AcpmuxPane() {
     inspectorOpenRef.current = next;
     if (next) {
       setDiffView(undefined);
+      setFileView(undefined);
       inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     }
     setInspectorOpen(next);
@@ -2978,12 +2989,43 @@ function AcpmuxPane() {
     const inPlace = () => {
       inspectorOpenRef.current = false;
       setInspectorOpen(false);
+      setFileView(undefined);
       setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked });
     };
+    if (chatViewerRef.current) return inPlace();
     void diffBeside.current().then((opened) => {
       if (!opened) inPlace();
     }, inPlace);
   }, []);
+  // A file into the chat's viewer: the host checks the path as a path chip's open does and sends
+  // its text; a folder opens in Finder and a binary file in the app's tab, both on the host.
+  const viewFile = useCallback((path: string): Promise<void> => {
+    return callChipHost("link.readPath", { path }).then((reply) => {
+      const read = reply as { kind?: unknown; path?: unknown; text?: unknown; bytes?: unknown; truncated?: unknown } | undefined;
+      if (read?.kind !== "text" || typeof read.path !== "string" || typeof read.text !== "string") return;
+      inspectorOpenRef.current = false;
+      setInspectorOpen(false);
+      setDiffView(undefined);
+      setFileView({
+        path: read.path,
+        text: read.text,
+        bytes: typeof read.bytes === "number" ? read.bytes : read.text.length,
+        truncated: read.truncated === true,
+        sessionId: sessionIdRef.current,
+      });
+    });
+  }, []);
+  useEffect(() => {
+    if (!chatViewer) return undefined;
+    setPathViewer(viewFile);
+    return () => setPathViewer(undefined);
+  }, [chatViewer, viewFile]);
+  // Another session closes the file, as it closes the changes view.
+  const fileOpen = fileView !== undefined && fileView.sessionId === snapshot.sessionId;
+  useEffect(() => {
+    if (fileView && !fileOpen) setFileView(undefined);
+  }, [fileView, fileOpen]);
+  const closeFile = useCallback(() => setFileView(undefined), []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -4267,7 +4309,7 @@ function AcpmuxPane() {
           // The native context menu's Open Image: the image the page reported under the pointer.
           "chat.menu.openImage": async () => openReportedImage(),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
-          "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
+          "chat.menu.openPath": async ({ path }) => openPathChip(String(path ?? "")),
           // A fork and a started Continue in… open in a tab of their own, so the chat keeps its tab
           // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
           // floating chat) gets the new chat in this tab, as before.
@@ -4614,6 +4656,16 @@ function AcpmuxPane() {
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
+  // The header's Changes with the chat's viewer: the newest turn that changed files, in the viewer;
+  // again closes it. A chat whose turns changed nothing opens the folder's changes as before.
+  const toggleChangesViewer = (mode: QuickActionMode) => {
+    if (diffView) return closeDiff();
+    const row = [...snapshot.rows]
+      .reverse()
+      .find((candidate) => candidate.kind === "activity" && candidate.items?.some((item) => item.tool?.diffs?.length));
+    if (row) openDiff(row.id);
+    else runSplitAction(HEADER_ACTIONS.changes, localCwd, mode);
+  };
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
@@ -5697,7 +5749,7 @@ function AcpmuxPane() {
           ) : (
             <>
               <div
-                className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
+                className={`acpmux-stage${diffFiles || fileOpen ? " acpmux-reviewing" : ""}${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
@@ -5763,7 +5815,9 @@ function AcpmuxPane() {
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
                       // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
                       hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
-                      onChanges={(mode) => runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)}
+                      onChanges={(mode) =>
+                        chatViewer ? toggleChangesViewer(mode) : runSplitAction(HEADER_ACTIONS.changes, localCwd, mode)
+                      }
                       onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
                       previewUrl={previewUrl}
                       onPreview={(url, mode) => {
@@ -5848,7 +5902,11 @@ function AcpmuxPane() {
                       initialPath={diffView.path}
                       onClose={closeDiff}
                       source={changesSource}
-                      onOpenFile={openChangedFile}
+                      onOpenFile={
+                        chatViewer
+                          ? (path, where) => (where === "tab" ? viewFile(path) : openChangedFile(path, where))
+                          : openChangedFile
+                      }
                       checkpointAction={
                         checkpoints.supported ? (
                           <button type="button" className="acpmux-checkpoint-open" onClick={checkpoints.show}>
@@ -5865,6 +5923,11 @@ function AcpmuxPane() {
                       onAddressThread={addressThread}
                       findHandle={diffFindRef}
                     />
+                  </Suspense>
+                )}
+                {fileView && fileOpen && !diffView && (
+                  <Suspense fallback={null}>
+                    <FileViewer file={fileView} onClose={closeFile} onOpenFile={openChangedFile} />
                   </Suspense>
                 )}
               </div>
