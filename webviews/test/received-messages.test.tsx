@@ -59,9 +59,10 @@ const record = (steps: Step[], from = 1) =>
   }));
 
 /// A daemon over a fake socket: attach answers with `history`'s newest `page` events; `push` sends live ones.
-function fakeDaemon(history: ReturnType<typeof record>, page = history.length) {
+function fakeDaemon(history: ReturnType<typeof record>, page = history.length, queue: any[] = []) {
   let socket: any;
   const session = {
+    queue,
     sessionId: CHAT,
     cwd: "/home/dev/x",
     title: "x",
@@ -201,6 +202,9 @@ test("a message waiting behind a busy turn stays in the composer queue, then lan
         { promptId: "m2", text: rendered("m2", "Rebased on main."), _meta: { provenance: provenance("m2") } },
       ],
     ]),
+    undefined,
+    // acpmux lists the queue on attach; the replayed `queued` record gives the entry its text.
+    [{ promptId: "m2", prompt: "[cmux agent message] from" }],
   );
   const { rows, queue } = await connect(daemon);
   expect(queue().map((entry) => entry.id)).toEqual(["m2"]);
