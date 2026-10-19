@@ -34,10 +34,14 @@ contains(' <key> ') matches whole keys only:
   when the run is trusted, so a headless AWS side runner cannot receive a GUI
   suite;
 - `watch`: "false" when every job took its fallback, so the run uploads no
-  owned-pool-watch marker; "true" otherwise.
+  owned-pool-watch marker; "true" otherwise;
+- `blacksmith_12_jobs`, `blacksmith_6_jobs` and `retry_runner`: the jobs no idle
+  mini took that Blacksmith 12 vCPU, then 6 vCPU, has a free slot for now, and
+  the Blacksmith label of the bot's overflow attempt (next_macos_cascade.py).
 """
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import os
 import sys
@@ -55,6 +59,18 @@ def _picker():
 
 
 pool = _picker()
+
+
+def _cascade():
+    path = Path(__file__).with_name("next_macos_cascade.py")
+    spec = importlib.util.spec_from_file_location("next_macos_cascade", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("next_macos_cascade", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+cascade = _cascade()
 
 
 def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -151,6 +167,11 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write(f"### macOS placement\n\n{why}\n")
+    # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now.
+    live, waiting = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    placed = cascade.place(env, owned, live, waiting)
+    print(f"macOS cascade: {placed.why}")
+    cascade.write(placed, env)
     return 0
 
 
