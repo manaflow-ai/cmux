@@ -64,10 +64,10 @@ describe("metering migration", () => {
     const policy = tenantPolicyLayer({ environment: "production" });
     const metering = meteringLayer({ markupBps: 0 }).pipe(Layer.provide(sql));
     const layer = entitlementsFromPolicyLayer.pipe(Layer.provide(policy), Layer.provide(metering));
-    const allowed = await Effect.runPromise(Effect.provide(Effect.flatMap(Entitlements, (entitlements) => entitlements.mayCreate(TenantId.make("team_a")), layer));
+    const allowed = await Effect.runPromise(Effect.provide(Effect.flatMap(Entitlements, (entitlements) => entitlements.mayCreate(TenantId.make("team_a"))), layer));
     expect(allowed).toBe(true);
     await pg.query("UPDATE cmux_vm.billing_accounts SET status = 'inactive' WHERE tenant_id = 'team_a'");
-    const denied = await Effect.runPromise(Effect.provide(Effect.flatMap(Entitlements, (entitlements) => entitlements.mayCreate(TenantId.make("team_a")), layer));
+    const denied = await Effect.runPromise(Effect.provide(Effect.flatMap(Entitlements, (entitlements) => entitlements.mayCreate(TenantId.make("team_a"))), layer));
     expect(denied).toBe(false);
   });
 });
