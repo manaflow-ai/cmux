@@ -1,6 +1,7 @@
 import { startTransition, useEffect, useState } from "react";
 import type { CategoryGroup } from "../categories";
 import { text } from "../strings";
+import { FONTS_GROUP, FontPreview } from "./FontPreview";
 import { SettingRow } from "./SettingRow";
 
 /** Rows a category draws in its first frame: more than a tall window shows. */
@@ -39,6 +40,8 @@ export function GroupList({
     if (first >= limit) return null;
     const rows = group.rows.slice(0, limit - first);
     const open = !shown || group.rows.some((row) => shown.has(row.key));
+    // The Fonts group draws its live preview above its rows (FontPreview.tsx), not under a search.
+    const preview = !shown && group.key === FONTS_GROUP;
     return (
       <section
         className={shown ? "group collapse" : "group"}
@@ -48,6 +51,7 @@ export function GroupList({
       >
         <div className={shown ? "collapse-body" : undefined}>
           <h3 className="group-title">{text(group.title)}</h3>
+          {preview && <FontPreview />}
           <div className="rows">
             {rows.map((row) =>
               shown ? (

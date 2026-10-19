@@ -1078,3 +1078,49 @@ mark {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* The Fonts group's preview (FontPreview.tsx): a chat exchange and a code block in the faces the
+   group's rows pick, on the page's own surfaces. */
+.font-preview {
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.font-preview-user,
+.font-preview-reply {
+  margin: 0;
+  font-family: var(--font-preview-ui);
+  font-size: var(--font-preview-size);
+  line-height: calc(var(--font-preview-size) * 1.625);
+  color: var(--text);
+}
+
+.font-preview-user {
+  align-self: flex-end;
+  max-width: 78%;
+  padding: 4px 12px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+}
+
+.font-preview-code {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--input-bg);
+  font-family: var(--font-preview-code);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--text);
+  white-space: pre;
+  overflow: hidden;
+}
+/* The UA sheet gives <code> its own monospace; the block's face is the preview's. */
+.font-preview-code code {
+  font: inherit;
+}
