@@ -59,8 +59,6 @@ import Testing
         store.responder = nil
         func stream(_ text: String) { for a in core.stream(Self.draft(text), state: store.state) { store.dispatch(a) } }
         func send(_ key: IdempotencyKey, _ text: String) -> Bool {
-            // RED-ONLY: what HomeProjection.send does before `.send` on the base commit (ProjectionCore+Freeze).
-            for a in core.freezeStream(before: key, in: store.state) { store.dispatch(a) }
             store.dispatch(.setDraft(text))
             store.dispatch(.send)
             return core.recordSend(key, in: store.state)
