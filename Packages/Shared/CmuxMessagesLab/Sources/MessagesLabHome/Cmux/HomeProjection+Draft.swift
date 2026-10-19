@@ -10,6 +10,8 @@ struct ShownStream: Equatable {
     var text: String
     /// The last `.streamSet` seq (MessagesLab ignores a seq not above it).
     var seq = 0
+    /// The whole reply so far (`text` is the part after a frozen prefix, ProjectionCore+Freeze).
+    var full = ""
 }
 
 /// HomeStore's running reply (HomeStore.live, or a `conversation-draft` from an
@@ -26,8 +28,8 @@ struct ShownStream: Equatable {
 extension ProjectionCore {
     /// True when `stream(_:state:)` would act.
     func streamDiffers(_ want: HomeTurnDraft?) -> Bool {
-        let visible = want.flatMap { Self.visibleText($0) == nil ? nil : $0 }
-        return visible?.turn != shownStream?.turn || visible.map(\.text) != shownStream.map(\.text)
+        let visible = want.flatMap { visibleText($0) == nil ? nil : $0 }
+        return visible?.turn != shownStream?.turn || visible.flatMap(visibleText) != shownStream.map(\.text)
     }
 
     /// The turn whose posted reply HomeDiff must leave to the stream's end (no `.receive`).
@@ -42,12 +44,13 @@ extension ProjectionCore {
             actions.append(.streamEnd(Self.streamID(live.turn), replacedBy: final))
         }
         // A reply already posted (a page brought it first) needs no stream.
-        guard let want, let text = Self.visibleText(want), !shown.contains(where: { $0.key == want.turn }) else {
+        guard let want, let text = visibleText(want), !shown.contains(where: { $0.key == want.turn }) else {
             return actions
         }
         let bubble = bubble(want, text: text)
         if var live = shownStream {
-            guard text != live.text else { return actions }
+            live.full = want.text
+            guard text != live.text else { shownStream = live; return actions }
             live.text = text
             live.seq += 1
             actions.append(.streamSet(Self.streamID(want.turn), text: text, parts: bubble.parts, seq: live.seq))
@@ -56,22 +59,22 @@ extension ProjectionCore {
         }
         // An older window shows: the reply comes as a message at the newest.
         guard state.atNewest else { return actions }
-        shownStream = ShownStream(turn: want.turn, author: want.participant, text: text, seq: 1)
+        shownStream = ShownStream(turn: want.turn, author: want.participant, text: text, seq: 1, full: want.text)
         actions.append(.streamBegin(Self.streamID(want.turn), sender: want.participant.rawValue, format: bubble.format))
         actions.append(.streamSet(Self.streamID(want.turn), text: text, parts: bubble.parts, seq: 1))
         return actions
     }
 
-    /// The reply's text, nil while it is only whitespace.
-    private static func visibleText(_ draft: HomeTurnDraft) -> String? {
-        let text = draft.text
+    /// The reply's text to stream (after a frozen prefix, ProjectionCore+Freeze), nil while it is only whitespace.
+    func visibleText(_ draft: HomeTurnDraft) -> String? {
+        guard let text = streamText(turn: draft.turn, full: draft.text) else { return nil }
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
     }
 
     static func streamID(_ turn: IdempotencyKey) -> StreamID { turn.rawValue }
 
     /// The posted reply as the transcript shows it (HomeMapping.id: no alias).
-    private func finalMessage(_ item: TranscriptItem) -> Message {
+    func finalMessage(_ item: TranscriptItem) -> Message {
         let roots = HomeMapping.roots(in: shown, aliases: aliases, summary: summary, media: media, links: links)
         return HomeMapping.message(item, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots)
     }
