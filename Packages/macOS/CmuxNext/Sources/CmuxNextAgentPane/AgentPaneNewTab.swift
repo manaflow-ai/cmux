@@ -50,6 +50,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: Integrate a harness was dismissed for good (`newTab.remember` `harnessHint: "dismissed"`); nil offers it
     /// when no harness is installed.
     public var harnessHintDismissed: Bool?
+    /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`);
+    /// nil shows none.
+    public var widgets: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],

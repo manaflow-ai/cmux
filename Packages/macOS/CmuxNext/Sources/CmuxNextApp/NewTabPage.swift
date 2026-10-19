@@ -196,6 +196,7 @@ enum NewTabPage {
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
+            .showingWidgets(NewTabTunables.widgets.value)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -207,6 +208,7 @@ enum NewTabPage {
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
+            .showingWidgets(NewTabTunables.widgets.value)
     }
 
     /// Startup folders only without `project-list-v1`; else the page asks `project.list` (removals win, cx-m0p7).
@@ -307,6 +309,13 @@ extension AgentPaneNewTab {
     func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
         var page = self
         page.harnessHintDismissed = dismissed ? true : nil
+        return page
+    }
+
+    /// The page with the widget view under its composer when Debug Settings `newTab.widgets` is on.
+    func showingWidgets(_ on: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.widgets = on ? true : nil
         return page
     }
 }

@@ -23,5 +23,13 @@ nonisolated enum NewTabTunables {
         help: "Prototype design of the new tab screen. Applies to the next new tab.",
         default: .b, code: "NewTabTunables.layout")
 
-    static var all: [TunableDescriptor] { [layout.descriptor] }
+    /// The widget view under the New Tab composer (Leo 2026-10-18): a Projects card (this Mac
+    /// and its recent projects) and a Needs you card (chats waiting on the user or that hit an
+    /// error, each dismissable). Off by default: the default page stays calm.
+    static let widgets = Tunable<Bool>.toggle(
+        "newTab.widgets", .tabs, "New tab widgets",
+        help: "Cards under the New Tab composer: this Mac's recent projects, and the chats that need you. Applies to the next new tab.",
+        default: false, code: "NewTabTunables.widgets")
+
+    static var all: [TunableDescriptor] { [layout.descriptor, widgets.descriptor] }
 }

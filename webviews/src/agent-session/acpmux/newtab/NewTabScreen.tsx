@@ -28,6 +28,7 @@ import {
   type ScreenRow,
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
+import { WidgetCards } from "./WidgetCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
@@ -100,6 +101,8 @@ type Props = NewTabScreenActions & {
   focusField?: boolean;
   /// Which screen template draws the page (newtab/templates.ts); "default" when unset.
   template?: ScreenTemplate;
+  /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
+  widgets?: boolean;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -679,6 +682,16 @@ export function NewTabScreen(props: Props) {
             <span>{nt("create.chat")}</span>
           </button>
         </div>
+      )}
+      {props.widgets && (
+        <WidgetCards
+          sessions={snapshot.sessions}
+          projects={props.projects ?? []}
+          {...(askFolder ? { folder: askFolder } : {})}
+          {...(props.machineName ? { machineName: props.machineName } : {})}
+          onProject={pickProject}
+          onOpen={openCard}
+        />
       )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
