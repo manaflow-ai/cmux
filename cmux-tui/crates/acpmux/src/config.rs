@@ -30,6 +30,107 @@ pub fn default_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 
+/// Make one acpmux state directory owner-only, including an existing directory
+/// created by an older build under a permissive umask. Refuse links and a
+/// directory owned by another user before changing its permissions.
+#[cfg(unix)]
+pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    let opened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .with_context(|| format!("open private state directory {}", dir.display()))?;
+    let metadata = opened.metadata()?;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    anyhow::ensure!(
+        metadata.is_dir() && metadata.uid() == uid,
+        "{} is not a state directory owned by this user",
+        dir.display()
+    );
+    refuse_extended_acl(&opened, dir)?;
+    if metadata.mode() & 0o077 != 0 {
+        opened
+            .set_permissions(std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("make {} owner-only", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Open an existing state file without following a final symlink, verify its
+/// owner and type, and narrow an older file to mode 0600 before reading it.
+#[cfg(unix)]
+pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    let metadata = file.metadata()?;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    anyhow::ensure!(
+        metadata.is_file() && metadata.uid() == uid,
+        "{} is not a state file owned by this user",
+        path.display()
+    );
+    refuse_extended_acl(&file, path)?;
+    if metadata.mode() & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("make {} owner-only", path.display()))?;
+    }
+    Ok(file)
+}
+
+/// macOS numeric chmod leaves extended ACL entries intact. Refuse them before
+/// trusting old state; accepting and merely deleting one would authenticate
+/// bytes another account may already have changed.
+#[cfg(target_os = "macos")]
+fn refuse_extended_acl(file: &std::fs::File, path: &Path) -> Result<()> {
+    use std::os::fd::AsRawFd;
+
+    type Acl = *mut core::ffi::c_void;
+    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+    unsafe extern "C" {
+        fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> Acl;
+        fn acl_free(object: *mut core::ffi::c_void) -> libc::c_int;
+    }
+
+    // SAFETY: the descriptor is live; the returned ACL is released below.
+    let acl = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
+    if acl.is_null() {
+        let error = std::io::Error::last_os_error();
+        // macOS reports ENOENT when the object has no extended ACL.
+        return if error.raw_os_error() == Some(libc::ENOENT) { Ok(()) } else { Err(error.into()) };
+    }
+    // SAFETY: `acl` came from acl_get_fd_np and is released exactly once.
+    unsafe { acl_free(acl) };
+    anyhow::bail!("{} has an extended ACL", path.display())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn refuse_extended_acl(_file: &std::fs::File, _path: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Windows: owner-only DACL on the directory and children, including a
+/// directory an older build made with inherited wider permissions.
+#[cfg(windows)]
+pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
+    crate::owner_only::private_dir(dir)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_read(path)?)
+}
+
 /// Unix socket path, by the rule every host and client shares
 /// (cmux-agent-pane-policy `environment::socket_path`): `ACPMUX_SOCKET`, else
 /// `<home>/acpmux.sock`. A long home, or an absolute `ACPMUX_SOCKET` past the
@@ -98,12 +199,8 @@ pub fn socket_path() -> PathBuf {
 /// owned by `uid` that nobody else can enter.
 #[cfg(unix)]
 fn private_dir(dir: &Path, uid: u32) -> bool {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
-    match std::fs::symlink_metadata(dir) {
-        Ok(m) => m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0,
-        Err(_) => false,
-    }
+    // SAFETY: getuid has no preconditions.
+    uid == unsafe { libc::getuid() } && private_state_dir(dir).is_ok()
 }
 
 /// How acpmux talks to the agent process.
@@ -833,7 +930,7 @@ impl Config {
             return Ok(());
         };
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            private_state_dir(parent)?;
         }
         let mut on_disk = self.clone();
         on_disk
@@ -891,6 +988,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .create(true)
             .truncate(true)
             .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(&tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;

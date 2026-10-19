@@ -19,6 +19,9 @@ pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhos
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push("machine-identity-v1");
+    // Receipts can outlive the acpmux configuration that prepared them.
+    #[cfg(unix)]
+    capabilities.push(agent_cli_job::CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
@@ -52,6 +55,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
+        capabilities.push(agent_inventory::REFRESH_CAPABILITY);
         capabilities.push(agent_inventory::watch::CAPABILITY);
         capabilities.push(agent_inventory::watch::FENCED_CAPABILITY);
         capabilities.push(agent_inventory::watch::ADMISSION_CAPABILITY);
@@ -196,6 +200,7 @@ pub(super) fn advertised_capabilities(
         AGENT_PRESENCE_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
+        TAB_MARK_UNREAD_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
