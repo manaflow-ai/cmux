@@ -7,6 +7,7 @@ import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import type { Project } from "../ProjectChooser";
 import { isAgentHome, mostRecentProject } from "../sessionList";
+import { WorktreeFailure } from "../startFolder";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -72,6 +73,10 @@ export type NewTabScreenActions = {
   environments?: boolean;
   /// The environment picker's New environment: the host's SSH and cmux Cloud connect flows.
   onConnect?(kind: "ssh" | "cloud"): void;
+  /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
+  /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
+  /// host's reason.
+  onNewWorktree?(cwd: string): Promise<string | undefined>;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
 };
@@ -512,6 +517,17 @@ export function NewTabScreen(props: Props) {
     () => snapshot.sessions.filter((session) => !session.peer && session.hostKind !== "cloud"),
     [snapshot.sessions],
   );
+  const [worktreeError, setWorktreeError] = useState<string>();
+  const newWorktreeHere =
+    props.environments && props.onNewWorktree
+      ? (cwd: string) => {
+          setWorktreeError(undefined);
+          void props.onNewWorktree!(cwd).then(
+            (folder) => folder && pickProject(folder),
+            (error: unknown) => setWorktreeError((error instanceof Error && error.message) || String(error)),
+          );
+        }
+      : undefined;
   const browseProject = props.onBrowseProject
     ? () => {
         void props.onBrowseProject?.().then((cwd) => {
@@ -535,6 +551,7 @@ export function NewTabScreen(props: Props) {
       <div className="nt-composer">
         {/* Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent
             composer's location strip; never the home ~ the tab inherited (cx-7fje0). */}
+        {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         <div className="nt-location" onPointerDownCapture={touch}>
           <ComposerContext
             summary={{
@@ -552,6 +569,7 @@ export function NewTabScreen(props: Props) {
             noProject={none}
             {...(browseProject ? { onBrowseProject: browseProject } : {})}
             {...(props.environments ? { environments: true } : {})}
+            {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
             {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
           />
         </div>

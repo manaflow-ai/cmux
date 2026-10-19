@@ -5569,6 +5569,12 @@ function AcpmuxPane() {
               key={newTabGeneration}
               environments={preview}
               onConnect={connectMachine}
+              onNewWorktree={(cwd) => {
+                let folder: string | undefined;
+                return newWorktree(callNative, cwd, (used) => {
+                  folder = used;
+                }).then(() => folder);
+              }}
               accessory={<DictationMic dictation={dictation} />}
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}

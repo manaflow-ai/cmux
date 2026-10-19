@@ -19,8 +19,8 @@ const SECTION_LABELS = {
 } as const;
 
 /// The environment picker (preview, `labs.previewFeatures`): one searchable list with Local, SSH
-/// and Cloud sections, ⌥⌘1–9 on the first nine, and New environment at the bottom, which opens the
-/// host's SSH and cmux Cloud connect flows. ⌥⌘1–9 also work while the composer it heads has focus.
+/// and Cloud sections, ⌥⌘1–9 on the first nine, and New environment at the bottom: the host's SSH…
+/// and cmux Cloud… connect flows. ⌥⌘1–9 also work while the composer it heads has focus.
 export function EnvironmentPicker({
   label,
   menu,
@@ -44,13 +44,11 @@ export function EnvironmentPicker({
   onConnect?(kind: "ssh" | "cloud"): void;
 }) {
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const escaped = useRef(false);
   const { control, anchor, open, setOpen, side } = useLocationPopover();
   const reset = () => {
     setQuery("");
-    setCreating(false);
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -69,19 +67,14 @@ export function EnvironmentPicker({
       return words.every((word) => text.includes(word));
     });
   }, [ordered, query]);
-  const actions: { value: string; text: string; run(): void }[] = !onConnect
-    ? []
-    : creating
-      ? [
-          { value: ACTION + "ssh", text: t("composer.connectSSH"), run: () => onConnect("ssh") },
-          { value: ACTION + "cloud", text: t("composer.connectCloud"), run: () => onConnect("cloud") },
-        ]
-      : [{ value: ACTION + "new", text: t("composer.newEnvironment"), run: () => setCreating(true) }];
-  // New environment swaps the list for its two connect flows.
-  const suggestions = [
-    ...(creating ? [] : shown.map((environment) => environment.id)),
-    ...actions.map((action) => action.value),
-  ];
+  // New environment, last: the host's two connect flows under one heading.
+  const actions: { value: string; text: string; kind: "ssh" | "cloud"; run(): void }[] = onConnect
+    ? [
+        { value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh", run: () => onConnect("ssh") },
+        { value: ACTION + "cloud", text: t("composer.connectCloud"), kind: "cloud", run: () => onConnect("cloud") },
+      ]
+    : [];
+  const suggestions = [...shown.map((environment) => environment.id), ...actions.map((action) => action.value)];
 
   const latest = useRef({ ordered, current, onPick });
   latest.current = { ordered, current, onPick };
@@ -104,7 +97,8 @@ export function EnvironmentPicker({
       const active = document.activeElement;
       if (!openRef.current && !(scope && active && scope.contains(active))) return;
       const environment = environmentForDigit(latest.current.ordered, digit);
-      if (!environment) return;
+      // A digit that changes nothing in a closed picker stays the app's (a keymap may bind ⌥⌘1–9).
+      if (!environment || (!openRef.current && environment.id === latest.current.current)) return;
       event.preventDefault();
       event.stopPropagation();
       if (openRef.current) closeRef.current();
@@ -116,10 +110,6 @@ export function EnvironmentPicker({
 
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
-    if (action?.value === ACTION + "new") {
-      action.run();
-      return;
-    }
     close();
     if (action) action.run();
     else if (value !== current && shown.some((environment) => environment.id === value)) onPick(value);
@@ -128,8 +118,11 @@ export function EnvironmentPicker({
     const action = actions.find((candidate) => candidate.value === value);
     if (action)
       return (
-        <span className="acpmux-location-action" data-first={!creating && action === actions[0] ? "" : undefined}>
-          {action.value === ACTION + "new" && <PlusIcon />}
+        <span
+          className="acpmux-location-row acpmux-env-row acpmux-env-new"
+          data-section={action === actions[0] ? t("composer.newEnvironment") : undefined}
+        >
+          <EnvironmentIcon kind={action.kind} />
           <span className="acpmux-menu-label">{action.text}</span>
         </span>
       );
@@ -203,6 +196,9 @@ export function EnvironmentPicker({
           autoHighlight
           inline
         />
+        {query.trim() !== "" && shown.length === 0 && (
+          <div className="acpmux-location-empty">{t("composer.environmentNone")}</div>
+        )}
       </Popover>
     </span>
   );
@@ -240,25 +236,6 @@ export function EnvironmentIcon({ kind }: { kind: EnvironmentKind }) {
       ) : (
         <path d="M4.6 12.5h7a2.6 2.6 0 0 0 .4-5.17A3.6 3.6 0 0 0 5.1 6.2 3.15 3.15 0 0 0 4.6 12.5Z" />
       )}
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg
-      className="acpmux-icon acpmux-env-icon"
-      width={14}
-      height={14}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M8 3.5v9M3.5 8h9" />
     </svg>
   );
 }

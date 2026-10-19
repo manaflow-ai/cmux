@@ -89,8 +89,9 @@ export function ComposerContext({
   onConnect?(kind: "ssh" | "cloud"): void;
 }) {
   const computers = useMemo(
-    () => availableComputers(summary, sessions, peers, peerKinds, localName),
-    [summary, sessions, peers, peerKinds, localName],
+    // The peers' transports draw only in the environment picker: the plain menu stays as it was.
+    () => availableComputers(summary, sessions, peers, environments ? peerKinds : NO_PEER_KINDS, localName),
+    [summary, sessions, peers, peerKinds, environments, localName],
   );
   const initialComputer = computerId(summary);
   const [selectedComputer, setSelectedComputer] = useState(initialComputer);
@@ -138,6 +139,12 @@ export function ComposerContext({
   const computerDisabled = readOnly && (started || !onConnect);
   // Preview (`labs.previewFeatures`): the computer control is the environment picker.
   const environmentsShown = environments && !computerDisabled;
+  // Preview: New Worktree is a control of its own beside the folder, as Codex's Worktree and
+  // Claude's chips are (hq#2569 #9), for a new chat on this computer in a folder.
+  const worktree =
+    environmentsShown && !readOnly && selectedComputer === "local" && currentFolder && onNewWorktree
+      ? () => onNewWorktree(currentFolder)
+      : undefined;
   const folderShown = !(readOnly && !newChats && !currentFolder);
   return (
     <div className="acpmux-composer-strip">
@@ -167,7 +174,9 @@ export function ComposerContext({
               onBrowse={onBrowseProject}
               onNoProject={onNoProject}
               noProject={noProject && !currentFolder}
-              onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
+              onNewWorktree={
+                !worktree && currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined
+              }
               localName={localName}
               peers={peers}
             />
@@ -199,6 +208,13 @@ export function ComposerContext({
                 else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
               }}
             />
+          )}
+          {worktree && (
+            <span className="acpmux-location-picker">
+              <button type="button" className="acpmux-location-button ui-ghost ui-ghost-sm" onClick={worktree}>
+                <LocationFace icon={<BranchIcon />} value={t("worktree.new")} chevron={false} />
+              </button>
+            </span>
           )}
           {environmentsShown ? (
             <EnvironmentPicker
