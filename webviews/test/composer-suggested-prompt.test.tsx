@@ -10,7 +10,6 @@ import type { Root } from "react-dom/client";
 import { noChat, session, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { AcpmuxSessionEntry, SessionPullRequest } from "../src/agent-session/acpmux/sessionList";
-import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
