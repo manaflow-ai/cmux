@@ -8101,6 +8101,33 @@ extension SessionPersistenceTests {
         )
     }
 
+    func testLegacySubrouterCodexRestoreAcceptsManagedCustomExecutable() throws {
+        let sessionID = "custom-codex-session"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: RestorableAgentKind.codex.rawValue,
+            command: "/opt/company/codex -c model_provider=subrouter",
+            cwd: "/tmp/project",
+            checkpointId: sessionID,
+            autoResume: true
+        )
+        let launch = AgentLaunchCommandSnapshot(
+            launcher: RestorableAgentKind.codex.rawValue,
+            executablePath: "/opt/company/codex",
+            arguments: ["/opt/company/codex", "-c", "model_provider=subrouter"]
+        )
+
+        let input = try XCTUnwrap(
+            Workspace.legacySubrouterResumeStartupInput(
+                kind: binding.kind,
+                sessionID: binding.checkpointId,
+                launchCommand: launch,
+                resumeBinding: binding,
+                workingDirectory: binding.cwd
+            )
+        )
+        XCTAssertTrue(input.contains("'sr' 'codex' 'resume' 'custom-codex-session'"), input)
+    }
+
     func testLegacySubrouterClaudeRestoreRequiresAgreeingMarkers() throws {
         let marker = "sr claude proxy --resume"
         let binding = SurfaceResumeBindingSnapshot(

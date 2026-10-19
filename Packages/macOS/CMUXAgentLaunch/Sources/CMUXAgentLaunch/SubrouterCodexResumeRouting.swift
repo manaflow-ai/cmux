@@ -168,6 +168,28 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return providerEvidenceFromAssignments(in: launchArguments)
     }
 
+    /// Returns provider evidence using a captured managed launcher kind.
+    ///
+    /// A managed Codex launch may retain a custom executable path (for example
+    /// `/opt/company/codex`) whose basename is not `codex`. The launcher kind
+    /// is durable identity evidence for that case, while all provider
+    /// assignments still have to pass the same ambiguity checks.
+    public func providerEvidence(
+        in launchArguments: [String],
+        launcher: String?
+    ) -> SubrouterCodexProviderEvidence {
+        let normalizedLauncher = launcher?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedLauncher == nil || normalizedLauncher == "codex" else {
+            return .ambiguous
+        }
+        if normalizedLauncher == "codex" {
+            return providerEvidenceFromAssignments(in: launchArguments)
+        }
+        return providerEvidence(in: launchArguments)
+    }
+
     /// Returns provider evidence from a canonical legacy shell command.
     public func providerEvidence(in shellCommand: String?) -> SubrouterCodexProviderEvidence {
         guard let shellCommand else { return .absent }
