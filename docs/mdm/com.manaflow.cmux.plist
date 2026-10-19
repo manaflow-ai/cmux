@@ -325,7 +325,7 @@
 			<key>pfm_name</key>
 			<string>appearance.metrics.tabMinActiveWidth</string>
 			<key>pfm_range_max</key>
-			<real>200</real>
+			<real>320</real>
 			<key>pfm_range_min</key>
 			<real>32</real>
 			<key>pfm_title</key>
@@ -339,7 +339,7 @@
 			<key>pfm_name</key>
 			<string>appearance.metrics.tabMinInactiveWidth</string>
 			<key>pfm_range_max</key>
-			<real>120</real>
+			<real>320</real>
 			<key>pfm_range_min</key>
 			<real>16</real>
 			<key>pfm_title</key>
