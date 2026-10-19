@@ -1659,6 +1659,10 @@ jobs:
           prefix="cmux-next-fast-swift-v1-${RUNNER_OS}-${RUNNER_ARCH}-${toolchain}-${inputs}-"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
           echo "key=${prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          # r2-cache.sh archives one directory per key, so CmuxHomeRender gets its own.
+          home_prefix="cmux-next-fast-swift-home-v1-${RUNNER_OS}-${RUNNER_ARCH}-${toolchain}-${inputs}-"
+          echo "home-prefix=$home_prefix" >> "$GITHUB_OUTPUT"
+          echo "home-key=${home_prefix}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Restore Swift fast-tier cache
         id: swift-fast-cache-restore
@@ -1667,11 +1671,19 @@ jobs:
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: |
-            Packages/Shared/CmuxHomeRender/.build
-            Packages/macOS/CmuxNext/.build
+          path: Packages/macOS/CmuxNext/.build
           key: ${{ steps.swift-fast-cache-key.outputs.key }}
           restore-keys: ${{ steps.swift-fast-cache-key.outputs.prefix }}
+
+      - name: Restore CmuxHomeRender fast-tier cache
+        if: ${{ !contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: Packages/Shared/CmuxHomeRender/.build
+          key: ${{ steps.swift-fast-cache-key.outputs.home-key }}
+          restore-keys: ${{ steps.swift-fast-cache-key.outputs.home-prefix }}
 
       # Checkout removes .build. Link the owned Mac's kept build after Xcode
       # selection so its fingerprint uses the compiler that runs this job.
@@ -1732,10 +1744,22 @@ jobs:
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
-          path: |
-            Packages/Shared/CmuxHomeRender/.build
-            Packages/macOS/CmuxNext/.build
+          path: Packages/macOS/CmuxNext/.build
           key: ${{ steps.swift-fast-cache-key.outputs.key }}
+
+      - name: Save CmuxHomeRender fast-tier cache
+        if: ${{ success() && !contains(runner.name, '-glaeda') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: Packages/Shared/CmuxHomeRender/.build
+          key: ${{ steps.swift-fast-cache-key.outputs.home-key }}
 
       - name: Save Cargo fast-tier cache
         if: ${{ success() && !contains(runner.name, '-glaeda') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}

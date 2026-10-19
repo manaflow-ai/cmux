@@ -932,8 +932,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         steps = job["steps"]
         restores = [step for step in steps if "cache-restore" in str(step.get("uses", ""))]
         saves = [step for step in steps if "cache-save" in str(step.get("uses", ""))]
-        self.assertEqual(len(restores), 2)
-        self.assertEqual(len(saves), 2)
+        self.assertEqual(len(restores), 3)
+        self.assertEqual(len(saves), 3)
         self.assertTrue(any("Packages/Shared/CmuxHomeRender/.build" in str(step.get("with", {}).get("path", ""))
                             for step in restores))
         self.assertTrue(any("cmux-tui/target" in str(step.get("with", {}).get("path", ""))
