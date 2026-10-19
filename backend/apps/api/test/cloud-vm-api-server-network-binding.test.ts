@@ -101,4 +101,15 @@ describe("server network binding to the approved host and install", () => {
     const host = (await f.directory()).hosts.find((h: { id: string }) => h.id === f.paired.host)
     expect(host).not.toHaveProperty("network")
   })
+
+  it("uses server revocation when its human owner removes it through the generic host entrypoint", async () => {
+    const f = await fixture()
+    const removed = await call("/v1/ops", f.team.creator.token, {
+      op: "host.remove", params: { host: f.paired.host }, idempotency_key: crypto.randomUUID(), origin: "cli"
+    }, { "x-cmux-team": f.team.team })
+    expect(removed.json.ok).toBe(true)
+    const challenge = await call("/v1/auth/challenge", undefined, { user: f.paired.user, install: f.paired.install })
+    expect(challenge.status).toBe(403)
+    expect((await f.directory()).hosts.some((h: { id: string }) => h.id === f.paired.host)).toBe(false)
+  })
 })
