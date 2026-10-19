@@ -52,6 +52,9 @@ impl WorkspaceRegistry {
         validate_workspace_group_id(id)?;
         let before =
             read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
+        if pinned {
+            super::group_parent::require_top_level(tx, id, "pinned")?;
+        }
         tx.execute(
             "UPDATE personal_groups SET pinned = ?2 WHERE group_id = ?1",
             params![id, i64::from(pinned)],

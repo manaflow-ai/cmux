@@ -244,3 +244,55 @@ fn a_parent_with_groups_and_workspaces_shows_its_groups_first_after_a_restart() 
     assert_eq!(parent_of(&mux, &inner), top.as_str());
     mux.shutdown();
 }
+
+#[test]
+fn a_nested_group_has_no_slot_or_pin_of_its_own() {
+    let session = Session::new("group-nest-pin");
+    let mux = session.open();
+    let _w = empty_workspace(&mux, "w");
+    let top = create(&mux, "Top", None);
+    let other = create(&mux, "Other", None);
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": other, "pinned": true, "top_index": 0}),
+        "other-pinned",
+    );
+    // Nesting clears its own slot and pin.
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": other, "parent_group": top}),
+        "other-in-top",
+    );
+    let nested = group(&mux, &other);
+    assert_eq!(nested["pinned"], false, "{nested}");
+    assert!(nested["top_index"].is_null(), "{nested}");
+    for (field, value) in [("pinned", json!(true)), ("top_index", json!(0))] {
+        let refused = send(
+            &mux,
+            "workspace_group.update",
+            json!({"workspace_group": other, field: value}),
+            Some(&format!("nested-{field}")),
+        );
+        assert!(reason(refused).contains("nested_group"), "{field}");
+    }
+    // Pinning its top-level group takes it along in the sidebar document.
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": top, "pinned": true}),
+        "top-pinned",
+    );
+    assert_eq!(doc_item(&mux, &other)["section"], "sec_pinned");
+    assert_eq!(group(&mux, &other)["pinned"], false, "the flag stays on the top-level group");
+    // Back to the top level, then pinned on its own.
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": other, "parent_group": null, "pinned": true}),
+        "other-top-pinned",
+    );
+    assert_eq!(group(&mux, &other)["pinned"], true);
+    mux.shutdown();
+}

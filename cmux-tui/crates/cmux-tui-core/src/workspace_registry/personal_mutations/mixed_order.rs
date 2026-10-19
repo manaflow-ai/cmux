@@ -96,6 +96,9 @@ impl WorkspaceRegistry {
         validate_workspace_group_id(id)?;
         let before =
             read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
+        if top_index.is_some() {
+            super::group_parent::require_top_level(tx, id, "top_index")?;
+        }
         let top = match top_index {
             None => None,
             Some(index) => Some(tx.query_row(

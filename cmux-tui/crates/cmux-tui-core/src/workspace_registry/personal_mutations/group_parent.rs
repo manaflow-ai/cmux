@@ -10,6 +10,12 @@
 //! workspaces: inside a parent, its nested groups come first (in group
 //! order), then its workspaces. The sidebar document follows that order
 //! when it syncs a nest from this store.
+//!
+//! Only a top-level group has a place among the loose workspaces
+//! (`top_index`) and a pin: a nested group shows and pins with its
+//! top-level group. Nesting a group clears its own slot and pin;
+//! `top_index` or `pinned: true` on a nested group is refused
+//! (`nested_group`).
 
 use std::collections::HashMap;
 
@@ -129,10 +135,19 @@ impl WorkspaceRegistry {
         if let Some(parent) = parent {
             require_parent(tx, Some(id), &before.profile, parent)?;
         }
-        tx.execute(
-            "UPDATE personal_groups SET parent_id = ?2 WHERE group_id = ?1",
-            params![id, parent],
-        )?;
+        // A nested group has no slot and no pin of its own.
+        if parent.is_some() {
+            tx.execute(
+                "UPDATE personal_groups SET parent_id = ?2, top_position = NULL, pinned = 0
+                 WHERE group_id = ?1",
+                params![id, parent],
+            )?;
+        } else {
+            tx.execute(
+                "UPDATE personal_groups SET parent_id = NULL WHERE group_id = ?1",
+                params![id],
+            )?;
+        }
         // At the end of its new siblings.
         let mut order: Vec<String> = read_groups(tx)?.into_iter().map(|group| group.id).collect();
         order.retain(|group| group != id);
@@ -148,6 +163,21 @@ impl WorkspaceRegistry {
         )?;
         Ok((after, true))
     }
+}
+
+/// Refuse a slot or a pin of its own for a nested group.
+pub(crate) fn require_top_level(
+    connection: &Connection,
+    id: &str,
+    what: &str,
+) -> anyhow::Result<()> {
+    let group = read_group(connection, id)?
+        .ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
+    anyhow::ensure!(
+        group.parent.is_none(),
+        "bad request: nested_group: {what} is for a top-level group; group {id} shows with its top-level group"
+    );
+    Ok(())
 }
 
 /// The group order with `id` moved to `index` among its siblings (the

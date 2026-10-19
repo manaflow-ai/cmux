@@ -373,6 +373,27 @@ fn workspace_groups_resolve_group_and_room_names() {
 }
 
 #[test]
+fn workspace_group_parent_flags_nest_and_unnest() {
+    let create = plan(&["workspace", "group", "create", "--name", "n", "--parent", "Cloud"]);
+    assert_eq!(create.operation.name().unwrap(), "workspace_group.create");
+    assert_eq!(create.params["parent_group"], "Cloud");
+    assert_eq!(create.resolve, vec![state_name("parent_group", Op::WorkspaceGroupList)]);
+    let nest = plan(&["workspace", "group", "Feature", "update", "--parent", "Cloud"]);
+    assert_eq!(nest.params["parent_group"], "Cloud");
+    assert_eq!(
+        nest.resolve,
+        vec![
+            state_name("workspace_group", Op::WorkspaceGroupList),
+            state_name("parent_group", Op::WorkspaceGroupList)
+        ]
+    );
+    let top = plan(&["workspace", "group", "Feature", "update", "--clear-parent"]);
+    assert_eq!(top.params["parent_group"], Value::Null);
+    let both = rejects(&["workspace", "group", "g", "update", "--parent", "p", "--clear-parent"]);
+    assert!(both.contains("mutually exclusive"), "{both}");
+}
+
+#[test]
 fn rooms_map_to_room_operations() {
     let cases: Vec<(Vec<&str>, &str, Value)> = vec![
         (vec!["room", "list"], "room.list", json!({})),

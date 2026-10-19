@@ -324,6 +324,12 @@ fn apply_personal_change(
                 room.as_deref(),
             )
             .map_err(|error| typed(error, "workspace_group", &group))?;
+            // The nest first: a slot or pin is for a top-level group.
+            if let Some(parent) = &parent {
+                personal::set_group_parent(tx, &group, parent.as_deref()).map_err(|error| {
+                    typed(error, "workspace_group", parent.as_deref().unwrap_or(&group))
+                })?;
+            }
             if let Some(top_index) = top_index {
                 personal::set_group_top(tx, &group, top_index)
                     .map_err(|error| typed(error, "workspace_group", &group))?;
@@ -335,11 +341,6 @@ fn apply_personal_change(
             if let Some(pinned) = pinned {
                 personal::set_group_pinned(tx, &group, pinned)
                     .map_err(|error| typed(error, "workspace_group", &group))?;
-            }
-            if let Some(parent) = &parent {
-                personal::set_group_parent(tx, &group, parent.as_deref()).map_err(|error| {
-                    typed(error, "workspace_group", parent.as_deref().unwrap_or(&group))
-                })?;
             }
             let value = personal::workspace_group_snapshot(tx, &group)?
                 .context("updated group vanished")?;

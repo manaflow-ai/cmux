@@ -799,7 +799,8 @@ pub(crate) fn write_back(
         let profile = profile.clone().unwrap_or_else(|| {
             crate::workspace_registry::personal_store::DEFAULT_PROFILE_ID.into()
         });
-        let pinned = item.section == PINNED_SECTION_ID;
+        // A nested group pins with its top-level group (no flag of its own).
+        let pinned = item.section == PINNED_SECTION_ID && item.parent.is_none();
         let exists = transaction
             .query_row("SELECT 1 FROM personal_groups WHERE group_id = ?1", [&id], |_| Ok(()))
             .optional()?
