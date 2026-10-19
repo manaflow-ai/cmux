@@ -316,10 +316,13 @@ Per stream: `confirmed {state, seq}`, loaded rows, `pending` intents (ordered), 
 - Snapshot: replace confirmed state and rows when `snap.seq >= confirmed.seq`, drop decided keys
   from `pending` and `expired`, then replay buffered events.
 - A snapshot that does not decode (or that the relay cannot use): stay awaiting, keep the buffered
-  events, and send `snapshot.request` again after a backoff (250 ms, doubling to 30 s, 6 attempts).
-  After the last attempt the connection is dropped and the next one resumes; the failure count
-  carries over until a snapshot decodes, so the transport's reconnect backoff paces later attempts.
-  An event that does not decode asks for a snapshot at once.
+  events, and send `snapshot.request` again after a backoff (6 attempts after 250 ms, 500 ms, 1 s,
+  2 s, 4 s and 8 s; the delay is capped at 30 s). After the last attempt the connection is dropped
+  and the next one subscribes again. The failure count carries over (except when another principal
+  signs in, which resets the mirror) until a snapshot is used or an event applies in order, so an
+  owner that keeps sending a bad snapshot is asked once per connection and the transport's
+  reconnect backoff paces it. A snapshot the relay could not use gives no position: the next
+  connection subscribes fresh. An event that does not decode asks for a snapshot at once.
 - Reconnect: resend every pending intent with its original key, then request a snapshot. Intents
   older than 24 h expire and are shown, never resent (owners keep decided keys 7 days).
 - Visible state = confirmed + pending intents rendered from their params (a pending bubble, a
@@ -587,13 +590,13 @@ Phase 1, slice 2 (built 2026-10-19):
   the change and is green after it. A snapshot behind the position replaces it only when it
   answers a resume (an owner that lost its tail); a gap buffers at most 1024 events.
 - `cmux-mobile-ffi/src/ownership.rs`: `OwnershipMirror`, a uniffi object with a JSON-text surface
-  (frames in and out as the socket carries them, `view()` for rendering). No listener: the app
-  reads `view()` after a call that applied frames. `tests/ownership_vectors.rs` replays every
+  (frames in and out as the socket carries them, `view()` for rendering). The change listener
+  came in slice 3. `tests/ownership_vectors.rs` replays every
   vector through the exported surface.
 - Next slice: the phone's Cloud Chief uses `OwnershipMirror` (phase 2, iOS lane) instead of its
   Swift stream code.
 
-Phase 1, slice 3 (2026-10-19):
+Phase 1, slice 3 (2026-10-18):
 
 - A snapshot that does not decode no longer leaves a stream stuck. `StreamMirror::receive_value`
   handles a known frame whose fields do not decode: an event resyncs, a snapshot is asked for again
@@ -606,6 +609,11 @@ Phase 1, slice 3 (2026-10-19):
   after) and `a_snapshot_that_never_decodes_is_asked_for_a_bounded_number_of_times_then_the_stream_reconnects`.
 - `OwnershipMirror::receive` takes `now_ms` and handles the same cases itself; `OwnershipStep`
   reports `snapshot_retry_at_ms` and `reconnect`, and `snapshot_retry_due` sends the request.
+- The phone observes the mirror, it does not poll: `OwnershipMirrorListener` (uniffi foreign trait,
+  `on_change(view)`) set with `OwnershipMirror::set_listener` is told once after every call that
+  changed the view, after the lock is released, and never for a call that did not. The view has a
+  `generation` (one more per change). `tests/ownership_vectors.rs` checks both rules on every step
+  of every vector.
 
 Each phase deletes what it replaces in the same change (no twins). Each phase lands on
 `feat-cmux-next` in small slices as soon as its slice is green (Lawrence, 2026-10-18: "cut our

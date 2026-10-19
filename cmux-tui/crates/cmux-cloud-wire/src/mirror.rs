@@ -278,8 +278,12 @@ pub struct StreamMirror<R: Reducer = EffectsOnly> {
     track_rows: bool,
     applied: Vec<Applied>,
     backoff: SnapshotBackoff,
-    /// Snapshots in a row that did not decode; 0 after one that did.
+    /// Snapshots in a row that did not decode; 0 after one that did, or
+    /// after an event applied in order.
     snapshot_failures: u32,
+    /// The count before the last snapshot applied, so a caller that could
+    /// not use that snapshot ([`StreamMirror::snapshot_unusable`]) counts on.
+    failures_before_snapshot: u32,
     /// When the next snapshot request goes out after a failed snapshot.
     snapshot_retry_at: Option<i64>,
 }
@@ -316,6 +320,7 @@ impl<R: Reducer> StreamMirror<R> {
             applied: Vec::new(),
             backoff: SnapshotBackoff::default(),
             snapshot_failures: 0,
+            failures_before_snapshot: 0,
             snapshot_retry_at: None,
         }
     }
@@ -358,6 +363,7 @@ impl<R: Reducer> StreamMirror<R> {
         self.resumed = false;
         self.applied.clear();
         self.snapshot_failures = 0;
+        self.failures_before_snapshot = 0;
         self.snapshot_retry_at = None;
     }
 
@@ -456,6 +462,19 @@ impl<R: Reducer> StreamMirror<R> {
         let at = now.saturating_add(self.backoff.delay(self.snapshot_failures));
         self.snapshot_retry_at = Some(at);
         SnapshotRetry::At(at)
+    }
+
+    /// The caller could not use the snapshot this mirror just applied (a
+    /// relay whose translation failed). The position it gave is forgotten,
+    /// so a later resume subscribes fresh instead of skipping what the
+    /// caller never showed, and the snapshot counts as a failed one.
+    pub fn snapshot_unusable(&mut self, now: i64) -> SnapshotRetry {
+        self.seq = 0;
+        self.positioned = false;
+        self.resumed = false;
+        self.buffered.clear();
+        self.snapshot_failures = self.failures_before_snapshot;
+        self.snapshot_failed(now)
     }
 
     /// The snapshot request of a failed snapshot, once its time came.
@@ -644,6 +663,8 @@ impl<R: Reducer> StreamMirror<R> {
         self.seq = e.seq;
         self.positioned = true;
         self.resumed = false;
+        // An event in order: the stream works again.
+        self.snapshot_failures = 0;
         self.applied.push(Applied::Event(Box::new(e)));
     }
 
@@ -676,7 +697,7 @@ impl<R: Reducer> StreamMirror<R> {
 
     fn on_snapshot(&mut self, snap: SnapshotFrame, out: &mut Vec<ClientOut>) {
         self.awaiting = false;
-        self.snapshot_failures = 0;
+        self.failures_before_snapshot = std::mem::take(&mut self.snapshot_failures);
         self.snapshot_retry_at = None;
         let behind = snap.seq < self.seq;
         // A snapshot behind the position answers only a resume (the owner

@@ -261,8 +261,8 @@ impl StreamState {
         self.send(out)
     }
 
-    fn snapshot_failed(&mut self, now: i64) -> Option<StreamAction> {
-        match self.mirror.snapshot_failed(now) {
+    fn snapshot_unusable(&mut self, now: i64) -> Option<StreamAction> {
+        match self.mirror.snapshot_unusable(now) {
             SnapshotRetry::At(_) => None,
             SnapshotRetry::Exhausted => Some(StreamAction::Drop),
         }
@@ -442,10 +442,11 @@ impl StreamState {
                     actions.extend(self.send(out));
                     break;
                 }
-                // A snapshot clients cannot use: the events after it wait
-                // for the one asked for after the backoff.
+                // A snapshot clients cannot use: its position is forgotten
+                // and the events after it wait for the one asked for after
+                // the backoff, which covers them.
                 Translated::SnapshotUnusable => {
-                    actions.extend(self.snapshot_failed(now));
+                    actions.extend(self.snapshot_unusable(now));
                     break;
                 }
             }

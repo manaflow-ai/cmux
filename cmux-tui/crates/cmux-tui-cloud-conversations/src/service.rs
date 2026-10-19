@@ -1188,17 +1188,16 @@ fn pump(
                             }
                         }
                         StreamAction::Emit(event) => inner.emit(event.with_account(account)),
-                        StreamAction::Live => {
-                            // A stream whose snapshots keep failing keeps its
-                            // backoff, so its reconnects slow down.
-                            if stream.is_healthy() {
-                                *backoff = inner.options.backoff_min;
-                            }
-                            reporter.report("live", None, account);
-                        }
+                        StreamAction::Live => reporter.report("live", None, account),
                         StreamAction::Drop => return Ended::Dropped,
                         StreamAction::Forbidden => return Ended::Forbidden,
                     }
+                }
+                // A stream whose snapshots keep failing keeps its backoff, so
+                // its reconnects slow down; a snapshot that decodes or an
+                // event in order resets it.
+                if stream.is_live() && stream.is_healthy() {
+                    *backoff = inner.options.backoff_min;
                 }
             }
         }

@@ -739,10 +739,15 @@ fn a_snapshot_that_never_decodes_is_asked_for_a_bounded_number_of_times_then_the
     first.push_text(welcome.clone());
     first.push_text(undecodable_snapshot());
     run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
-    // Each answer is unreadable too: one request per attempt, after its backoff.
-    for attempt in 1..=2 {
+    // Each answer fails too, one request per attempt after its backoff: a
+    // snapshot that decodes but has no conversation head counts like one
+    // that does not decode.
+    let headless = json!({"t":"snapshot","stream":format!("conv:{CONV}"),"seq":3,"decided":[],
+                          "state":null})
+    .to_string();
+    for (attempt, answer) in [(1, headless), (2, undecodable_snapshot())] {
         wait_until("the next snapshot request", || requests(&first) == attempt);
-        first.push_text(undecodable_snapshot());
+        first.push_text(answer);
     }
     // The last attempt failed: the socket is given up and a new one resumes.
     let second = backend.wire();
@@ -754,11 +759,15 @@ fn a_snapshot_that_never_decodes_is_asked_for_a_bounded_number_of_times_then_the
         !stream_seqs(&seen).is_empty()
     });
     assert_eq!(requests(&first), 2, "bounded: {:?}", first.sent());
-    assert!(
-        second.sent().iter().any(|frame| frame.contains("\"subscribe\"")),
-        "{:?}",
-        second.sent()
-    );
+    let subscribe: Value = second
+        .sent()
+        .iter()
+        .map(|frame| serde_json::from_str::<Value>(frame).unwrap())
+        .find(|frame| frame["t"] == "subscribe")
+        .expect("a subscribe on the new connection");
+    // The headless snapshot's position was never shown to clients: the new
+    // connection subscribes fresh instead of resuming after it.
+    assert!(subscribe.get("after_seq").is_none(), "{subscribe}");
     assert_eq!(
         stream_seqs(&seen),
         vec![("cloud-conversation-resynced".to_string(), 2)],
