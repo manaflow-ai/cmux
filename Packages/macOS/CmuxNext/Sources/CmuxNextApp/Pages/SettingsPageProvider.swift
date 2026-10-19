@@ -54,7 +54,7 @@ final class SettingsPageProvider: PageProvider {
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
     /// Settings > Accounts > Phone Access: Remove (`cmux.settings.phones.remove`).
-    var removePhone: (@MainActor (String) -> Void)?
+    var removePhone: (@MainActor (String) throws -> Void)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64

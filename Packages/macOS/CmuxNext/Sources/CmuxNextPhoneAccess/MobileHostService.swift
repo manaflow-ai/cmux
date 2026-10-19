@@ -75,18 +75,20 @@ public final class MobileHostService {
         let directory = Self.stateDirectory(namespace: Self.namespace(launch))
         let admission = PhoneAdmission(store: PhoneDeviceStore(directory: directory))
         self.admission = admission
-        access.setAdmission { device in await admission.decide(device) }
+        let store = admission.store
+        access.setAdmission({ device in await admission.decide(device) }, stillAllowed: { store.contains($0) })
         follower = PhoneAccessFollower(mobile: self, settings: settings, history: MobileHostHistory(stateDirectory: directory))
         follower?.start()
     }
 
     /// Settings > Accounts > Phone Access: Remove. The phone leaves the allowed list and its open
-    /// sessions close now; its next connection asks again.
-    public func removePhone(_ id: String) {
-        admission?.remove(id)
+    /// sessions close now; its next connection asks again. Throws, keeping the phone allowed and
+    /// connected, when the list cannot be saved.
+    public func removePhone(_ id: String) throws {
+        try admission?.remove(id)
         let host = host
         // task-owner: one hop to the host actor; disconnect is idempotent
-        Task { await host?.disconnect(deviceID: id) }
+        Task { await host?.disconnect(phone: id) }
     }
 
     private func servingChanged() {

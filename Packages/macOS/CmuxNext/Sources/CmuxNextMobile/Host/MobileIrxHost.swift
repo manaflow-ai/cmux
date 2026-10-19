@@ -36,8 +36,6 @@ public actor MobileIrxHost {
     let access: PhoneAccessGate
 
     var backend: (any MobileCompatBackend)?
-    /// The endpoint of each admitted phone by its account device id (``disconnect(deviceID:)``).
-    var phoneEndpoints: [String: String] = [:]
     var identity: IrxIdentity?
     var admission: V2InboundAdmissionAuthority?
     var controlService: V2ControlService?

@@ -795,7 +795,8 @@
         "CmuxNextKeepAwake",
         "CmuxNextMobile",
         "CmuxNextSettings",
-        "CmuxNextSettingsWindow"
+        "CmuxNextSettingsWindow",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

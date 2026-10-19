@@ -156,18 +156,25 @@ extension MobileIrxHost {
             await irx.close(code: .revoked, origin: .local)
             return
         }
-        // Settings > Accounts > Phone Access: an allowed phone, or one the person allows now.
-        let device = PhoneDevice(id: peer.deviceID, name: descriptor?.metadata.displayName ?? peer.deviceID)
+        // Settings > Accounts > Phone Access: an allowed phone, or one the person allows now. A phone
+        // is the connection's endpoint key (its TLS identity), never the device id it registered with
+        // the account, which another device on the same account could claim.
+        let device = PhoneDevice(id: peer.endpointIDHex.lowercased(), name: descriptor?.metadata.displayName ?? peer.deviceID)
         guard await access.admits(device) else {
             journal.record("next-host", "phone-not-allowed", ["session": sessionID])
             await irx.close(code: .revoked, origin: .local)
             return
         }
-        phoneEndpoints[peer.deviceID] = peer.endpointIDHex
         let recheck = admission.recheck(peer)
         guard await registry.admit(deviceID: peer.bindingID, sessionID: sessionID, connection: irx,
                                    stillAuthorized: recheck) else {
             await irx.close(code: .revoked, origin: .local)
+            return
+        }
+        // A Remove that landed while this connection was being admitted closed nothing yet: check again.
+        guard access.stillAllows(device.id) else {
+            await irx.close(code: .revoked, origin: .local)
+            await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
             return
         }
         await irx.authorizeDirectPaths()
@@ -185,9 +192,9 @@ extension MobileIrxHost {
         journal.record("next-host", "phone-closed", ["session": sessionID])
     }
 
-    /// Closes the open sessions of a phone the person removed from the allowed list.
-    public func disconnect(deviceID: String) async {
-        guard let endpoint = phoneEndpoints.removeValue(forKey: deviceID), let registry else { return }
+    /// Closes every open session of a phone the person removed from the allowed list (its endpoint key).
+    public func disconnect(phone endpoint: String) async {
+        guard let registry else { return }
         await registry.closeAll(code: .revoked, matching: { $0.caseInsensitiveCompare(endpoint) == .orderedSame })
     }
 

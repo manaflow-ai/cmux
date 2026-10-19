@@ -32,13 +32,71 @@ struct PhoneAdmissionTests {
         let (admission, directory) = Self.admission()
         defer { try? FileManager.default.removeItem(at: directory) }
         var asked = 0
+        var now = ContinuousClock.now
+        admission.clock = { now }
         admission.ask = { _ in asked += 1; return false }
-        let start = ContinuousClock.now
-        #expect(!(await admission.decide(Self.phone, now: start)))
-        #expect(!(await admission.decide(Self.phone, now: start + .seconds(60))))
+        #expect(!(await admission.decide(Self.phone)))
+        now += .seconds(60)
+        #expect(!(await admission.decide(Self.phone)))
         #expect(asked == 1)
-        _ = await admission.decide(Self.phone, now: start + PhoneAdmission.denialHold + .seconds(1))
+        now += PhoneAdmission.denialHold
+        _ = await admission.decide(Self.phone)
         #expect(asked == 2)
+        #expect(admission.devices.isEmpty)
+    }
+
+    /// The hold starts when Deny is pressed, not when the question opened.
+    @Test func theHoldStartsAtTheAnswer() async {
+        let (admission, directory) = Self.admission()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var asked = 0
+        var now = ContinuousClock.now
+        admission.clock = { now }
+        admission.ask = { _ in
+            asked += 1
+            now += PhoneAdmission.denialHold  // the dialog sat open for the whole hold
+            return false
+        }
+        #expect(!(await admission.decide(Self.phone)))
+        now += .seconds(1)
+        #expect(!(await admission.decide(Self.phone)))
+        #expect(asked == 1)
+    }
+
+    /// A burst of new phones raises at most `questionCap` questions; the rest are turned away unasked.
+    @Test func questionsAreCapped() async {
+        let (admission, directory) = Self.admission()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var asked: [String] = []
+        var release: [CheckedContinuation<Void, Never>] = []
+        admission.ask = { device in
+            asked.append(device.id)
+            await withCheckedContinuation { release.append($0) }
+            return true
+        }
+        let phones = (1...4).map { PhoneDevice(id: "dev-\($0)", name: "Phone \($0)") }
+        let first = Task { await admission.decide(phones[0]) }
+        let second = Task { await admission.decide(phones[1]) }
+        while release.count < 2 { await Task.yield() }
+        #expect(!(await admission.decide(phones[2])))
+        #expect(!(await admission.decide(phones[3])))
+        release.forEach { $0.resume() }
+        #expect(await first.value)
+        #expect(await second.value)
+        #expect(Set(asked) == ["dev-1", "dev-2"])
+        // A turned-away phone was not denied: it is asked once a question is free.
+        admission.ask = { device in asked.append(device.id); return true }
+        #expect(await admission.decide(phones[2]))
+        #expect(asked.last == "dev-3")
+    }
+
+    /// An Allow that cannot be saved lets nothing in (an unlisted phone could not be removed).
+    @Test func anAllowThatCannotBeSavedRefuses() async throws {
+        let (admission, directory) = Self.admission()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data().write(to: directory)  // a file where the folder must go
+        admission.ask = { _ in true }
+        #expect(!(await admission.decide(Self.phone)))
         #expect(admission.devices.isEmpty)
     }
 
@@ -51,13 +109,13 @@ struct PhoneAdmissionTests {
         #expect(admission.devices.map(\.id) == ["dev-1"])
     }
 
-    @Test func removeMakesItAskAgain() async {
+    @Test func removeMakesItAskAgain() async throws {
         let (admission, directory) = Self.admission()
         defer { try? FileManager.default.removeItem(at: directory) }
         var answers = [true, false]
         admission.ask = { _ in answers.removeFirst() }
         #expect(await admission.decide(Self.phone))
-        admission.remove(Self.phone.id)
+        try admission.remove(Self.phone.id)
         #expect(admission.devices.isEmpty)
         #expect(!(await admission.decide(Self.phone)))
         #expect(answers.isEmpty)

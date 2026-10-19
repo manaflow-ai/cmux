@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextMobile
 import CmuxNextSettings
+import CmuxNextWakeups
 public import CmuxNextSettingsWindow
 public import Observation
 
@@ -21,8 +22,15 @@ public final class PhoneAdmission {
     @ObservationIgnored private var denied: [String: ContinuousClock.Instant] = [:]
     /// One question per phone, however many connections it opens meanwhile.
     @ObservationIgnored private var asking: [String: Task<Bool, Never>] = [:]
+    /// At most this many phones wait on a question at once; another new phone is turned away
+    /// unasked (no hold), so a burst of devices cannot stack dialogs.
+    static let questionCap = 2
+    /// An unanswered question closes as a Deny after this long.
+    static let questionTimeout: Duration = .seconds(120)
     /// Shows the question; tests answer it themselves.
     @ObservationIgnored var ask: @MainActor (PhoneDevice) async -> Bool = PhoneAdmission.askOnThisMac
+    /// The time a Deny's hold starts from (when it was answered); tests move it.
+    @ObservationIgnored var clock: () -> ContinuousClock.Instant = { .now }
 
     init(store: PhoneDeviceStore) {
         self.store = store
@@ -38,44 +46,55 @@ public final class PhoneAdmission {
         }
     }
 
-    /// Removes `id` from the allowed list; its next connection asks again.
-    public func remove(_ id: String) {
-        store.remove(id)
+    /// Removes `id` from the allowed list; its next connection asks again. Throws, keeping the
+    /// phone listed and allowed, when the list cannot be saved.
+    public func remove(_ id: String) throws {
+        defer { devices = store.all }
+        try store.remove(id)
         denied[id] = nil
-        devices = store.all
     }
 
-    func decide(_ device: PhoneDevice, now: ContinuousClock.Instant = .now) async -> Bool {
+    func decide(_ device: PhoneDevice) async -> Bool {
         if store.contains(device.id) {
-            store.touch(device.id)
+            try? store.touch(device.id)  // when it was last seen is not worth refusing a phone over
             devices = store.all
             return true
         }
         if mode == .account {
-            store.allow(device)
-            devices = store.all
-            return true
+            // Admitted only once listed, so it can always be removed.
+            defer { devices = store.all }
+            return (try? store.allow(device)) != nil
         }
-        if let at = denied[device.id], at.duration(to: now) < Self.denialHold { return false }
+        if let at = denied[device.id], at.duration(to: clock()) < Self.denialHold { return false }
+        guard asking[device.id] != nil || asking.count < Self.questionCap else { return false }
+        // task-owner: the question, shared by this phone's connections; dropped once answered
         let question = asking[device.id] ?? Task { await ask(device) }
         asking[device.id] = question
         let allowed = await question.value
         asking[device.id] = nil
-        if allowed {
-            store.allow(device)
-            store.touch(device.id)
-            devices = store.all
-        } else {
-            denied[device.id] = now
+        guard allowed else {
+            denied[device.id] = clock()
+            return false
         }
-        return allowed
+        // An Allow that cannot be saved lets nothing in: the phone would be unlisted, so it
+        // could not be removed.
+        var listed = device
+        listed.lastSeenAt = Date()
+        defer { devices = store.all }
+        return (try? store.allow(listed)) != nil
     }
 
     /// The native question, over the key window (or the app when none is open).
     static func askOnThisMac(_ device: PhoneDevice) async -> Bool {
         let scope: CmuxDialogScope = NSApp.keyWindow.map { .window($0) } ?? .app
         NSApp.requestUserAttention(.informationalRequest)
-        let answer = await CmuxDialogCenter.shared.present(PhoneAccessStrings.allowSpec(name: device.name), in: scope)
+        let center = CmuxDialogCenter.shared
+        let timer = DemandTimer(owner: "phone-access-question")
+        let answer = await withCheckedContinuation { (done: CheckedContinuation<CmuxDialogAnswer, Never>) in
+            let id = center.present(PhoneAccessStrings.allowSpec(name: device.name), in: scope) { done.resume(returning: $0) }
+            timer.schedule(after: questionTimeout) { @MainActor in _ = center.dismiss(id) }
+        }
+        timer.cancel()
         return !answer.isDismissal && answer.button == PhoneAccessStrings.allowID
     }
 }
