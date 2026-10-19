@@ -54,6 +54,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
     /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
     public var widgets: Bool?
+    /// true: the page lists only its own connection's chats, not the store every page shares
+    /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
+    public var privateChatLists: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
@@ -76,6 +79,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.inputToken = nil
         // nil follows the Debug Settings toggle, read as each page context is made.
         self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
+        self.privateChatLists = AgentPaneTunables.newTabPrivateChatLists.value ? true : nil
     }
 }
 

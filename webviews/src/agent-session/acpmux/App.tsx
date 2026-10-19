@@ -48,6 +48,7 @@ import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { newTabMachineName, rememberMachineName } from "./newtab/settledCache";
+import { publishSessions, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
@@ -3562,6 +3563,15 @@ function AcpmuxPane() {
     const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
     return withDraftFolder(withCommands, projectDraft);
   }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, asksAside]);
+  // The New Tab page lists the chats every page shares (newtab/chatStore.ts): the newest list any
+  // page received, drawn on its first frame and updated in place when another page hears a change.
+  // Debug Settings `newTab.privateChatLists` lists this page's own connection's chats, as before.
+  const newTabSessions = useSharedSessions(composerSnapshot.sessions, !newTab?.privateChatLists);
+  const newTabSnapshot = useMemo(
+    () =>
+      newTabSessions === composerSnapshot.sessions ? composerSnapshot : { ...composerSnapshot, sessions: newTabSessions },
+    [composerSnapshot, newTabSessions],
+  );
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -3727,6 +3737,8 @@ function AcpmuxPane() {
         } catch {
           // Painting remains live when storage is unavailable or full.
         }
+        // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+        publishSessions(next);
         setSnapshot(next);
       },
       applyTheme(theme) {
@@ -3993,6 +4005,8 @@ function AcpmuxPane() {
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
             harnessProfiles.observe(summary, started);
+            // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+            publishSessions(next);
             setSnapshot((previous) => {
               if (
                 next.canHandoff &&
@@ -4900,14 +4914,14 @@ function AcpmuxPane() {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
-    for (const session of composerSnapshot.sessions) {
+    for (const session of newTabSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
       byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
     return [...byPath.values()];
-  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
+  }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
   // their chats (each with its machine's name), Add project and Do not work in a project.
   const heroPicker = useMemo<EmptyStateProjects | undefined>(() => {
@@ -5581,7 +5595,7 @@ function AcpmuxPane() {
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
-              snapshot={composerSnapshot}
+              snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}
@@ -5621,7 +5635,7 @@ function AcpmuxPane() {
           ) : showNewTab ? (
             <NewTabPage
               key={newTabGeneration}
-              snapshot={composerSnapshot}
+              snapshot={newTabSnapshot}
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
