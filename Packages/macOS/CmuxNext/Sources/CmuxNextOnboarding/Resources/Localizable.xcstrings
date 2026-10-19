@@ -6027,137 +6027,6 @@
         }
       }
     },
-    "onboarding.button.cancel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إلغاء"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otkaži"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Annuller"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abbrechen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancelar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Annuler"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Annulla"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンセル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បោះបង់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "취소"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Avbryt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anuluj"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancelar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отменить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยกเลิก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vazgeç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Скасувати"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hủy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取消"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "取消"
-          }
-        }
-      }
-    },
     "onboarding.access.allow": {
       "extractionState": "manual",
       "localizations": {
@@ -6940,137 +6809,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "1. 選擇「繼續」。"
-          }
-        }
-      }
-    },
-    "onboarding.access.step2": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. In the file picker, open %@ and choose Allow Access."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. في منتقي الملفات، افتح %@ واختر السماح بالوصول."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. U biraču datoteka otvorite %@ i odaberite Dozvoli pristup."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. Åbn %@ i filvælgeren, og vælg Giv adgang."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. Öffne in der Dateiauswahl %@ und wähle „Zugriff erlauben“."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. En el selector de archivos, abre %@ y elige Permitir acceso."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. Dans le sélecteur de fichiers, ouvrez %@ et choisissez Autoriser l’accès."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. Nel selettore di file, apri %@ e scegli Consenti accesso."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. ファイルピッカーで %@ を開き、「アクセスを許可」を選択します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. នៅក្នុងកម្មវិធីជ្រើសឯកសារ បើក %@ ហើយជ្រើសរើស អនុញ្ញាតការចូលប្រើ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. 파일 선택기에서 %@ 폴더를 열고 접근 허용을 선택합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. Åpne %@ i filvelgeren, og velg Gi tilgang."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. W oknie wyboru plików otwórz %@ i wybierz Zezwól na dostęp."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. No seletor de arquivos, abra %@ e escolha Permitir acesso."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. В окне выбора файлов откройте %@ и выберите «Разрешить доступ»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. ในตัวเลือกไฟล์ ให้เปิด %@ แล้วเลือก อนุญาตการเข้าถึง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. Dosya seçicide %@ klasörünü açın ve Erişime İzin Ver’i seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. У вікні вибору файлів відкрийте %@ і виберіть «Дозволити доступ»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. Trong bộ chọn tệp, mở %@ và chọn Cho phép truy cập."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. 在文件选择器中打开 %@，然后选择“允许访问”。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "2. 在檔案選擇器中打開 %@，然後選擇「允許取用」。"
           }
         }
       }
@@ -8119,6 +7857,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "選擇「允許取用」以讓 cmux 讀取你的 %@ 資料。"
+          }
+        }
+      }
+    },
+    "onboarding.access.step2.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. In the file picker, open this folder and choose Allow Access:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. في منتقي الملفات، افتح هذا المجلد واختر السماح بالوصول:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. U biraču datoteka otvorite ovu mapu i odaberite Dozvoli pristup:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Åbn denne mappe i filvælgeren, og vælg Giv adgang:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Öffne in der Dateiauswahl diesen Ordner und wähle „Zugriff erlauben“:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. En el selector de archivos, abre esta carpeta y elige Permitir acceso:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Dans le sélecteur de fichiers, ouvrez ce dossier et choisissez Autoriser l’accès :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Nel selettore di file, apri questa cartella e scegli Consenti accesso:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. ファイルピッカーでこのフォルダを開き、「アクセスを許可」を選択します:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. នៅក្នុងកម្មវិធីជ្រើសឯកសារ បើកថតនេះ ហើយជ្រើសរើស អនុញ្ញាតការចូលប្រើ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. 파일 선택기에서 이 폴더를 열고 접근 허용을 선택합니다:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Åpne denne mappen i filvelgeren, og velg Gi tilgang:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. W oknie wyboru plików otwórz ten folder i wybierz Zezwól na dostęp:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. No seletor de arquivos, abra esta pasta e escolha Permitir acesso:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. В окне выбора файлов откройте эту папку и выберите «Разрешить доступ»:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. ในตัวเลือกไฟล์ ให้เปิดโฟลเดอร์นี้ แล้วเลือก อนุญาตการเข้าถึง:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Dosya seçicide bu klasörü açın ve Erişime İzin Ver’i seçin:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. У вікні вибору файлів відкрийте цю папку й виберіть «Дозволити доступ»:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Trong bộ chọn tệp, mở thư mục này và chọn Cho phép truy cập:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. 在文件选择器中打开此文件夹，然后选择“允许访问”："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. 在檔案選擇器中打開此檔案夾，然後選擇「允許取用」："
           }
         }
       }

@@ -74,6 +74,23 @@ public final class OnboardingModel {
         step == .importData && importer.isConfirmingPasswords ? OnboardingStrings.skipImporting : OnboardingStrings.skip
     }
 
+    /// The footer's Back: shown on the folder and Keychain explainers, off
+    /// while the open panel or the Touch ID sheet is up.
+    public var canGoBack: Bool {
+        guard step == .importData else { return false }
+        if importer.explainingAccess != nil { return !importer.requestingAccess }
+        return importer.isConfirmingPasswords && !importer.authorizing
+    }
+
+    /// Back: from either explainer to the list, nothing read.
+    public func goBack() {
+        guard canGoBack else { return }
+        if importer.explainingAccess != nil { importer.cancelAccess() } else { importer.backFromConsent() }
+    }
+
+    /// The bar over the explainers (`ImportStepModel.explainerProgress`); nil elsewhere.
+    public var flowProgress: Double? { step == .importData ? importer.explainerProgress : nil }
+
     /// Skip (Escape): ends the window; a running import finishes. Skip
     /// Importing on the Keychain explainer reads nothing, even when Touch ID
     /// answers after the window is gone.

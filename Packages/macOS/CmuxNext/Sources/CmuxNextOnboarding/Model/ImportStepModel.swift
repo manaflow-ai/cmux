@@ -93,6 +93,13 @@ public final class ImportStepModel {
     /// Where Cancel on the explainer returns: the list, or a finished import's summary.
     private var accessReturnPhase: Phase = .ready
 
+    /// The progress bar over the explainers: allow access is half way, the
+    /// Keychain explainer three quarters (find browsers, then import, around them).
+    public var explainerProgress: Double? {
+        if explainingAccess != nil { return 0.5 }
+        return isConfirmingPasswords ? 0.75 : nil
+    }
+
     /// Cancel on the explainer: back to the list, or to the finished import it came from.
     public func cancelAccess() {
         guard explainingAccess != nil else { return }

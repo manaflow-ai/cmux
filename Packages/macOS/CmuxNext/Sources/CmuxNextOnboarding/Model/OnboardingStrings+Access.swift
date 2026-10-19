@@ -3,7 +3,6 @@ import Foundation
 /// The folder grant explainer, the Keychain explainer and the CSV fallback.
 extension OnboardingStrings {
     static var continueTitle: String { String(localized: "onboarding.button.continue", defaultValue: "Continue", bundle: .module) }
-    static var cancel: String { String(localized: "onboarding.button.cancel", defaultValue: "Cancel", bundle: .module) }
 
     // Folder grant
     /// The row button of a browser cmux has no access to yet.
@@ -23,10 +22,10 @@ extension OnboardingStrings {
     static var accessStepContinue: String {
         String(localized: "onboarding.access.step1", defaultValue: "1. Select Continue.", bundle: .module)
     }
-    /// `path`: the folder, as ~/Library/Application Support/Google/Chrome.
-    static func accessStepPick(_ path: String) -> String {
-        String(format: String(localized: "onboarding.access.step2",
-                              defaultValue: "2. In the file picker, open %@ and choose Allow Access.", bundle: .module), path)
+    /// Followed by the folder on its own line (~/Library/Application Support/Google/Chrome).
+    static var accessStepOpen: String {
+        String(localized: "onboarding.access.step2.open",
+               defaultValue: "2. In the file picker, open this folder and choose Allow Access:", bundle: .module)
     }
     static func accessNotGranted(_ path: String) -> String {
         String(format: String(localized: "onboarding.access.notGranted",
