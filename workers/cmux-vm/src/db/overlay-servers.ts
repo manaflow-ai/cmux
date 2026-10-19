@@ -19,6 +19,10 @@ export interface OverlayServerStore {
   readonly findOverlayServerForSignature: (id: string) => Effect.Effect<Option.Option<OverlayServerRow & { readonly tenantId: Tenant }>, StoreError>;
   readonly listOverlayServers: (tenant: Tenant, mesh: string) => Effect.Effect<ReadonlyArray<OverlayServerRow>, StoreError>;
   readonly revokeOverlayServer: (tenant: Tenant, id: string, at: Date) => Effect.Effect<void, StoreError>;
+  /** Revokes every live server `createdBy` enrolled in `tenant` at or before `cutoff` (null: all); returns the revoked rows. */
+  readonly revokeOverlayServersCreatedBy: (tenant: Tenant, createdBy: string, cutoff: Date | null, at: Date) => Effect.Effect<ReadonlyArray<OverlayServerRow>, StoreError>;
+  /** Tenants where `createdBy` holds a live server (a `user.deleted` event's team list may be stale). */
+  readonly listTenantsWithOverlayServersCreatedBy: (createdBy: string) => Effect.Effect<ReadonlyArray<Tenant>, StoreError>;
 }
 
 const Row = Schema.Struct({ device_cmux_id: Schema.String, mesh_cmux_id: Schema.String, name: Schema.String, wg_public_key: Schema.String, install_public_key: Schema.String, created_by: Schema.String, created_at: Schema.DateFromSelf });
@@ -34,5 +38,7 @@ export const sqlOverlayServers = (sql: SqlClientService): OverlayServerStore => 
     findOverlayServerForSignature: (id) => sql.query("overlay.findForSignature", `SELECT tenant_id, ${columns} FROM cmux_vm.mesh_overlay_servers WHERE device_cmux_id=$1 AND revoked_at IS NULL`, [id]).pipe(Effect.flatMap(decode(Schema.Array(Schema.Struct({ ...Row.fields, tenant_id: TenantId })), "overlay.findForSignature")), Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), (row) => ({ ...toRow(row), tenantId: row.tenant_id })))),
     listOverlayServers: (tenant, mesh) => get("overlay.list", "tenant_id=$1 AND mesh_cmux_id=$2", [tenant, mesh]),
     revokeOverlayServer: (tenant, id, at) => sql.query("overlay.revoke", "UPDATE cmux_vm.mesh_overlay_servers SET revoked_at=$3 WHERE tenant_id=$1 AND device_cmux_id=$2 AND revoked_at IS NULL", [tenant, id, at.toISOString()]).pipe(Effect.asVoid),
+    revokeOverlayServersCreatedBy: (tenant, createdBy, cutoff, at) => sql.query("overlay.revokeCreatedBy", `UPDATE cmux_vm.mesh_overlay_servers SET revoked_at=$4 WHERE tenant_id=$1 AND created_by=$2 AND ($3::timestamptz IS NULL OR created_at <= $3::timestamptz) AND revoked_at IS NULL RETURNING ${columns}`, [tenant, createdBy, cutoff === null ? null : cutoff.toISOString(), at.toISOString()]).pipe(Effect.flatMap(decode(Schema.Array(Row), "overlay.revokeCreatedBy")), Effect.map((rows) => rows.map(toRow))),
+    listTenantsWithOverlayServersCreatedBy: (createdBy) => sql.query("overlay.listTenantsCreatedBy", "SELECT DISTINCT tenant_id FROM cmux_vm.mesh_overlay_servers WHERE created_by=$1 AND revoked_at IS NULL ORDER BY tenant_id", [createdBy]).pipe(Effect.flatMap(decode(Schema.Array(Schema.Struct({ tenant_id: TenantId })), "overlay.listTenantsCreatedBy")), Effect.map((rows) => rows.map((row) => row.tenant_id))),
   };
 };
