@@ -79,10 +79,12 @@ class TestProductHandoff(unittest.TestCase):
         shutil.copytree(self.producer / "Build/Products", self.consumer / "Build/Products")
         shutil.rmtree(self.producer)
 
-    def test_invalid_later_manifest_does_not_rewrite_earlier_products(self):
+    def test_invalid_manifest_does_not_rewrite_products(self):
+        # main's version breaks the second of two scheme manifests; this
+        # profile has one test scheme, so its only manifest is the invalid one.
         self.transfer()
         products = self.consumer / "Build/Products"
-        manifest = products / "cmux-cli-tests_macosx26.5-arm64.xctestrun"
+        manifest = products / f"{FIXTURE_SCHEME}_macosx26.5-arm64.xctestrun"
         invalid = plistlib.loads(manifest.read_bytes())
         target = list(module.targets(invalid))[0]
         target["TestBundlePath"] = "__TESTROOT__/missing.xctest"
