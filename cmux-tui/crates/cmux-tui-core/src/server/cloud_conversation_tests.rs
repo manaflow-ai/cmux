@@ -672,3 +672,41 @@ fn a_gap_resyncs_replays_the_buffered_events_and_a_reconnect_resumes_after_them(
     });
     assert_eq!(stream_seqs(&seen)[6..], [resynced(1), changed(2)], "{seen:#?}");
 }
+
+/// A snapshot frame of the conversation stream whose `seq` does not decode.
+fn undecodable_snapshot() -> String {
+    json!({"t":"snapshot","stream":format!("conv:{CONV}"),"seq":"not-a-seq","decided":[],
+           "state":{}})
+    .to_string()
+}
+
+#[test]
+fn a_snapshot_that_does_not_decode_is_asked_for_again_and_the_stream_recovers() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    let events = mux.subscribe();
+    let wire = backend.wire();
+    wire.push_text(
+        json!({"t":"welcome","principal":{"user":ME},"streams":[format!("conv:{CONV}")]})
+            .to_string(),
+    );
+    // The owner's answer to the subscribe does not decode, and events follow it.
+    wire.push_text(undecodable_snapshot());
+    wire.push_text(message_event(3));
+    run(&mux, client, json!({"cmd":"cloud-conversation-subscribe","conversation":CONV})).unwrap();
+    wait_until("a new snapshot request", || {
+        wire.sent().iter().any(|frame| frame.contains("snapshot.request"))
+    });
+    // The owner answers with a snapshot that decodes; the stream is live again
+    // and the event that waited for it reaches clients after it.
+    wire.push_text(conversation_snapshot(2));
+    wire.push_text(message_event(4));
+    let mut seen = Vec::new();
+    wait_until("the events after the snapshot", || {
+        seen.extend(cloud_events(&events));
+        stream_seqs(&seen).iter().any(|(_, seq)| *seq == 4)
+    });
+    let changed = |seq| ("cloud-conversation-changed".to_string(), seq);
+    let resynced = |seq| ("cloud-conversation-resynced".to_string(), seq);
+    assert_eq!(stream_seqs(&seen), vec![resynced(2), changed(3), changed(4)], "{seen:#?}");
+}
