@@ -160,6 +160,19 @@ test("nothing is suggested from another folder, another worktree, a merged PR, a
   }
 });
 
+test("a chat that knows its branch takes no PR from another branch", async () => {
+  // A session started before its first prompt (a New Tab chip pick) knows its branch.
+  const started = (sessions: AcpmuxSessionEntry[]) =>
+    noChat(sessions, {
+      sessionId: "new",
+      summary: { sessionId: "new", cwd: APP, branch: "main", turnCount: 0 } as never,
+    });
+  await render(started([prChat({ branch: "leo/retries" })]));
+  expect(shown()).toBe("Do anything");
+  await render(started([prChat({ branch: "main" })]));
+  expect(shown()).toStartWith("Continue PR #123");
+});
+
 test("a chat with turns gets no suggestion", async () => {
   await render(
     noChat([prChat()], {

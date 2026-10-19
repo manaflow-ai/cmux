@@ -23,8 +23,19 @@
   color: var(--acpmux-composer-placeholder, var(--agent-muted));
   pointer-events: none;
 }
-/* The key that takes a suggested placeholder (the composer's "Tab"): a quiet keycap after it. */
+/* The key that takes a suggested placeholder (the composer's "Tab"): a quiet keycap after it. A
+   long placeholder truncates its own text, so the keycap stays in a narrow pane. */
+.acpmux-md-placeholder.has-key:not([hidden]) {
+  display: flex;
+  align-items: center;
+}
+.acpmux-md-placeholder-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .acpmux-md-placeholder-key {
+  flex: none;
   margin-left: 8px;
   padding: 0 5px;
   border: 1px solid var(--agent-border);

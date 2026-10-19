@@ -520,8 +520,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           Object.defineProperty(element, "acpmuxMarkdownField", { get: () => handle.current, configurable: true });
       }}
     >
-      <span ref={empty} className="acpmux-md-placeholder" aria-hidden="true">
-        {placeholder}
+      <span
+        ref={empty}
+        className={placeholderKey ? "acpmux-md-placeholder has-key" : "acpmux-md-placeholder"}
+        aria-hidden="true"
+      >
+        {placeholderKey ? <span className="acpmux-md-placeholder-text">{placeholder}</span> : placeholder}
         {placeholderKey && <kbd className="acpmux-md-placeholder-key">{placeholderKey}</kbd>}
       </span>
       <div ref={mount} className="acpmux-md-root" />
