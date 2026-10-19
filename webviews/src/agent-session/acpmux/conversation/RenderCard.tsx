@@ -256,9 +256,10 @@ function ScopedRenderCard({
       setFailure(error);
     },
   );
+  const { cancel: cancelRequests } = requests;
   useEffect(() => {
-    if (stopped) requests.cancel();
-  }, [stopped, requests.cancel]);
+    if (stopped) cancelRequests();
+  }, [stopped, cancelRequests]);
   const [expanded, setExpanded] = useState(false);
   const run = () => {
     failedRenders.delete(executionKey);
@@ -350,6 +351,7 @@ function ScopedRenderCard({
         </button>
       )}
       {running && !stopped && (
+        // oxlint-disable-next-line jsx-a11y/iframe-has-title -- aria-label names it; a title would float as a tooltip.
         <iframe
           key={`${live}:${kit}`}
           ref={frame}
@@ -366,6 +368,7 @@ function ScopedRenderCard({
         />
       )}
       {(error || failure) && (
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a flex row note; the tests find it by its role.
         <div className="acpmux-render-note" role="status" style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
           <span style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
             {t("render.error")} {error || failure}
@@ -450,8 +453,9 @@ function RenderConfirm({ requests }: { requests: ReturnType<typeof useRenderRequ
           ref={payload}
           className="acpmux-render-confirm-text"
           onScroll={checkEnd}
-          // ui-allow: Keyboard users can scroll the full confirmation before acting.
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- ui-allow: Keyboard users can scroll the full confirmation before acting.
           tabIndex={0}
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a scroll box inside the confirmation, not a page section.
           role="region"
           aria-label={label}
         >

@@ -16,7 +16,7 @@ await requireBrowserLane("markdown-table.test.ts", async () => {
   for (const engine of [webkit, chromium])
     test(`${engine.name()} keeps the last column reachable by keyboard and horizontal scrolling`, async () => {
       configureLabs({ labs: { tableScroll: true } });
-      const html = renderToStaticMarkup(createElement(Markdown, { children: table }));
+      const html = renderToStaticMarkup(createElement(Markdown, null, table));
       const browser = await engine.launch(
         engine === chromium && process.env.CI !== "true" ? { channel: "chrome" } : {},
       );

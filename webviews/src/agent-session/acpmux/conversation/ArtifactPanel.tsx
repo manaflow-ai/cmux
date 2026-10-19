@@ -249,11 +249,13 @@ function RunningFrame({ html, title }: { html: string; title: string }) {
   const t = useT();
   if (stopped)
     return (
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the same note as the render card's.
       <div className="acpmux-render-note" role="status">
         {t("render.error")} {error}
       </div>
     );
   return (
+    // oxlint-disable-next-line jsx-a11y/iframe-has-title -- aria-label names it; a title would float as a tooltip.
     <iframe
       ref={frame}
       className="acpmux-artifact-frame"
