@@ -1,4 +1,8 @@
 name: Nightly macOS build
+# A promotion request's title names its commit, so the promote guard can find
+# requests GitHub cancelled in its queue (REQUEST_TITLE in
+# scripts/ci/promote-nightly-next.mjs). Every other run keeps the default title.
+run-name: ${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha) || '' }}
 
 # One workflow, two publish channels. A push to `main` publishes cmux NIGHTLY
 # (bundle id com.cmuxterm.app.nightly, GitHub release `nightly`, feed
@@ -477,6 +481,12 @@ jobs:
   # give it. The newest request wins: guard.decideNewest() decides the newest
   # commit among this request and the requests still waiting for that approval,
   # and await-release-surface-ack cancels the older waiters.
+  #
+  # One shared concurrency group keeps a single writer. GitHub keeps only one
+  # waiting job in it and cancels that job when another request arrives, so
+  # decideNewest() also decides the newest request GitHub evicted from this
+  # queue (found by run title and the eviction annotation, hence checks: read)
+  # whose commit contains this request's, through the same guard.
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
@@ -486,6 +496,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      checks: read
     concurrency:
       group: nightly-next-promote
       cancel-in-progress: false
@@ -1255,34 +1266,43 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # A persistent owned mini keeps the workspace between jobs. Checkout's
-      # clean drops untracked output; remove only the daemon handoff here so
-      # the persistent DerivedData symlink below survives until it is reused.
+      # clean drops untracked output; remove the daemon handoff here too.
       - name: Clear build outputs a persistent runner kept
         run: scripts/ci/clear-dirs.sh remote-daemon-assets
 
-      - name: Prepare persistent Release DerivedData
+      - name: Start Release DerivedData empty
         run: |
           set -euo pipefail
-          # Owned Glaeda runners keep their checkout between jobs. Keep one
-          # DerivedData tree per channel and pinned Xcode/SDK so the next
-          # classic Release build can be incremental. Blacksmith remains on
-          # the workspace-local path and the normal compilation cache.
+          # The shipped app never builds on warm DerivedData. An incremental
+          # build can keep stale autolink and force-load data in objects it
+          # did not recompile after an import set changed, and those objects
+          # then link into the app. Every runner starts from an empty tree.
+          # Warm state that stays: the compilation cache restored into it
+          # below (content-keyed, with explicit module dependencies in each
+          # key) and the Swift package checkouts in .spm-cache.
+          scripts/ci/clear-dirs.sh build-universal
+          mkdir -p build-universal
           case "${RUNNER_NAME:-}" in
             *-glaeda|*-glaeda-[0-9]*)
-              toolchain_key="$({ xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } | shasum -a 256 | awk '{print $1}')"
-              derived_data="$HOME/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-${toolchain_key}"
-              if [ -e build-universal ] || [ -L build-universal ]; then
-                if [ ! -L build-universal ] || [ "$(readlink build-universal)" != "$derived_data" ]; then
-                  scripts/ci/clear-dirs.sh build-universal
+              # Earlier jobs linked build-universal to a tree kept per channel
+              # and toolchain. Delete this channel's trees, so no later change
+              # can link one back and they stop using disk. Another channel's
+              # trees (for example cmux-nightly-rc-*) are not touched.
+              # The name ends in the 64-digit toolchain hash (plus the suffix
+              # clear-dirs.sh adds when a delete did not finish), so the match
+              # never reaches another name with the same prefix. The
+              # nightly-next track keeps its state under
+              # ~/Library/Caches/cmux-nightly-next, which this never touches.
+              shopt -s nullglob
+              stale=()
+              for tree in "$HOME"/Library/Developer/Xcode/DerivedData/cmux-nightly-${{ needs.decide.outputs.channel }}-*; do
+                if [[ "${tree##*/}" =~ ^cmux-nightly-${{ needs.decide.outputs.channel }}-[0-9a-f]{64}(\.stale\..+)?$ ]]; then
+                  stale+=("$tree")
                 fi
+              done
+              if [ "${#stale[@]}" -gt 0 ]; then
+                scripts/ci/clear-dirs.sh "${stale[@]}"
               fi
-              mkdir -p "$derived_data"
-              [ -L build-universal ] || ln -s "$derived_data" build-universal
-              [ "$(readlink build-universal)" = "$derived_data" ]
-              echo "Using persistent DerivedData: $derived_data"
-              ;;
-            *)
-              mkdir -p build-universal
               ;;
           esac
 
