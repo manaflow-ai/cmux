@@ -4,7 +4,14 @@ import { nativeEntry } from "../gallery/format";
 // The native sidebar's pull request hover card (`SidebarPullRequestCardView`,
 // `sidebar.pullRequestCard`): each variant's fixture is the `[SidebarPullRequestItem]` the row's
 // badge hands the card, newest first, as `SidebarPullRequestCardTests` decodes it.
-const pr = (number: number, title: string, state: string, additions: number, deletions: number, repository = "manaflow-ai/cmux") => ({
+const pr = (
+  number: number,
+  title: string,
+  state: string,
+  additions: number,
+  deletions: number,
+  repository = "manaflow-ai/cmux",
+) => ({
   url: `https://github.com/${repository}/pull/${number}`,
   repository,
   number,
