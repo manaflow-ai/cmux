@@ -873,6 +873,14 @@ public final class ComputerUseRuntimeService {
         }
     }
 
+    /// Stops helpers during onboarding rollback under the same cross-process
+    /// lease used by start, install, and explicit disable operations.
+    func stopDaemonWithRuntimeLease() async {
+        guard prepareRuntimeForLaunch(), let lease = acquireRuntimeLease() else { return }
+        defer { lease.release() }
+        _ = await stopDaemon()
+    }
+
     func serializeHelperLifecycle<Result: Sendable>(
         cancelledResult: Result,
         _ operation: @escaping @MainActor @Sendable () async -> Result

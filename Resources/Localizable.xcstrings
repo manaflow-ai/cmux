@@ -98482,6 +98482,20 @@
         }
       }
     },
+    "cli.restore.error.admissionRecoveryTimeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "restore: ownership evidence did not settle. The session remains available to retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore: 所有権の確認が完了しませんでした。セッションは再試行できる状態です。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "restore：所有权证据未能确定。你仍可重试此会话。" } },
+        "de": { "stringUnit": { "state": "translated", "value": "restore: Der Besitznachweis konnte nicht abgeschlossen werden. Die Sitzung kann erneut versucht werden." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "restore : les informations de propriété n’ont pas pu être confirmées. La session peut être réessayée." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "restore: تعذر حسم إثبات الملكية. تظل الجلسة متاحة لإعادة المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "restore: no se pudo confirmar la propiedad. La sesión se puede volver a intentar." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "restore：無法確認擁有權證據。仍可重試此工作階段。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "restore: 소유권 증명을 확인하지 못했습니다. 세션을 다시 시도할 수 있습니다." } }
+      }
+    },
     "cli.restore.error.checkpointMismatch": {
       "extractionState": "manual",
       "localizations": {

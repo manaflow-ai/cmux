@@ -7,7 +7,7 @@ extension ComputerUseRuntimeService {
         ComputerUseOnboardingAdmissionCoordinator(
             store: onboarding,
             publish: { await self.publishExternalPermissionReadiness(for: $0) },
-            stop: { _ = await self.stopDaemon() }
+            stop: { await self.stopDaemonWithRuntimeLease() }
         )
     }
 }

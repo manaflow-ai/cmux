@@ -153,10 +153,7 @@ final class FeedCoordinator: @unchecked Sendable {
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
         // kqueue-driven — no polling.
-        store.expireAbandonedItems()
-        for ppid in store.pending.compactMap(\.ppid) {
-            armPidWatcher(ppid: ppid)
-        }
+        reconcilePendingItems()
     }
 
     /// Reconciles pending rows after asynchronous persistence startup. The
@@ -165,7 +162,14 @@ final class FeedCoordinator: @unchecked Sendable {
     /// second expiry/watcher pass once ``WorkstreamStore.start()`` completes.
     @MainActor
     func reconcileRestoredPendingItems() {
-        guard store != nil else { return }
+        reconcilePendingItems()
+    }
+
+    /// Applies the same expiry and process-watcher reconciliation to both the
+    /// initial installation and the asynchronous restored snapshot.
+    @MainActor
+    private func reconcilePendingItems() {
+        guard let store else { return }
         store.expireAbandonedItems()
         for ppid in store.pending.compactMap(\.ppid) {
             armPidWatcher(ppid: ppid)
