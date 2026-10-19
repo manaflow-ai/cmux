@@ -82,6 +82,25 @@ public nonisolated enum FocusAfterClose {
         return qualifies(parent) ? parent : nil
     }
 
+    /// The opener relations among `order`, from `opener` (child to opener,
+    /// possibly naming tabs that are gone). A tab whose opener is not in
+    /// `order` takes that opener's own opener, as Chrome's `FixOpeners`
+    /// does when a tab leaves the strip; a relation back to the tab
+    /// itself is dropped. Only tabs in `order` are keys.
+    public static func liveOpeners<ID: Hashable>(_ opener: [ID: ID], among order: [ID]) -> [ID: ID] {
+        let present = Set(order)
+        var result: [ID: ID] = [:]
+        for tab in order {
+            var seen: Set<ID> = [tab]
+            var parent = opener[tab]
+            while let current = parent, !present.contains(current), seen.insert(current).inserted {
+                parent = opener[current]
+            }
+            if let parent, present.contains(parent), parent != tab { result[tab] = parent }
+        }
+        return result
+    }
+
     // MARK: Workspaces
 
     /// The workspace a window shows after `shown` left it: the next one

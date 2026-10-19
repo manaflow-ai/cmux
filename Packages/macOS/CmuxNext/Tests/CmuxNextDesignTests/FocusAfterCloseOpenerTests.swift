@@ -58,6 +58,16 @@ struct FocusAfterCloseOpenerTests {
         #expect(Self.pick("A", in: ["A", "X", "B"], opener: ["B": "A"], hidden: ["B"]) == "X")
     }
 
+    @Test func liveOpenersSkipTabsThatLeft() {
+        // B left: C, which B opened, takes B's opener A (Chrome's FixOpeners).
+        #expect(FocusAfterClose.liveOpeners(["B": "A", "C": "B"], among: ["A", "C"]) == ["C": "A"])
+        // Only tabs in the order are keys; a chain that leads nowhere present is dropped.
+        #expect(FocusAfterClose.liveOpeners(["B": "A", "C": "Z"], among: ["B", "C"]).isEmpty)
+        // A cycle through tabs that left ends, and a relation back to the tab itself is dropped.
+        #expect(FocusAfterClose.liveOpeners(["A": "X", "X": "Y", "Y": "X"], among: ["A"]).isEmpty)
+        #expect(FocusAfterClose.liveOpeners(["A": "X", "X": "A"], among: ["A"]).isEmpty)
+    }
+
     @Test func aSurvivingSelectionStays() {
         #expect(FocusAfterClose.tab(selected: "A", old: ["A", "B"], surviving: ["A"], shown: ["A"], opener: ["B": "A"]) == "A")
     }

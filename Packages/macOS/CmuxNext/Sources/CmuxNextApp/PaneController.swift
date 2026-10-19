@@ -230,8 +230,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
         let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
-                                                defaultIndex: snapshot.defaultIndex, hidden: hidden,
-                                                openers: { openerRelations() })
+                                                defaultIndex: snapshot.defaultIndex, hidden: hidden) { services.cache.pageRequests.openers.relations(among: pane.tabs) }
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         if selectNew {
@@ -249,18 +248,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
         sendTopologyIfChanged()
         dropClosedParked(snapshot)
         remapViewedTab()
-    }
-
-    /// Each link tab's opener tab in this pane, by tab id (Chrome's close
-    /// order, `FocusAfterClose.tab`). The pane model still lists a tab
-    /// this client is closing, so its relations are there.
-    func openerRelations() -> [String: String] {
-        let tabs = pane.tabs
-        let ids = Dictionary(tabs.map { ($0.surface, $0.id) }, uniquingKeysWith: { first, _ in first })
-        let surfaces = services.cache.pageRequests.openers.relations(among: tabs.map(\.surface))
-        var result: [String: String] = [:]
-        for (child, opener) in surfaces { if let c = ids[child], let o = ids[opener] { result[c] = o } }
-        return result
     }
 
     /// Maps the strip again for a tab whose attention dot went (`setStripSelection`), once.
