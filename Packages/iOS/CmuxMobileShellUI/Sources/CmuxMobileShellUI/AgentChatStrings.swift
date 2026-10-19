@@ -4,6 +4,7 @@ import Foundation
 ///
 /// Keep provider names, file names, commands, and transcript text outside this
 /// namespace. They are data supplied by the host and are not translated here.
+// lint:allow namespace-enum — shared localized copy is consumed by the mode, model, and usage card.
 enum AgentChatStrings {
     // Navigation and session history.
     static let modeError = String(localized: "agent.chat.mode_error", defaultValue: "Agent mode error", bundle: .module)
