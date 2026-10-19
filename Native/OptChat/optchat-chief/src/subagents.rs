@@ -113,7 +113,8 @@ pub struct SubagentSettings {
     pub harness: String,
     pub policy: String,
     pub model: Option<String>,
-    /// How hard the subagents think (`spawn`'s effort, else the turn's).
+    /// How hard the subagents think (`spawn`'s effort, else the turn's, else
+    /// this one: `OPTCHAT_SUBAGENT_EFFORT`, else medium on Claude and codex).
     pub effort: Option<String>,
     /// The subagent preset (required: never a fallback to the turn preset).
     pub preset: Option<String>,
@@ -809,7 +810,9 @@ impl Orchestrator for Spawner {
         // How hard they think: as asked, else as hard as the calling turn.
         let launch = SubagentSettings {
             cwd: dir.clone(),
-            effort: effort.or_else(|| plan.engine.as_ref().and_then(|e| e.effort.clone())),
+            effort: effort
+                .or_else(|| plan.engine.as_ref().and_then(|e| e.effort.clone()))
+                .or_else(|| run.effort.clone()),
             ..run.clone()
         };
         let mut started = Vec::new();

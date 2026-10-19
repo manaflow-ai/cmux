@@ -35,3 +35,29 @@ fn the_gate_admits_claude_sr2_as_a_claude_stdio_profile() {
     assert_eq!(admitted.kind, "claude-stdio");
     assert_eq!(admitted.family, Family::Claude);
 }
+
+/// With no harness set, the Chief and its subagents run on `claude-sr2`
+/// when acpmux can run it (Lawrence 2026-10-18: every agent on Opus 5.5
+/// medium through the subrouter); a configured CodeRouter route still wins,
+/// and an `unavailable` sr2 leaves the user's own login.
+#[test]
+fn the_default_is_sr2_when_acpmux_can_run_it() {
+    use optchat_chief::host::default_harness;
+    assert_eq!(default_harness(&answer()), "claude-sr2");
+    let down = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/.local/bin/claude"]},
+        "claude-sr2": {"kind": "claude-stdio", "argv": ["/u/.local/bin/sr2", "claude"],
+                       "unavailable": "`sr2 --version` failed"},
+    }});
+    assert_eq!(default_harness(&down), "claude");
+    let acp = json!({"harnesses": {
+        "claude": {"kind": "claude-stdio", "argv": ["/u/.local/bin/claude"]},
+        "claude-sr2": {"kind": "acp", "argv": ["/u/bin/some-acp"]},
+    }});
+    assert_eq!(default_harness(&acp), "claude");
+    let routed = json!({"harnesses": {
+        "claude-cr": {"kind": "claude-stdio", "argv": ["/u/bin/coderouter", "team-route"]},
+        "claude-sr2": {"kind": "claude-stdio", "argv": ["/u/.local/bin/sr2", "claude"]},
+    }});
+    assert_eq!(default_harness(&routed), "claude-cr");
+}

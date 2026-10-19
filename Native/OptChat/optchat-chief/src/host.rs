@@ -110,7 +110,7 @@ pub fn compactor_harness_for(
 /// harnesses the Chief can use, so its model probes never start another
 /// harness's agent (a Claude-only Chief never starts codex-acp). The set
 /// turn, compactor and subagent harnesses and engine.json's, and always the
-/// Claude routes (`DEFAULT_HARNESS`, `CODEROUTER_HARNESS`): the default turn
+/// Claude routes (`DEFAULT_HARNESS`, `CODEROUTER_HARNESS`, `SR2_HARNESS`): the default turn
 /// harness, and the compactor of a turn harness that is not Claude.
 pub fn probe_harnesses(
     chief: Option<&str>,
@@ -127,7 +127,7 @@ pub fn probe_harnesses(
     ]
     .into_iter()
     .flatten()
-    .chain([DEFAULT_HARNESS, CODEROUTER_HARNESS])
+    .chain([DEFAULT_HARNESS, CODEROUTER_HARNESS, SR2_HARNESS])
     .collect();
     names.into_iter().collect::<Vec<_>>().join(",")
 }
@@ -141,14 +141,21 @@ pub const DEFAULT_HARNESS: &str = "claude";
 /// route (`claude-cr`, which acpmux has only when `coderouterClaudeRoute`
 /// names one) whether or not it can run, so an unavailable route is
 /// refused with its reason instead of silently moving to another account;
-/// else `DEFAULT_HARNESS`.
+/// else the subrouter2 route (`claude-sr2`, a harness file the person
+/// installs) when acpmux can run it (Lawrence 2026-10-18: "all your agents
+/// are started with Opus 5.5 medium using subrouter to Claude"); else
+/// `DEFAULT_HARNESS`.
 pub fn default_harness(answer: &serde_json::Value) -> &'static str {
-    if answer
-        .get("harnesses")
-        .and_then(|h| h.get(CODEROUTER_HARNESS))
-        .is_some()
-    {
-        CODEROUTER_HARNESS
+    let harnesses = answer.get("harnesses");
+    if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
+        return CODEROUTER_HARNESS;
+    }
+    let sr2 = harnesses.and_then(|h| h.get(SR2_HARNESS));
+    if sr2.is_some_and(|p| {
+        p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
+            && p.get("unavailable").is_none()
+    }) {
+        SR2_HARNESS
     } else {
         DEFAULT_HARNESS
     }
@@ -185,6 +192,10 @@ fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String))
 
 /// acpmux's profile for a configured CodeRouter Claude route.
 pub const CODEROUTER_HARNESS: &str = "claude-cr";
+
+/// acpmux's profile for Claude Code through the subrouter2 gateway
+/// (`~/.config/cmux/harnesses/claude-sr2.toml`, command `sr2 claude`).
+pub const SR2_HARNESS: &str = "claude-sr2";
 
 /// The turn sessions' acpmux preset, or None when a turn needs none: on
 /// a Claude harness it carries each turn's system prompt (the cached
@@ -729,7 +740,8 @@ fn start(
             }
         }
         // Nothing set: the configured CodeRouter route when acpmux has one,
-        // else the user's own Claude login (default_harness).
+        // else subrouter2 when acpmux can run it, else the user's own Claude
+        // login (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
             if sub_set.is_none() {
@@ -1187,7 +1199,8 @@ fn start(
                 harness: sub_harness.clone(),
                 policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
                 model: env("OPTCHAT_SUBAGENT_MODEL"),
-                effort: None,
+                // Before any turn names one: medium, as the turns run.
+                effort: crate::effort::turn_effort(env("OPTCHAT_SUBAGENT_EFFORT"), sub_family),
                 preset: Some(sub_preset_name.clone()),
                 cwd: paths.subagent.clone(),
                 prefix: format!("optchat-sub-{}", crate::paths::home_id(home)),
