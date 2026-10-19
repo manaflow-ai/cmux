@@ -262,6 +262,7 @@
     "setting.appearance.density": "compact",
     "setting.appearance.experimentalControls": false,
     "setting.appearance.focusIndicator": "both",
+    "setting.appearance.glassLegibility": "primary",
     "setting.appearance.glassTransparency": 0,
     "setting.appearance.hue": 0.5,
     "setting.appearance.interfaceScale": null,

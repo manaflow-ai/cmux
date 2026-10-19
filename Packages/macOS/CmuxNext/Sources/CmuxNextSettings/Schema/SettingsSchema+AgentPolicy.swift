@@ -81,6 +81,7 @@ extension SettingsSchema {
         "appearance.themeEdits",
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
+        "appearance.glassLegibility",
         "appearance.backgroundBlur",
         "appearance.background",
         "appearance.experimentalControls",
