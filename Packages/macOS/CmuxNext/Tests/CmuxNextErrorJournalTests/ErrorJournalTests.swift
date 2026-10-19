@@ -86,7 +86,7 @@ struct ErrorJournalTests {
         let values = [
             "escaped-password", "raw-auth-value", "access-secret", "signature-secret", "encoded-credential-value",
             "quoted-tail-value", "embedded-query-value", "nested-url-value", "nested-query-value",
-            "multiword-tail-value",
+            "bare-tail-value", "bracket-tail-value", "question-tail-value", "comma-tail-value",
         ]
         await journal.record(event(
             #"provider {\"password\":\"\#(values[0])\"} failed ?auth[token]=\#(values[1])"#
@@ -94,6 +94,9 @@ struct ErrorJournalTests {
                 + #" credential {\"password\":\"prefix\\\"\#(values[5])\"} request failed auth[token]=\#(values[6])"#
                 + #" url=https://example.test/?auth[token]=\#(values[7]) query=auth[token]=\#(values[8])"#
                 + #" password=alpha \#(values[9])"#
+                + #" auth[password]=queryalpha \#(values[10]) completion_tokens=42"#
+                + #" auth[token]=question-left?\#(values[11]) completion_tokens=43"#
+                + #" auth[token]=comma-left,\#(values[12]) completion_tokens=44"#
         ))
 
         let entry = try #require(await journal.entries().first)

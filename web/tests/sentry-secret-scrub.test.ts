@@ -137,7 +137,7 @@ test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
         {
           type: "ProviderError",
           value:
-            "provider escaped {\\\"details\\\":\\\"{\\\\\\\"password\\\\\\\":\\\\\\\"escaped-password-secret\\\\\\\"}\\\"} fragment #sig=fragment-signature-secret credential {\"password\":\"prefix\\\"quoted-tail-secret\"} request failed auth[token]=embedded-auth-secret url=https://example.test/?auth[token]=nested-url-secret query=auth[token]=nested-query-secret password=alpha multiword-tail-secret",
+            "provider escaped {\\\"details\\\":\\\"{\\\\\\\"password\\\\\\\":\\\\\\\"escaped-password-secret\\\\\\\"}\\\"} fragment #sig=fragment-signature-secret credential {\"password\":\"prefix\\\"quoted-tail-secret\"} request failed auth[token]=embedded-auth-secret url=https://example.test/?auth[token]=nested-url-secret query=auth[token]=nested-query-secret password=alpha bare-tail-secret auth[password]=queryalpha bracket-tail-secret completion_tokens=42 auth[token]=question-left?question-tail-secret completion_tokens=43 auth[token]=comma-left,comma-tail-secret completion_tokens=44",
         },
       ],
     },
@@ -178,7 +178,10 @@ test("Sentry scrubs escaped JSON credentials and namespaced query keys", () => {
     "embedded-auth-secret",
     "nested-url-secret",
     "nested-query-secret",
-    "multiword-tail-secret",
+    "bare-tail-secret",
+    "bracket-tail-secret",
+    "question-tail-secret",
+    "comma-tail-secret",
   ]) {
     expect(serialized).not.toContain(secret);
   }
