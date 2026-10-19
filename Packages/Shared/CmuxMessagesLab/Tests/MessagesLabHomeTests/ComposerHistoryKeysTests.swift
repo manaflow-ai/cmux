@@ -137,4 +137,75 @@ import Testing
         press(up: true, in: again)
         #expect(again.field.string == "third ask")
     }
+    // MARK: Unfocused: Home has the keyboard, the box does not
+
+    /// After a click on the transcript, a pane-focus shortcut (no responder),
+    /// or a window switch: Up puts the keyboard in the box and recalls.
+    @Test(arguments: ["transcript", "nothing", "pane"])
+    func upFromOutsideTheBoxFocusesItAndRecalls(from place: String) {
+        let p = pane()
+        type("kept draft", in: p)
+        switch place {
+        case "transcript":
+            p.host.scrollView.document.takesFocus = true
+            p.window.makeFirstResponder(p.host.scrollView.document)
+            p.host.scrollView.document.takesFocus = false
+        case "pane": p.window.makeFirstResponder(p.host)
+        default: p.window.makeFirstResponder(nil)
+        }
+        let responder = p.window.firstResponder
+        #expect(responder !== p.field)
+        #expect(p.controller.historyTakesArrowKeys(from: responder))
+
+        #expect(p.controller.recallHistoryFromOutside(.older))
+        #expect(p.window.firstResponder === p.field)
+        #expect(p.field.string == "third ask")
+        // The box has the keyboard now: its own arrows continue the browse.
+        press(up: true, in: p)
+        #expect(p.field.string == "second ask")
+        press(up: false, in: p)
+        press(up: false, in: p)
+        #expect(p.field.string == "kept draft")
+    }
+
+    /// From outside, Up recalls even when the caret was on a later line of a multi-line draft.
+    @Test func upFromOutsideRecallsWhateverTheCaretLine() {
+        let p = pane()
+        type("line one\nline two", in: p)
+        p.window.makeFirstResponder(nil)
+        #expect(p.controller.recallHistoryFromOutside(.older))
+        #expect(p.field.string == "third ask")
+    }
+
+    /// Down from outside with no browse only focuses the box.
+    @Test func downFromOutsideOnlyFocuses() {
+        let p = pane()
+        type("draft", in: p)
+        p.window.makeFirstResponder(nil)
+        #expect(p.controller.recallHistoryFromOutside(.newer))
+        #expect(p.window.firstResponder === p.field)
+        #expect(p.field.string == "draft")
+    }
+
+    /// Text inputs and a held transcript selection keep their arrows.
+    @Test func textInputsKeepTheirArrows() {
+        let p = pane()
+        #expect(!p.controller.historyTakesArrowKeys(from: p.field))
+        #expect(!p.controller.historyTakesArrowKeys(from: NSTextField()))
+    }
+
+    // MARK: The history model
+
+    @Test func entriesAreTheSentMessagesNewestFirstWithoutRepeats() {
+        var h = ComposerHistory()
+        let entries = ["c", "b", "a"]
+        #expect(h.step(.newer, current: "x", entries: entries) == nil)
+        #expect(h.step(.older, current: "x", entries: entries) == "c")
+        #expect(h.step(.older, current: "c", entries: []) == "b", "a browse reads its snapshot, not the entries now")
+        h.textChanged(to: "b")
+        #expect(h.isBrowsing)
+        h.textChanged(to: "b!")
+        #expect(!h.isBrowsing)
+        #expect(ComposerHistory().shown == nil)
+    }
 }

@@ -15,7 +15,7 @@ import CmuxNextWakeups
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
 final class HomeHostView: NSView {
-    private let transcript: HomeNativeTranscriptView
+    let transcript: HomeNativeTranscriptView
     private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a right sidebar the header's name pill toggles

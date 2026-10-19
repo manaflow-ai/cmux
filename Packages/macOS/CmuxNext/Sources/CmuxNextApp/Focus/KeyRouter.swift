@@ -203,6 +203,7 @@ final class KeyRouter: BrowserKeyRouting {
         guard chords.isPending || isChord else {
             if routesBareKey(event, in: window) { return true }
             if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
+            if recallsPrimaryInputHistory(event, in: window) { return true }
             onTyping?(window)
             return false
         }
