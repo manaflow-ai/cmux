@@ -41,6 +41,37 @@ as long as the profile keeps its cookies. To clear site data for the focused
 browser, the UI action `cmux browser delete-site-data` exists; check its
 arguments with `cmux action describe "browser delete-site-data"`.
 
+## Importing the person's sign-ins from another browser
+
+When a site needs the person's existing login (and they did not ask you to type
+credentials), ask for their cookies from the browser they use:
+
+```bash
+cmux browser import-cookies --from chrome --domain github.com \
+  --reason "Review PR 1234 in the cmux browser as you"
+cmux browser import-cookies --from arc:Work --domain linear.app,notion.so \
+  --reason "Read the roadmap pages you linked"
+cmux browser import-cookies --from safari --domain example.com --reason "…" --profile Work
+```
+
+- `--from <browser>[:<profile>]`: a registry id or the app's name (`chrome`,
+  `arc`, `brave`, `edge`, `helium`, `dia`, `firefox`, `zen`, `safari`); the
+  profile is the browser's folder name or the name it shows. No profile is the
+  browser's `Default` profile.
+- `--domain`: comma-separated sites. Ask for the fewest you need; without it
+  every cookie of that profile is copied.
+- `--reason` (required for agents): one sentence on what you will do with the
+  login. The person reads it first.
+- `--profile`: the cmux browser profile to import into (default: the default
+  profile).
+
+The app shows the person a consent panel before it reads anything: it names
+your chat or terminal tab (a click shows it), your reason, your latest message,
+the source and the sites. Only after Allow does macOS ask for the browser's
+password (Chromium) or does cmux need Full Disk Access (Safari). The command
+waits up to about 3 minutes and fails with a clear error on Deny or no answer;
+do not retry on your own. Cookies never leave the Mac, and you never print them.
+
 ## Security
 
 Take credentials from environment variables. Do not print `snapshot` or `text`

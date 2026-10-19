@@ -137,7 +137,8 @@ fn relay_sub_views_join_shared_sizing_with_their_own_identity() {
     .unwrap();
     assert_eq!(surface.size(), (150, 42));
 
-    // The same user's phone defers to their Mac.
+    // The same user's phone counts, but its attach is not activity: the Mac
+    // keeps the grid (last active, plans/cmux-next/sync-ux/DESIGN.md 2.4).
     let phone = handle_command(
         &mux,
         relay,
@@ -170,15 +171,15 @@ fn relay_sub_views_join_shared_sizing_with_their_own_identity() {
         .clone();
     assert_eq!(row["via"], format!("c{relay}"));
     assert_eq!(row["device_kind"], "iphone");
-    assert_eq!(row["counts"], false);
+    assert_eq!(row["counts"], true);
     assert_eq!(row["priority_key"], "u1/iphone");
     let mac = &state["state"]["participants"][0];
     assert_eq!(mac["id"], format!("c{relay}"));
     assert_eq!(mac["user_id"], "u1");
     assert_eq!(mac["device_name"], "Mac Studio");
 
-    // Another user's phone counts and, as the newest view, takes the grid.
-    drain_json(&outbound);
+    // Another user's phone attaching leaves the grid alone too; its input
+    // (forwarded by the relay) takes it.
     let other = handle_command(
         &mux,
         relay,
@@ -189,7 +190,18 @@ fn relay_sub_views_join_shared_sizing_with_their_own_identity() {
         &writer,
     )
     .unwrap();
-    assert_eq!(other["accepted"], true);
+    assert_eq!(other["accepted"], false);
+    assert_eq!(surface.size(), (150, 42));
+    drain_json(&outbound);
+    handle_command(
+        &mux,
+        relay,
+        json_command(json!({
+            "cmd": "note-size-activity", "surface": surface.id, "view": "mobile:p2",
+        })),
+        &writer,
+    )
+    .unwrap();
     assert_eq!(surface.size(), (40, 20));
     let published = drain_json(&outbound)
         .into_iter()

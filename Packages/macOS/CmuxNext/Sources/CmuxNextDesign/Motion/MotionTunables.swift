@@ -63,6 +63,8 @@ public nonisolated enum MotionTunables {
         .launch: (0.24, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
         .clickPulse: (0.25, "Agent cursor click ripple grows and fades (cmux-cua timing)."),
         .cursorHide: (0.3, "Agent cursor fades out once its agent goes idle."),
+        .hibernateIcon: (0.25, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),
+        .hibernateRing: (1.0, "Hibernated tab dotted ring fades in (Chrome: 1 s)."),
     ]
 
     static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in

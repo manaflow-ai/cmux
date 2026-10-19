@@ -98,8 +98,8 @@ public final class DesignSettings {
         }
     }
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
-    /// Chrome's tab hover card delay at its default tab width (`HoverCardTiming.chromeDelay`).
-    public var hoverCardDelay: Duration = HoverCardTiming.chromeDelay
+    /// Defaults to `HoverCardTiming.showDelay`.
+    public var hoverCardDelay: Duration = HoverCardTiming.showDelay
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
@@ -161,7 +161,7 @@ public final class DesignSettings {
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
     /// `appearance.focusIndicator`: what marks the focused pane.
-    public var focusIndicator: FocusIndicator = .both
+    public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
     /// when `focusIndicator` marks tabs.
     public var inactiveTabStyle: InactiveTabStyle = .fade
