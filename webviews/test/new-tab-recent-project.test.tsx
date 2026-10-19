@@ -35,7 +35,8 @@ test("the most recent project is the newest local chat's folder", () => {
 test("with the host's project list, only a listed folder is the most recent project", () => {
   expect(mostRecentProject(sessions, HOME, ["/Users/you/src/older"])).toBe("/Users/you/src/older");
   expect(mostRecentProject(sessions, HOME, ["/Users/you/src/atlas/"])).toBe("/Users/you/src/atlas");
-  expect(mostRecentProject(sessions, HOME, [])).toBeUndefined();
+  // Not loaded yet: every local chat folder counts.
+  expect(mostRecentProject(sessions, HOME, [])).toBe("/Users/you/src/atlas");
 });
 
 const scope = globalThis as Record<string, unknown>;

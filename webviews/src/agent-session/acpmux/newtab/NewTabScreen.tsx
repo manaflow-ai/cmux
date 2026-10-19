@@ -145,9 +145,12 @@ export function NewTabScreen(props: Props) {
         : undefined,
     [picked, folderless, props.startCwd, snapshot.sessions, home, props.knownProjects],
   );
-  // The first one found stays: a chat updating elsewhere must not move the chip while the user types.
+  // The first one found once the host's list has landed stays: a chat updating elsewhere must not
+  // move the chip while the user types. Before the list lands the newest chat folder shows, so a
+  // prompt sent at once still starts in a project.
   const [latched, setLatched] = useState<string | undefined>(undefined);
-  if (latched === undefined && candidate !== undefined) setLatched(candidate);
+  const listed = props.knownProjects === undefined || props.knownProjects.length > 0;
+  if (latched === undefined && candidate !== undefined && listed) setLatched(candidate);
   const recent = !picked && folderless && !props.startCwd ? (latched ?? candidate) : undefined;
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<HTMLTextAreaElement>(null);
