@@ -21,7 +21,7 @@ export type FilesSource = {
 
 type Shown =
   | { kind: "loading" }
-  | { kind: "entries"; entries: FilesEntry[] }
+  | { kind: "entries"; entries: FilesEntry[]; truncated: boolean }
   | { kind: "outside" }
   | { kind: "failed" };
 
@@ -42,43 +42,68 @@ export function FilesView({
   folder: string;
   source: FilesSource;
   onFolder(folder: string): void;
-  onOpen(path: string): void;
+  onOpen(path: string): void | Promise<void>;
   onClose(): void;
 }) {
   const t = useT();
   const close = useRef<HTMLButtonElement>(null);
   const [shown, setShown] = useState<Shown>({ kind: "loading" });
+  const [openFailed, setOpenFailed] = useState(false);
+  const latestOpen = useRef(0);
+  const latestList = useRef(0);
+  const latestSearch = useRef(0);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<{ base: string; paths: string[] } | "failed" | undefined>();
   useEffect(() => close.current?.focus({ preventScroll: true }), []);
   useEffect(() => {
-    let current = true;
+    const request = ++latestList.current;
+    const current = () => latestList.current === request;
     setShown({ kind: "loading" });
     source.list(folder).then(
-      (reply) => current && setShown({ kind: "entries", entries: reply?.entries ?? [] }),
-      (error: unknown) => current && setShown({ kind: outsideRepository(error) ? "outside" : "failed" }),
+      (reply) =>
+        reply &&
+        current() &&
+        setShown({ kind: "entries", entries: reply?.entries ?? [], truncated: reply?.truncated === true }),
+      (error: unknown) => current() && setShown({ kind: outsideRepository(error) ? "outside" : "failed" }),
     );
     return () => {
-      current = false;
+      latestList.current += 1;
     };
   }, [folder, source]);
   useEffect(() => {
     const text = query.trim();
     if (!text) return setResults(undefined);
-    let current = true;
+    const request = ++latestSearch.current;
+    const current = () => latestSearch.current === request;
     source.search(text).then(
       (reply) =>
-        current &&
+        reply &&
+        current() &&
         setResults({
           base: reply?.search_root ?? reply?.root ?? root,
           paths: (reply?.results ?? []).map((result) => result.path),
         }),
-      () => current && setResults("failed"),
+      () => current() && setResults("failed"),
     );
     return () => {
-      current = false;
+      latestSearch.current += 1;
     };
   }, [query, root, source]);
+  useEffect(() => {
+    setOpenFailed(false);
+    return () => {
+      latestOpen.current += 1;
+    };
+  }, [folder, source, query]);
+  const openFile = (path: string) => {
+    const request = ++latestOpen.current;
+    setOpenFailed(false);
+    Promise.resolve()
+      .then(() => onOpen(path))
+      .catch(() => {
+        if (request === latestOpen.current) setOpenFailed(true);
+      });
+  };
   const inside = folder.length > root.length ? folder.slice(root.length + 1) : "";
   const name = root.split("/").pop() || root;
   const parent = inside ? folder.slice(0, folder.lastIndexOf("/")) : undefined;
@@ -128,6 +153,7 @@ export function FilesView({
         />
       </div>
       <div className="acpmux-file-viewer-body">
+        {openFailed && <p className="acpmux-file-viewer-note">{t("files.failed")}</p>}
         {results ? (
           results === "failed" ? (
             <p className="acpmux-file-viewer-note">{t("files.failed")}</p>
@@ -135,18 +161,23 @@ export function FilesView({
             <p className="acpmux-file-viewer-note">{t("files.none")}</p>
           ) : (
             <ul className="acpmux-files-list">
-              {results.paths.map((path) => row(path, path, false, () => onOpen(`${results.base}/${path}`)))}
+              {results.paths.map((path) => row(path, path, false, () => openFile(`${results.base}/${path}`)))}
             </ul>
           )
         ) : shown.kind === "entries" ? (
-          <ul className="acpmux-files-list">
-            {parent !== undefined && row("..", "..", true, () => onFolder(parent))}
-            {shown.entries.map((entry) =>
-              row(entry.name, entry.name, entry.kind === "directory", () =>
-                entry.kind === "directory" ? onFolder(`${folder}/${entry.name}`) : onOpen(`${folder}/${entry.name}`),
-              ),
-            )}
-          </ul>
+          <>
+            <ul className="acpmux-files-list">
+              {parent !== undefined && row("..", "..", true, () => onFolder(parent))}
+              {shown.entries.map((entry) =>
+                row(entry.name, entry.name, entry.kind === "directory", () =>
+                  entry.kind === "directory"
+                    ? onFolder(`${folder}/${entry.name}`)
+                    : openFile(`${folder}/${entry.name}`),
+                ),
+              )}
+            </ul>
+            {shown.truncated && <p className="acpmux-file-viewer-note">{t("files.truncated")}</p>}
+          </>
         ) : shown.kind === "outside" ? (
           <p className="acpmux-file-viewer-note">{t("files.outside")}</p>
         ) : shown.kind === "failed" ? (

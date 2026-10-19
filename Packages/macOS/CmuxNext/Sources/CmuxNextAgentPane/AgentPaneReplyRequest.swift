@@ -1,3 +1,4 @@
+import Darwin
 public import Foundation
 
 /// The page's requests for what a reply links to (decisions D4, D5, D6). Every value comes from
@@ -109,11 +110,17 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         let truncated: Bool
 
         nonisolated init?(path: String) {
-            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            // Opening a FIFO must not wait for a writer. Check the opened descriptor so a
+            // path replacement cannot turn a regular-file check into a device read.
+            let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+            guard descriptor >= 0 else { return nil }
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
             defer { try? handle.close() }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
             guard let read = try? handle.read(upToCount: Self.maximumBytes + 1) else { return nil }
             let body = read ?? Data()
-            let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? body.count
+            let size = Int(clamping: info.st_size)
             bytes = max(size, body.count)
             truncated = body.count > Self.maximumBytes
             let kept = body.prefix(Self.maximumBytes)

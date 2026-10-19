@@ -35,7 +35,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       type="button"
       className={`cv-chip is-path${outside ? " is-outside" : ""}`}
       data-path={path}
-      onClick={() => openPathChip(path)}
+      onClick={(event) => openPathChip(path, event.currentTarget)}
     >
       {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>

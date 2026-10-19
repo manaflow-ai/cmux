@@ -99,6 +99,17 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
         }
     }
 
+    /// A local listing bound to the host's chat folder, with symlinks resolved before dispatch.
+    public func confiningFiles(to chatFolder: String) -> AgentPaneGitRequest? {
+        guard case .filesList(let cwd, let folder) = self else { return self }
+        guard let root = AcpmuxPathPolicy.canonical(chatFolder),
+              AcpmuxPathPolicy.canonical(cwd) == root,
+              let path = AcpmuxPathPolicy.canonical(folder),
+              AcpmuxPathPolicy.isDirectory(root), AcpmuxPathPolicy.isDirectory(path),
+              AcpmuxPathPolicy.contains(root: root, path: path) else { return nil }
+        return .filesList(cwd: root, folder: path)
+    }
+
     /// A checkpoint id as the session host mints them: 1 to 128 visible ASCII characters.
     static func isCheckpointId(_ id: String) -> Bool {
         (1...128).contains(id.utf8.count) && id.utf8.allSatisfy { $0 > 0x20 && $0 < 0x7F }

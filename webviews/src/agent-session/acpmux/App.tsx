@@ -171,7 +171,7 @@ import {
   openReportedImage,
   setMessageMenuSource,
 } from "./conversation/messageMenu";
-import { callChipHost, openPathChip, setPathViewer } from "./chips/host";
+import { openPathChip, setPathViewer } from "./chips/host";
 import { ChatSessionContext, TranscriptRowContext, RenderLiveContext } from "./conversation/viewIdentity";
 import { PromptToggleAnchor, usePromptRevision } from "./conversation/promptCollapse";
 import { useCodeWrap } from "./conversation/codeWrap";
@@ -205,14 +205,13 @@ import {
   useThreadTitle,
 } from "./header/headerStyle";
 import { configureLabs, useLab } from "./labs";
-import type { ViewedFile } from "./FileViewer";
-import type { FilesSource } from "./FilesView";
 import { PlanProgress } from "./PlanProgress";
 import { useShortcutsHelp } from "./ShortcutsHelp";
 import { RenderBridgeContext, useRenderBridge } from "./conversation/RenderBridgeContext";
 import { reactRenderPage } from "./conversation/renderFrameDoc";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { ThreadDetails, type OpenInApp } from "./summary/ThreadDetails";
+import { useChatViewer } from "./useChatViewer";
 import { detailsFloat, openViewer } from "./chatViewerPanels";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
@@ -3013,10 +3012,33 @@ function AcpmuxPane() {
   const chatViewer = useLab("chatViewer");
   const chatViewerRef = useRef(chatViewer);
   chatViewerRef.current = chatViewer;
-  const [fileView, setFileView] = useState<ViewedFile>();
-  // The header's Files in the viewer: the folder shown. A file opened from it shows over it, and
-  // the file's Back returns here.
-  const [filesView, setFilesView] = useState<{ sessionId?: string; folder: string }>();
+  const localCwd =
+    snapshot.summary && !snapshot.summary.peer && !(snapshot.summary.host && snapshot.summary.hostKind !== "local")
+      ? snapshot.summary.cwd
+      : undefined;
+  const viewer = useChatViewer(
+    snapshot.sessionId,
+    localCwd,
+    () => {
+      inspectorOpenRef.current = false;
+      setInspectorOpen(false);
+      setDiffView(undefined);
+      if (chatViewerRef.current) openViewer(detailsRef.current, () => undefined);
+    },
+    callNative,
+  );
+  const {
+    fileView,
+    filesView,
+    fileOpen,
+    filesOpen,
+    viewFile,
+    closeFile,
+    closeFiles,
+    setFileView,
+    setFilesView,
+    filesSource,
+  } = viewer;
   // Thread details floats while the viewer holds the right side (chatViewerPanels.ts).
   const detailsFloats = detailsFloat(chatViewer, {
     diff: diffView !== undefined,
@@ -3029,23 +3051,27 @@ function AcpmuxPane() {
   );
   const detailsRef = useRef(summaryCard);
   detailsRef.current = summaryCard;
-  const toggleInspector = useCallback((open?: boolean) => {
-    if (inspectorHiddenSurfaceRef.current) {
-      inspectorOpenRef.current = false;
-      setInspectorOpen(false);
-      return false;
-    }
-    const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
-    inspectorOpenRef.current = next;
-    if (next) {
-      setDiffView(undefined);
-      setFileView(undefined);
-      setFilesView(undefined);
-      inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    }
-    setInspectorOpen(next);
-    return next;
-  }, []);
+  const toggleInspector = useCallback(
+    (open?: boolean) => {
+      if (inspectorHiddenSurfaceRef.current) {
+        inspectorOpenRef.current = false;
+        setInspectorOpen(false);
+        return false;
+      }
+      const next = typeof open === "boolean" ? open : !inspectorOpenRef.current;
+      inspectorOpenRef.current = next;
+      if (next) {
+        viewerRef.current.invalidate();
+        setDiffView(undefined);
+        setFileView(undefined);
+        setFilesView(undefined);
+        inspectorOpener.current ??= document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+      }
+      setInspectorOpen(next);
+      return next;
+    },
+    [setFileView, setFilesView],
+  );
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   /// Opens the chat folder's diff in its own pane right of the chat, as the header's Changes does
@@ -3053,56 +3079,28 @@ function AcpmuxPane() {
   /// same webpage"). False when the host cannot (a remote chat, Quick Chat, the gallery): the turn's
   /// diff then opens in place. Set below, once the header's actions exist.
   const diffBeside = useRef<() => Promise<boolean>>(async () => false);
+  const viewerRef = useRef(viewer);
+  viewerRef.current = viewer;
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
   const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
     const clicked = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
     const inPlace = () => {
       inspectorOpenRef.current = false;
       setInspectorOpen(false);
-      setFileView(undefined);
-      setFilesView(undefined);
-      setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked });
+      viewerRef.current.openChanges(() =>
+        setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked }),
+      );
     };
     if (chatViewerRef.current) return inPlace();
     void diffBeside.current().then((opened) => {
       if (!opened) inPlace();
     }, inPlace);
   }, []);
-  // A file into the chat's viewer: the host checks the path as a path chip's open does and sends
-  // its text; a folder opens in Finder and a binary file in the app's tab, both on the host.
-  const viewFile = useCallback((path: string): Promise<void> => {
-    return callChipHost("link.readPath", { path }).then((reply) => {
-      const read = reply as { kind?: unknown; path?: unknown; text?: unknown; bytes?: unknown; truncated?: unknown } | undefined;
-      if (read?.kind !== "text" || typeof read.path !== "string" || typeof read.text !== "string") return;
-      inspectorOpenRef.current = false;
-      setInspectorOpen(false);
-      setDiffView(undefined);
-      const file = {
-        path: read.path,
-        text: read.text,
-        bytes: typeof read.bytes === "number" ? read.bytes : read.text.length,
-        truncated: read.truncated === true,
-        sessionId: sessionIdRef.current,
-      };
-      openViewer(detailsRef.current, () => setFileView(file));
-    });
-  }, []);
   useEffect(() => {
     if (!chatViewer) return undefined;
     setPathViewer(viewFile);
     return () => setPathViewer(undefined);
   }, [chatViewer, viewFile]);
-  // Another session closes the file, as it closes the changes view.
-  const fileOpen = fileView !== undefined && fileView.sessionId === snapshot.sessionId;
-  useEffect(() => {
-    if (fileView && !fileOpen) setFileView(undefined);
-  }, [fileView, fileOpen]);
-  const closeFile = useCallback(() => setFileView(undefined), []);
-  const filesOpen = filesView !== undefined && filesView.sessionId === snapshot.sessionId;
-  useEffect(() => {
-    if (filesView && !filesOpen) setFilesView(undefined);
-  }, [filesView, filesOpen]);
-  const closeFiles = useCallback(() => setFilesView(undefined), []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -3127,10 +3125,14 @@ function AcpmuxPane() {
     const nonce = ++gitIntents.current;
     const rowId = snapshotRef.current?.rows.at(-1)?.id;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    setDiffView((view) => {
-      if (view && view.sessionId === sessionIdRef.current) return { ...view, gitIntent: { op, nonce } };
-      return rowId ? { sessionId: sessionIdRef.current, rowId, opener, gitIntent: { op, nonce } } : view;
-    });
+    if (diffView && diffView.sessionId === sessionIdRef.current) {
+      viewerRef.current.invalidate();
+      setDiffView({ ...diffView, gitIntent: { op, nonce } });
+    } else if (rowId) {
+      viewerRef.current.openChanges(() =>
+        setDiffView({ sessionId: sessionIdRef.current, rowId, opener, gitIntent: { op, nonce } }),
+      );
+    }
   };
   const clearGitIntent = useCallback(
     () => setDiffView((view) => (view?.gitIntent ? { ...view, gitIntent: undefined } : view)),
@@ -3138,6 +3140,7 @@ function AcpmuxPane() {
   );
   const closedByUser = useRef(false);
   const closeDiff = useCallback(() => {
+    viewerRef.current.invalidate();
     closedByUser.current = true;
     setDiffView(undefined);
   }, []);
@@ -4740,8 +4743,6 @@ function AcpmuxPane() {
     ignoreFailure(callNative("pane.action", { id, ...(cwd ? { cwd } : {}), ...(mode ? { mode } : {}) }));
   // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
   const summary = snapshot.summary;
-  const localCwd =
-    summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   instructionsFolder.current = localCwd;
   // Another chat or folder: an instructions notice was about the one before.
   useEffect(() => setInstructionsFailure(undefined), [snapshot.sessionId, localCwd]);
@@ -4794,16 +4795,8 @@ function AcpmuxPane() {
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
   // The header's Changes with the chat's viewer: the newest turn that changed files, in the viewer;
   // again closes it. A chat whose turns changed nothing opens the folder's changes as before.
-  // The Files view's reads, in the chat's folder (the session host's git.files.list and search).
-  const filesSource = useMemo<FilesSource>(
-    () => ({
-      list: (folder) => callNative("file.list", { cwd: localCwd ?? "", path: folder }),
-      search: (query) => callNative("file.search", { cwd: localCwd ?? "", query, limit: 100 }),
-    }),
-    [localCwd],
-  );
   // The header's Files with the chat's viewer: the chat's folder beside the transcript; again closes it.
-  const toggleFilesViewer = (cwd: string) => {
+  const toggleFilesViewer = (cwd: string, opener?: HTMLElement) => {
     // A file opened from the list goes with it.
     if (filesView) {
       setFileView(undefined);
@@ -4813,14 +4806,14 @@ function AcpmuxPane() {
     setInspectorOpen(false);
     setDiffView(undefined);
     setFileView(undefined);
-    openViewer(summaryCard, () => setFilesView({ sessionId: sessionIdRef.current, folder: cwd }));
+    viewer.openFiles(cwd, opener);
   };
   const toggleChangesViewer = (mode: QuickActionMode) => {
     if (diffView) return closeDiff();
     const row = [...snapshot.rows]
       .reverse()
       .find((candidate) => candidate.kind === "activity" && candidate.items?.some((item) => item.tool?.diffs?.length));
-    if (row) openViewer(summaryCard, () => openDiff(row.id));
+    if (row) openDiff(row.id);
     else runSplitAction(HEADER_ACTIONS.changes, localCwd, mode);
   };
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
@@ -5986,8 +5979,10 @@ function AcpmuxPane() {
                       }
                       onFiles={
                         localCwd
-                          ? (mode) =>
-                              chatViewer ? toggleFilesViewer(localCwd) : runSplitAction(HEADER_ACTIONS.files, localCwd, mode)
+                          ? (mode, opener) =>
+                              chatViewer
+                                ? toggleFilesViewer(localCwd, opener)
+                                : runSplitAction(HEADER_ACTIONS.files, localCwd, mode)
                           : undefined
                       }
                       viewing={
@@ -6106,7 +6101,7 @@ function AcpmuxPane() {
                 )}
                 {fileView && fileOpen && !diffView && (
                   <Suspense fallback={null}>
-<FileViewer file={fileView} onClose={closeFile} onOpenFile={openChangedFile} />
+                    <FileViewer file={fileView} onClose={closeFile} onOpenFile={openChangedFile} />
                   </Suspense>
                 )}
                 {filesView && filesOpen && localCwd && !diffView && !(fileView && fileOpen) && (
@@ -6116,7 +6111,7 @@ function AcpmuxPane() {
                       folder={filesView.folder}
                       source={filesSource}
                       onFolder={(folder) => setFilesView((view) => (view ? { ...view, folder } : view))}
-                      onOpen={(path) => void viewFile(path)}
+                      onOpen={viewFile}
                       onClose={closeFiles}
                     />
                   </Suspense>

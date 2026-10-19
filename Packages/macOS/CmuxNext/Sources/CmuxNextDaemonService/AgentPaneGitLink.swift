@@ -33,7 +33,15 @@ public final class AgentPaneGitLink {
     /// ``AgentPaneGitFailure``: the session host's resource error, or why
     /// the read got no answer (no connection, a timeout).
     public func read(_ request: AgentPaneGitRequest) async throws(AgentPaneGitFailure) -> Data {
-        try await read(request.operation, params: request.sessionHostParams)
+        if case .filesList = request {
+            // A remote folder cannot be canonicalized on this Mac. Files is local-only until
+            // the session host can enforce the same boundary on its own filesystem.
+            guard isLocal else { throw .noSessionFolder }
+            let checked = await Task.detached { request.confiningFiles(to: request.cwd) }.value
+            guard let checked else { throw .invalidRequest }
+            return try await read(checked.operation, params: checked.sessionHostParams)
+        }
+        return try await read(request.operation, params: request.sessionHostParams)
     }
 
     /// Session host read `operation` with `params` as sent (the Files page's `git.files.list`).

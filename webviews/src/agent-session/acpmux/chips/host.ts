@@ -13,18 +13,23 @@ export function callChipHost(method: string, params: Record<string, unknown>): P
     .catch(() => undefined);
 }
 
+/// File reads keep the host's failure so Files and Changes can show their existing error UI.
+export function readPathChip(path: string): Promise<unknown> {
+  return Promise.resolve().then(() => call("link.readPath", { path }));
+}
+
 /// Tests replace the host.
 export function setChipHost(next: Call | undefined): void {
   call = next ?? postNative;
 }
 
-type PathViewer = (path: string) => void;
+type PathViewer = (path: string, opener?: HTMLElement) => void | Promise<void>;
 let viewer: PathViewer | undefined;
 
 /// A path chip's click: the chat's viewer while one is set (labs `chatViewer`, App.tsx), else the
 /// host opens the path (a tab, a folder in Finder).
-export function openPathChip(path: string): void {
-  if (viewer) viewer(path);
+export function openPathChip(path: string, opener?: HTMLElement): void {
+  if (viewer) void Promise.resolve(viewer(path, opener)).catch(() => undefined);
   else void callChipHost("link.openPath", { path });
 }
 

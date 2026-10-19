@@ -122,7 +122,7 @@ export function ChatHeaderTools({
   /// Changes runs the diff viewer with the quick action's mode, as Terminal and Browser run their split.
   onChanges?: (mode: QuickActionMode) => void;
   /// Files runs the tree of the chat's folder with the quick action's mode; without it (a remote chat) Files hides.
-  onFiles?: (mode: QuickActionMode) => void;
+  onFiles?: (mode: QuickActionMode, opener?: HTMLElement) => void;
   /// What the chat's own viewer shows (labs chatViewer: HEADER_ACTIONS.files or .changes): its button
   /// lights, as a split the host reports lit does, so it reads as the way to close it.
   viewing?: readonly string[];
@@ -362,25 +362,31 @@ export function ChatHeaderTools({
     icon: string;
     shortcut?: string;
     pressed?: boolean;
-    run: () => void;
+    run: (opener?: HTMLElement) => void;
   }[] => {
-    const items: { key: string; label: string; icon: string; shortcut?: string; pressed?: boolean; run: () => void }[] =
-      [
-        {
-          key: "terminal",
-          label: t("header.terminal"),
-          icon: "terminal",
-          shortcut: terminalKey,
-          run: () => onTerminal("open"),
-        },
-        {
-          key: "browser",
-          label: t("header.browser"),
-          icon: "browser",
-          shortcut: browserKey,
-          run: () => onBrowser("open"),
-        },
-      ];
+    const items: {
+      key: string;
+      label: string;
+      icon: string;
+      shortcut?: string;
+      pressed?: boolean;
+      run: (opener?: HTMLElement) => void;
+    }[] = [
+      {
+        key: "terminal",
+        label: t("header.terminal"),
+        icon: "terminal",
+        shortcut: terminalKey,
+        run: () => onTerminal("open"),
+      },
+      {
+        key: "browser",
+        label: t("header.browser"),
+        icon: "browser",
+        shortcut: browserKey,
+        run: () => onBrowser("open"),
+      },
+    ];
     if (onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
       items.push({
         key: "changes",
@@ -404,7 +410,7 @@ export function ChatHeaderTools({
         label: t("header.files"),
         icon: "folder",
         pressed: on(HEADER_ACTIONS.files, "toggle"),
-        run: () => onFiles("toggle"),
+        run: (opener) => onFiles("toggle", opener),
       });
     return items;
   };
@@ -419,7 +425,7 @@ export function ChatHeaderTools({
           aria-label={item.label}
           aria-pressed={item.pressed}
           {...tooltipProps(item.label, item.shortcut)}
-          onClick={item.run}
+          onClick={(event) => item.run(event.currentTarget)}
         >
           <Icon name={item.icon} size={15} />
           {labeled && (
@@ -491,7 +497,7 @@ export function ChatHeaderTools({
               aria-label={t("header.files")}
               aria-pressed={on(HEADER_ACTIONS.files, mode)}
               title={t("header.files")}
-              onClick={() => onFiles(mode)}
+              onClick={(event) => onFiles(mode, event.currentTarget)}
             >
               <Icon name="folder" size={15} />
             </button>
