@@ -34,6 +34,7 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
+import { watchGoBack } from "./WatchBanner";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -1760,6 +1761,11 @@ export class AcpmuxDirectClient {
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
+      } else if (event.kind === "watch_taken_over") {
+        // How the conversation goes on in the app it came from; replays draw it again.
+        const line = watchGoBack(msg);
+        const id = `notice-watch-back-${event.seq ?? 0}`;
+        if (line) this.rows.set(id, { id, version: 1, at: event.at ?? Date.now(), kind: "notice", text: line });
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;

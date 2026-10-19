@@ -16,6 +16,8 @@
 //!   (Claude Code: a new conversation branches off) or `open` (both apps on one conversation).
 //!   The next prompt then starts the harness on the conversation as for any idle chat
 //!   (`claude --resume`, Codex `session/load`); the history it shows is already there.
+//! - `watch_taken_over` carries `family` and `cwd`, so a client can say how the original app
+//!   goes on (`claude --resume <id>` in that folder, `codex resume <id>`).
 //! - The read position is saved with the session, so a watch goes on after a daemon restart
 //!   where it stopped.
 //! - A transcript over 64 MiB is read from its newest 64 MiB.
@@ -280,11 +282,13 @@ impl Hub {
         }
         self.save_meta(session);
         // Watchers hear it as `_acpmux/session_changed`, with the summary that has no `watching`.
+        // `family` and `cwd` say where the conversation goes on outside cmux (the pane's line).
+        let cwd = session.meta().cwd;
         self.append(
             session,
             "mux",
             "watch_taken_over",
-            json!({"agentSessionId": id, "fork": fork}),
+            json!({"agentSessionId": id, "fork": fork, "family": family, "cwd": cwd}),
         );
         Ok(self.session_summary(session))
     }

@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "watch.goBack": {
+      "comment": "Agent pane: the transcript line after this chat took over a Claude Code or Codex session another app ran; {app} is Claude Code or Codex, {command} a shell command, never translated",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم التولّي من {app}. للمتابعة في {app} بدلاً من ذلك، أغلق هذه المحادثة وشغّل: {command}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzeto iz aplikacije {app}. Da nastavite u aplikaciji {app}, zatvorite ovaj chat i pokrenite: {command}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Overtaget fra {app}. For at fortsætte i {app} i stedet skal du lukke denne chat og køre: {command}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Von {app} übernommen. Um stattdessen in {app} weiterzumachen, schließe diesen Chat und führe aus: {command}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taken over from {app}. To continue in {app} instead, close this chat and run: {command}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tomado de {app}. Para continuar en {app}, cierra este chat y ejecuta: {command}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Repris depuis {app}. Pour continuer plutôt dans {app}, fermez ce chat et exécutez : {command}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preso da {app}. Per continuare invece in {app}, chiudi questa chat ed esegui: {command}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} から引き継ぎました。{app} で続けるには、このチャットを閉じて次を実行します: {command}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានទទួលយកពី {app}។ ដើម្បីបន្តក្នុង {app} វិញ សូមបិទការជជែកនេះ ហើយដំណើរការ៖ {command}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app}에서 가져왔습니다. 대신 {app}에서 계속하려면 이 채팅을 닫고 다음을 실행하세요: {command}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Overtatt fra {app}. For å fortsette i {app} i stedet, lukk denne chatten og kjør: {command}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przejęto z {app}. Aby zamiast tego kontynuować w {app}, zamknij ten czat i uruchom: {command}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Assumido do {app}. Para continuar no {app}, feche este chat e execute: {command}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перехвачено из {app}. Чтобы продолжить в {app}, закройте этот чат и выполните: {command}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รับช่วงต่อจาก {app} แล้ว หากต้องการทำต่อใน {app} แทน ให้ปิดแชทนี้แล้วเรียกใช้: {command}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} uygulamasından devralındı. Bunun yerine {app} içinde devam etmek için bu sohbeti kapatıp şunu çalıştırın: {command}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перебрано з {app}. Щоб натомість продовжити в {app}, закрийте цей чат і виконайте: {command}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã tiếp quản từ {app}. Để tiếp tục trong {app}, hãy đóng cuộc trò chuyện này và chạy: {command}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已从 {app} 接管。若要改回在 {app} 中继续，请关闭此聊天并运行：{command}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已從 {app} 接管。若要改回在 {app} 中繼續，請關閉此聊天並執行：{command}"
+          }
+        }
+      }
+    },
+    "watch.goBackFork": {
+      "comment": "Agent pane: the transcript line after this chat forked a Claude Code session another app runs; {app} is Claude Code, {command} a shell command, never translated",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم التفريع من جلسة {app} التي لم تُمسّ. لمتابعتها في {app}، شغّل: {command}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Račvano iz sesije aplikacije {app}, koja je netaknuta. Da je nastavite u aplikaciji {app}, pokrenite: {command}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forgrenet fra {app}-sessionen, som er uberørt. For at fortsætte den i {app} skal du køre: {command}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Von der {app}-Sitzung abgezweigt, die unverändert bleibt. Um sie in {app} fortzusetzen, führe aus: {command}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forked from the {app} session, which is untouched. To continue it in {app}, run: {command}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bifurcado de la sesión de {app}, que queda intacta. Para continuarla en {app}, ejecuta: {command}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dérivé de la session {app}, qui reste intacte. Pour la poursuivre dans {app}, exécutez : {command}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diramato dalla sessione di {app}, che resta intatta. Per continuarla in {app}, esegui: {command}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} のセッションから分岐しました。元のセッションはそのままです。{app} で続けるには次を実行します: {command}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបំបែកចេញពីវគ្គ {app} ដែលនៅដដែល។ ដើម្បីបន្តវាក្នុង {app} សូមដំណើរការ៖ {command}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{app} 세션에서 분기했으며 원래 세션은 그대로입니다. {app}에서 계속하려면 다음을 실행하세요: {command}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forgrenet fra {app}-økten, som er urørt. For å fortsette den i {app}, kjør: {command}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozgałęziono z sesji {app}, która pozostaje nienaruszona. Aby kontynuować ją w {app}, uruchom: {command}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ramificado da sessão do {app}, que continua intacta. Para continuá-la no {app}, execute: {command}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ответвлено от сеанса {app}, который остался нетронутым. Чтобы продолжить его в {app}, выполните: {command}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แยกออกมาจากเซสชัน {app} ซึ่งไม่ถูกแตะต้อง หากต้องการทำต่อใน {app} ให้เรียกใช้: {command}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dokunulmamış {app} oturumundan dallandırıldı. {app} içinde devam etmek için şunu çalıştırın: {command}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відгалужено від сеансу {app}, який лишився недоторканим. Щоб продовжити його в {app}, виконайте: {command}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã rẽ nhánh từ phiên {app}, phiên gốc vẫn nguyên vẹn. Để tiếp tục trong {app}, hãy chạy: {command}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已从 {app} 会话分叉，原会话保持不变。若要在 {app} 中继续，请运行：{command}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已從 {app} 工作階段分岔，原工作階段保持不變。若要在 {app} 中繼續，請執行：{command}"
+          }
+        }
+      }
+    },
     "watch.continue": {
       "comment": "Agent pane: the View Only banner button that forks a viewed Claude Code session into a new chat, leaving the original untouched",
       "extractionState": "manual",
