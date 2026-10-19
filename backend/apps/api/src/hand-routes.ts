@@ -94,8 +94,8 @@ const socket = async (request: Request, env: Env, hand: string): Promise<Respons
 }
 
 export const handleHands = async (request: Request, env: Env, path: string): Promise<Response> => {
-  // Hands serve the Cloud Chief brain: off wherever the brain is off (production today).
-  if (env.CHIEF_BRAIN_ENABLED !== "1") return fail(404, "not_found", "hands are off on this deployment")
+  // Hands serve the Cloud Chief brain: off wherever the brain is off, and wherever HANDS_ENABLED is not "1" (production today).
+  if (env.CHIEF_BRAIN_ENABLED !== "1" || env.HANDS_ENABLED !== "1") return fail(404, "not_found", "hands are off on this deployment")
   if (path === "/hand/install.sh") {
     if (request.method !== "GET") return fail(405, "method_not_allowed", "GET")
     return handInstallScript(env, apiOrigin(env, request))

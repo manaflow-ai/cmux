@@ -891,7 +891,9 @@ jobs:
             const writer = getOctokit(process.env.APP_TOKEN);
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
-  # A release surface change waits here for one approval in the
+  # Legacy approval waiter retained for contract compatibility; validated moves
+  # now happen in promote-nightly-next without an environment approval.
+  # A release surface change previously waited here for one approval in the
   # release-surface-ack environment (required reviewers: release-approvers,
   # prevent self-review). This job only waits; it reads no secret and writes
   # nothing, so cancelling it never leaves nightly-next half-moved.

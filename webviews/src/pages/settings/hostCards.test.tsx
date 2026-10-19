@@ -294,3 +294,66 @@ test("Advanced names the loaded settings file and shows one Reload Configuration
   expect(text).not.toContain("cmux-next.json");
   page.unmount();
 });
+
+test("Add from a Link downloads an image and sets it; a refused link says why; your images can be removed", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const linkTile = [...picker().querySelectorAll<HTMLButtonElement>("button.backdrop-tile")].find((button) =>
+    button.textContent?.includes("Add from a Link"),
+  )!;
+  await act(async () => linkTile.click());
+  await settle();
+  const form = () => page.container.querySelector<HTMLElement>('[data-card="backdrop-link"]');
+  const field = form()!.querySelector<HTMLInputElement>('input[type="url"]')!;
+  const type = async (text: string) => {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(field, text);
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+  };
+  const submit = async () => {
+    await act(async () => form()!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+    await settle();
+  };
+
+  await type("http://example.com/sea.jpg");
+  await submit();
+  expect(form()!.querySelector("output")!.textContent).toBe("Use a link that starts with https://.");
+  await type("https://example.com/notes.txt");
+  await submit();
+  expect(form()!.querySelector("output")!.textContent).toBe("That is not an image or a video this Mac can play.");
+
+  await type("https://example.com/sea.jpg");
+  await submit();
+  expect(runs(page, "cmux.settings.backdrop.image.link").at(-1)).toMatchObject({ url: "https://example.com/sea.jpg" });
+  // Used, the form closes and the image is listed under Your images, chosen.
+  expect(form()).toBeNull();
+  const own = picker().querySelector<HTMLElement>('[data-collection="yours"]')!;
+  expect(own.querySelector('[aria-label="sea.jpg"]')!.getAttribute("aria-pressed")).toBe("true");
+  expect(own.querySelector(".backdrop-own-bar")!.textContent).toContain("Your images use");
+  // The background in use cannot be removed; another of your images can.
+  const remove = own.querySelector<HTMLButtonElement>('[aria-label="Remove sea.jpg"]')!;
+  expect(remove.disabled).toBe(true);
+  await act(async () => linkTile.click());
+  await settle();
+  const again = form()!.querySelector<HTMLInputElement>('input[type="url"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(
+      again,
+      "https://example.com/hill.png",
+    );
+    again.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await submit();
+  const sea = picker().querySelector<HTMLButtonElement>('[aria-label="Remove sea.jpg"]')!;
+  expect(sea.disabled).toBe(false);
+  await act(async () => sea.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.image.remove").at(-1)).toMatchObject({ id: "file:/backgrounds/sea.jpg" });
+  expect(picker().querySelector('[aria-label="sea.jpg"]')).toBeNull();
+  // Show in Finder reveals the folder.
+  await act(async () => picker().querySelector<HTMLElement>(".backdrop-own-bar button")!.click());
+  expect(runs(page, "cmux.settings.backdrop.image.reveal").length).toBe(1);
+  page.unmount();
+});
