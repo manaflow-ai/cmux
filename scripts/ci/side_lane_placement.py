@@ -33,6 +33,9 @@ contains(' <key> ') matches whole keys only:
   when a light pool has no online GUI runner. GUI jobs always use this label
   when the run is trusted, so a headless AWS side runner cannot receive a GUI
   suite;
+- `session_runner`: the live session label (glaeda#1530) for the jobs that need
+  a logged-in session but not the console token, or "" when no online runner
+  carries it, so the workflow keeps `gui_runner`;
 - `watch`: "false" when every job took its fallback, so the run uploads no
   owned-pool-watch marker; "true" otherwise.
 """
@@ -93,10 +96,25 @@ def gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> 
     if pool.LIGHT_CLASS in parts:
         parts[parts.index(pool.LIGHT_CLASS)] = "std"
         candidates.append(pool.gui_label("-".join(parts)))
-    for gui in candidates:
-        if gui and any(runner.get("status") == "online" and gui in pool.runner_labels(runner)
-                       for runner in runners):
-            return gui
+    return _live(candidates, runners)
+
+
+def session_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """Return a live session label paired with a side or pool label, or "".
+
+    A mini's gui-role runners all carry it (glaeda#1530): the console gui
+    runner and the session runners beside it. Until a mini is reinstalled none
+    carries it, and "" keeps the session-only jobs on `gui_runner`.
+    """
+    gui = gui_route_label(label, runners)
+    return _live([gui.replace(pool.GUI_PREFIX, pool.SESSION_PREFIX, 1)] if gui else [], runners)
+
+
+def _live(candidates: Sequence[str], runners: Sequence[Mapping[str, Any]]) -> str:
+    for candidate in candidates:
+        if candidate and any(runner.get("status") == "online" and candidate in pool.runner_labels(runner)
+                             for runner in runners):
+            return candidate
     return ""
 
 
@@ -138,6 +156,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners)
     gui_route = gui_route_label(label, runners)
+    session_route = session_route_label(label, runners)
     if route and route != label:
         why += f"; no online side runner, routing jobs on `{route}`"
     print(f"side-lane placement: {why}")
@@ -146,7 +165,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"runner={route}\ngui_runner={gui_route}\nwatch={watch}\n")
+                         f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
+                         f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:

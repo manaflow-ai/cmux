@@ -87,6 +87,7 @@ jobs:
         env:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          SESSION_RUNNERS: ${{ vars.CI_OWNED_SESSION_RUNNERS }}
           PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           SAME_REPO: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
         run: python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO"

@@ -28,6 +28,9 @@ FALLBACK = "blacksmith-6vcpu-macos-26"
 # The GUI suites take the owned pool's gui label, never the generic side label.
 GUI = "glaeda-gui-std-xcode-26.6"
 GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
+# Session-only jobs take the session label when a mini carries it (glaeda#1530), else GUI.
+SESSION = "glaeda-session-std-xcode-26.6"
+SESSION_JOBS = ("daemon-test", "generated-files")
 
 
 def on(name: str, label: str) -> str:
@@ -99,6 +102,23 @@ class Decide(unittest.TestCase):
             GUI,
         )
 
+    def test_session_route_requires_a_live_gui_route_and_session_label(self):
+        # Until a mini is reinstalled (glaeda#1530) no runner carries the session label, so
+        # the session-only jobs keep the gui label; an offline session runner counts for nothing.
+        console = runner("mini-a-glaeda-4", labels=(GUI,))
+        self.assertEqual(placement.session_route_label(SIDE, None), "")
+        self.assertEqual(placement.session_route_label(SIDE, [console]), "")
+        self.assertEqual(placement.session_route_label(SIDE, [console, runner("mini-a-glaeda-3", labels=(SESSION,),
+                                                                                status="offline")]), "")
+        self.assertEqual(placement.session_route_label(SIDE, [runner("mini-a-glaeda-4", labels=(GUI, SESSION))]),
+                         SESSION)
+        # No live gui label (no logged-in mini): no session route either.
+        self.assertEqual(placement.session_route_label(SIDE, [runner("mini-a-glaeda-3", labels=(SESSION,))]), "")
+        # A light side lane borrows the std minis' session runners as it borrows their gui runners.
+        light_side = "glaeda-side-light-xcode-26.6"
+        self.assertEqual(placement.session_route_label(light_side, [runner("mini-a-glaeda-4", labels=(GUI, SESSION))]),
+                         SESSION)
+
     def test_a_light_side_lane_borrows_the_std_gui_runners(self):
         # The light minis run no GUI runner, so a light side lane's GUI suites take the std minis'
         # live GUI label instead of the Blacksmith fallback; a live light GUI label still wins.
@@ -147,6 +167,7 @@ class Decide(unittest.TestCase):
             self.assertEqual(lines["fallback_jobs"], "")
             self.assertEqual(lines["runner"], SIDE)
             self.assertEqual(lines["gui_runner"], "")
+            self.assertEqual(lines["session_runner"], "")
             self.assertEqual(lines["watch"], "true")
             # Every job on the fallback: no owned job for the rescue to watch.
             output.write_text("")
@@ -236,6 +257,19 @@ class CmuxNextWiring(unittest.TestCase):
         context["needs"][self.PLACEMENT]["outputs"]["gui_runner"] = ""
         for name in GUI_JOBS:
             self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
+
+    def test_session_only_jobs_take_a_live_session_label(self):
+        # daemon-test and generated-files need the session, not the console token, so a live session
+        # label wins; swift-test stays on the console gui runner. Without one they keep the gui label.
+        jobs = self.workflow()["jobs"]
+        context = self.context(runner=STD)
+        context["needs"][self.PLACEMENT]["outputs"]["session_runner"] = SESSION
+        for name in GUI_JOBS:
+            with self.subTest(job=name):
+                self.assertEqual(evaluate(jobs[name]["runs-on"], context), SESSION if name in SESSION_JOBS else GUI)
+                self.assertEqual(evaluate(jobs[name]["runs-on"], self.context(runner=STD)), GUI)
+        self.assertEqual(jobs[self.PLACEMENT]["outputs"]["session_runner"],
+                         "${{ steps.place.outputs.session_runner }}")
 
     def test_a_bot_attempt_3_leaves_the_placement_label_for_blacksmith(self):
         # A rescue attempt 3 must drop the stale placement output and use the

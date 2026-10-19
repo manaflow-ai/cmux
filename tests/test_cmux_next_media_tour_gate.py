@@ -249,6 +249,24 @@ def main():
     _check(expression(checkout["with"]["ref"], push_event()) == "a" * 40,
            "a merge tour's publisher comes from the merged feat-cmux-next head")
 
+    # The tour needs the session, not the console token: it takes the session label once the
+    # minis carry it (CI_OWNED_SESSION_RUNNERS 1, glaeda#1530), and the gui label until then.
+    sys.path.insert(0, os.path.join(ROOT, "scripts", "ci"))
+    import cmux_next_media_runner as media_runner
+    slots = json.dumps({"glaeda-std-xcode-26.6": 4, "glaeda-gui-std-xcode-26.6": 4})
+    xcode = "/Applications/Xcode_26.6.app"
+    for session, want in ((None, "glaeda-gui-std-xcode-26.6"), ("0", "glaeda-gui-std-xcode-26.6"),
+                          ("1", "glaeda-session-std-xcode-26.6")):
+        label, _ = media_runner.pick(same_repo=True, owned="1", owned_slots=slots, pr_xcode_app=xcode,
+                                     session_runners=session)
+        _check(label == want, f"CI_OWNED_SESSION_RUNNERS={session!r} tours on {want} (got {label!r})")
+    label, _ = media_runner.pick(same_repo=True, owned="1", owned_slots=json.dumps({"glaeda-std-xcode-26.6": 4}),
+                                 pr_xcode_app=xcode, session_runners="1")
+    _check(label == "", f"no gui runners still means no tour, session runners or not (got {label!r})")
+    pick_env = route_env
+    _check(pick_env.get("SESSION_RUNNERS") == "${{ vars.CI_OWNED_SESSION_RUNNERS }}",
+           "the route job passes CI_OWNED_SESSION_RUNNERS to the picker")
+
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
         sys.exit(1)

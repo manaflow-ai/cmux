@@ -13,6 +13,12 @@ one per mini, the runner that holds the mini's console session. Workflows
 never name an owned label (tests/test_ci_self_hosted_guard.sh), so it reaches
 runs-on only as this script's output.
 
+The tour needs the session, not the console token, so once the minis run
+session runners beside the console one (glaeda#1530) and
+CI_OWNED_SESSION_RUNNERS is 1, it takes the pool's session label
+(pr_runner_pool.session_label()), which every gui-role runner carries. Until
+then it keeps the gui label.
+
 Rules, in order: a fork head gets nothing (owned Macs run trusted code only);
 CI_PR_POOL_OWNED must be 1; the first owned pool class whose gui label has
 machines in CI_OWNED_POOL_SLOTS wins.
@@ -32,7 +38,7 @@ import pr_runner_pool  # noqa: E402
 
 
 def pick(*, same_repo: bool, owned: str | None, owned_slots: str | None,
-         pr_xcode_app: str | None) -> tuple[str, str]:
+         pr_xcode_app: str | None, session_runners: str | None = None) -> tuple[str, str]:
     """(label, reason); the label is "" when the tour should not run."""
     if not same_repo:
         return "", "a fork head never runs on an owned Mac"
@@ -45,6 +51,8 @@ def pick(*, same_repo: bool, owned: str | None, owned_slots: str | None,
     for pool in pools:
         gui = pr_runner_pool.gui_label(pool)
         if gui and slots.get(gui, 0) > 0:
+            if (session_runners or "").strip() == "1":
+                return pr_runner_pool.session_label(pool), f"session runners beside {slots[gui]} gui runner(s) on {pool}"
             return gui, f"{slots[gui]} gui runner(s) on {pool}"
     return "", "no owned pool has gui runners in CI_OWNED_POOL_SLOTS"
 
@@ -58,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         owned=os.environ.get("POOL_OWNED"),
         owned_slots=os.environ.get("OWNED_SLOTS"),
         pr_xcode_app=os.environ.get("PR_XCODE_APP"),
+        session_runners=os.environ.get("SESSION_RUNNERS"),
     )
     lines = [f"runs_on={label}", f"reason={reason}"]
     print("\n".join(lines))

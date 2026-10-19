@@ -325,14 +325,18 @@ RUN_CLASSES = ("std", "light")
 # `glaeda-side-...` are its side runners, the other runners: the light side-lane workflows take it
 # (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
 # this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
+# `glaeda-session-...` are a mini's gui-role runners (glaeda#1530): the console
+# gui runner and any session runners beside it. Jobs that need the logged-in
+# session but not the console token take it (session_label()).
 XCODE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
 # Optional namespaces keep explicitly configured fleets (such as AWS) out of
 # the ordinary mini family while retaining the role labels' semantics.
-OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-|fast-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
+OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-|session-|fast-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
-ROLE_NAMES = ("root", "side", "gui")
+SESSION_PREFIX = "glaeda-session-"
+ROLE_NAMES = ("root", "side", "gui", "session")
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
@@ -529,6 +533,16 @@ def gui_label(label: str) -> str:
     return _role_label(label, "gui")
 
 
+def session_label(label: str) -> str:
+    """The session runners' label for an owned pool label, or "" for any other label.
+
+    Every gui-role runner of a mini carries it, the console gui runner included, so a
+    session-only job (no console token) can run beside a console job (glaeda#1530)."""
+    if not persistent(label) or _role_name(label):
+        return ""
+    return _role_label(label, "session")
+
+
 def _role_label(label: str, role: str) -> str:
     """Insert a role after an optional namespace and before class metadata."""
     parts = label.split("-")
@@ -612,11 +626,11 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
 
 
 def pool_label(label: str) -> str:
-    """The owned pool a root, side or gui label's runners belong to; any other label unchanged."""
+    """The owned pool a root, side, gui or session label's runners belong to; any other label unchanged."""
     if not persistent(label):
         return label
     parts = label.split("-")
-    for role in ("root", "side", "gui"):
+    for role in ROLE_NAMES:
         if role in parts[1:3]:
             parts.remove(role)
             return "-".join(parts)
