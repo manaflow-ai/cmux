@@ -1210,6 +1210,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_identity.py
 
+      - name: Validate nightly-next post-publication jobs stay off the feed gate
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_post_publish.py
+
       - name: Validate nightly signing admission and its shadow mode
         if: ${{ matrix.group == 'release-notary' }}
         run: |
