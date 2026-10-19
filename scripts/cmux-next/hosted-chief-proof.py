@@ -15,7 +15,7 @@ As the host's agent test account (CMUX_UITEST_STACK_* in ~/.secrets/cmuxterm-dev
    (never a silent dead Chief); then turns it on again.
 Cleanup: archives the placed chief and revokes the test server. Socket only: no system input.
 """
-import argparse, json, os, re, socket, subprocess, sys, tempfile, time, urllib.error, urllib.request
+import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, time, urllib.error, urllib.request
 p = argparse.ArgumentParser()
 p.add_argument("--tag", required=True); p.add_argument("--app", required=True); p.add_argument("--out", required=True)
 p.add_argument("--api", default="https://cloud-api-staging.cmux.dev")
@@ -83,13 +83,15 @@ tool = os.path.join(o.app, "Contents/Resources/bin/optchat-chief")
 if not os.path.exists(tool):
     check("pair a test server (the app's optchat-chief)", False, "the app bundles no optchat-chief")
 else:
-    install_file = os.path.join(tempfile.mkdtemp(prefix=f"hcp-{o.tag}-"), "install.json")
+    pair_dir = tempfile.mkdtemp(prefix=f"hcp-{o.tag}-")
+    cleanup.append(("rmdir", {"path": pair_dir}))
+    install_file, pair_out = os.path.join(pair_dir, "install.json"), os.path.join(pair_dir, "pair.out")
     pair = subprocess.Popen([tool, "cloud", "pair", "--install", install_file, "--api-base", o.api, "--name", f"proof-{o.tag}", "--wait-chief", "240"],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True)
-    code = None
-    for line in pair.stdout:
-        m = re.search(r"pairing code: ([0-9A-Z-]+)", line)
-        if m: code = m.group(1).replace("-", ""); break
+                            stdout=open(pair_out, "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+    def pair_code():
+        m = re.search(r"pairing code: ([0-9A-Z-]+)", open(pair_out).read())
+        return m and m.group(1).replace("-", "")
+    code = wait(pair_code, 60, 0.5)
     approved = op("server.pair.approve", {"code": code, "team": team, "name": f"proof-{o.tag}"}) if code else {}
     place = approved.get("value") or {}
     if place.get("host"): cleanup.append(("server.revoke", {"host": place["host"]}))
@@ -102,9 +104,7 @@ else:
     try: pair.wait(timeout=60)
     except subprocess.TimeoutExpired: pair.kill()
 
-hosted = next((c for c in chiefs() if c.get("brain_place") is None and c.get("is_default")), None)
-expect = hosted and hosted.get("main_conversation")
-RESULT["expect"] = expect
+hosted = expect = None
 
 # --- the app ---
 def rpc(method, params=None, timeout=35):
@@ -160,14 +160,28 @@ def snapshot(name):
 
 rc = 1
 try:
-    ok = check("the test account has a default Hosted Chief", bool(expect), [{"id": c["id"], "name": c["display_name"], "placed": c.get("brain_place") is not None} for c in chiefs()])
-    ok = check("app socket up", launch()) and ok
+    ok = check("app socket up", launch())
+    # The app makes the Hosted Chief when the account has none (ensureHosted): read it from the app.
+    hosted_view = wait(lambda: (home().get("hosted") or {}).get("main"), 120, 2) and home()["hosted"]
+    hosted = hosted_view and {"id": hosted_view["id"]}
+    expect = hosted_view and hosted_view["main"]
+    RESULT["expect"] = expect
+    ok = check("the app has a default Hosted Chief", bool(expect) and hosted_view.get("default"), hosted_view) and ok
     def ready():
         v = home()
         return (v["shown"] == expect and v["dock_shown"] == expect and v["running"] is False and v["brain_on"] is True) and v
     v = wait(ready, 180, 2) or home()
     ok = check("Home shows the Hosted Chief by default (Chief tab and docked page)", v["shown"] == expect and v["dock_shown"] == expect, v) and ok
-    ok = check("the copy ran once: history, memory and brain steps are done", v.get("ledger") == {"history": True, "memory": True, "brain": True}, v.get("ledger")) and ok
+    ok = check("the copy steps are done (ledger)", v.get("ledger") == {"history": True, "memory": True, "brain": True}, v.get("ledger")) and ok
+    # What each step did, from the app's own log (a target that has content is skipped, never overwritten).
+    logq = subprocess.run(["/usr/bin/log", "show", "--last", "10m", "--style", "compact", "--info", "--predicate",
+                           f'subsystem == "com.cmuxterm.app.next" AND category == "home" AND processIdentifier == {app.pid} AND eventMessage CONTAINS "hosted chief"'],
+                          capture_output=True, text=True, timeout=120).stdout
+    lines = [l.split("[com.cmuxterm.app.next:home] ", 1)[-1] for l in logq.splitlines() if "hosted chief" in l]
+    open(os.path.join(o.out, "hosted-chief.log"), "w").write("\n".join(lines) + "\n")
+    steps = {k: [l for l in lines if l.startswith(f"hosted chief {k}:")] for k in ("history", "memory")}
+    RESULT["copy_outcomes"] = steps
+    ok = check("each copy step ran once and logged its outcome", all(len(v) == 1 for v in steps.values()), steps) and ok
     ok = check("the brain is on and Home shows no notice", v["brain_on"] is True and v["notice"] is None, {"brain_on": v["brain_on"], "notice": v["notice"], "api": brain(hosted["id"]) if hosted else None}) and ok
     snapshot("home-hosted.png")
     if placed:
@@ -199,8 +213,8 @@ try:
     snapshot("home-hosted-reply.png")
     quit_app()
     # 5. A brain that is off shows a notice in Home.
-    off = brain(hosted["id"], False)
-    cleanup.append(("brain.on", {"agent": hosted["id"]}))
+    if hosted: cleanup.append(("brain.on", {"agent": hosted["id"]}))
+    off = brain(hosted["id"], False) if hosted else None
     launch()
     noticed = wait(lambda: (lambda v: v["brain_on"] is False and v["notice"] and v)(home()), 120, 2) or home()
     ok = check("a brain that is off shows a notice in Home", off == 200 and noticed["brain_on"] is False and bool(noticed["notice"]), {"put": off, "notice": noticed["notice"], "brain_on": noticed["brain_on"]}) and ok
@@ -210,6 +224,9 @@ try:
 finally:
     if app: quit_app()
     for name, params in reversed(cleanup):
+        if name == "rmdir":
+            shutil.rmtree(params["path"], ignore_errors=True)
+            continue
         if name == "brain.on":
             RESULT.setdefault("cleanup", []).append([name, brain(params["agent"], True)])
             continue
