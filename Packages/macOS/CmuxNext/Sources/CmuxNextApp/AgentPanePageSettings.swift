@@ -31,30 +31,9 @@ final class AgentPanePageSettings {
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        previewObservation = Task { [weak self] in
-            for await on in ObservationStream({ settings.snapshot.previewFeatures }) {
-                guard let self else { return }
-                previewFeatures = on
-                push()
-            }
-        }
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        editedFilesObservation = Task { [weak self] in
-            for await value in ObservationStream({ settings.snapshot.agentPaneEditedFiles }) {
-                guard let self else { return }
-                editedFiles = value
-                push()
-            }
-        }
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        zoomObservation = Task { [weak self] in
-            for await value in ObservationStream({ settings.snapshot.agentPaneZoom }) {
-                guard let self else { return }
-                zoom = value
-                push()
-            }
-        }
+        previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }
+        editedFilesObservation = observe({ settings.snapshot.agentPaneEditedFiles }, push: push) { $0.editedFiles = $1 }
+        zoomObservation = observe({ settings.snapshot.agentPaneZoom }, push: push) { $0.zoom = $1 }
         composerObservation = Task { [weak self] in
             for await value in ObservationStream({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
@@ -91,6 +70,19 @@ final class AgentPanePageSettings {
         }
     }
 
+    /// One cmux.json value, followed: each change is stored by `store`, then `push` reaches the open views.
+    private func observe<Value: Sendable>(_ read: @escaping @MainActor @Sendable () -> Value, push: @escaping () -> Void,
+                                          store: @escaping (AgentPanePageSettings, Value) -> Void) -> Task<Void, Never> {
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        Task { [weak self] in
+            for await value in ObservationStream(read) {
+                guard let self else { return }
+                store(self, value)
+                push()
+            }
+        }
+    }
+
     /// The composer's Hide or Show Context Usage and Hide dictation button: writes the flag at
     /// `path` (`agentPane.showContextUsage`, `agentPane.showDictation`), which the observation
     /// above then pushes to every page.
@@ -106,5 +98,7 @@ final class AgentPanePageSettings {
         sidebarPreviewVariant.push(to: view)
         composer.push(to: view)
         view.pushDiffColors(diffColors)
+        // `sessions.allowFullAccess`, read per frame by the transport: a change applies at the next mode switch.
+        view.model.transport.allowsFullAccess = { [weak self] in self?.settings?.snapshot.sessions.allowsFullAccess ?? true }
     }
 }
