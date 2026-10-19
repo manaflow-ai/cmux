@@ -17,12 +17,13 @@
 //! On disk it is `<ACPMUX_HOME>/forum/posts.jsonl`, one record per line
 //! (`post`, `delivered` or `ack`), owner-only like the mailbox; the daemon
 //! replays it at start. A line that does not parse is skipped, so a torn last
-//! write loses only itself.
+//! write loses only itself. A post is flushed to disk before it counts; marks
+//! are not (a lost mark only means a rule is told once more).
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::io::{BufRead, Write};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -147,6 +148,8 @@ struct State {
     index: BTreeMap<String, usize>,
     /// Key to the index of its newest announce (retired included).
     current: BTreeMap<String, usize>,
+    /// Key to the indexes of every announce it had, oldest first.
+    history: BTreeMap<String, Vec<usize>>,
     delivered: BTreeMap<String, Vec<Mark>>,
     acks: BTreeMap<String, Vec<Mark>>,
 }
@@ -164,6 +167,7 @@ impl State {
                     && let Some(key) = &post.key
                 {
                     self.current.insert(key.clone(), i);
+                    self.history.entry(key.clone()).or_default().push(i);
                 }
                 self.posts.push(post);
             }
@@ -174,6 +178,17 @@ impl State {
                 mark(self.acks.entry(post_id).or_default(), session_id, at);
             }
         }
+    }
+
+    fn delivered_to(&self, post_id: &str, session: &str) -> bool {
+        self.delivered.get(post_id).is_some_and(|m| m.iter().any(|m| m.session_id == session))
+    }
+
+    /// Whether `session` was told any rule of `key` before its current post.
+    fn told_key(&self, key: &str, session: &str) -> bool {
+        self.history.get(key).is_some_and(|h| {
+            h.iter().rev().skip(1).any(|&i| self.delivered_to(&self.posts[i].id, session))
+        })
     }
 
     fn view(&self, post: &Post) -> PostView {
@@ -212,17 +227,20 @@ impl Forum {
         let path = root.join("posts.jsonl");
         let mut state = State::default();
         if path.exists() {
-            let file = crate::config::private_state_file(&path)?;
-            for line in std::io::BufReader::new(file).lines() {
-                let line = line.with_context(|| format!("read {}", path.display()))?;
-                if let Ok(record) = serde_json::from_str::<Record>(&line) {
+            let mut bytes = Vec::new();
+            crate::config::private_state_file(&path)?
+                .read_to_end(&mut bytes)
+                .with_context(|| format!("read {}", path.display()))?;
+            // Line by line as bytes: a torn line (even mid-character) is skipped, never fatal.
+            for line in bytes.split(|&b| b == b'\n') {
+                if let Ok(record) = serde_json::from_slice::<Record>(line) {
                     state.apply(record);
                 }
             }
-        }
-        // A torn last line gets its end, so the next record starts on its own line.
-        if std::fs::read(&path).is_ok_and(|b| b.last().is_some_and(|&c| c != b'\n')) {
-            append_private(&path)?.write_all(b"\n")?;
+            // A torn last line gets its end, so the next record starts on its own line.
+            if bytes.last().is_some_and(|&c| c != b'\n') {
+                append_private(&path)?.write_all(b"\n")?;
+            }
         }
         Ok(Self { state: Mutex::new(state), path: Some(path) })
     }
@@ -231,13 +249,23 @@ impl Forum {
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn write(&self, record: &Record) -> Result<()> {
+    /// Appends `records` in one write; `durable` flushes them to disk first.
+    fn write(&self, records: &[Record], durable: bool) -> Result<()> {
         let Some(path) = &self.path else { return Ok(()) };
-        let mut line = serde_json::to_vec(record)?;
-        line.push(b'\n');
+        let mut bytes = Vec::new();
+        for record in records {
+            serde_json::to_writer(&mut bytes, record)?;
+            bytes.push(b'\n');
+        }
         let mut file = append_private(path).with_context(|| format!("open {}", path.display()))?;
-        file.write_all(&line)?;
-        file.sync_data()?;
+        if let Err(e) = file.write_all(&bytes) {
+            // A part written is a torn line: end it, so the next record starts on its own.
+            let _ = file.write_all(b"\n");
+            return Err(e.into());
+        }
+        if durable {
+            file.sync_data()?;
+        }
         Ok(())
     }
 
@@ -265,7 +293,7 @@ impl Forum {
         let current = post.key.as_ref().and_then(|k| s.current.get(k)).map(|&i| &s.posts[i]);
         let post = check(current, post);
         let record = Record::Post(post.clone());
-        self.write(&record)?;
+        self.write(std::slice::from_ref(&record), true)?;
         s.apply(record);
         Ok(post)
     }
@@ -278,66 +306,86 @@ impl Forum {
         idx.into_iter().map(|i| &s.posts[i]).filter(|p| !p.retired).map(|p| s.view(p)).collect()
     }
 
-    /// The current rules `session` has not been delivered and did not write.
-    pub fn undelivered(&self, session: &str) -> Vec<Post> {
+    /// Open proposals: agents' posts that ask to replace a key's current rule.
+    pub fn proposals(&self) -> Vec<PostView> {
+        let s = self.lock();
+        s.posts
+            .iter()
+            .filter(|p| p.kind == Kind::Question)
+            .filter(|p| {
+                let target = p.key.as_ref().and_then(|k| s.current.get(k)).map(|&i| &s.posts[i].id);
+                target.is_some() && target == p.proposes.as_ref()
+            })
+            .map(|p| s.view(p))
+            .collect()
+    }
+
+    /// What `session` was not told yet, oldest first: each current rule it did
+    /// not write, and each retired key it had been told a rule of.
+    /// `all`: every current rule again (an agent that lost its context).
+    pub fn undelivered(&self, session: &str, all: bool) -> Vec<Post> {
         let s = self.lock();
         let mut idx: Vec<usize> = s.current.values().copied().collect();
         idx.sort_unstable();
         idx.into_iter()
             .map(|i| &s.posts[i])
-            .filter(|p| !p.retired && p.author.session_id() != Some(session))
+            .filter(|p| p.author.session_id() != Some(session))
+            .filter(|p| all || !s.delivered_to(&p.id, session))
             .filter(|p| {
-                !s.delivered.get(&p.id).is_some_and(|m| m.iter().any(|m| m.session_id == session))
+                !p.retired || (!all && p.key.as_ref().is_some_and(|k| s.told_key(k, session)))
             })
             .cloned()
             .collect()
     }
 
-    /// Whether `post` is still its key's current rule.
+    /// Whether `session` was told any earlier rule of `key`.
+    pub fn told_key(&self, key: &str, session: &str) -> bool {
+        self.lock().told_key(key, session)
+    }
+
+    /// Whether `post` is still its key's current post (a retired one included).
     pub fn is_current(&self, post_id: &str) -> bool {
         let s = self.lock();
-        s.index.get(post_id).is_some_and(|&i| {
-            let p = &s.posts[i];
-            !p.retired && p.key.as_ref().is_some_and(|k| s.current.get(k) == Some(&i))
-        })
+        s.index
+            .get(post_id)
+            .is_some_and(|&i| s.posts[i].key.as_ref().is_some_and(|k| s.current.get(k) == Some(&i)))
     }
 
-    pub fn mark_delivered(&self, post_id: &str, session: &str, at: u64) -> Result<bool> {
-        self.add_mark(post_id, session, at, false)
+    /// Records that `session` was told `post_ids`, in one write.
+    pub fn mark_delivered(&self, post_ids: &[String], session: &str, at: u64) -> Result<()> {
+        let mut s = self.lock();
+        let records: Vec<Record> = post_ids
+            .iter()
+            .filter(|id| s.index.contains_key(id.as_str()) && !s.delivered_to(id, session))
+            .map(|id| Record::Delivered { post_id: id.clone(), session_id: session.to_owned(), at })
+            .collect();
+        if records.is_empty() {
+            return Ok(());
+        }
+        self.write(&records, false)?;
+        for record in records {
+            s.apply(record);
+        }
+        Ok(())
     }
 
-    /// Records `session`'s ack; false when it had acked already. None: no such post.
+    /// Records `session`'s ack of an announcement; false when it had acked
+    /// already. None: no such announcement.
     pub fn ack(&self, post_id: &str, session: &str, at: u64) -> Option<Result<bool>> {
-        if !self.lock().index.contains_key(post_id) {
+        let mut s = self.lock();
+        let i = *s.index.get(post_id)?;
+        if s.posts[i].kind != Kind::Announce {
             return None;
         }
-        Some(self.add_mark(post_id, session, at, true))
-    }
-
-    fn add_mark(&self, post_id: &str, session: &str, at: u64, ack: bool) -> Result<bool> {
-        let mut s = self.lock();
-        let marks = if ack { &s.acks } else { &s.delivered };
-        if marks.get(post_id).is_some_and(|m| m.iter().any(|m| m.session_id == session)) {
-            return Ok(false);
+        if s.acks.get(post_id).is_some_and(|m| m.iter().any(|m| m.session_id == session)) {
+            return Some(Ok(false));
         }
-        let (post_id, session_id) = (post_id.to_owned(), session.to_owned());
-        let record = if ack {
-            Record::Ack { post_id, session_id, at }
-        } else {
-            Record::Delivered { post_id, session_id, at }
-        };
-        self.write(&record)?;
-        s.apply(record);
-        Ok(true)
-    }
-
-    /// Every session the post was delivered to.
-    pub fn delivered_to(&self, post_id: &str) -> Vec<String> {
-        let s = self.lock();
-        s.delivered
-            .get(post_id)
-            .map(|m| m.iter().map(|m| m.session_id.clone()).collect())
-            .unwrap_or_default()
+        let record =
+            Record::Ack { post_id: post_id.to_owned(), session_id: session.to_owned(), at };
+        Some(self.write(std::slice::from_ref(&record), false).map(|()| {
+            s.apply(record);
+            true
+        }))
     }
 }
 
@@ -396,14 +444,15 @@ mod tests {
         forum.post_with(post("a", "builds", "one", leo()), keep).unwrap();
         let b = forum.post_with(post("b", "builds", "two", leo()), keep).unwrap();
         assert_eq!(b.supersedes.as_deref(), Some("a"));
-        assert!(forum.mark_delivered("b", "s1", 2).unwrap());
-        assert!(!forum.mark_delivered("b", "s1", 3).unwrap());
+        forum.mark_delivered(&["b".into()], "s1", 2).unwrap();
+        forum.mark_delivered(&["b".into()], "s1", 3).unwrap();
+        assert_eq!(forum.get("b").unwrap().delivered.len(), 1);
         assert!(forum.ack("b", "s1", 4).unwrap().unwrap());
         assert!(forum.ack("zz", "s1", 4).is_none());
         // A torn last line is skipped.
         let path = root.join("posts.jsonl");
         let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
-        f.write_all(b"{\"type\":\"post\",\"id\":").unwrap();
+        f.write_all(b"{\"type\":\"post\",\"body\":\"\xc3").unwrap();
 
         let again = Forum::open(&root).unwrap();
         let rules = again.rules();
@@ -411,8 +460,19 @@ mod tests {
         assert_eq!(rules[0].post.id, "b");
         assert_eq!(rules[0].acks[0].session_id, "s1");
         assert!(!again.is_current("a"));
-        assert!(again.undelivered("s1").is_empty());
-        assert_eq!(again.undelivered("s2").len(), 1);
+        assert!(again.undelivered("s1", false).is_empty());
+        assert_eq!(again.undelivered("s1", true).len(), 1);
+        assert_eq!(again.undelivered("s2", false).len(), 1);
+        // A retired key is told only to the sessions that had one of its rules.
+        let mut r = post("c", "builds", "", leo());
+        r.retired = true;
+        again.post_with(r, keep).unwrap();
+        assert!(again.rules().is_empty());
+        assert_eq!(again.undelivered("s1", false).len(), 1);
+        assert!(again.undelivered("s2", false).is_empty());
+        // The log stays writable after the torn line.
+        let reopened = Forum::open(&root).unwrap();
+        assert!(reopened.get("c").unwrap().post.retired);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

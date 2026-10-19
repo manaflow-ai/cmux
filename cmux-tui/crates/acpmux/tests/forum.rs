@@ -36,7 +36,13 @@ const ACK: &str = "_acpmux/forum/ack";
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {
+            "fake": {"argv": ["python3", FAKE]},
+            "steer": {"argv": ["python3", FAKE], "env": {"FAKE_CODEX_STEER": "1"}},
+            "noload": {"argv": ["python3", FAKE], "env": {"FAKE_NO_LOAD": "1"}},
+        },
+        // A compactor's isolation: no cmux tools, so no rules.
+        "presets": {"iso": {"harness": "fake", "env": {"ACPMUX_AGENT_TOOLS": "0"}}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
     }))
@@ -117,8 +123,27 @@ impl Client {
     }
 
     async fn new_session(&mut self) -> String {
-        let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
+        self.new_session_with(json!({"harness": "fake"})).await
+    }
+
+    /// A session with these `_meta.acpmux` fields (a harness, a preset).
+    async fn new_session_with(&mut self, mux: Value) -> String {
+        let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": mux}});
         self.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned()
+    }
+
+    /// Every text chunk the session's agent streamed, in order.
+    async fn chunks(&mut self, id: &str) -> Vec<String> {
+        let events = self
+            .ok("_acpmux/events", json!({"sessionId": id, "kinds": ["agent_message_chunk"]}))
+            .await;
+        events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect()
     }
 
     /// One prompt, to its turn's end; the agent's reply (the echo of all it got).
@@ -256,11 +281,9 @@ async fn urgent_rules_are_pushed_and_a_superseded_one_is_never_delivered() {
     let d = app.new_session().await;
     app.prompt(&d, "warm up").await;
 
-    // A running turn: the urgent rule waits behind it as a prompt.
-    let mut bg = Client::person(&hub).await;
-    let slow = json!({"sessionId": d, "prompt": [{"type": "text", "text": "slow"}]});
-    tokio::spawn(async move { bg.call("session/prompt", slow).await });
-    app.ok("_acpmux/wait", json!({"sessions": [d], "until": ["running"], "timeoutMs": 5000})).await;
+    // A running turn, held at a gate: the urgent rule waits behind it as a prompt.
+    let gate = Gate::new();
+    gate.hold(&hub, &d).await;
     let u1 = app
         .ok(ANNOUNCE, json!({"key": "load", "body": "Stop building on cosmic-gray.", "urgent": true, "account": "leo"}))
         .await;
@@ -268,12 +291,148 @@ async fn urgent_rules_are_pushed_and_a_superseded_one_is_never_delivered() {
     // Superseded while it still waits: taken back before it runs.
     app.ok(ANNOUNCE, json!({"key": "load", "body": "Builds may use cosmic-gray again.", "urgent": true, "account": "leo"}))
         .await;
-    app.ok("_acpmux/wait", json!({"sessions": [d], "until": ["ready"], "timeoutMs": 20000})).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    app.ok("_acpmux/wait", json!({"sessions": [d], "until": ["ready"], "timeoutMs": 20000})).await;
+    gate.open().await;
+    // Queued behind the pushed rule: when this prompt is answered, the push ran.
+    let later = app.prompt(&d, "later").await;
     let all = app.replies(&d).await.join("\n");
     assert!(all.contains("Builds may use cosmic-gray again."), "{all}");
     assert!(!all.contains("Stop building on cosmic-gray."), "{all}");
     // Delivered once: the next prompt does not repeat it.
-    assert!(!app.prompt(&d, "later").await.contains("cosmic-gray"));
+    assert!(!later.contains("cosmic-gray"), "{later}");
+}
+
+#[tokio::test]
+async fn an_urgent_rule_whose_prompt_was_removed_is_told_on_the_next_prompt() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let d = app.new_session().await;
+    app.prompt(&d, "warm up").await;
+
+    // A running turn: the urgent rule waits behind it, and the person removes it.
+    let gate = Gate::new();
+    gate.hold(&hub, &d).await;
+    let u = app
+        .ok(ANNOUNCE, json!({"key": "disk", "body": "Keep target dirs small.", "urgent": true, "account": "leo"}))
+        .await;
+    assert_eq!(u["pushed"], json!([d.as_str()]), "{u}");
+    let prompt_id = format!("forum-{}", u["post"]["id"].as_str().unwrap());
+    let r = app.ok("_acpmux/queue_remove", json!({"sessionId": d, "promptId": prompt_id})).await;
+    assert_eq!(r["removed"], true, "{r}");
+    gate.open().await;
+    app.ok("_acpmux/wait", json!({"sessions": [d], "until": ["ready"], "timeoutMs": 20000})).await;
+    // Not told yet: neither delivered nor left out of the next prompt.
+    let rule = app.rule("disk").await.unwrap();
+    assert!(rule["delivered"].as_array().unwrap().is_empty(), "{rule}");
+    let got = app.prompt(&d, "next").await;
+    assert!(got.contains("Keep target dirs small."), "{got}");
+    assert!(!app.prompt(&d, "after").await.contains("target dirs"));
+}
+
+/// A turn held open by the stand-in agent's `gate: <fifo>` prompt until the test opens it.
+struct Gate(std::path::PathBuf);
+
+impl Gate {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!("acpmux-forum-gate-{}", uuid::Uuid::now_v7()));
+        assert!(std::process::Command::new("mkfifo").arg(&path).status().unwrap().success());
+        Gate(path)
+    }
+
+    /// Starts the held turn on `session` and returns once it runs.
+    async fn hold(&self, hub: &Arc<Hub>, session: &str) {
+        let mut bg = Client::person(hub).await;
+        let text = format!("gate: {}", self.0.display());
+        let p = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
+        tokio::spawn(async move { bg.call("session/prompt", p).await });
+        let mut c = Client::person(hub).await;
+        c.ok(
+            "_acpmux/wait",
+            json!({"sessions": [session], "until": ["running"], "timeoutMs": 10000}),
+        )
+        .await;
+    }
+
+    /// Lets the held turn end (the write waits for the agent to open the fifo).
+    async fn open(self) {
+        let path = self.0.clone();
+        tokio::task::spawn_blocking(move || std::fs::write(&path, b"go\n")).await.unwrap().unwrap();
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+#[tokio::test]
+async fn a_rule_steered_into_a_running_turn_counts_as_told() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let s = app.new_session_with(json!({"harness": "steer"})).await;
+    app.prompt(&s, "warm up").await;
+    // A running turn of an agent that steers: the urgent rule joins it.
+    let mut bg = Client::person(&hub).await;
+    let work = json!({"sessionId": s, "prompt": [{"type": "text", "text": "work"}]});
+    tokio::spawn(async move { bg.call("session/prompt", work).await });
+    app.ok("_acpmux/wait", json!({"sessions": [s], "until": ["running"], "timeoutMs": 10000}))
+        .await;
+    let u = app
+        .ok(ANNOUNCE, json!({"key": "ci", "body": "CI waits use glaeda-gh.", "urgent": true, "account": "leo"}))
+        .await;
+    assert_eq!(u["pushed"], json!([s.as_str()]), "{u}");
+    let rule = app.rule("ci").await.unwrap();
+    let delivered: Vec<&str> = rule["delivered"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["sessionId"].as_str())
+        .collect();
+    assert_eq!(delivered, [s.as_str()], "{rule}");
+    app.ok("_acpmux/wait", json!({"sessions": [s], "until": ["ready"], "timeoutMs": 20000})).await;
+    let before = app.chunks(&s).await.len();
+    app.prompt(&s, "after").await;
+    let after = app.chunks(&s).await[before..].join("\n");
+    assert!(after.contains("turn: after") && !after.contains("glaeda-gh"), "{after}");
+}
+
+#[tokio::test]
+async fn a_compactor_preset_gets_no_rules() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let iso = app.new_session_with(json!({"preset": "iso"})).await;
+    app.prompt(&iso, "warm up").await;
+    let u = app
+        .ok(
+            ANNOUNCE,
+            json!({"key": "focus", "body": "Ship the forum.", "urgent": true, "account": "leo"}),
+        )
+        .await;
+    assert_eq!(u["pushed"], json!([]), "{u}");
+    let got = app.prompt(&iso, "compact this").await;
+    assert!(!got.contains("cmux-rules-context") && !got.contains("Ship the forum."), "{got}");
+}
+
+#[tokio::test]
+async fn a_restored_agent_session_is_told_every_rule_again() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let r = app.new_session_with(json!({"harness": "noload"})).await;
+    app.ok(
+        ANNOUNCE,
+        json!({"key": "hosts", "body": "Mailbox is cmux-lawrence.", "account": "leo"}),
+    )
+    .await;
+    assert!(app.prompt(&r, "hello").await.contains("Mailbox is cmux-lawrence."));
+    // The agent exits; it cannot load its session, so a new one gets the transcript.
+    app.ok(
+        "session/prompt",
+        json!({"sessionId": r, "prompt": [{"type": "text", "text": "answer-then-exit"}]}),
+    )
+    .await;
+    let session = hub.resolve(&r).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while hub.session_summary(&session)["status"] != "disconnected" {
+        assert!(tokio::time::Instant::now() < deadline, "the agent never exited");
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let got = app.prompt(&r, "back").await;
+    assert!(got.contains("<restored_transcript"), "{got}");
+    assert!(got.contains("Mailbox is cmux-lawrence."), "{got}");
 }
