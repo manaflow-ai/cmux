@@ -32,6 +32,16 @@ export interface WebhookDeliveryStoreService {
 
 export class WebhookDeliveryStore extends Context.Tag("cmux-vm/WebhookDeliveryStore")<WebhookDeliveryStore, WebhookDeliveryStoreService>() {}
 
+export interface DaytonaWebhookDeliveryStoreService {
+  readonly processed: (messageId: string) => Effect.Effect<boolean, StoreError>;
+  readonly record: (messageId: string, eventType: string, processedAt: Date) => Effect.Effect<void, StoreError>;
+}
+
+export class DaytonaWebhookDeliveryStore extends Context.Tag("cmux-vm/DaytonaWebhookDeliveryStore")<
+  DaytonaWebhookDeliveryStore,
+  DaytonaWebhookDeliveryStoreService
+>() {}
+
 const Count = Schema.Union(Schema.Number, Schema.NumberFromString);
 const CountRow = Schema.Struct({ n: Count });
 const SeenRow = Schema.Struct({ first_seen_at: Schema.Union(Schema.DateFromSelf, Schema.Date) });
@@ -134,6 +144,28 @@ export const sqlWebhookDeliveryStoreLayer: Layer.Layer<WebhookDeliveryStore, nev
           ),
     };
     return service;
+  }),
+);
+
+export const sqlDaytonaWebhookDeliveryStoreLayer: Layer.Layer<DaytonaWebhookDeliveryStore, never, SqlClient> = Layer.effect(
+  DaytonaWebhookDeliveryStore,
+  Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    return {
+      processed: (messageId) =>
+        sql
+          .query("daytonaWebhook.processed", `SELECT count(*)::int AS n FROM cmux_vm.daytona_webhook_deliveries WHERE message_id = $1`, [messageId])
+          .pipe(Effect.flatMap(countOf("daytonaWebhook.processed")), Effect.map((n) => n > 0)),
+      record: (messageId, eventType, processedAt) =>
+        sql
+          .query(
+            "daytonaWebhook.record",
+            `INSERT INTO cmux_vm.daytona_webhook_deliveries (message_id, event_type, processed_at)
+             VALUES ($1, $2, $3::timestamptz) ON CONFLICT (message_id) DO NOTHING`,
+            [messageId, eventType, processedAt.toISOString()],
+          )
+          .pipe(Effect.asVoid),
+    } satisfies DaytonaWebhookDeliveryStoreService;
   }),
 );
 

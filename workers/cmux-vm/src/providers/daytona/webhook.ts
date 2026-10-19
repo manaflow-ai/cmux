@@ -1,9 +1,9 @@
 import { Effect, Redacted } from "effect";
 import { verifyWebhookSignature } from "../../auth/webhook-signature.ts";
+import type { DaytonaWebhookDeliveryStoreService } from "../../db/identity.ts";
 import type { UsageEvent } from "../../metering/recorder.ts";
 
 const MAX_BODY_BYTES = 64 * 1024;
-const REPLAY_WINDOW_MS = 5 * 60 * 1000;
 
 export interface DaytonaUsageResource {
   readonly tenantId: string;
@@ -17,6 +17,7 @@ export interface DaytonaWebhookConfig {
   /** Resolves the ownership row and current resources without trusting webhook tenant fields. */
   readonly resolveSandbox: (upstreamVmId: string) => Promise<DaytonaUsageResource | null>;
   readonly recorder?: { readonly record: (event: UsageEvent) => Effect.Effect<void> };
+  readonly deliveries: DaytonaWebhookDeliveryStoreService;
   readonly nowMs?: () => number;
 }
 
@@ -36,10 +37,6 @@ const eventAt = (object: Record<string, unknown>, nowMs: number): Date => {
   return Number.isNaN(at.getTime()) ? new Date(nowMs) : at;
 };
 
-const cleanup = (seen: Map<string, number>, nowMs: number): void => {
-  for (const [id, at] of seen) if (nowMs - at > REPLAY_WINDOW_MS) seen.delete(id);
-};
-
 const eventFor = (payload: Record<string, unknown>, resource: DaytonaUsageResource, at: Date): UsageEvent | null => {
   const oldState = stringField(payload, "oldState");
   const newState = stringField(payload, "newState");
@@ -53,13 +50,14 @@ const eventFor = (payload: Record<string, unknown>, resource: DaytonaUsageResour
   }
   if (newState === "paused") return { kind: "vm_stopped", tenantId: resource.tenantId, upstreamVmId, at, reason: "pause" };
   if (newState === "destroyed") return { kind: "vm_stopped", tenantId: resource.tenantId, upstreamVmId, at, reason: "delete" };
-  if (newState === "stopped") return { kind: "vm_stopped", tenantId: resource.tenantId, upstreamVmId, at, reason: "stop" };
+  if (newState === "stopped" || newState === "archived" || newState === "error" || newState === "destroying") {
+    return { kind: "vm_stopped", tenantId: resource.tenantId, upstreamVmId, at, reason: "stop" };
+  }
   return null;
 };
 
-/** Creates a signed Daytona webhook handler. Svix delivery ids are replay-protected in this isolate. */
+/** Creates a signed Daytona webhook handler. Delivery ids are persisted after successful processing. */
 export const makeDaytonaWebhookHandler = (config: DaytonaWebhookConfig) => {
-  const seen = new Map<string, number>();
   return (request: Request) =>
     Effect.gen(function* () {
       if (request.method !== "POST") return response(405, { _tag: "MethodNotAllowed", message: "Use POST" });
@@ -70,9 +68,7 @@ export const makeDaytonaWebhookHandler = (config: DaytonaWebhookConfig) => {
       const nowMs = config.nowMs?.() ?? Date.now();
       const signature = yield* Effect.tryPromise(() => verifyWebhookSignature(config.secret, request.headers, body, nowMs));
       if (!signature.ok) return response(401, { _tag: "Unauthorized", message: "Invalid webhook signature" });
-      cleanup(seen, nowMs);
-      if (seen.has(signature.messageId)) return response(200, { ok: true, duplicate: true });
-      seen.set(signature.messageId, nowMs);
+      if (yield* config.deliveries.processed(signature.messageId)) return response(200, { ok: true, duplicate: true });
       let parsed: unknown;
       try {
         parsed = JSON.parse(body);
@@ -89,6 +85,7 @@ export const makeDaytonaWebhookHandler = (config: DaytonaWebhookConfig) => {
       const event = eventFor(payload, resource, eventAt(payload, nowMs));
       if (event === null) return response(200, { ok: true, ignored: true });
       if (config.recorder !== undefined) yield* config.recorder.record(event);
+      yield* config.deliveries.record(signature.messageId, "sandbox.state.updated", new Date(nowMs));
       return response(200, { ok: true, recorded: event.kind });
     });
 };

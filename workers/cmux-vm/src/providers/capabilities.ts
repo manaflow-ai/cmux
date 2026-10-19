@@ -29,7 +29,7 @@ export const DAYTONA_CAPABILITIES: ProviderCapabilities = {
   provider: "daytona", // https://www.daytona.io/docs/en/sandboxes.md#create-sandboxes
   pauseWithMemory: false, // https://www.daytona.io/docs/en/sandboxes.md#pause--resume-sandboxes (the adapter uses the default container class)
   stop: "native", // https://www.daytona.io/docs/en/sandboxes.md#stop-sandboxes
-  snapshotRunning: true, // https://www.daytona.io/docs/en/sandboxes.md#sandbox-lifecycle (containers support filesystem snapshots)
+  snapshotRunning: false, // https://www.daytona.io/docs/en/sandboxes.md#sandbox-lifecycle (container cold snapshots require the sandbox to be stopped)
   fork: "snapshot-create", // https://www.daytona.io/docs/en/sandboxes.md#fork-sandboxes (container fork is refused; snapshot then create is supported)
   resize: "up-only", // https://www.daytona.io/docs/en/sandboxes.md#resize-sandboxes (the adapter exposes the contract's grow-only operation)
   ssh: "access-token", // https://www.daytona.io/docs/en/ssh-access.md#access-via-token

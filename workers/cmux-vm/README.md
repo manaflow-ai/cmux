@@ -77,7 +77,8 @@ creates, execs, pauses and deletes a VM by exact id on the smoke tenant.
 
 ## Daytona provider adapter
 
-The Daytona adapter lives under `src/providers/daytona/` and uses Daytona's REST API for
+The Daytona adapter lives in `src/upstream/live-daytona.ts` (with webhook code under
+`src/providers/daytona/`) and uses Daytona's REST API for
 sandbox lifecycle and the per-sandbox Toolbox API for command and file operations. It uses
 the default container sandbox class: `pause` is a native stop because container pause does
 not preserve memory, and forks use a filesystem snapshot followed by create. Daytona's

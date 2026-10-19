@@ -20,6 +20,13 @@ interface FakeSandbox {
   readonly toolboxProxyUrl: string;
 }
 
+interface FakeSnapshot {
+  readonly id: string;
+  readonly name: string;
+  state: "building" | "active";
+  readonly sandboxId: string;
+}
+
 const jsonObject = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
 
@@ -41,9 +48,9 @@ const bodyFor = (sandbox: FakeSandbox) => ({
   cpu: sandbox.cpu,
   memory: sandbox.memory,
   disk: sandbox.disk,
-  autoStopInterval: sandbox.autoStopInterval,
-  autoDeleteInterval: sandbox.autoDeleteInterval,
-  ttlMinutes: sandbox.ttlMinutes,
+  ...(sandbox.autoStopInterval === 0 ? {} : { autoStopInterval: sandbox.autoStopInterval }),
+  ...(sandbox.autoDeleteInterval < 0 ? {} : { autoDeleteInterval: sandbox.autoDeleteInterval }),
+  ...(sandbox.ttlMinutes === 0 ? {} : { ttlMinutes: sandbox.ttlMinutes }),
   createdAt: sandbox.createdAt,
   updatedAt: sandbox.updatedAt,
   toolboxProxyUrl: sandbox.toolboxProxyUrl,
@@ -51,6 +58,7 @@ const bodyFor = (sandbox: FakeSandbox) => ({
 
 export function makeFakeDaytona() {
   const sandboxes = new Map<string, FakeSandbox>();
+  const snapshots = new Map<string, FakeSnapshot>();
   const files = new Map<string, Uint8Array>();
   const calls: DaytonaCall[] = [];
   let nextId = 1;
@@ -76,9 +84,23 @@ export function makeFakeDaytona() {
   };
 
   const main = async (request: Request, url: URL): Promise<Response> => {
+    if (request.headers.get("authorization") !== "Bearer daytona-test-key") return Response.json({ message: "unauthorized" }, { status: 401 });
     const path = url.pathname.replace(/^\/api(?=\/)/u, "");
-    if (request.method === "DELETE" && /^\/snapshots\/[^/]+$/.test(path)) return new Response(null, { status: 204 });
-    const match = /^\/sandbox\/([^/]+)(?:\/(start|stop|resize|snapshot))?$/.exec(path);
+    const snapshotMatch = /^\/snapshots\/([^/]+)$/.exec(path);
+    if (snapshotMatch?.[1] !== undefined) {
+      const snapshotKey = decodeURIComponent(snapshotMatch[1]);
+      const snapshot = snapshots.get(snapshotKey) ?? [...snapshots.values()].find((candidate) => candidate.name === snapshotKey);
+      if (snapshot === undefined) return Response.json({ message: "not found" }, { status: 404 });
+      if (request.method === "DELETE") {
+        snapshots.delete(snapshot.id);
+        return new Response(null, { status: 204 });
+      }
+      if (request.method === "GET") {
+        if (snapshot.state === "building") snapshot.state = "active";
+        return Response.json({ id: snapshot.id, name: snapshot.name, state: snapshot.state });
+      }
+    }
+    const match = /^\/sandbox\/([^/]+)(?:\/(start|stop|resize|snapshot|toolbox-proxy-url))?$/.exec(path);
     if (path === "/sandbox" && request.method === "POST") {
       const body = jsonObject(await json(request));
       const resources = snapshotResources(typeof body.snapshot === "string" ? body.snapshot : undefined);
@@ -103,6 +125,7 @@ export function makeFakeDaytona() {
     const sandbox = sandboxes.get(decodeURIComponent(match[1]));
     if (sandbox === undefined) return Response.json({ message: "not found" }, { status: 404 });
     const operation = match[2];
+    if (request.method === "GET" && operation === "toolbox-proxy-url") return Response.json({ url: sandbox.toolboxProxyUrl });
     if (request.method === "GET" && operation === undefined) return Response.json(bodyFor(sandbox));
     if (request.method === "DELETE" && operation === undefined) {
       sandboxes.delete(sandbox.id);
@@ -125,11 +148,18 @@ export function makeFakeDaytona() {
       if (typeof body.disk === "number") sandbox.disk = body.disk;
       return Response.json(bodyFor(sandbox));
     }
-    if (request.method === "POST" && operation === "snapshot") return Response.json(bodyFor(sandbox));
+    if (request.method === "POST" && operation === "snapshot") {
+      const body = jsonObject(await json(request));
+      const name = typeof body.name === "string" ? body.name : `snapshot-${sandbox.id}`;
+      const snapshot: FakeSnapshot = { id: `snap-${nextId++}`, name, state: "building", sandboxId: sandbox.id };
+      snapshots.set(snapshot.id, snapshot);
+      return Response.json({ id: snapshot.id, name: snapshot.name, state: snapshot.state });
+    }
     return Response.json({ message: "not found" }, { status: 404 });
   };
 
   const toolbox = async (request: Request, url: URL): Promise<Response> => {
+    if (request.headers.get("authorization") !== "Bearer daytona-test-key") return Response.json({ message: "unauthorized" }, { status: 401 });
     const match = /^\/toolbox\/([^/]+)\/(process\/execute|files\/download|files\/upload-v2|files|files\/permissions)$/.exec(url.pathname);
     if (match?.[1] === undefined || match[2] === undefined || !sandboxes.has(decodeURIComponent(match[1]))) return Response.json({ message: "not found" }, { status: 404 });
     const sandboxId = decodeURIComponent(match[1]);
@@ -137,7 +167,10 @@ export function makeFakeDaytona() {
     if (operation === "files/permissions" && request.method === "POST") return new Response(null, { status: 200 });
     if (operation === "process/execute" && request.method === "POST") {
       const body = jsonObject(await json(request));
-      return Response.json({ result: `ran: ${String(body.command ?? "")}\n`, exitCode: 0 });
+      const envs = jsonObject(body.envs);
+      const command = typeof envs.CMUX_DAYTONA_COMMAND === "string" ? envs.CMUX_DAYTONA_COMMAND : String(body.command ?? "");
+      const stdout = btoa(`ran: ${command}\n`);
+      return Response.json({ result: `__CMUX_EXIT__0\n__CMUX_STDOUT__\n${stdout}\n__CMUX_STDERR__\n`, exitCode: 0 });
     }
     const path = url.searchParams.get("path") ?? "";
     const key = `${sandboxId}\u0000${path}`;

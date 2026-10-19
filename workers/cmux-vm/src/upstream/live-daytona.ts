@@ -1,14 +1,14 @@
 import { Effect, Redacted } from "effect";
-import type { UpstreamId } from "../../lib/ids.ts";
-import { UpstreamId as UpstreamIdSchema } from "../../lib/ids.ts";
-import { upstreamIdOf, type TenantOwnsResource } from "../../proofs/tenant-owns-resource.ts";
+import type { UpstreamId } from "../lib/ids.ts";
+import { UpstreamId as UpstreamIdSchema } from "../lib/ids.ts";
+import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamError,
   UpstreamVm,
   type FileRead,
   type SizeRequest,
   type UpstreamClientService,
-} from "../../upstream/client.ts";
+} from "./client.ts";
 
 export interface DaytonaClientConfig {
   readonly apiKey: Redacted.Redacted<string>;
@@ -43,9 +43,13 @@ class DaytonaHttpFailure extends Error {
 }
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_EXEC_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_VCPUS = 4;
 const MAX_MEMORY_MIB = 8192;
 const MAX_DISK_MIB = 10240;
+const DEFAULT_EXEC_TIMEOUT_MS = 30_000;
+const SNAPSHOT_TIMEOUT_MS = 120_000;
+const SNAPSHOT_POLL_MS = 250;
 const encoder = new TextEncoder();
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -88,10 +92,9 @@ const vmFromSandbox = (sandbox: DaytonaSandbox): UpstreamVm => {
   return {
     state: stateOf(sandbox.state),
     resources: { cpu: sandbox.cpu, memory: sandbox.memory * 1024, storage: sandbox.disk * 1024 },
-    idleTimeoutSeconds: sandbox.autoStopInterval === undefined ? null : sandbox.autoStopInterval === 0 ? -1 : sandbox.autoStopInterval * 60,
-    maxRunSeconds: sandbox.ttlMinutes === undefined ? null : sandbox.ttlMinutes === 0 ? -1 : sandbox.ttlMinutes * 60,
-    autoDeleteSeconds:
-      sandbox.autoDeleteInterval === undefined ? null : sandbox.autoDeleteInterval < 0 ? -1 : sandbox.autoDeleteInterval * 60,
+    idleTimeoutSeconds: sandbox.autoStopInterval === 0 ? -1 : sandbox.autoStopInterval * 60,
+    maxRunSeconds: null,
+    autoDeleteSeconds: sandbox.autoDeleteInterval < 0 ? -1 : sandbox.autoDeleteInterval * 60,
     createdAt: requiredDate(sandbox.createdAt),
     updatedAt: requiredDate(sandbox.updatedAt),
   };
@@ -109,9 +112,9 @@ const decodeSandbox = (value: unknown): DaytonaSandbox => {
     cpu: optionalNumber(object.cpu),
     memory: optionalNumber(object.memory),
     disk: optionalNumber(object.disk),
-    autoStopInterval: optionalNumber(object.autoStopInterval),
-    autoDeleteInterval: optionalNumber(object.autoDeleteInterval),
-    ttlMinutes: optionalNumber(object.ttlMinutes),
+    autoStopInterval: optionalNumber(object.autoStopInterval) ?? 0,
+    autoDeleteInterval: optionalNumber(object.autoDeleteInterval) ?? -1,
+    ttlMinutes: optionalNumber(object.ttlMinutes) ?? 0,
     createdAt: optionalString(object.createdAt),
     updatedAt: optionalString(object.updatedAt),
     toolboxProxyUrl: optionalString(object.toolboxProxyUrl),
@@ -125,12 +128,23 @@ const timeoutSignal = (timeoutMs: number): AbortSignal => AbortSignal.timeout(ti
 /** A fetch-backed Daytona adapter. The API key is only read in this module. */
 export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): UpstreamClientService {
   const base = new URL(config.apiUrl.endsWith("/") ? config.apiUrl : `${config.apiUrl}/`);
-  const sendRequest: typeof globalThis.fetch = config.fetch ?? globalThis.fetch;
+  const sendRequest: typeof fetch = config.fetch ?? ((request) => fetch(request));
+  const toolboxOrigins = new Set<string>([base.origin]);
+  if (!base.hostname.startsWith("proxy.", 0)) {
+    const toolboxOrigin = new URL(base.toString());
+    toolboxOrigin.hostname = `proxy.${base.hostname}`;
+    toolboxOrigins.add(toolboxOrigin.origin);
+  }
 
   const mainUrl = (path: string): URL => new URL(path.replace(/^\/+/, ""), base);
-  const toolboxUrl = (proxy: string, sandboxId: string, path: string): URL => {
-    const root = new URL(proxy.endsWith("/") ? proxy : `${proxy}/`);
-    return new URL(`${encodeURIComponent(sandboxId)}/${path.replace(/^\/+/, "")}`, root);
+  const toolboxUrl = (proxy: string, sandboxId: string, path: string): URL | null => {
+    try {
+      const root = new URL(proxy.endsWith("/") ? proxy : `${proxy}/`);
+      if (root.protocol !== "https:" || !toolboxOrigins.has(root.origin)) return null;
+      return new URL(`${encodeURIComponent(sandboxId)}/${path.replace(/^\/+/, "")}`, root);
+    } catch {
+      return null;
+    }
   };
 
   const send = (
@@ -142,10 +156,8 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
     Effect.tryPromise({
       try: async () => {
         const headers: Record<string, string> = { accept: "application/json", ...init.headers };
-        if (providerApi) {
-          headers.authorization = `Bearer ${Redacted.value(config.apiKey)}`;
-          if (config.organizationId !== undefined) headers["X-Daytona-Organization-ID"] = config.organizationId;
-        }
+        headers.authorization = `Bearer ${Redacted.value(config.apiKey)}`;
+        if (providerApi && config.organizationId !== undefined) headers["X-Daytona-Organization-ID"] = config.organizationId;
         let body: BodyInit | undefined;
         if (init.json !== undefined) {
           headers["content-type"] = "application/json";
@@ -174,11 +186,11 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
       catch: (cause) => new UpstreamError({ operation, status: cause instanceof DaytonaHttpFailure ? cause.status : null }),
     });
 
-  const readJson = (operation: string, response: Response): Effect.Effect<unknown, UpstreamError> =>
+  const readJson = (operation: string, response: Response, maxBytes = MAX_RESPONSE_BYTES): Effect.Effect<unknown, UpstreamError> =>
     Effect.tryPromise({
       try: async () => {
         const text = await response.text();
-        if (text.length > MAX_RESPONSE_BYTES) throw new Error("response too large");
+        if (text.length > maxBytes) throw new Error("response too large");
         return JSON.parse(text);
       },
       catch: () => new UpstreamError({ operation, status: response.status }),
@@ -254,21 +266,80 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
     if (size.memoryMib !== undefined && size.memoryMib > current.resources.memory) body.memory = Math.ceil(size.memoryMib / 1024);
     if (size.diskMib !== undefined && size.diskMib > current.resources.storage) body.disk = Math.ceil(size.diskMib / 1024);
     if (Object.keys(body).length === 0) return Effect.succeed(current);
-    return send("resizeVm", mainUrl(`/sandbox/${encodeURIComponent(id)}/resize`), { method: "POST", json: body }, true).pipe(
+    const needsStop = body.disk !== undefined;
+    const resize = send("resizeVm", mainUrl(`/sandbox/${encodeURIComponent(id)}/resize`), { method: "POST", json: body }, true).pipe(
       Effect.flatMap((response) => decodeSandboxResponse("resizeVm", response)),
       Effect.map(({ vm }) => vm),
     );
+    if (!needsStop) return resize;
+    return Effect.gen(function* () {
+      yield* action("resizeVm.stop", id, "stop");
+      yield* waitForVmState("resizeVm.stop", id, "stopped");
+      const resized = yield* resize;
+      yield* action("resizeVm.start", id, "start");
+      return yield* waitForVmState("resizeVm.start", id, "running").pipe(Effect.as(resized));
+    });
   };
 
   const sandboxSnapshotName = (tenantId: string, cmuxId: string): string => `cmux-vm-${config.environment}-${tenantId}-${cmuxId}`.slice(0, 128);
 
   const idOf = <C, R>(owns: TenantOwnsResource<C, R>): Effect.Effect<UpstreamId> => Effect.sync(() => upstreamIdOf(owns));
 
+  const waitForVmState = (operation: string, id: UpstreamId, expected: string): Effect.Effect<UpstreamVm, UpstreamError> => {
+    const deadline = Date.now() + SNAPSHOT_TIMEOUT_MS;
+    const poll = (): Effect.Effect<UpstreamVm, UpstreamError> =>
+      getSandbox(operation, id).pipe(
+        Effect.flatMap(({ vm }) =>
+          vm.state === expected
+            ? Effect.succeed(vm)
+            : Date.now() >= deadline
+              ? Effect.fail(new UpstreamError({ operation, status: 504 }))
+              : Effect.sleep(SNAPSHOT_POLL_MS).pipe(Effect.zipRight(poll())),
+        ),
+      );
+    return poll();
+  };
+
+  const waitForSnapshot = (name: string): Effect.Effect<UpstreamId, UpstreamError> => {
+    const deadline = Date.now() + SNAPSHOT_TIMEOUT_MS;
+    const poll = (): Effect.Effect<UpstreamId, UpstreamError> =>
+      send("snapshotVm", mainUrl(`/snapshots/${encodeURIComponent(name)}`), { method: "GET" }, true).pipe(
+        Effect.flatMap((response) => readJson("snapshotVm", response)),
+        Effect.flatMap((value) => {
+          const record = isRecord(value) ? value : {};
+          const id = typeof record.id === "string" ? record.id : null;
+          const state = typeof record.state === "string" ? record.state : null;
+          if (id !== null && (state === "active" || state === "ready" || state === "completed")) return Effect.succeed(upstreamId(id));
+          if (state === "error" || state === "failed" || Date.now() >= deadline) return Effect.fail(new UpstreamError({ operation: "snapshotVm", status: 502 }));
+          return Effect.sleep(SNAPSHOT_POLL_MS).pipe(Effect.zipRight(poll()));
+        }),
+        Effect.catchIf(
+          (error) => error.status === 404 && Date.now() < deadline,
+          () => Effect.sleep(SNAPSHOT_POLL_MS).pipe(Effect.zipRight(poll())),
+        ),
+      );
+    return poll();
+  };
+
+  const decodeBase64 = (value: string): Uint8Array | null => {
+    try {
+      const binary = atob(value);
+      return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    } catch {
+      return null;
+    }
+  };
+
   const execStream = (result: unknown): ReadableStream<Uint8Array> => {
     const record = isRecord(result) ? result : {};
-    const exitCode = typeof record.exitCode === "number" && Number.isInteger(record.exitCode) ? record.exitCode : null;
-    const stdout = typeof record.result === "string" ? record.result : "";
-    const body = encoder.encode(JSON.stringify({ exitCode, stdout, stderr: "" }));
+    const raw = typeof record.result === "string" ? record.result : "";
+    const marker = /^__CMUX_EXIT__(-?\d+)\n__CMUX_STDOUT__\n([A-Za-z0-9+/=]*)\n__CMUX_STDERR__\n([A-Za-z0-9+/=]*)\n?$/u.exec(raw);
+    const stdoutBytes = marker === null ? null : decodeBase64(marker[2] ?? "");
+    const stderrBytes = marker === null ? null : decodeBase64(marker[3] ?? "");
+    const exitCode = marker === null ? (typeof record.exitCode === "number" && Number.isInteger(record.exitCode) ? record.exitCode : null) : Number(marker[1]);
+    const stdout = stdoutBytes === null ? raw : new TextDecoder().decode(stdoutBytes);
+    const stderr = stderrBytes === null ? (typeof record.stderr === "string" ? record.stderr : "") : new TextDecoder().decode(stderrBytes);
+    const body = encoder.encode(JSON.stringify({ exitCode, stdout, stderr }));
     return new ReadableStream({
       start(controller) {
         controller.enqueue(body);
@@ -277,38 +348,58 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
     });
   };
 
-  const toolboxRequest = (operation: string, sandbox: DaytonaSandbox, path: string, init: Parameters<typeof send>[2]) => {
-    if (sandbox.toolboxProxyUrl === undefined) return Effect.fail(new UpstreamError({ operation, status: null }));
-    return send(operation, toolboxUrl(sandbox.toolboxProxyUrl, sandbox.id, path), init, false).pipe(Effect.flatMap((response) => readJson(operation, response)));
+  const toolboxProxy = (operation: string, sandbox: DaytonaSandbox): Effect.Effect<string, UpstreamError> => {
+    if (sandbox.toolboxProxyUrl !== undefined && toolboxUrl(sandbox.toolboxProxyUrl, sandbox.id, "/init") !== null) return Effect.succeed(sandbox.toolboxProxyUrl);
+    return send(operation, mainUrl(`/sandbox/${encodeURIComponent(sandbox.id)}/toolbox-proxy-url`), { method: "GET" }, true).pipe(
+      Effect.flatMap((response) => readJson(operation, response)),
+      Effect.flatMap((value) => {
+        const proxy = typeof value === "string" ? value : isRecord(value) && typeof value.url === "string" ? value.url : null;
+        return proxy !== null && toolboxUrl(proxy, sandbox.id, "/init") !== null
+          ? Effect.succeed(proxy)
+          : Effect.fail(new UpstreamError({ operation, status: 502 }));
+      }),
+    );
   };
+
+  const toolboxResponse = (operation: string, sandbox: DaytonaSandbox, path: string, init: Parameters<typeof send>[2]) =>
+    toolboxProxy(operation, sandbox).pipe(
+      Effect.flatMap((proxy) => {
+        const url = toolboxUrl(proxy, sandbox.id, path);
+        return url === null ? Effect.fail(new UpstreamError({ operation, status: 502 })) : send(operation, url, init, false);
+      }),
+    );
+
+  const toolboxRequest = (operation: string, sandbox: DaytonaSandbox, path: string, init: Parameters<typeof send>[2], maxBytes = MAX_RESPONSE_BYTES) =>
+    toolboxResponse(operation, sandbox, path, init).pipe(Effect.flatMap((response) => readJson(operation, response, maxBytes)));
 
   return {
     getVm: (_vm, { owns }) => idOf(owns).pipe(Effect.flatMap((id) => getSandbox("getVm", id)), Effect.map(({ vm }) => vm)),
 
     getVmForWrite: (_vm, { owns }) => idOf(owns).pipe(Effect.flatMap((id) => getSandbox("getVmForWrite", id)), Effect.map(({ vm }) => vm)),
 
-    createVm: (caller, spec, { source }) => {
-      if (!sizeIsValid(spec.size)) return Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
-      const sourceId = source === undefined ? null : upstreamIdOf(source.owns);
-      const requested = sizeBody(spec.size);
-      const body: Record<string, unknown> = {
-        name: `cmux-vm-${config.environment}-${caller.value.tenantId}-${spec.cmuxId}`.slice(0, 128),
-        snapshot: sourceId ?? sourceSnapshot(spec.size),
-        labels: { cmux_tenant: caller.value.tenantId, cmux_id: spec.cmuxId, cmux_env: spec.environment },
-        autoStopInterval: spec.idleTimeoutSeconds < 0 ? 0 : Math.max(1, Math.ceil(spec.idleTimeoutSeconds / 60)),
-        ...requested,
-      };
-      if (spec.maxRunSeconds !== undefined) body.ttlMinutes = spec.maxRunSeconds < 0 ? 0 : Math.max(1, Math.ceil(spec.maxRunSeconds / 60));
-      if (spec.autoDeleteSeconds !== undefined) body.autoDeleteInterval = spec.autoDeleteSeconds < 0 ? -1 : Math.ceil(spec.autoDeleteSeconds / 60);
-      return send("createVm", mainUrl("/sandbox"), { method: "POST", json: body }, true).pipe(
-        Effect.flatMap((response) => decodeSandboxResponse("createVm", response)),
-        Effect.map(({ sandbox, vm }) => {
-          const createdId = upstreamId(sandbox.id);
-          const discard = deleteById("discardVm", `/sandbox/${encodeURIComponent(createdId)}`).pipe(Effect.ignore);
-          return { upstreamId: createdId, vm, discard, grow: (size: SizeRequest) => growVm(createdId, vm, size) };
-        }),
-      );
-    },
+    createVm: (caller, spec, { source }) =>
+      Effect.gen(function* () {
+        if (!sizeIsValid(spec.size)) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 400 }));
+        if (spec.maxRunSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.maxRunSeconds", status: 409 }));
+        if (spec.autoDeleteSeconds !== undefined) return yield* Effect.fail(new UpstreamError({ operation: "createVm.autoDeleteSeconds", status: 409 }));
+        const sourceId = source === undefined ? null : yield* idOf(source.owns);
+        const requested = sizeBody(spec.size);
+        if (sourceId !== null && Object.keys(requested).length > 0) return yield* Effect.fail(new UpstreamError({ operation: "createVm", status: 409 }));
+        const body: Record<string, unknown> = {
+          name: `cmux-vm-${config.environment}-${caller.value.tenantId}-${spec.cmuxId}`.slice(0, 128),
+          ...(sourceId !== null ? { snapshot: sourceId } : Object.keys(requested).length > 0 ? { image: "ubuntu:22.04", ...requested } : { snapshot: sourceSnapshot(spec.size) }),
+          labels: { cmux_tenant: caller.value.tenantId, cmux_id: spec.cmuxId, cmux_env: spec.environment },
+          autoStopInterval: spec.idleTimeoutSeconds < 0 ? 0 : Math.max(1, Math.ceil(spec.idleTimeoutSeconds / 60)),
+        };
+        return yield* send("createVm", mainUrl("/sandbox"), { method: "POST", json: body }, true).pipe(
+          Effect.flatMap((response) => decodeSandboxResponse("createVm", response)),
+          Effect.map(({ sandbox, vm }) => {
+            const createdId = upstreamId(sandbox.id);
+            const discard = deleteById("discardVm", `/sandbox/${encodeURIComponent(createdId)}`).pipe(Effect.ignore);
+            return { upstreamId: createdId, vm, discard, grow: (size: SizeRequest) => growVm(createdId, vm, size) };
+          }),
+        );
+      }),
 
     startVm: (_vm, { owns }) => idOf(owns).pipe(Effect.flatMap((id) => action("startVm", id, "start"))),
 
@@ -325,11 +416,19 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
 
     snapshotForFork: (caller, _vm, spec, { owns }) =>
       idOf(owns).pipe(
-        Effect.flatMap((id) => {
+        Effect.flatMap((id) => getSandbox("snapshotVm", id)),
+        Effect.flatMap(({ sandbox, vm }) => {
+          const wasRunning = vm.state === "running";
           const snapshotName = sandboxSnapshotName(caller.value.tenantId, spec.cmuxId);
-          return send("snapshotVm", mainUrl(`/sandbox/${encodeURIComponent(id)}/snapshot`), { method: "POST", json: { name: snapshotName, includeMemory: false } }, true).pipe(
-            Effect.flatMap((response) => drain(response).pipe(Effect.as({ upstreamId: upstreamId(snapshotName), discard: deleteById("discardSnapshot", `/snapshots/${encodeURIComponent(snapshotName)}`).pipe(Effect.ignore) }))),
+          const id = upstreamId(sandbox.id);
+          const stop = wasRunning ? action("snapshotVm.stop", id, "stop").pipe(Effect.zipRight(waitForVmState("snapshotVm.stop", id, "stopped"))) : Effect.succeed(vm);
+          const take = stop.pipe(
+            Effect.zipRight(send("snapshotVm", mainUrl(`/sandbox/${encodeURIComponent(id)}/snapshot`), { method: "POST", json: { name: snapshotName, includeMemory: false } }, true)),
+            Effect.flatMap((response) => drain(response)),
+            Effect.zipRight(waitForSnapshot(snapshotName)),
+            Effect.map((snapshotId) => ({ upstreamId: snapshotId, discard: deleteById("discardSnapshot", `/snapshots/${encodeURIComponent(snapshotId)}`).pipe(Effect.ignore) })),
           );
+          return take.pipe(Effect.ensuring(wasRunning ? action("snapshotVm.start", id, "start").pipe(Effect.ignore) : Effect.void));
         }),
       ),
 
@@ -340,15 +439,22 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
         Effect.flatMap((id) => getSandbox("execVm", id)),
         Effect.flatMap(({ sandbox }) => {
           const envs: Record<string, string> = { ...spec.env };
-          let command = spec.command;
-          if (spec.stdinBase64 !== undefined) {
-            envs.CMUX_DAYTONA_STDIN = spec.stdinBase64;
-            envs.CMUX_DAYTONA_COMMAND = spec.command;
-            command = `printf '%s' "$CMUX_DAYTONA_STDIN" | base64 -d | sh -c "$CMUX_DAYTONA_COMMAND"`;
-          }
-          const request: Record<string, unknown> = { command, ...(Object.keys(envs).length === 0 ? {} : { envs }) };
-          if (spec.timeoutMs !== undefined) request.timeout = Math.max(1, Math.ceil(spec.timeoutMs / 1000));
-          return toolboxRequest("execVm", sandbox, "/process/execute", { method: "POST", json: request });
+          envs.CMUX_DAYTONA_COMMAND = spec.command;
+          const stdinPath = spec.stdinBase64 === undefined ? null : `/tmp/cmux-stdin-${crypto.randomUUID()}`;
+          const command = `tmp=$(mktemp -d); (sh -c "$CMUX_DAYTONA_COMMAND"${stdinPath === null ? "" : ` < ${JSON.stringify(stdinPath)}`} >"$tmp/stdout" 2>"$tmp/stderr"); code=$?; printf '__CMUX_EXIT__%s\\n__CMUX_STDOUT__\\n' "$code"; base64 -w0 "$tmp/stdout"; printf '\\n__CMUX_STDERR__\\n'; base64 -w0 "$tmp/stderr"; rm -rf "$tmp"; exit 0`;
+          const request: Record<string, unknown> = { command, ...(Object.keys(envs).length === 0 ? {} : { envs }), timeout: Math.max(1, Math.ceil((spec.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) / 1000)) };
+          const input = spec.stdinBase64 === undefined ? Effect.succeed<void>(undefined) : Effect.gen(function* () {
+            const bytes = decodeBase64(spec.stdinBase64 ?? "");
+            if (bytes === null || stdinPath === null) return yield* Effect.fail(new UpstreamError({ operation: "execVm", status: 400 }));
+            const body = new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(bytes); controller.close(); } });
+            yield* toolboxResponse("execVm.stdin", sandbox, `/files/upload-v2?path=${encodeURIComponent(stdinPath)}`, { method: "POST", body, length: bytes.byteLength, timeoutMs: 900_000 }).pipe(Effect.flatMap(drain));
+          });
+          const cleanup = stdinPath === null ? Effect.void : toolboxResponse("execVm.stdin.cleanup", sandbox, `/files?path=${encodeURIComponent(stdinPath)}`, { method: "DELETE" }).pipe(Effect.flatMap(drain), Effect.ignore);
+          return input.pipe(
+            Effect.zipRight(toolboxRequest("execVm", sandbox, "/process/execute", { method: "POST", json: request, timeoutMs: (spec.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS) + 30_000 }, MAX_EXEC_RESPONSE_BYTES)),
+            Effect.ensuring(cleanup),
+            Effect.catchIf((error) => error.status === 408, () => Effect.succeed({ exitCode: null, result: "", stderr: "Command timed out" })),
+          );
         }),
         Effect.map(execStream),
       ),
@@ -357,9 +463,8 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
       idOf(owns).pipe(
         Effect.flatMap((id) => getSandbox("readFile", id)),
         Effect.flatMap(({ sandbox }) => {
-          if (sandbox.toolboxProxyUrl === undefined) return Effect.fail(new UpstreamError({ operation: "readFile", status: null }));
           const init = range === undefined ? { method: "GET" as const, timeoutMs: 900_000 } : { method: "GET" as const, headers: { range }, timeoutMs: 900_000 };
-          return send("readFile", toolboxUrl(sandbox.toolboxProxyUrl, sandbox.id, `/files/download?path=${encodeURIComponent(path)}`), init, false).pipe(
+          return toolboxResponse("readFile", sandbox, `/files/download?path=${encodeURIComponent(path)}`, init).pipe(
             Effect.map((response): FileRead => ({
               status: response.status === 206 ? 206 : 200,
               contentRange: response.headers.get("content-range"),
@@ -374,14 +479,12 @@ export function makeDaytonaUpstreamClient(config: DaytonaClientConfig): Upstream
       idOf(owns).pipe(
         Effect.flatMap((id) => getSandbox("writeFile", id)),
         Effect.flatMap(({ sandbox }) => {
-          const proxy = sandbox.toolboxProxyUrl;
-          if (proxy === undefined) return Effect.fail(new UpstreamError({ operation: "writeFile", status: null }));
-          return send("writeFile", toolboxUrl(proxy, sandbox.id, `/files/upload-v2?path=${encodeURIComponent(file.path)}`), { method: "POST", body: file.body, length: file.length, timeoutMs: 900_000 }, false).pipe(
+          return toolboxResponse("writeFile", sandbox, `/files/upload-v2?path=${encodeURIComponent(file.path)}`, { method: "POST", body: file.body, length: file.length, timeoutMs: 900_000 }).pipe(
             Effect.flatMap(drain),
             Effect.flatMap(() =>
               file.mode === undefined
                 ? Effect.void
-                : send("writeFileMode", toolboxUrl(proxy, sandbox.id, `/files/permissions?path=${encodeURIComponent(file.path)}&mode=${file.mode.toString(8)}`), { method: "POST" }, false).pipe(Effect.flatMap(drain)),
+                : toolboxResponse("writeFileMode", sandbox, `/files/permissions?path=${encodeURIComponent(file.path)}&mode=${file.mode.toString(8)}`, { method: "POST" }).pipe(Effect.flatMap(drain)),
             ),
           );
         }),

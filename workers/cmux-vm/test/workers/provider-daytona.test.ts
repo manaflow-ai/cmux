@@ -11,7 +11,7 @@ import { Entitlements, tenantMayCreate } from "../../src/proofs/tenant-may-creat
 import { keyHasScope, type KeyHasScope } from "../../src/proofs/key-has-scope.ts";
 import type { Scope } from "../../src/domain/scopes.ts";
 import { tenantOwnsSnapshot, tenantOwnsVm } from "../../src/proofs/tenant-owns-resource.ts";
-import { makeDaytonaUpstreamClient } from "../../src/providers/daytona/live.ts";
+import { makeDaytonaUpstreamClient } from "../../src/upstream/live-daytona.ts";
 import { DAYTONA_CAPABILITIES } from "../../src/providers/capabilities.ts";
 import { makeDaytonaWebhookHandler } from "../../src/providers/daytona/webhook.ts";
 import type { UsageEvent } from "../../src/metering/recorder.ts";
@@ -71,6 +71,12 @@ describe("Daytona provider adapter", () => {
           if (decision._tag !== "granted") return yield* Effect.die("test create proof missing");
           const write = yield* scopeOf(caller, "vm:write");
           const create = yield* client.createVm(caller, { cmuxId: vmId, idleTimeoutSeconds: 120, environment: "test", size: { vcpus: 2, memoryMib: 4096, diskMib: 8192 } }, { mayCreate: decision.proof, scope: write });
+          const createCall = fake.calls.find((call) => call.method === "POST" && call.url.pathname.endsWith("/sandbox"));
+          expect(createCall?.body).toMatchObject({ image: "ubuntu:22.04", cpu: 2, memory: 4, disk: 8 });
+          expect(createCall?.body && typeof createCall.body === "object" && "snapshot" in createCall.body).toBe(false);
+          const unsupported = yield* Effect.either(client.createVm(caller, { cmuxId: newVmId(), idleTimeoutSeconds: 120, maxRunSeconds: 3600, environment: "test" }, { mayCreate: decision.proof, scope: write }));
+          expect(unsupported._tag).toBe("Left");
+          if (unsupported._tag === "Left") expect(unsupported.left.status).toBe(409);
           proofs.resources.push({ tenantId: tenant, kind: "vm", cmuxId: vmId, upstreamId: create.upstreamId, createdBy: "test", createdAt: new Date(), displayName: null, labels: {} });
           expect(create.vm).toMatchObject({ state: "running", resources: { cpu: 2, memory: 4096, storage: 8192 }, idleTimeoutSeconds: 120 });
           return yield* name(vmId, (vm) =>
@@ -143,8 +149,15 @@ describe("Daytona provider adapter", () => {
 
   it("reports the capability boundaries of the Daytona default sandbox", () => {
     expect(DAYTONA_CAPABILITIES.pauseWithMemory).toBe(false);
+    expect(DAYTONA_CAPABILITIES.snapshotRunning).toBe(false);
     expect(DAYTONA_CAPABILITIES.egressControl).toBe("allow-deny-list");
     expect(DAYTONA_CAPABILITIES.fork).toBe("snapshot-create");
+  });
+
+  it("requires the provider key on Toolbox calls", async () => {
+    const fake = makeFakeDaytona();
+    const response = await fake.fetch(new Request("https://proxy.daytona.test/toolbox/sbx-missing/process/execute", { method: "POST", body: "{}" }));
+    expect(response.status).toBe(401);
   });
 });
 
@@ -159,11 +172,16 @@ describe("Daytona lifecycle webhooks", () => {
 
   it("records a valid event and refuses tampering and replay", async () => {
     const recorded: UsageEvent[] = [];
+    const deliveries = new Map<string, boolean>();
     const handler = makeDaytonaWebhookHandler({
       secret,
       nowMs: () => 1792281600000,
       resolveSandbox: async () => ({ tenantId: "tenant_daytona", vcpus: 2, memoryMb: 4096, storageMb: 8192 }),
       recorder: { record: (event) => Effect.sync(() => void recorded.push(event)) },
+      deliveries: {
+        processed: (id) => Effect.succeed(deliveries.has(id)),
+        record: (id) => Effect.sync(() => void deliveries.set(id, true)),
+      },
     });
     const valid = await run(handler(await signedRequest("daytona-message-1")));
     expect(valid.status).toBe(200);
@@ -173,5 +191,24 @@ describe("Daytona lifecycle webhooks", () => {
     expect(await replay.json()).toEqual({ ok: true, duplicate: true });
     const tampered = await run(handler(await signedRequest("daytona-message-2", payload.replace("stopped", "destroyed"), payload)));
     expect(tampered.status).toBe(401);
+  });
+
+  it("does not mark a delivery until recording succeeds", async () => {
+    const deliveries = new Map<string, boolean>();
+    let attempts = 0;
+    const handler = makeDaytonaWebhookHandler({
+      secret,
+      nowMs: () => 1792281600000,
+      resolveSandbox: async () => ({ tenantId: "tenant_daytona", vcpus: 1, memoryMb: 1024, storageMb: 3072 }),
+      recorder: { record: () => { attempts += 1; return attempts === 1 ? Effect.fail(new Error("temporary")) : Effect.void; } },
+      deliveries: {
+        processed: (id) => Effect.succeed(deliveries.has(id)),
+        record: (id) => Effect.sync(() => void deliveries.set(id, true)),
+      },
+    });
+    await run(Effect.either(handler(await signedRequest("daytona-retry"))));
+    const second = await run(handler(await signedRequest("daytona-retry")));
+    expect(second.status).toBe(200);
+    expect(attempts).toBe(2);
   });
 });
