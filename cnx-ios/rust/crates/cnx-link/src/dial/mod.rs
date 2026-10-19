@@ -14,6 +14,7 @@ use crate::api::IceServer;
 use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
+pub(crate) mod turn;
 pub mod webrtc;
 pub mod wireguard;
 
@@ -47,10 +48,15 @@ impl TransportKind {
 pub enum LinkPath {
     /// Peer to peer (host, server-reflexive or hole-punched UDP).
     Direct,
-    /// Through the backend's WireGuard relay frames.
-    Relay,
-    /// Through a TURN server.
+    /// Through a TURN server, UDP on both legs.
     Turn,
+    /// Through a TURN server whose client leg is TCP or TLS (a network that
+    /// blocks UDP); WireGuard only.
+    TurnTls,
+    /// No working route at the moment (WireGuard: nothing from the peer
+    /// authenticated yet, or every route was refused). There is no backend
+    /// relay to fall back to any more.
+    NoPath,
 }
 
 #[derive(Debug, Clone)]
@@ -65,12 +71,22 @@ pub struct DialOptions {
     pub exclude_cgnat: bool,
     /// Relay only (the app's debug "simulate distant network" mode): skip
     /// every direct path. WebRTC uses ICE transport policy `relay` (only
-    /// TURN candidates from `ice_servers`; a dial without a TURN server
-    /// fails at once). WireGuard never sends plain UDP: with a TURN server
-    /// it offers only its relayed address and reaches the peer through
-    /// TURN (path `turn`), otherwise every datagram goes through the
-    /// backend relay frames (path `relay`).
+    /// TURN candidates from `ice_servers`). WireGuard never sends plain
+    /// UDP: it offers only its TURN relayed address and reaches the peer
+    /// through TURN (path `turn`, or `turn-tls` when the allocation had to
+    /// use TCP or TLS). Either fails the dial at once without a TURN server.
     pub relay_only: bool,
+    /// UDP blocked (the app's debug "simulate a network that blocks UDP"
+    /// mode, and the rig's): WireGuard neither sends nor accepts plain UDP
+    /// and skips TURN over UDP, so its only path is a TURN allocation over
+    /// TLS (or TCP), path `turn-tls`; without a `turns:` or TCP `turn:`
+    /// server the dial fails at once. WebRTC ignores it (webrtc-rs has no
+    /// TURN over TCP or TLS).
+    pub block_udp: bool,
+    /// Test support: trust these roots, not the public web PKI, for TURN
+    /// over TLS (a test TURN server's self-signed certificate).
+    #[doc(hidden)]
+    pub turn_tls_roots: Option<std::sync::Arc<rustls::RootCertStore>>,
     /// Test support: WireGuard silently drops every UDP datagram this side
     /// sends, as when the OS refuses the route (macOS Local Network
     /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
@@ -127,6 +143,8 @@ impl Default for DialOptions {
             include_loopback: false,
             exclude_cgnat: false,
             relay_only: false,
+            block_udp: false,
+            turn_tls_roots: None,
             drop_outbound_udp: false,
             refuse_udp_to: None,
             restrict_inbound_udp: false,
@@ -351,6 +369,11 @@ pub async fn connect(
             "relay only needs a TURN server, and the service offered none".into(),
         ));
     }
+    if kind == TransportKind::WireGuard
+        && let Some(reason) = wireguard::missing_turn(options)
+    {
+        return Err(DialError::Transport(reason.into()));
+    }
     let session_id = uuid::Uuid::new_v4().to_string();
     let events = SessionEvents::subscribe(signaling, &session_id);
     let dialer = kind.dialer();
@@ -429,8 +452,9 @@ mod tests {
         }
     }
 
-    /// A relay frame of an ended tunnel is answered `offline` with that
-    /// tunnel's session id; a new dial on the same socket must not fail on it.
+    /// An older peer's relay frame of an ended (or any) tunnel is answered
+    /// `relay_retired` with that tunnel's session id; a new dial on the same
+    /// socket must not fail on it.
     #[tokio::test]
     async fn another_sessions_error_does_not_fail_this_session() {
         let (session_tx, session) = mpsc::unbounded_channel();
@@ -438,8 +462,15 @@ mod tests {
         let mut events = SessionEvents { session, backend, session_id: "new".into() };
         backend_tx.send(error(Some("old"))).unwrap();
         tokio::task::yield_now().await;
-        session_tx.send(SessionEvent::Relay(bytes::Bytes::from_static(b"x"))).unwrap();
-        assert!(matches!(events.next().await, Ok(SessionEvent::Relay(_))));
+        let bye = SignalEnvelope {
+            to: "mac".into(),
+            from: "phone".into(),
+            session_id: "new".into(),
+            payload: SignalPayload::Bye { reason: "test".into() },
+            from_user_id: None,
+        };
+        session_tx.send(SessionEvent::Signal(bye)).unwrap();
+        assert!(matches!(events.next().await, Ok(SessionEvent::Signal(_))));
 
         backend_tx.send(error(Some("new"))).unwrap();
         assert!(matches!(events.next().await, Err(DialError::Refused { .. })));

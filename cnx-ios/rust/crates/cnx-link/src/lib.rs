@@ -8,6 +8,7 @@
 //!   trait, selected by [`TransportKind`].
 
 pub mod api;
+pub mod class_queue;
 pub mod dial;
 pub mod frame;
 pub mod link;

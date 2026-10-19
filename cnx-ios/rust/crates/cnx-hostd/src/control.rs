@@ -230,8 +230,9 @@ pub fn transport_name(kind: cnx_link::TransportKind) -> &'static str {
 pub fn path_name(path: cnx_link::dial::LinkPath) -> &'static str {
     match path {
         cnx_link::dial::LinkPath::Direct => "direct",
-        cnx_link::dial::LinkPath::Relay => "relay",
         cnx_link::dial::LinkPath::Turn => "turn",
+        cnx_link::dial::LinkPath::TurnTls => "turn-tls",
+        cnx_link::dial::LinkPath::NoPath => "none",
     }
 }
 
@@ -284,12 +285,12 @@ mod tests {
             session_id: "s".into(),
             phone_device_id: "p".into(),
             transport: "wireguard".into(),
-            path: "relay".into(),
+            path: "turn-tls".into(),
         })
         .unwrap();
         assert_eq!(
             line,
-            r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"relay"}"#
+            r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"turn-tls"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
         let request = |registered_at_ms| Event::PairRequest {

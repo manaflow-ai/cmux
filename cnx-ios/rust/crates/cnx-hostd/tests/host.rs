@@ -220,7 +220,11 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
 }
 
 async fn connect(fixture: &Fixture, kind: TransportKind) -> Result<Connected, DialError> {
-    cnx_link::dial::connect(&fixture.phone, &fixture.mac_id, kind, &options(), LinkConfig::default()).await
+    connect_with(fixture, kind, &options()).await
+}
+
+async fn connect_with(fixture: &Fixture, kind: TransportKind, options: &DialOptions) -> Result<Connected, DialError> {
+    cnx_link::dial::connect(&fixture.phone, &fixture.mac_id, kind, options, LinkConfig::default()).await
 }
 
 /// Everything the channel delivers until it closes, and the close code.
@@ -286,7 +290,11 @@ impl RdReader {
 }
 
 async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
-    let connected = connect(fixture, kind).await.expect("dial");
+    exercise_services_with(fixture, kind, &options()).await;
+}
+
+async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options: &DialOptions) {
+    let connected = connect_with(fixture, kind, options).await.expect("dial");
     let link = &connected.link;
 
     // echo
@@ -638,10 +646,21 @@ async fn services_over_wireguard() {
     exercise_services(&fixture, TransportKind::WireGuard).await;
 }
 
+/// The phone's network blocks UDP: every service works over the phone's
+/// TURN allocation over TLS (the backend relay that used to carry this is
+/// retired).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn services_over_the_wireguard_relay() {
-    let fixture = fixture(FakeOptions { strip_wg_endpoints: true, ..FakeOptions::default() }).await;
-    exercise_services(&fixture, TransportKind::WireGuard).await;
+async fn services_over_wireguard_turn_tls_with_udp_blocked() {
+    let turn = cnx_link::testing::TestTurn::start().await;
+    let fixture = fixture(FakeOptions { ice_servers: vec![turn.ice.clone()], ..FakeOptions::default() }).await;
+    let phone = DialOptions {
+        ice_servers: vec![turn.ice.clone()],
+        block_udp: true,
+        turn_tls_roots: Some(Arc::clone(&turn.roots)),
+        ..options()
+    };
+    exercise_services_with(&fixture, TransportKind::WireGuard, &phone).await;
+    assert!(turn.stream_connections() >= 1, "the phone never connected to TURN over TLS");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

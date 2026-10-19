@@ -58,6 +58,7 @@ async fn round_trip(transport: Transport) {
             transport,
             include_loopback: true,
             relay_only: false,
+            block_udp: false,
             video_lane: false,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
@@ -65,8 +66,8 @@ async fn round_trip(transport: Transport) {
     .await
     .expect("connect");
     assert_eq!(handle.transport(), transport);
-    // WireGuard starts on the relay and moves to direct once both sides
-    // confirm UDP reaches them.
+    // WireGuard reports the path its peer's datagrams arrive on: direct on
+    // loopback.
     for _ in 0..100 {
         if handle.path() == LinkPath::Direct {
             break;
@@ -110,10 +111,12 @@ async fn wireguard_round_trip() {
     round_trip(Transport::WireGuard).await;
 }
 
-/// Relay only: WireGuard never leaves the backend relay frames.
+/// Relay only: WireGuard rides the phone's TURN allocation and never
+/// moves to the direct path (there is no backend relay any more).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn wireguard_relay_only_stays_on_the_relay() {
-    let server = FakeSignaling::start(FakeOptions::default()).await;
+async fn wireguard_relay_only_rides_turn() {
+    let turn = cnx_link::testing::TestTurn::start().await;
+    let server = FakeSignaling::start(FakeOptions { ice_servers: vec![turn.udp_only()], ..FakeOptions::default() }).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
     let recorder = Arc::new(Recorder::default());
@@ -127,13 +130,13 @@ async fn wireguard_relay_only_stays_on_the_relay() {
             transport: Transport::WireGuard,
             include_loopback: true,
             relay_only: true,
+            block_udp: false,
             video_lane: false,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
     )
     .await
     .expect("connect");
-    assert_eq!(handle.path(), LinkPath::Relay);
     let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
     let payload = vec![7u8; 200_000];
     channel.send(payload.clone()).await.unwrap();
@@ -147,14 +150,42 @@ async fn wireguard_relay_only_stays_on_the_relay() {
     assert_eq!(received, payload);
     // The direct UDP path would have been confirmed well within this.
     tokio::time::sleep(Duration::from_secs(2)).await;
-    assert_eq!(handle.path(), LinkPath::Relay);
+    assert_eq!(handle.path(), LinkPath::Turn);
     let events = recorder.0.lock().unwrap().clone();
-    assert!(
-        events.contains(&LinkEvent::Connected { transport: Transport::WireGuard, path: LinkPath::Relay }),
-        "{events:?}"
-    );
     assert!(!events.contains(&LinkEvent::PathChanged { path: LinkPath::Direct }), "{events:?}");
     handle.close();
+}
+
+/// Relay only over WireGuard without a TURN server has no path at all (the
+/// backend relay is retired): the dial fails at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wireguard_relay_only_without_turn_fails_fast() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let started = std::time::Instant::now();
+    let result = connect_inner(
+        ConnectRequest {
+            base_url: server.base_url.clone(),
+            token: "user:alice".into(),
+            team_id: "team".into(),
+            device_id: uuid::Uuid::new_v4().to_string(),
+            mac_device_id: mac_id,
+            transport: Transport::WireGuard,
+            include_loopback: true,
+            relay_only: false,
+            block_udp: true,
+            video_lane: false,
+        },
+        None,
+    )
+    .await;
+    match result {
+        Err(cnx_ffi::CnxError::Transport { message }) => assert!(message.contains("TURN"), "{message}"),
+        Err(other) => panic!("unexpected error {other:?}"),
+        Ok(_) => panic!("UDP-blocked WireGuard connected without TURN"),
+    }
+    assert!(started.elapsed() < Duration::from_secs(10));
 }
 
 /// Relay only over WebRTC needs TURN; the fake backend offers none, so the
@@ -175,6 +206,7 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
             transport: Transport::WebRtc,
             include_loopback: true,
             relay_only: true,
+            block_udp: false,
             video_lane: false,
         },
         None,
@@ -198,6 +230,7 @@ fn request(server: &FakeSignaling, device_id: &str, mac_id: &str) -> ConnectRequ
         transport: Transport::WebRtc,
         include_loopback: true,
         relay_only: false,
+        block_udp: false,
         video_lane: false,
     }
 }

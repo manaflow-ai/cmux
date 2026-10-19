@@ -1,17 +1,19 @@
 //! cnx-dial: dial a Mac running cnx-hostd and measure the link.
 //!
 //!   cnx-dial --base-url URL --token-file PATH --team TEAM --mac MAC_DEVICE_ID
-//!            [--transport webrtc|wireguard]... [--relay-only] [--exclude-cgnat]
-//!            [--bytes N] [--daemon] [--pings N] [--no-turn]
+//!            [--transport webrtc|wireguard]... [--relay-only] [--block-udp]
+//!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
 //!
 //! Prints one JSON line per transport: connect time, path, RTT, echo
 //! throughput, and the daemon `identify` answer.
 //!
 //! `--relay-only` (alias `--force-relay`) skips every direct path, as a
 //! distant network would: WebRTC uses only TURN candidates, WireGuard only
-//! TURN (or, without a TURN server, the backend relay frames). `--no-turn`
-//! drops the TURN servers `/v1/ice` returned, so WireGuard relay only
-//! measures the backend relay frames.
+//! TURN (UDP first, TLS when UDP gets no allocation). `--block-udp` makes
+//! WireGuard act as on a network that drops UDP: no plain UDP and no TURN
+//! over UDP, only TURN over TLS on 443 (path `turn-tls`). `--no-turn` drops
+//! the TURN servers `/v1/ice` returned (with `--relay-only` or
+//! `--block-udp` the dial then fails: there is no backend relay any more).
 
 use std::time::{Duration, Instant};
 
@@ -28,6 +30,7 @@ struct Args {
     mac: String,
     transports: Vec<TransportKind>,
     relay_only: bool,
+    block_udp: bool,
     no_turn: bool,
     no_input_lane: bool,
     exclude_cgnat: bool,
@@ -42,7 +45,7 @@ fn parse() -> Result<Args> {
     let (mut base_url, mut token_file, mut team, mut mac) = (None, None, None, None);
     let mut transports = Vec::new();
     let (mut relay_only, mut exclude_cgnat, mut daemon, mut no_turn) = (false, false, false, false);
-    let mut stock_ice_waits = false;
+    let (mut stock_ice_waits, mut block_udp) = (false, false);
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     let mut no_input_lane = false;
     while let Some(arg) = args.next() {
@@ -60,6 +63,7 @@ fn parse() -> Result<Args> {
             "--bytes" => bytes = value()?.parse()?,
             "--pings" => pings = value()?.parse()?,
             "--relay-only" | "--force-relay" => relay_only = true,
+            "--block-udp" => block_udp = true,
             "--exclude-cgnat" => exclude_cgnat = true,
             "--no-turn" => no_turn = true,
             "--no-input-lane" => no_input_lane = true,
@@ -80,6 +84,7 @@ fn parse() -> Result<Args> {
         mac: mac.context("--mac is required")?,
         transports,
         relay_only,
+        block_udp,
         no_turn,
         no_input_lane,
         exclude_cgnat,
@@ -126,6 +131,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         ice_servers,
         exclude_cgnat: args.exclude_cgnat,
         relay_only: args.relay_only,
+        block_udp: args.block_udp,
         input_lane: !args.no_input_lane,
         timeline: timeline.clone(),
         stock_ice_waits: args.stock_ice_waits,
@@ -214,6 +220,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     Ok(json!({
         "transport": format!("{kind:?}").to_lowercase(),
         "relay_only": args.relay_only,
+        "block_udp": args.block_udp,
         "no_turn": args.no_turn,
         "path": path,
         "ice_fetch_ms": millis(ice_fetch),
@@ -249,7 +256,7 @@ async fn main() -> Result<()> {
                 failed = true;
                 println!(
                     "{}",
-                    json!({"transport": format!("{kind:?}").to_lowercase(), "relay_only": args.relay_only, "error": format!("{error:#}")})
+                    json!({"transport": format!("{kind:?}").to_lowercase(), "relay_only": args.relay_only, "block_udp": args.block_udp, "error": format!("{error:#}")})
                 );
             }
         }

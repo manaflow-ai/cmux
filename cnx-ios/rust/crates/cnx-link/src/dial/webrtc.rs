@@ -323,7 +323,6 @@ fn follow(
                         }
                     }
                 },
-                Some(SessionEvent::Relay(_)) => {}
                 // A signaling outage does not end an established link.
                 Some(SessionEvent::Disconnected) | None => return,
             }
@@ -494,7 +493,7 @@ impl Dialer for WebRtcDialer {
                                 }
                             }
                         },
-                        SessionEvent::Relay(_) | SessionEvent::Disconnected => {}
+                        SessionEvent::Disconnected => {}
                     }},
                 }
             };
@@ -589,7 +588,7 @@ impl Dialer for WebRtcDialer {
                                 }
                             }
                         },
-                        SessionEvent::Relay(_) | SessionEvent::Disconnected => {}
+                        SessionEvent::Disconnected => {}
                     }},
                 }
             };
@@ -657,9 +656,6 @@ mod tests {
         ));
         let refused = Err(DialError::Refused { code: "offline".into(), message: String::new() });
         assert!(signaling_outage(refused, &timeline, true).is_err());
-        assert!(matches!(
-            signaling_outage(Ok(SessionEvent::Relay(bytes::Bytes::new())), &timeline, true),
-            Ok(Some(SessionEvent::Relay(_)))
-        ));
+
     }
 }

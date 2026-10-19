@@ -4,7 +4,7 @@
 //! - WebRTC: browser video as a video track on the link's own peer
 //!   connection.
 //! - WireGuard: RTP on overlay UDP inside the in-process tunnel pair (real
-//!   boringtun peers over loopback UDP and the fake signaling relay), with
+//!   boringtun peers over loopback UDP and the fake signaling server), with
 //!   loss, a capped link, an unrecoverable gap and a roam mid-stream.
 
 use std::time::Duration;

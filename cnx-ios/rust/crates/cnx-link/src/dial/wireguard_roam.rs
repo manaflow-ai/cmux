@@ -7,18 +7,23 @@
 //! datagram from it (a keepalive on a fresh session, else a handshake
 //! initiation), so the peer roams to the new address (WireGuard's own
 //! endpoint roaming). While the route settles every datagram also goes
-//! through the backend relay and to all of the peer's candidates. In the
-//! background the side learns its new reflexive address (STUN on the new
-//! socket), the phone takes a fresh TURN allocation (the old one belongs to
-//! the old network), and the new endpoints go to the peer inside the tunnel
+//! through TURN and to all of the peer's candidates. In the background the
+//! side learns its new reflexive address (STUN on the new socket), the
+//! phone (and a Mac that needed TURN) takes a fresh TURN allocation on the
+//! transport the new network allows (the old one belongs to the old
+//! network), and the new endpoints go to the peer inside the tunnel
 //! as overlay UDP datagrams on port [`ROAM_PORT`], resent until
 //! acknowledged. The peer then sprays its own datagrams at them, which opens
 //! its side of a NAT that filters by address. Keys, the session and every
 //! TCP stream stay: nothing is dialed again.
 //!
 //! A network change usually kills the signaling WebSocket too; [`rehome`]
-//! moves the sessions of a device onto its new socket, so relay frames and
-//! `bye` travel again.
+//! moves the sessions of a device onto its new socket, so `bye` travels
+//! again.
+//!
+//! The same port carries `reach` ("your datagrams reach me", which confirms
+//! a route), and a TURN allocation whose TCP or TLS stream dies is replaced
+//! the same way a roam replaces it.
 
 use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -53,27 +58,40 @@ pub(super) enum Control {
         reflexive: mpsc::UnboundedSender<SocketAddr>,
         timeline: Timeline,
     },
-    /// A TURN allocation on the new network.
+    /// A TURN allocation on the new network (or replacing a dead one).
     Turn(TurnCarrier),
     /// The peer announced new endpoints.
     PeerEndpoints {
         endpoints: Vec<String>,
         /// Which of them are the peer's TURN relayed addresses.
         relayed: Vec<String>,
+        /// Which of `relayed` ride TCP or TLS to their server.
+        relayed_tls: Vec<String>,
     },
-    /// The session moved to a new signaling socket.
-    Rehomed,
+    /// The peer receives what this side sends (its `reach` message).
+    Reached,
     /// Debug and tests: the socket's network is gone.
     Blackhole,
+    /// Debug and tests: the TURN allocation's stream to its server dies.
+    KillTurn,
 }
 
 /// Relayed addresses one announcement carries (a phone has one TURN
 /// allocation), so the message stays within one tunnel datagram.
 const MAX_RELAYED: usize = 2;
 
-/// This side's endpoints to announce, and which of them are its TURN
-/// relayed addresses.
-type Announcement = (Vec<String>, Vec<String>);
+/// This side's endpoints to announce, which of them are its TURN relayed
+/// addresses, and which of those ride TCP or TLS.
+type Announcement = (Vec<String>, Vec<String>, Vec<String>);
+
+/// Waits before each new try to replace a dead TURN allocation.
+const TURN_RETRIES: [Duration; 5] = [
+    Duration::ZERO,
+    Duration::from_secs(1),
+    Duration::from_secs(3),
+    Duration::from_secs(10),
+    Duration::from_secs(30),
+];
 
 /// The roaming messages (JSON in one overlay UDP datagram).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,10 +106,16 @@ enum RoamMessage {
         /// one as TURN after a roam; absent from older peers.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         relayed: Vec<String>,
+        /// Which of `relayed` ride TCP or TLS to their server.
+        #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
+        relayed_tls: Vec<String>,
     },
     Ack {
         generation: u64,
     },
+    /// "Your datagrams reach me" (protocol version 2; an older peer logs it
+    /// as unreadable and goes on).
+    Reach,
 }
 
 pub(super) struct SessionParts {
@@ -102,10 +126,17 @@ pub(super) struct SessionParts {
     pub signaling: Arc<Mutex<SignalingClient>>,
     pub net: Arc<Mutex<Option<Arc<WgNet>>>>,
     pub control: mpsc::UnboundedSender<Control>,
-    pub relay_in: mpsc::UnboundedSender<Bytes>,
+    /// The underlay's requests to send the peer `reach`.
+    pub reach: mpsc::UnboundedReceiver<()>,
     pub options: DialOptions,
     pub stun: Vec<SocketAddr>,
     pub endpoints: Vec<String>,
+    /// This side's TURN relayed addresses among `endpoints`, and those over
+    /// TCP or TLS.
+    pub relayed: (Vec<String>, Vec<String>),
+    pub keeps_turn: bool,
+    /// Fires when the current TURN allocation's stream dies.
+    pub turn_dead: Option<watch::Receiver<bool>>,
 }
 
 /// One live tunnel, as roaming sees it.
@@ -117,11 +148,17 @@ pub(super) struct Session {
     signaling: Arc<Mutex<SignalingClient>>,
     net: Arc<Mutex<Option<Arc<WgNet>>>>,
     control: mpsc::UnboundedSender<Control>,
-    relay_in: mpsc::UnboundedSender<Bytes>,
+    reach: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
     options: DialOptions,
     stun: Mutex<Vec<SocketAddr>>,
     /// This side's endpoints as last offered to the peer.
     endpoints: Mutex<Vec<String>>,
+    /// Which of them are this side's TURN relayed addresses (all, over a
+    /// stream).
+    relayed: Mutex<(Vec<String>, Vec<String>)>,
+    /// Takes a new TURN allocation after a roam or a dead stream.
+    keeps_turn: bool,
+    turn_monitor: Mutex<Option<JoinHandle<()>>>,
     follow: Mutex<Option<JoinHandle<()>>>,
     announce: Mutex<Option<mpsc::UnboundedSender<Announcement>>>,
     control_task: Mutex<Option<JoinHandle<()>>>,
@@ -155,6 +192,7 @@ fn find(session_id: &str, dialer: bool) -> Option<Arc<Session>> {
 
 impl Session {
     pub(super) fn register(parts: SessionParts) -> Arc<Self> {
+        let turn_dead = parts.turn_dead;
         let session = Arc::new(Self {
             session_id: parts.session_id,
             peer: parts.peer,
@@ -163,10 +201,13 @@ impl Session {
             signaling: parts.signaling,
             net: parts.net,
             control: parts.control,
-            relay_in: parts.relay_in,
+            reach: Mutex::new(Some(parts.reach)),
             options: parts.options,
             stun: Mutex::new(parts.stun),
             endpoints: Mutex::new(parts.endpoints),
+            relayed: Mutex::new(parts.relayed),
+            keeps_turn: parts.keeps_turn,
+            turn_monitor: Mutex::new(None),
             follow: Mutex::new(None),
             announce: Mutex::new(None),
             control_task: Mutex::new(None),
@@ -176,7 +217,70 @@ impl Session {
             closed: AtomicBool::new(false),
         });
         lock(registry()).push(Arc::downgrade(&session));
+        if let Some(dead) = turn_dead {
+            session.monitor_turn(dead);
+        }
         session
+    }
+
+    /// When the current TURN allocation's stream to its server dies, take a
+    /// new allocation (retrying with backoff while the session lives).
+    fn monitor_turn(self: &Arc<Self>, mut dead: watch::Receiver<bool>) {
+        let weak = Arc::downgrade(self);
+        let task = tokio::spawn(async move {
+            if dead.wait_for(|dead| *dead).await.is_err() {
+                return;
+            }
+            for wait in TURN_RETRIES {
+                tokio::time::sleep(wait).await;
+                let Some(session) = weak.upgrade() else { return };
+                if session.closed.load(Ordering::Relaxed) {
+                    return;
+                }
+                tracing::info!(session = session.session_id, "TURN stream lost; taking a new allocation");
+                if session.replace_turn().await {
+                    return;
+                }
+            }
+            tracing::info!("no new TURN allocation; the session goes on without TURN");
+        });
+        if let Some(old) = lock(&self.turn_monitor).replace(task) {
+            old.abort();
+        }
+    }
+
+    /// Take a new TURN allocation on the current network and tell the peer
+    /// its address; `false` when none could be had.
+    async fn replace_turn(self: &Arc<Self>) -> bool {
+        let _one_at_a_time = self.roaming.lock().await;
+        let Some(turn) = TurnCarrier::allocate(&self.options).await else { return false };
+        let Ok(net) = self.net() else { return true };
+        let (old, _) = lock(&self.relayed).clone();
+        let mut endpoints: Vec<String> =
+            lock(&self.endpoints).iter().filter(|endpoint| !old.contains(endpoint)).cloned().collect();
+        let (relayed, relayed_tls) = relayed_of(Some(&turn));
+        endpoints.extend(relayed.iter().cloned());
+        self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
+        let _ = net.refresh().await;
+        self.announce(endpoints, relayed, relayed_tls);
+        true
+    }
+
+    /// Hand `turn` to the underlay and watch its stream.
+    fn install_turn(self: &Arc<Self>, turn: TurnCarrier, relayed: (Vec<String>, Vec<String>)) {
+        let dead = turn.transport.is_stream().then(|| turn.dead());
+        *lock(&self.relayed) = relayed;
+        if self.control.send(Control::Turn(turn)).is_err() {
+            return;
+        }
+        match dead {
+            Some(dead) => self.monitor_turn(dead),
+            None => {
+                if let Some(old) = lock(&self.turn_monitor).take() {
+                    old.abort();
+                }
+            }
+        }
     }
 
     /// Counts this session's network changes: its own roams and the peer's
@@ -193,22 +297,13 @@ impl Session {
         lock(&self.signaling).clone()
     }
 
-    /// Feed one relay frame's datagram to the tunnel.
-    pub(super) fn relay(&self, datagram: Bytes) {
-        let _ = self.relay_in.send(datagram);
-    }
-
-    /// Feed `events` (relay frames, `bye`) to the tunnel, replacing the
-    /// subscription of an earlier signaling socket.
+    /// Watch `events` for the peer's `bye`, replacing the subscription of
+    /// an earlier signaling socket.
     pub(super) fn follow(&self, mut events: mpsc::UnboundedReceiver<SessionEvent>) {
-        let relay_in = self.relay_in.clone();
         let net = Arc::clone(&self.net);
         let task = tokio::spawn(async move {
             loop {
                 match events.recv().await {
-                    Some(SessionEvent::Relay(datagram)) => {
-                        let _ = relay_in.send(datagram);
-                    }
                     Some(SessionEvent::Signal(envelope)) => {
                         if matches!(envelope.payload, SignalPayload::Bye { .. }) {
                             lock(&net).take();
@@ -237,12 +332,14 @@ impl Session {
         };
         let (announce_tx, announce_rx) = mpsc::unbounded_channel();
         let peer = SocketAddr::new(IpAddr::V4(self.peer_ip), ROAM_PORT);
+        // Taken once; a second start (never done today) sends no `reach`.
+        let reach = lock(&self.reach).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
         let task = tokio::spawn(run_control(
             socket,
             peer,
             self.control.clone(),
             Arc::clone(&self.net),
-            announce_rx,
+            ControlChannels { announce: announce_rx, reach },
             Arc::clone(&self.path_epoch),
         ));
         *lock(&self.announce) = Some(announce_tx);
@@ -260,9 +357,11 @@ impl Session {
         if let Some(task) = lock(&self.control_task).take() {
             task.abort();
         }
+        if let Some(task) = lock(&self.turn_monitor).take() {
+            task.abort();
+        }
         let signaling = self.signaling();
-        // Tell the peer, so its tunnel stops sending relay frames the
-        // backend can only answer with `offline` or `not_owner`.
+        // Tell the peer, so its tunnel stops too.
         if lock(&self.net).take().is_some() {
             let _ = signaling.send_signal(
                 &self.peer,
@@ -275,19 +374,20 @@ impl Session {
 
     /// Tell the peer this side's endpoints (an empty list: unchanged, but
     /// the network changed, so the peer resends what it sent lately).
-    /// `relayed`: which of `endpoints` are this side's TURN relayed addresses.
-    fn announce(&self, endpoints: Vec<String>, relayed: Vec<String>) {
+    /// `relayed`: which of `endpoints` are this side's TURN relayed
+    /// addresses; `relayed_tls`: which of those ride TCP or TLS.
+    fn announce(&self, endpoints: Vec<String>, relayed: Vec<String>, relayed_tls: Vec<String>) {
         if !endpoints.is_empty() {
             lock(&self.endpoints).clone_from(&endpoints);
         }
         if let Some(tx) = lock(&self.announce).as_ref() {
-            let _ = tx.send((endpoints, relayed));
+            let _ = tx.send((endpoints, relayed, relayed_tls));
         }
     }
 
     async fn stun_servers(&self) -> Vec<SocketAddr> {
         let cached = lock(&self.stun).clone();
-        if !cached.is_empty() || self.options.relay_only {
+        if !cached.is_empty() || no_plain_udp(&self.options) {
             return cached;
         }
         let resolved = resolve_stun(&self.options).await;
@@ -296,7 +396,7 @@ impl Session {
     }
 
     /// Move the session onto the network the device has now.
-    async fn roam(&self) -> Timeline {
+    async fn roam(self: &Arc<Self>) -> Timeline {
         let _one_at_a_time = self.roaming.lock().await;
         let timeline = Timeline::new();
         timeline.mark("network_changed");
@@ -325,9 +425,9 @@ impl Session {
         timeline.mark("roam_reasserted");
         self.path_epoch.send_modify(|epoch| *epoch += 1);
         let mut endpoints = host_endpoints(port, &self.options);
-        self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new());
-        let turn =
-            async { if self.dialer { TurnCarrier::allocate(&self.options.ice_servers).await } else { None } };
+        self.announce(offered(endpoints.iter().copied(), &self.options), Vec::new(), Vec::new());
+        // On the transport the new network allows: UDP, else TLS.
+        let turn = async { if self.keeps_turn { TurnCarrier::allocate(&self.options).await } else { None } };
         let reflexive = async {
             let deadline = Instant::now() + STUN_WAIT;
             let mut found = Vec::new();
@@ -346,16 +446,18 @@ impl Session {
                 endpoints.push(address);
             }
         }
-        let mut relayed = Vec::new();
+        let (mut relayed, mut relayed_tls) = (Vec::new(), Vec::new());
         if let Some(turn) = turn {
-            timeline.mark("roam_turn_allocated");
+            timeline.mark(if turn.transport.is_stream() { "roam_turn_tls_allocated" } else { "roam_turn_allocated" });
             endpoints.push(turn.relayed);
-            relayed.push(turn.relayed.to_string());
-            let _ = self.control.send(Control::Turn(turn));
+            (relayed, relayed_tls) = relayed_of(Some(&turn));
+            self.install_turn(turn, (relayed.clone(), relayed_tls.clone()));
             let _ = net.refresh().await;
+        } else {
+            *lock(&self.relayed) = (Vec::new(), Vec::new());
         }
         if endpoints.len() != known {
-            self.announce(offered(endpoints, &self.options), relayed);
+            self.announce(offered(endpoints, &self.options), relayed, relayed_tls);
         }
         timeline.mark("roam_gathered");
         tracing::info!(session = self.session_id, timings = %timeline.summary(), "WireGuard roamed");
@@ -366,10 +468,6 @@ impl Session {
         let old = std::mem::replace(&mut *lock(&self.signaling), client.clone());
         old.unsubscribe(&self.session_id);
         self.follow(client.subscribe(&self.session_id));
-        let _ = self.control.send(Control::Rehomed);
-        // Relay frames toward this side's old socket were lost: the peer
-        // resends what it sent lately.
-        self.announce(Vec::new(), Vec::new());
         tracing::debug!(session = self.session_id, "WireGuard session moved to a new signaling socket");
     }
 }
@@ -381,16 +479,24 @@ async fn send_message(socket: &WgDatagramSocket, peer: SocketAddr, message: &Roa
     }
 }
 
+/// What the control task is asked to send.
+struct ControlChannels {
+    announce: mpsc::UnboundedReceiver<Announcement>,
+    reach: mpsc::UnboundedReceiver<()>,
+}
+
 /// The roaming messages of one session: announce this side's endpoints
-/// until the peer acknowledges them, and apply the peer's.
+/// until the peer acknowledges them, apply the peer's, and carry `reach`
+/// both ways.
 async fn run_control(
     mut socket: WgDatagramSocket,
     peer: SocketAddr,
     control: mpsc::UnboundedSender<Control>,
     net: Arc<Mutex<Option<Arc<WgNet>>>>,
-    mut announce: mpsc::UnboundedReceiver<Announcement>,
+    channels: ControlChannels,
     path_epoch: Arc<watch::Sender<u64>>,
 ) {
+    let ControlChannels { mut announce, mut reach } = channels;
     let mut generation = 0u64;
     let mut pending: Option<RoamMessage> = None;
     let mut resends = 0usize;
@@ -410,12 +516,17 @@ async fn run_control(
             }
         };
         tokio::select! {
+            Some(()) = reach.recv() => {
+                send_message(&socket, peer, &RoamMessage::Reach).await;
+            }
             endpoints = announce.recv() => {
-                let Some((mut endpoints, relayed)) = endpoints else { return };
+                let Some((mut endpoints, relayed, relayed_tls)) = endpoints else { return };
                 endpoints.truncate(MAX_ENDPOINTS);
                 generation += 1;
-                let relayed = relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
-                let message = RoamMessage::Endpoints { generation, endpoints, relayed };
+                let relayed: Vec<String> =
+                    relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
+                let relayed_tls = relayed_tls.into_iter().filter(|text| relayed.contains(text)).collect();
+                let message = RoamMessage::Endpoints { generation, endpoints, relayed, relayed_tls };
                 send_message(&socket, peer, &message).await;
                 pending = Some(message);
                 resends = 0;
@@ -437,7 +548,12 @@ async fn run_control(
                     continue;
                 }
                 match serde_json::from_slice::<RoamMessage>(&payload) {
-                    Ok(RoamMessage::Endpoints { generation: theirs, endpoints, relayed }) => {
+                    Ok(RoamMessage::Reach) => {
+                        if control.send(Control::Reached).is_err() {
+                            return;
+                        }
+                    }
+                    Ok(RoamMessage::Endpoints { generation: theirs, endpoints, relayed, relayed_tls }) => {
                         send_message(&socket, peer, &RoamMessage::Ack { generation: theirs }).await;
                         if theirs <= applied {
                             continue;
@@ -452,8 +568,9 @@ async fn run_control(
                         if moved {
                             peer_first = endpoints.first().cloned();
                         }
-                        let relayed = relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
-                        if control.send(Control::PeerEndpoints { endpoints, relayed }).is_err() {
+                        let relayed: Vec<String> = relayed.into_iter().filter(|text| endpoints.contains(text)).take(MAX_RELAYED).collect();
+                        let relayed_tls = relayed_tls.into_iter().filter(|text| relayed.contains(text)).collect();
+                        if control.send(Control::PeerEndpoints { endpoints, relayed, relayed_tls }).is_err() {
                             return;
                         }
                         if moved {
@@ -535,6 +652,21 @@ pub fn simulate_network_loss(session_id: Option<&str>, dialer: bool) -> usize {
     hit
 }
 
+/// Debug and tests: the TCP or TLS stream of one side's TURN allocation
+/// (of `session_id`, or of every session) dies, as when a middlebox resets
+/// it. The session takes a new allocation. Returns how many sessions it hit.
+#[doc(hidden)]
+pub fn simulate_turn_loss(session_id: Option<&str>, dialer: bool) -> usize {
+    let mut hit = 0;
+    for session in live() {
+        if session.dialer == dialer && session_id.is_none_or(|id| id == session.session_id) {
+            let _ = session.control.send(Control::KillTurn);
+            hit += 1;
+        }
+    }
+    hit
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,6 +677,7 @@ mod tests {
             generation: 3,
             endpoints: vec!["203.0.113.7:40000".into()],
             relayed: Vec::new(),
+            relayed_tls: Vec::new(),
         };
         let text = serde_json::to_string(&message).unwrap();
         assert_eq!(text, r#"{"t":"endpoints","generation":3,"endpoints":["203.0.113.7:40000"]}"#);
@@ -553,6 +686,7 @@ mod tests {
             generation: u64::MAX,
             endpoints: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_ENDPOINTS],
             relayed: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_RELAYED],
+            relayed_tls: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_RELAYED],
         };
         // Fits one datagram of the 1280-byte tunnel.
         assert!(serde_json::to_vec(&many).unwrap().len() <= 1232);
@@ -560,5 +694,6 @@ mod tests {
             serde_json::to_string(&RoamMessage::Ack { generation: 9 }).unwrap(),
             r#"{"t":"ack","generation":9}"#
         );
+        assert_eq!(serde_json::to_string(&RoamMessage::Reach).unwrap(), r#"{"t":"reach"}"#);
     }
 }

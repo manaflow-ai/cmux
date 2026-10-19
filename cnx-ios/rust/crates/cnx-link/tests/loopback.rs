@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use cnx_link::dial::{self, SessionEvents};
-use cnx_link::testing::{FakeOptions, FakeSignaling};
+use cnx_link::testing::{FakeOptions, FakeSignaling, TEST_RELAY_PORTS_START, TestTurn};
 use cnx_link::{
     ChannelEvent, DialOptions, Lane, LaneState, LinkConfig, LinkPath, SignalingClient, TransportKind,
 };
@@ -83,7 +83,7 @@ async fn exercise(kind: TransportKind, fake: FakeOptions) -> (LinkPath, u64) {
     assert!(rtt < Duration::from_secs(5));
     let path = *connected.path.borrow();
     connected.link.close("done");
-    (path, server.relayed_frames())
+    (path, server.refused_binary_frames())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -94,19 +94,22 @@ async fn webrtc_carries_the_link() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_carries_the_link_directly() {
-    let (path, _) = exercise(TransportKind::WireGuard, FakeOptions::default()).await;
+    let (path, binary) = exercise(TransportKind::WireGuard, FakeOptions::default()).await;
     assert_eq!(path, LinkPath::Direct);
+    // Neither side sends a relay frame any more.
+    assert_eq!(binary, 0);
 }
 
+/// Both sides take the other for an older peer (no `version`): no `reach`
+/// will come, so each confirms the route by the peer's datagrams, and the
+/// link still settles on the direct path.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn wireguard_falls_back_to_the_relay() {
-    let (path, relayed) = exercise(
-        TransportKind::WireGuard,
-        FakeOptions { strip_wg_endpoints: true, ..FakeOptions::default() },
-    )
-    .await;
-    assert_eq!(path, LinkPath::Relay);
-    assert!(relayed > 10, "relayed {relayed} frames");
+async fn wireguard_with_an_older_peer_confirms_by_its_datagrams() {
+    let (path, binary) =
+        exercise(TransportKind::WireGuard, FakeOptions { strip_wg_version: true, ..FakeOptions::default() })
+            .await;
+    assert_eq!(path, LinkPath::Direct);
+    assert_eq!(binary, 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -125,114 +128,26 @@ async fn dialing_another_users_mac_is_refused() {
     assert!(matches!(error, cnx_link::DialError::Refused { ref code, .. } if code == "not_owner"), "{error}");
 }
 
-/// One side's outbound UDP is lost (the mini's sshd-launched hostd could not
-/// route to the LAN), the other's works. The side that receives UDP must not
-/// switch to UDP-only replies it cannot deliver; the link stays up on the
-/// relay.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn wireguard_survives_one_way_udp() {
+/// What [`exercise_turn`] saw.
+#[derive(Debug)]
+struct TurnRun {
+    /// The phone's path once settled, and every change after that.
+    phone: LinkPath,
+    changes: Vec<LinkPath>,
+    /// The Mac's label of the same path at the end.
+    mac: Option<LinkPath>,
+    /// Relay frames the backend refused (none from a current client).
+    binary: u64,
+}
+
+/// Dial a Mac that answers with `mac_options`, echo 400 KB in rounds, and
+/// return what both sides saw while traffic kept flowing.
+async fn exercise_turn(phone_options: DialOptions, mac_options: DialOptions) -> TurnRun {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
-    tokio::spawn(async move {
-        while let Some(session) = mac.next_session().await {
-            let events = SessionEvents {
-                backend: mac.events(),
-                session_id: session.first.session_id.clone(),
-                session: session.events,
-            };
-            let mac = mac.clone();
-            tokio::spawn(async move {
-                let options = DialOptions { drop_outbound_udp: true, ..options() };
-                let connected =
-                    dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await.unwrap();
-                while let Some(mut incoming) = connected.link.accept().await {
-                    tokio::spawn(async move {
-                        while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
-                            let _ = incoming.channel.send(bytes).await;
-                        }
-                    });
-                }
-            });
-        }
-    });
-    let phone =
-        SignalingClient::connect(&server.base_url, "user:alice", "team", &uuid::Uuid::new_v4().to_string())
-            .await
-            .unwrap();
-    let connected =
-        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options(), LinkConfig::default())
-            .await
-            .expect("dial over the relay");
-    let mut channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
-    channel.send(Bytes::from(vec![5u8; 100_000])).await.unwrap();
-    let mut got = 0;
-    while got < 100_000 {
-        match tokio::time::timeout(Duration::from_secs(20), channel.recv()).await.expect("echo in time") {
-            Some(ChannelEvent::Data(bytes)) => got += bytes.len(),
-            other => panic!("unexpected {other:?}"),
-        }
-    }
-    assert_eq!(*connected.path.borrow(), LinkPath::Relay);
-}
-
-/// Relayed ports of the test TURN server; anything else stands for the LAN.
-const TURN_RELAY_PORTS: std::ops::RangeInclusive<u16> = 50_200..=50_299;
-
-struct TurnAuth;
-
-impl webrtc::turn::auth::AuthHandler for TurnAuth {
-    fn auth_handle(
-        &self,
-        username: &str,
-        realm: &str,
-        _source: std::net::SocketAddr,
-    ) -> Result<Vec<u8>, webrtc::turn::Error> {
-        Ok(webrtc::turn::auth::generate_auth_key(username, realm, "secret"))
-    }
-}
-
-/// A TURN server on loopback, as `/v1/ice` would list it.
-async fn turn_server() -> (webrtc::turn::server::Server, cnx_link::api::IceServer) {
-    use std::sync::Arc;
-    let socket = Arc::new(tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap());
-    let port = socket.local_addr().unwrap().port();
-    let server = webrtc::turn::server::Server::new(webrtc::turn::server::config::ServerConfig {
-        conn_configs: vec![webrtc::turn::server::config::ConnConfig {
-            conn: socket,
-            relay_addr_generator: Box::new(webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges {
-                relay_address: "127.0.0.1".parse().unwrap(),
-                min_port: *TURN_RELAY_PORTS.start(),
-                max_port: *TURN_RELAY_PORTS.end(),
-                max_retries: 10,
-                address: "127.0.0.1".into(),
-                net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
-            }),
-        }],
-        realm: "cnx.test".into(),
-        auth_handler: Arc::new(TurnAuth),
-        channel_bind_timeout: Duration::from_secs(0),
-        alloc_close_notify: None,
-    })
-    .await
-    .unwrap();
-    let ice = cnx_link::api::IceServer {
-        urls: vec![
-            format!("turns:127.0.0.1:{port}?transport=tcp"),
-            format!("turn:127.0.0.1:{port}?transport=udp"),
-        ],
-        username: Some("cnx".into()),
-        credential: Some("secret".into()),
-    };
-    (server, ice)
-}
-
-/// Dial a Mac that answers with `mac_options`, echo 200 KB, and return the
-/// phone's path plus every path change seen while traffic kept flowing.
-async fn exercise_turn(phone_options: DialOptions, mac_options: DialOptions) -> (LinkPath, Vec<LinkPath>) {
-    let server = FakeSignaling::start(FakeOptions::default()).await;
-    let mac_id = uuid::Uuid::new_v4().to_string();
-    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let mac_path = std::sync::Arc::new(std::sync::Mutex::new(None::<tokio::sync::watch::Receiver<LinkPath>>));
+    let mac_path_slot = std::sync::Arc::clone(&mac_path);
     tokio::spawn(async move {
         while let Some(session) = mac.next_session().await {
             let events = SessionEvents {
@@ -241,9 +156,11 @@ async fn exercise_turn(phone_options: DialOptions, mac_options: DialOptions) -> 
                 session: session.events,
             };
             let (mac, options) = (mac.clone(), mac_options.clone());
+            let mac_path_slot = std::sync::Arc::clone(&mac_path_slot);
             tokio::spawn(async move {
                 let connected =
                     dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await.unwrap();
+                *mac_path_slot.lock().unwrap() = Some(connected.path.clone());
                 while let Some(mut incoming) = connected.link.accept().await {
                     tokio::spawn(async move {
                         while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
@@ -284,36 +201,154 @@ async fn exercise_turn(phone_options: DialOptions, mac_options: DialOptions) -> 
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
     let settled = *connected.path.borrow();
+    let mac = mac_path.lock().unwrap().as_ref().map(|path| *path.borrow());
     connected.link.close("done");
-    (settled, changes)
+    TurnRun { phone: settled, changes, mac, binary: server.refused_binary_frames() }
+}
+
+/// Phone dial options that trust `turn` and use all of its servers.
+fn with_turn(turn: &TestTurn, options: DialOptions) -> DialOptions {
+    DialOptions { ice_servers: vec![turn.ice.clone()], turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)), ..options }
 }
 
 /// Relay only with a TURN server: WireGuard offers only its relayed address
-/// and never sends plain UDP, so the link runs through TURN (not the
-/// backend relay frames).
+/// and never sends plain UDP, so the link runs through TURN over UDP (UDP
+/// is not blocked, so no TLS connection is ever opened).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_relay_only_uses_turn() {
-    let (_turn, ice) = turn_server().await;
-    let phone = DialOptions { relay_only: true, ice_servers: vec![ice], ..options() };
-    let (path, changes) = exercise_turn(phone, options()).await;
-    assert_eq!(path, LinkPath::Turn);
-    assert!(changes.is_empty(), "path flapped: {changes:?}");
+    let turn = TestTurn::start().await;
+    let phone = with_turn(&turn, DialOptions { relay_only: true, ..options() });
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
+    assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
+    assert!(run.changes.is_empty(), "path flapped: {run:?}");
+    assert_eq!(turn.stream_connections(), 0, "a TLS connection was opened with UDP working");
+    assert_eq!(run.binary, 0);
+}
+
+/// The phone's network blocks UDP: no plain UDP, no TURN over UDP. The
+/// link runs through the phone's TURN allocation over TLS, both directions,
+/// and both sides label it TURN over TLS.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_with_udp_blocked_rides_turn_over_tls() {
+    let turn = TestTurn::start().await;
+    let phone = with_turn(&turn, DialOptions { block_udp: true, ..options() });
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
+    assert_eq!(run.mac, Some(LinkPath::TurnTls), "{run:?}");
+    assert!(run.changes.is_empty(), "path flapped: {run:?}");
+    assert_eq!(turn.stream_connections(), 1);
+    assert_eq!(run.binary, 0);
+}
+
+/// The fallback order: TURN over UDP is tried first; when it gets no
+/// allocation (UDP to the TURN server is dropped), TLS takes over.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_falls_back_from_turn_udp_to_turn_tls() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    let phone = with_turn(&turn, DialOptions { relay_only: true, ..options() });
+    let started = std::time::Instant::now();
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
+    assert_eq!(turn.stream_connections(), 1);
+    eprintln!("UDP-blocked fallback run took {:?}", started.elapsed());
+}
+
+/// The Mac's network blocks UDP (STUN never answers, here simulated by
+/// `block_udp`): the Mac takes its own TURN allocation over TLS and lists it
+/// in `wg-resp`; the phone reaches it with plain UDP.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls() {
+    let turn = TestTurn::start().await;
+    let mac = with_turn(&turn, DialOptions { block_udp: true, ..options() });
+    let run = exercise_turn(options(), mac).await;
+    assert_eq!(run.mac, Some(LinkPath::TurnTls), "{run:?}");
+    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
+    assert_eq!(turn.stream_connections(), 1);
+}
+
+/// Without any TURN server, relay only and UDP blocked have no path: the
+/// dial fails at once instead of waiting for the backend relay that is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_without_turn_and_without_udp_fails_fast() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let _mac_task =
+        spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &uuid::Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    for options in [DialOptions { relay_only: true, ..options() }, DialOptions { block_udp: true, ..options() }] {
+        let started = std::time::Instant::now();
+        let error = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
+            .await
+            .err()
+            .expect("no path");
+        assert!(matches!(error, cnx_link::DialError::Transport(ref message) if message.contains("TURN")), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
 }
 
 /// The Mac's OS refuses UDP to the phone's LAN address (macOS Local Network
 /// privacy) but reaches the internet, where the phone's TURN allocation is.
 /// The Mac must stop answering the LAN address it cannot send to and settle
-/// on the relayed address, so both directions leave the backend relay and
-/// the path stops flapping.
+/// on the relayed address, so the path stops flapping.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_one_way_lan_settles_on_turn() {
-    let (_turn, ice) = turn_server().await;
-    let phone = DialOptions { ice_servers: vec![ice], ..options() };
-    let mac =
-        DialOptions { refuse_udp_to: Some(|addr| !TURN_RELAY_PORTS.contains(&addr.port())), ..options() };
-    let (path, changes) = exercise_turn(phone, mac).await;
-    assert_eq!(path, LinkPath::Turn);
-    assert!(changes.is_empty(), "path flapped: {changes:?}");
+    let turn = TestTurn::start().await;
+    let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
+    let mac = DialOptions { refuse_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START), ..options() };
+    let run = exercise_turn(phone, mac).await;
+    assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
+    assert!(run.changes.is_empty(), "path flapped: {run:?}");
+}
+
+/// An older peer's relay frames get one `relay_retired` error per session
+/// (naming it, so the peer's other dials go on), and the socket stays up.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_backend_refuses_relay_frames_and_keeps_the_socket() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let device = uuid::Uuid::new_v4().to_string();
+    let url = cnx_link::signaling::signal_url(&server.base_url, "team", &device).unwrap();
+    let mut request = url.into_client_request().unwrap();
+    request.headers_mut().insert("authorization", "Bearer user:alice".parse().unwrap());
+    let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    let session = uuid::Uuid::new_v4();
+    for _ in 0..3 {
+        let mut frame = session.as_bytes().to_vec();
+        frame.extend_from_slice(uuid::Uuid::new_v4().as_bytes());
+        frame.extend_from_slice(&[4; 64]);
+        socket.send(Message::Binary(frame.into())).await.unwrap();
+    }
+    let mut errors = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    while let Ok(Some(Ok(message))) = tokio::time::timeout_at(deadline, socket.next()).await {
+        if let Message::Text(text) = message {
+            let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+            if value["type"] == "error" {
+                errors.push(value);
+            }
+        }
+    }
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0]["code"], "relay_retired");
+    assert_eq!(errors[0]["sessionId"], session.to_string());
+    assert_eq!(server.refused_binary_frames(), 3);
+    // Still open: a ping is answered.
+    socket.send(Message::Ping(Vec::new().into())).await.unwrap();
+    let pong = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(Ok(Message::Pong(_))) = socket.next().await {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(pong.is_ok(), "the socket closed after relay frames");
 }
 
 /// The input lane (PROTOCOL.md "Lanes"): with a Mac that supports it, an
@@ -448,10 +483,6 @@ async fn a_socket_the_backend_closed_refuses_to_queue() {
     })
     .await
     .expect("the socket closes");
-    let frame = cnx_link::signaling::RelayFrame {
-        session_id: uuid::Uuid::new_v4(),
-        peer: uuid::Uuid::new_v4(),
-        datagram: Bytes::from_static(&[0xff]),
-    };
-    assert!(client.send_relay(&frame).is_err(), "a closed socket still queues relay frames");
+    let bye = cnx_link::signaling::SignalPayload::Bye { reason: "late".into() };
+    assert!(client.send_signal("mac", "session", bye).is_err(), "a closed socket still queues signals");
 }

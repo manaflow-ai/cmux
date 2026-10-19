@@ -1,7 +1,11 @@
 //! An in-process stand-in for the backend's signaling Durable Object, for
-//! tests: same routes, same JSON, same relay frame rewrite, same admission
-//! rule (a signal reaches a device of the sender's own user, or answers an
-//! existing session). The bearer token is `user:<userId>`.
+//! tests: same routes, same JSON, same admission rule (a signal reaches a
+//! device of the sender's own user, or answers an existing session), and
+//! the same refusal of an older peer's binary relay frames
+//! (`relay_retired`). The bearer token is `user:<userId>`.
+//!
+//! [`TestTurn`] is a TURN server on loopback, over UDP and over TLS (a
+//! self-signed certificate the dial options trust).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -17,12 +21,21 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 #[derive(Debug, Clone, Default)]
 pub struct FakeOptions {
-    /// Remove `endpoints` from wg-init and wg-resp, so WireGuard can only
-    /// use the relay.
-    pub strip_wg_endpoints: bool,
+    /// Remove every endpoint but the TURN relayed ones from wg-init and
+    /// wg-resp, so WireGuard can only use TURN.
+    pub strip_direct_endpoints: bool,
     /// Do not stamp `fromUserId` on forwarded signals.
     pub omit_from_user_id: bool,
+    /// Remove `version` from wg-init and wg-resp, so each side takes the
+    /// other for an older peer (protocol version 0).
+    pub strip_wg_version: bool,
+    /// What `GET /v1/ice` returns besides Cloudflare STUN (a [`TestTurn`]).
+    pub ice_servers: Vec<crate::api::IceServer>,
 }
+
+/// How often the backend answers an older peer's relay frames for one
+/// session (team-hub.ts `RELAY_ERROR_INTERVAL_MS`).
+const RELAY_ERROR_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
 struct Device {
     user: String,
@@ -34,7 +47,7 @@ struct State {
     devices: HashMap<String, Device>,
     /// sessionId → the two devices in it.
     sessions: HashMap<String, (String, String)>,
-    relayed_frames: u64,
+    refused_binary_frames: u64,
 }
 
 pub struct FakeSignaling {
@@ -70,9 +83,9 @@ impl FakeSignaling {
         Self { base_url, state, task }
     }
 
-    /// Binary relay frames forwarded so far.
-    pub fn relayed_frames(&self) -> u64 {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner).relayed_frames
+    /// Binary frames (an older peer's relay frames) refused so far.
+    pub fn refused_binary_frames(&self) -> u64 {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).refused_binary_frames
     }
 
     /// Drop every socket of `device` (simulates a signaling outage).
@@ -86,10 +99,11 @@ impl FakeSignaling {
 
 #[allow(clippy::result_large_err)] // tungstenite's handshake callback signature
 async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options: FakeOptions) {
+    let ice = options.ice_servers.clone();
     let mut stream = stream;
     match peek_head(&stream).await {
         Some(head) if !head.to_ascii_lowercase().contains("upgrade: websocket") => {
-            answer_http(&mut stream, &head).await;
+            answer_http(&mut stream, &head, &ice).await;
             return;
         }
         Some(_) => {}
@@ -149,6 +163,7 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
             reason: "replaced".into(),
         })));
     }
+    let mut relay_errors: HashMap<String, std::time::Instant> = HashMap::new();
     while let Some(Ok(message)) = source.next().await {
         // A replaced socket is closing: the backend ignores what it still
         // sends (team-hub.ts `replaced`).
@@ -177,10 +192,16 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                 } else {
                     value["fromUserId"] = Value::String(user.clone());
                 }
-                if options.strip_wg_endpoints
+                if options.strip_wg_version
+                    && let Some(payload) = value["payload"].as_object_mut()
+                {
+                    payload.remove("version");
+                }
+                if options.strip_direct_endpoints
                     && matches!(value["payload"]["kind"].as_str(), Some("wg-init" | "wg-resp"))
                 {
-                    value["payload"]["endpoints"] = json!([]);
+                    let relayed = value["payload"]["relayed"].clone();
+                    value["payload"]["endpoints"] = if relayed.is_array() { relayed } else { json!([]) };
                 }
                 let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
                 let existing = state.sessions.get(&session).cloned();
@@ -212,27 +233,26 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                     }
                 }
             }
+            // Relay frames are retired: refuse them, at most once per
+            // session every 5 s, naming the session (never a sessionless
+            // error, which would fail an older client's other dials).
             Message::Binary(bytes) => {
-                if bytes.len() < 32 {
+                state.lock().unwrap_or_else(PoisonError::into_inner).refused_binary_frames += 1;
+                if bytes.len() < 16 {
                     continue;
                 }
                 let session = uuid::Uuid::from_slice(&bytes[..16]).map(|u| u.to_string()).unwrap_or_default();
-                let to = uuid::Uuid::from_slice(&bytes[16..32]).map(|u| u.to_string()).unwrap_or_default();
-                let Ok(from) = uuid::Uuid::parse_str(&device) else { continue };
-                let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
-                let admitted = state
-                    .sessions
-                    .get(&session)
-                    .is_some_and(|(a, b)| (a == &device && b == &to) || (b == &device && a == &to));
-                if !admitted {
+                let now = std::time::Instant::now();
+                if relay_errors.get(&session).is_some_and(|last| now.duration_since(*last) < RELAY_ERROR_INTERVAL) {
                     continue;
                 }
-                let mut rewritten = bytes.to_vec();
-                rewritten[16..32].copy_from_slice(from.as_bytes());
-                if let Some(target) = state.devices.get(&to) {
-                    let _ = target.out.send(Message::Binary(rewritten.into()));
-                    state.relayed_frames += 1;
-                }
+                relay_errors.insert(session.clone(), now);
+                let _ = out_tx.send(Message::Text(
+                    json!({"type":"error","code":"relay_retired",
+                           "message":"WireGuard relay frames are retired; use TURN","sessionId":session})
+                    .to_string()
+                    .into(),
+                ));
             }
             Message::Close(_) => break,
             _ => {}
@@ -264,7 +284,7 @@ async fn peek_head(stream: &tokio::net::TcpStream) -> Option<String> {
     None
 }
 
-async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str) {
+async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str, ice: &[crate::api::IceServer]) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let length = head
         .lines()
@@ -285,7 +305,11 @@ async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str) {
     } else if !authorized {
         ("401 Unauthorized", json!({"error": "unauthorized"}))
     } else if line.starts_with("GET /v1/ice") {
-        ("200 OK", json!({"iceServers": [{"urls": ["stun:stun.cloudflare.com:3478"]}], "ttl": 3600}))
+        let mut servers = vec![json!({"urls": ["stun:stun.cloudflare.com:3478"]})];
+        servers.extend(ice.iter().map(|server| {
+            json!({"urls": server.urls, "username": server.username, "credential": server.credential})
+        }));
+        ("200 OK", json!({"iceServers": servers, "ttl": 3600, "turn": !ice.is_empty()}))
     } else if line.starts_with("POST /v1/devices") {
         ("200 OK", json!({"device": body}))
     } else {
@@ -297,4 +321,230 @@ async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str) {
         reply.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;
+}
+
+/// TURN relayed ports of a [`TestTurn`] start here (each server takes 100):
+/// above Linux's ephemeral range (32768 to 60999), so no tunnel socket
+/// ever has a port a test takes for a relayed one.
+pub const TEST_RELAY_PORTS_START: u16 = 61_000;
+static NEXT_RELAY_PORTS: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
+
+struct TestAuth;
+
+impl webrtc::turn::auth::AuthHandler for TestAuth {
+    fn auth_handle(
+        &self,
+        username: &str,
+        realm: &str,
+        _source: std::net::SocketAddr,
+    ) -> Result<Vec<u8>, webrtc::turn::Error> {
+        Ok(webrtc::turn::auth::generate_auth_key(username, realm, "secret"))
+    }
+}
+
+/// A TURN server on loopback for tests: UDP on one port, TLS (RFC 5766 over
+/// TLS, a self-signed certificate for 127.0.0.1) on another, and plain TCP
+/// on a third. Relayed addresses are `127.0.0.1` with ports in
+/// [`TestTurn::relay_ports`], so a test can tell TURN from direct paths.
+pub struct TestTurn {
+    /// `turn:...?transport=udp`, `turns:...?transport=tcp` and
+    /// `turn:...?transport=tcp`, with credentials.
+    pub ice: crate::api::IceServer,
+    /// Trust these for TURN over TLS (`DialOptions::turn_tls_roots`).
+    pub roots: Arc<rustls::RootCertStore>,
+    pub relay_ports: std::ops::RangeInclusive<u16>,
+    servers: Arc<Mutex<Vec<webrtc::turn::server::Server>>>,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Stream connections accepted so far (TLS and TCP).
+    streams: Arc<std::sync::atomic::AtomicUsize>,
+    /// While set, the UDP port drops everything (a network that blocks UDP
+    /// to the TURN server).
+    udp_blocked: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// The TURN server's UDP socket, which drops everything while `blocked`.
+struct BlockableUdp {
+    socket: tokio::net::UdpSocket,
+    blocked: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[async_trait::async_trait]
+impl webrtc::util::Conn for BlockableUdp {
+    async fn connect(&self, addr: std::net::SocketAddr) -> webrtc::util::Result<()> {
+        Ok(self.socket.connect(addr).await?)
+    }
+
+    async fn recv(&self, buf: &mut [u8]) -> webrtc::util::Result<usize> {
+        self.recv_from(buf).await.map(|(len, _)| len)
+    }
+
+    async fn recv_from(&self, buf: &mut [u8]) -> webrtc::util::Result<(usize, std::net::SocketAddr)> {
+        loop {
+            let (len, from) = self.socket.recv_from(buf).await?;
+            if !self.blocked.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok((len, from));
+            }
+        }
+    }
+
+    async fn send(&self, buf: &[u8]) -> webrtc::util::Result<usize> {
+        Ok(self.socket.send(buf).await?)
+    }
+
+    async fn send_to(&self, buf: &[u8], target: std::net::SocketAddr) -> webrtc::util::Result<usize> {
+        if self.blocked.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(buf.len());
+        }
+        Ok(self.socket.send_to(buf, target).await?)
+    }
+
+    fn local_addr(&self) -> webrtc::util::Result<std::net::SocketAddr> {
+        Ok(self.socket.local_addr()?)
+    }
+
+    fn remote_addr(&self) -> Option<std::net::SocketAddr> {
+        None
+    }
+
+    async fn close(&self) -> webrtc::util::Result<()> {
+        Ok(())
+    }
+
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+        self
+    }
+}
+
+impl TestTurn {
+    pub async fn start() -> Self {
+        let slot = NEXT_RELAY_PORTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 45;
+        let first = TEST_RELAY_PORTS_START + slot * 100;
+        let relay_ports = first..=first + 99;
+        let servers = Arc::new(Mutex::new(Vec::new()));
+        let udp_blocked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let udp = BlockableUdp {
+            socket: tokio::net::UdpSocket::bind("127.0.0.1:0").await.expect("bind TURN UDP"),
+            blocked: Arc::clone(&udp_blocked),
+        };
+        let udp_port = udp.socket.local_addr().expect("addr").port();
+        let server = Self::server(Arc::new(udp), relay_ports.clone()).await;
+        servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
+
+        let certified = rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_owned()]).expect("certificate");
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(certified.cert.der().clone()).expect("root");
+        let key = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+            certified.key_pair.serialize_der(),
+        ));
+        let tls = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .expect("TLS versions")
+            .with_no_client_auth()
+            .with_single_cert(vec![certified.cert.der().clone()], key)
+            .expect("TLS server config");
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
+        let streams = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        let mut stream_port = |secure: bool| {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind TURN TCP");
+            listener.set_nonblocking(true).expect("nonblocking");
+            let port = listener.local_addr().expect("addr").port();
+            let listener = TcpListener::from_std(listener).expect("listener");
+            let (acceptor, servers, ports, streams) =
+                (acceptor.clone(), Arc::clone(&servers), relay_ports.clone(), Arc::clone(&streams));
+            tasks.push(tokio::spawn(async move {
+                while let Ok((tcp, client)) = listener.accept().await {
+                    let (acceptor, servers, ports, streams) =
+                        (acceptor.clone(), Arc::clone(&servers), ports.clone(), Arc::clone(&streams));
+                    tokio::spawn(async move {
+                        let _ = tcp.set_nodelay(true);
+                        let Ok(local) = tcp.local_addr() else { return };
+                        let conn: Arc<dyn webrtc::util::Conn + Send + Sync> = if secure {
+                            let Ok(tls) = acceptor.accept(tcp).await else { return };
+                            Arc::new(crate::dial::turn::StreamConn::new(tls, local, client))
+                        } else {
+                            Arc::new(crate::dial::turn::StreamConn::new(tcp, local, client))
+                        };
+                        streams.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let server = Self::server(conn, ports).await;
+                        servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
+                    });
+                }
+            }));
+            port
+        };
+        let tls_port = stream_port(true);
+        let tcp_port = stream_port(false);
+        let ice = crate::api::IceServer {
+            urls: vec![
+                format!("turn:127.0.0.1:{udp_port}?transport=udp"),
+                format!("turns:127.0.0.1:{tls_port}?transport=tcp"),
+                format!("turn:127.0.0.1:{tcp_port}?transport=tcp"),
+            ],
+            username: Some("cnx".into()),
+            credential: Some("secret".into()),
+        };
+        Self { ice, roots: Arc::new(roots), relay_ports, servers, tasks, streams, udp_blocked }
+    }
+
+    async fn server(
+        conn: Arc<dyn webrtc::util::Conn + Send + Sync>,
+        ports: std::ops::RangeInclusive<u16>,
+    ) -> webrtc::turn::server::Server {
+        webrtc::turn::server::Server::new(webrtc::turn::server::config::ServerConfig {
+            conn_configs: vec![webrtc::turn::server::config::ConnConfig {
+                conn,
+                relay_addr_generator: Box::new(webrtc::turn::relay::relay_range::RelayAddressGeneratorRanges {
+                    relay_address: "127.0.0.1".parse().expect("ip"),
+                    min_port: *ports.start(),
+                    max_port: *ports.end(),
+                    max_retries: 10,
+                    address: "127.0.0.1".into(),
+                    net: Arc::new(webrtc::util::vnet::net::Net::new(None)),
+                }),
+            }],
+            realm: "cnx.test".into(),
+            auth_handler: Arc::new(TestAuth),
+            channel_bind_timeout: std::time::Duration::from_secs(0),
+            alloc_close_notify: None,
+        })
+        .await
+        .expect("TURN server")
+    }
+
+    /// Only the UDP URL (an older service, or a test of UDP TURN alone).
+    pub fn udp_only(&self) -> crate::api::IceServer {
+        crate::api::IceServer { urls: self.ice.urls[..1].to_vec(), ..self.ice.clone() }
+    }
+
+    /// Block (or unblock) UDP to the server, as a network that drops UDP.
+    pub fn set_udp_blocked(&self, blocked: bool) {
+        self.udp_blocked.store(blocked, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Stream connections (TLS or TCP) the server accepted so far.
+    pub fn stream_connections(&self) -> usize {
+        self.streams.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Whether `addr` is one of this server's relayed addresses.
+    pub fn is_relayed(&self, addr: &std::net::SocketAddr) -> bool {
+        addr.ip().is_loopback() && self.relay_ports.contains(&addr.port())
+    }
+}
+
+impl Drop for TestTurn {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+        let servers = std::mem::take(&mut *self.servers.lock().unwrap_or_else(PoisonError::into_inner));
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                for server in servers {
+                    let _ = server.close().await;
+                }
+            });
+        }
+    }
 }
