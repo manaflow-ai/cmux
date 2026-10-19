@@ -32,6 +32,12 @@ pub mod types {
         ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
         #[serde(rename = "meshId")]
         pub mesh_id: AclAppliedMeshId,
+        ///Directed device overlay permissions, when nonzero. Separate from ruleCount, which counts provider firewall rules.
+        #[serde(
+            rename = "overlayRuleCount",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub overlay_rule_count: ::std::option::Option<Int>,
         #[serde(rename = "ruleCount")]
         pub rule_count: Int,
         #[serde(rename = "rulesCreated")]
@@ -159,7 +165,7 @@ pub mod types {
     pub struct AclRule {
         ///tcp:<port>, udp:<port>, tcp:*, udp:*, icmp, or * (everything).
         pub allow: ::std::vec::Vec<AclRuleAllowItem>,
-        ///VMs: vm_ ids or vm:* (every VM member of the mesh).
+        ///VMs: vm_ ids or vm:*. Devices: dev_ ids or device:*. Device destinations use directed overlay permissions, never provider firewall rules. Self edges are omitted.
         pub dst: ::std::vec::Vec<AclRuleDstItem>,
         ///Devices: dev_ ids or device:* (every device of the mesh).
         pub src: ::std::vec::Vec<AclRuleSrcItem>,
@@ -4602,6 +4608,59 @@ pub mod types {
     ///a string at most 128 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[serde(transparent)]
+    pub struct MeshGetDeviceOverlayPolicyXCmuxTeamId(::std::string::String);
+    impl ::std::ops::Deref for MeshGetDeviceOverlayPolicyXCmuxTeamId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<MeshGetDeviceOverlayPolicyXCmuxTeamId> for ::std::string::String {
+        fn from(value: MeshGetDeviceOverlayPolicyXCmuxTeamId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for MeshGetDeviceOverlayPolicyXCmuxTeamId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            if value.chars().count() > 128usize {
+                return Err("longer than 128 characters".into());
+            }
+            if value.chars().count() < 1usize {
+                return Err("shorter than 1 characters".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for MeshGetDeviceOverlayPolicyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for MeshGetDeviceOverlayPolicyXCmuxTeamId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for MeshGetDeviceOverlayPolicyXCmuxTeamId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string at most 128 character(s) long
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
     pub struct MeshGetDevicePeersXCmuxTeamId(::std::string::String);
     impl ::std::ops::Deref for MeshGetDevicePeersXCmuxTeamId {
         type Target = ::std::string::String;
@@ -5384,6 +5443,486 @@ pub mod types {
             value: ::std::string::String,
         ) -> ::std::result::Result<Self, self::error::ConversionError> {
             value.parse()
+        }
+    }
+    ///`OverlayPeer`
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct OverlayPeer {
+        ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "deviceId")]
+        pub device_id: OverlayPeerDeviceId,
+        ///Connections this peer may initiate toward the requesting device.
+        pub inbound: ::std::vec::Vec<PeerAllow>,
+        ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+        #[serde(rename = "installPublicKey")]
+        pub install_public_key: OverlayPeerInstallPublicKey,
+        ///Connections the requesting device may initiate toward this peer. Replies do not grant reverse initiation.
+        pub outbound: ::std::vec::Vec<PeerAllow>,
+        ///The device's WireGuard public key, base64. The private key never leaves the device.
+        #[serde(rename = "wgPublicKey")]
+        pub wg_public_key: OverlayPeerWgPublicKey,
+    }
+    ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct OverlayPeerDeviceId(::std::string::String);
+    impl ::std::ops::Deref for OverlayPeerDeviceId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<OverlayPeerDeviceId> for ::std::string::String {
+        fn from(value: OverlayPeerDeviceId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for OverlayPeerDeviceId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for OverlayPeerDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for OverlayPeerDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for OverlayPeerDeviceId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct OverlayPeerInstallPublicKey(::std::string::String);
+    impl ::std::ops::Deref for OverlayPeerInstallPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<OverlayPeerInstallPublicKey> for ::std::string::String {
+        fn from(value: OverlayPeerInstallPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for OverlayPeerInstallPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^B[A-Za-z0-9+/]{86}=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^B[A-Za-z0-9+/]{86}=$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for OverlayPeerInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for OverlayPeerInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for OverlayPeerInstallPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The device's WireGuard public key, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct OverlayPeerWgPublicKey(::std::string::String);
+    impl ::std::ops::Deref for OverlayPeerWgPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<OverlayPeerWgPublicKey> for ::std::string::String {
+        fn from(value: OverlayPeerWgPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for OverlayPeerWgPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for OverlayPeerWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for OverlayPeerWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for OverlayPeerWgPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///Default-deny device overlay policy. Only connected peers with live owners and install identities are included. A policy read does not activate transport, admit a relay session or grant command execution. Consumers must obtain current policy through their authorized control plane.
+    #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+    pub struct OverlayPolicy {
+        #[serde(rename = "aclVersion")]
+        pub acl_version: Int,
+        ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "deviceId")]
+        pub device_id: OverlayPolicyDeviceId,
+        ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+        #[serde(rename = "installPublicKey")]
+        pub install_public_key: OverlayPolicyInstallPublicKey,
+        ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+        #[serde(rename = "meshId")]
+        pub mesh_id: OverlayPolicyMeshId,
+        pub peers: ::std::vec::Vec<OverlayPeer>,
+        ///SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof.
+        #[serde(rename = "policyDigest")]
+        pub policy_digest: OverlayPolicyPolicyDigest,
+        ///The device's WireGuard public key, base64. The private key never leaves the device.
+        #[serde(rename = "wgPublicKey")]
+        pub wg_public_key: OverlayPolicyWgPublicKey,
+    }
+    ///a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct OverlayPolicyDeviceId(::std::string::String);
+    impl ::std::ops::Deref for OverlayPolicyDeviceId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<OverlayPolicyDeviceId> for ::std::string::String {
+        fn from(value: OverlayPolicyDeviceId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for OverlayPolicyDeviceId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for OverlayPolicyDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for OverlayPolicyDeviceId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for OverlayPolicyDeviceId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct OverlayPolicyInstallPublicKey(::std::string::String);
+    impl ::std::ops::Deref for OverlayPolicyInstallPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<OverlayPolicyInstallPublicKey> for ::std::string::String {
+        fn from(value: OverlayPolicyInstallPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for OverlayPolicyInstallPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^B[A-Za-z0-9+/]{86}=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^B[A-Za-z0-9+/]{86}=$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for OverlayPolicyInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for OverlayPolicyInstallPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for OverlayPolicyInstallPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct OverlayPolicyMeshId(::std::string::String);
+    impl ::std::ops::Deref for OverlayPolicyMeshId {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<OverlayPolicyMeshId> for ::std::string::String {
+        fn from(value: OverlayPolicyMeshId) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for OverlayPolicyMeshId {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$\""
+                        .into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for OverlayPolicyMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for OverlayPolicyMeshId {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for OverlayPolicyMeshId {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct OverlayPolicyPolicyDigest(::std::string::String);
+    impl ::std::ops::Deref for OverlayPolicyPolicyDigest {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<OverlayPolicyPolicyDigest> for ::std::string::String {
+        fn from(value: OverlayPolicyPolicyDigest) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for OverlayPolicyPolicyDigest {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[0-9a-f]{64}$").unwrap());
+            if PATTERN.find(value).is_none() {
+                return Err("doesn't match pattern \"^[0-9a-f]{64}$\"".into());
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for OverlayPolicyPolicyDigest {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for OverlayPolicyPolicyDigest {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for OverlayPolicyPolicyDigest {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
+        }
+    }
+    ///The device's WireGuard public key, base64. The private key never leaves the device.
+    #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    #[serde(transparent)]
+    pub struct OverlayPolicyWgPublicKey(::std::string::String);
+    impl ::std::ops::Deref for OverlayPolicyWgPublicKey {
+        type Target = ::std::string::String;
+        fn deref(&self) -> &::std::string::String {
+            &self.0
+        }
+    }
+    impl ::std::convert::From<OverlayPolicyWgPublicKey> for ::std::string::String {
+        fn from(value: OverlayPolicyWgPublicKey) -> Self {
+            value.0
+        }
+    }
+    impl ::std::str::FromStr for OverlayPolicyWgPublicKey {
+        type Err = self::error::ConversionError;
+        fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+                ::std::sync::LazyLock::new(|| {
+                    ::regress::Regex::new("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$").unwrap()
+                });
+            if PATTERN.find(value).is_none() {
+                return Err(
+                    "doesn't match pattern \"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$\"".into(),
+                );
+            }
+            Ok(Self(value.to_string()))
+        }
+    }
+    impl ::std::convert::TryFrom<&str> for OverlayPolicyWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl ::std::convert::TryFrom<::std::string::String> for OverlayPolicyWgPublicKey {
+        type Error = self::error::ConversionError;
+        fn try_from(
+            value: ::std::string::String,
+        ) -> ::std::result::Result<Self, self::error::ConversionError> {
+            value.parse()
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for OverlayPolicyWgPublicKey {
+        fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+        where
+            D: ::serde::Deserializer<'de>,
+        {
+            ::std::string::String::deserialize(deserializer)?
+                .parse()
+                .map_err(|e: self::error::ConversionError| {
+                    <D::Error as ::serde::de::Error>::custom(e.to_string())
+                })
         }
     }
     ///`PayloadTooLarge`
@@ -6575,7 +7114,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers or tunnel, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use.
+    ///A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers, tunnel or overlay-policy, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct SignedDeviceRequest {
         ///16 random bytes, base64url without padding.
@@ -11986,6 +12525,63 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
+    /**Read a device's directed overlay policy
+
+    Read a device's directed overlay policy. Requires the mesh:join scope. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Public identities and inbound/outbound permissions only. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `GET` request to `/v1/devices/{deviceId}/overlay-policy`
+
+    Arguments:
+    - `device_id`
+    - `x_cmux_team_id`: a string at most 128 character(s) long
+    */
+    pub async fn mesh_get_device_overlay_policy<'a>(
+        &'a self,
+        device_id: &'a str,
+        x_cmux_team_id: Option<&'a types::MeshGetDeviceOverlayPolicyXCmuxTeamId>,
+    ) -> Result<ResponseValue<types::OverlayPolicy>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}/overlay-policy",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(2usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        if let Some(value) = x_cmux_team_id {
+            header_map.append("x-cmux-team-id", value.to_string().try_into()?);
+        }
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .get(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_get_device_overlay_policy",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
     /**What this device may reach
 
     What this device may reach. Requires the mesh:join scope. Compiled from the current ACL. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Experiment: answers 404 unless the mesh experiment is enabled for the team.
@@ -12137,6 +12733,57 @@ impl Client {
             .build()?;
         let info = OperationInfo {
             operation_id: "mesh_device_signed_device_address",
+        };
+        self.pre(&mut request, &info).await?;
+        let result = self.exec(request, &info).await;
+        self.post(&result, &info).await?;
+        let response = result?;
+        match response.status().as_u16() {
+            200u16 => ResponseValue::from_response(response).await,
+            400u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            _ => Err(Error::UnexpectedResponse(response)),
+        }
+    }
+    /**A device reads its own overlay policy
+
+    Signed with the distinct purpose overlay-policy. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.
+
+    Sends a `POST` request to `/v1/devices/{deviceId}/signed/overlay-policy`
+
+    */
+    pub async fn mesh_device_signed_device_overlay_policy<'a>(
+        &'a self,
+        device_id: &'a str,
+        body: &'a types::SignedDeviceRequest,
+    ) -> Result<ResponseValue<types::OverlayPolicy>, Error<ByteStream>> {
+        let url = format!(
+            "{}/v1/devices/{}/signed/overlay-policy",
+            self.baseurl,
+            encode_path(&device_id.to_string()),
+        );
+        let mut header_map = ::reqwest::header::HeaderMap::with_capacity(1usize);
+        header_map.append(
+            ::reqwest::header::HeaderName::from_static("api-version"),
+            ::reqwest::header::HeaderValue::from_static(Self::api_version()),
+        );
+        #[allow(unused_mut)]
+        let mut request = self
+            .client
+            .post(url)
+            .header(
+                ::reqwest::header::ACCEPT,
+                ::reqwest::header::HeaderValue::from_static("application/json"),
+            )
+            .json(&body)
+            .headers(header_map)
+            .build()?;
+        let info = OperationInfo {
+            operation_id: "mesh_device_signed_device_overlay_policy",
         };
         self.pre(&mut request, &info).await?;
         let result = self.exec(request, &info).await;

@@ -150,6 +150,9 @@ describe("device overlay policy", () => {
     if (typeof server !== "string") throw new Error("missing server");
     expect((await apply([{ src: [laptop], dst: [server], allow: ["tcp:4100"] }])).status).toBe(200);
     expect((await json(await read(laptop)))["peers"]).toHaveLength(1);
+    h.failStackFor("user_server");
+    expect((await read(laptop)).status).toBe(503);
+    h.failStackFor("user_server", false);
     h.removeMember(TEAM, "user_server");
     // TeamMembership checks the directory; the signed read and projection
     // must not inherit the credential middleware's cached positive result.

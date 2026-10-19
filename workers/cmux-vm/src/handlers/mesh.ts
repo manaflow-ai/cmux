@@ -500,7 +500,7 @@ const peerMapOf = (tenantId: Principal["tenantId"], deviceId: string, row: MeshD
     });
   });
 
-/** A coherent device policy read, serialized with enrollment, removal and ACL writes. */
+/** Reads one identity inventory while holding the mesh's ACL/removal writer lock. */
 const overlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: string, row: MeshDeviceRow) =>
   withMeshWriter(tenantId, row.meshId, Effect.gen(function* () {
     const store = yield* MeshStore;
@@ -513,16 +513,18 @@ const overlayPolicyOf = (tenantId: Principal["tenantId"], deviceId: string, row:
     const subject = devices.find((device) => device.deviceId === deviceId);
     if (subject === undefined || subject.installPublicKey === null) return yield* Effect.fail(deviceNotFound());
     const owner = actorOf(subject.createdBy);
-    if (Option.isNone(owner) || !(yield* ownerStillValid(tenantId, owner.value))) return yield* Effect.fail(deviceNotFound());
+    if (Option.isNone(owner) || !(yield* ownerStillValid(tenantId, owner.value, true))) return yield* Effect.fail(deviceNotFound());
     const incident = new Set(result.overlayRules.flatMap((rule) => rule.sourceDeviceId === deviceId ? [rule.destinationDeviceId] : rule.destinationDeviceId === deviceId ? [rule.sourceDeviceId] : []));
-    const identities = [];
-    for (const device of devices) {
-      if (!incident.has(device.deviceId) || device.installPublicKey === null) continue;
-      const actor = actorOf(device.createdBy);
-      if (Option.isSome(actor) && (yield* ownerStillValid(tenantId, actor.value))) {
-        identities.push({ deviceId: device.deviceId, wgPublicKey: device.wgPublicKey, installPublicKey: device.installPublicKey });
-      }
-    }
+    const candidates = devices.filter((device) => incident.has(device.deviceId) && device.installPublicKey !== null);
+    const owners = [...new Set(candidates.map((device) => device.createdBy))];
+    const ownerValidity = new Map(yield* Effect.forEach(owners, (createdBy) => Effect.gen(function* () {
+      if (createdBy === subject.createdBy) return [createdBy, true] as const;
+      const actor = actorOf(createdBy);
+      return [createdBy, Option.isSome(actor) && (yield* ownerStillValid(tenantId, actor.value, true))] as const;
+    }), { concurrency: 8 }));
+    const identities = candidates.flatMap((device) => ownerValidity.get(device.createdBy) === true && device.installPublicKey !== null
+      ? [{ deviceId: device.deviceId, wgPublicKey: device.wgPublicKey, installPublicKey: device.installPublicKey }]
+      : []);
     const projection = {
       deviceId: DeviceId_(deviceId), meshId: MeshId_(row.meshId),
       wgPublicKey: subject.wgPublicKey, installPublicKey: subject.installPublicKey,
@@ -707,9 +709,9 @@ const actorOf = (createdBy: string): Option.Option<Principal["actor"]> => {
  * revoked, not expired). Checked at every use, so revoking the key or removing
  * the user ends its codes and its devices' signed requests at once.
  */
-const ownerStillValid = (tenantId: Principal["tenantId"], actor: Principal["actor"]) =>
+const ownerStillValid = (tenantId: Principal["tenantId"], actor: Principal["actor"], fresh = false) =>
   Effect.gen(function* () {
-    if (actor.kind === "session") return yield* (yield* TeamMembership).isMember(tenantId, actor.userId).pipe(Effect.mapError(() => unavailable()));
+    if (actor.kind === "session") return yield* (yield* TeamMembership).isMember(tenantId, actor.userId, { fresh }).pipe(Effect.mapError(() => unavailable()));
     // A service key (cx-b4h.13) holds no mesh scope, so it never owns a code or a device.
     if (actor.kind === "service") return false;
     const key = yield* (yield* ApiKeyStore).findActiveById(tenantId, actor.keyId, yield* now).pipe(Effect.catchAll(dependencyDown("api_keys.findById")));
@@ -1257,7 +1259,7 @@ const withSignedDevice = <A, E, R>(
     if (installPublicKey === null) return yield* Effect.fail(experimentOff());
     const owner = actorOf(row.createdBy);
     if (Option.isNone(owner)) return yield* Effect.fail(experimentOff());
-    if (!(yield* ownerStillValid(tenantId, owner.value))) return yield* Effect.fail(experimentOff());
+    if (!(yield* ownerStillValid(tenantId, owner.value, request.purpose === "overlay-policy"))) return yield* Effect.fail(experimentOff());
     const principal: Principal = {
       tenantId,
       actor: owner.value,

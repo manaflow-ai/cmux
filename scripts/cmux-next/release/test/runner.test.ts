@@ -20,7 +20,7 @@ const fresh = async (): Promise<Sql> => {
   await createDb(db)
   dbs.push(db)
   const sql = await connectUrl(dbUrl(db))
-  await applyPending(sql, vm, base, { by: "t", target: "staging", allowContract: ["0009_cmux_vm_mesh_device_address.sql", "0010_cmux_vm_creation_receipts.sql"] })
+  await applyPending(sql, vm, base, { by: "t", target: "staging", allowContract: ["0009_cmux_vm_mesh_device_address.sql", "0010_cmux_vm_creation_receipts.sql", "0012_cmux_vm_device_overlay_policy.sql"] })
   await sql.query("CREATE TABLE public.users (id text PRIMARY KEY, name text); INSERT INTO public.users VALUES ('a', 'old')")
   return sql
 }

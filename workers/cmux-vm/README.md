@@ -59,7 +59,8 @@ The operator CLI exposes the credential read as
 The response includes public install and WireGuard keys and separate inbound
 and outbound permissions for relevant peers whose owners remain valid. Its
 digest identifies the projection even when a key changes at the same ACL
-version; it does not prove freshness. Reads are serialized with mesh changes.
+version; it does not prove freshness. Reads hold the ACL/removal writer lock
+and use one device identity inventory.
 This contract does not activate transport, push updates, admit HostDO relay
 sessions or grant command execution; those integrations remain separate.
 

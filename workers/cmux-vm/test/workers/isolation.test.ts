@@ -43,6 +43,8 @@ describe("the endpoint table", () => {
       "POST /v1/devices/{deviceId}/signed/rotate-key",
       // Same credential; test/workers/mesh-ipv6.test.ts covers it (another device's signature is 404).
       "POST /v1/devices/{deviceId}/signed/address",
+      // Distinct purpose and live peer owners; mesh-overlay.test.ts covers it.
+      "POST /v1/devices/{deviceId}/signed/overlay-policy",
       ...VM_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...TENANT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
       ...SNAPSHOT_ENDPOINTS.map((endpoint) => `${endpoint.method} ${endpoint.template}`),
