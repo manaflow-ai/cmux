@@ -68,7 +68,8 @@ export function ChatCards({
   useListMotion(
     list,
     ".nt-card-host > .nt-card, .nt-card-family > .nt-card",
-    cards.map((card) => card.sessionId),
+    // A chat keeps its row when acpmux's session takes its device chat's slot (one active chat).
+    cards.map((card) => (card.chatId ? `chat:${card.chatId}` : card.sessionId)),
   );
   return (
     <section className="nt-chats" aria-label={nt("sections")}>
