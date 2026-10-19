@@ -1,5 +1,6 @@
 public import AppKit
 public import AVFoundation
+import CmuxNextCompat
 import CmuxNextWakeups
 
 /// A video wallpaper behind a window's content (cx-14vdf): the file loops, muted, through
@@ -27,6 +28,10 @@ public final class BackdropVideoView: NSView {
     public var reduceMotionOverride: Bool? { didSet { update() } }
     public var lowPowerOverride: Bool? { didSet { update() } }
     public var visibleOverride: Bool? { didSet { update() } }
+    /// Tests: pins the playback settings, or being on battery, for this view.
+    public var playbackOverride: BackdropPlaybackSettings? { didSet { update() } }
+    public var batteryOverride: Bool? { didSet { update() } }
+    private var settingsWatch: Task<Void, Never>?
     /// Tests: the windows above this one, in place of the screen's.
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
     private let players: BackdropVideoPlayers
@@ -100,14 +105,28 @@ public final class BackdropVideoView: NSView {
 
     /// Whether someone could see the video now: on screen, uncovered, the screens awake. A video
     /// held for Low Power Mode or Reduce Motion is still seen and keeps its frame and decoder.
-    public var canBeSeen: Bool { onScreen && !coverage.resting }
+    public var canBeSeen: Bool { onScreen && !coverage.resting && playback.video != .still }
+
+    private var playback: BackdropPlaybackSettings { playbackOverride ?? DesignSettings.shared.backdropPlayback }
+
+    /// What the playback settings allow now: a still picture never plays, "while active" only
+    /// while cmux is the active app, and "pause on battery" not on battery.
+    private var settingsAllow: Bool {
+        let playback = playback
+        switch playback.video {
+        case .still: return false
+        case .whenActive: guard NSApp.isActive else { return false }
+        case .play: break
+        }
+        return playback.onBattery == .play || !(batteryOverride ?? BackdropPower.shared.onBattery)
+    }
 
     /// Everything ``wantsPlayback`` asks but coverage, which is sampled only while this holds.
     private var seen: Bool {
         let lowPower = lowPowerOverride ?? ProcessInfo.processInfo.isLowPowerModeEnabled
         let reduced = reduceMotionOverride ?? !Motion.animatesLoops
         let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
-        return onScreen && !lowPower && !hot && !reduced
+        return onScreen && !lowPower && !hot && !reduced && settingsAllow
     }
 
     /// Shown in a window that is on screen, with the screens awake and the session active.
@@ -121,9 +140,18 @@ public final class BackdropVideoView: NSView {
         super.viewDidMoveToWindow()
         for (center, observer) in observers { center.removeObserver(observer) }
         observers = []
-        guard window != nil else { return detach() }
+        guard window != nil else {
+            settingsWatch?.cancel()
+            settingsWatch = nil
+            return detach()
+        }
         observe()
         attach()
+        BackdropPower.shared.watch()
+        settingsWatch?.cancel()
+        settingsWatch = Task { [weak self] in
+            for await _ in ObservationStream({ DesignSettings.shared.backdropPlayback }) { self?.update() }
+        }
     }
 
     override public var isHidden: Bool {
@@ -212,6 +240,8 @@ public final class BackdropVideoView: NSView {
             (app, NSWindow.didDeminiaturizeNotification, window), (app, NSWindow.didBecomeMainNotification, window),
             (app, NSWindow.didBecomeKeyNotification, window), (app, NSApplication.didHideNotification, nil),
             (app, NSApplication.didUnhideNotification, nil), (app, Notification.Name.NSProcessInfoPowerStateDidChange, nil),
+            (app, NSApplication.didBecomeActiveNotification, nil), (app, NSApplication.didResignActiveNotification, nil),
+            (app, BackdropPower.didChange, nil),
             (app, ProcessInfo.thermalStateDidChangeNotification, nil), (app, Motion.reduceMotionDidChange, nil),
             (app, Motion.speedDidChange, nil),
             (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil),
