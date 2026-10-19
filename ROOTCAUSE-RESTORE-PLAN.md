@@ -124,6 +124,16 @@ bridge-firmware or power/link interaction. Re-test after stale agent/TartCI
 process cleanup and a controlled sleep/wake or reboot; do not enable the M5S
 runner pool until write, fsync, and `loop.pid` reads all pass.
 
+The process census at the same time found many long-lived `cmux-cua serve`
+helpers, a two-day `rescore_daily_until_2026-10-22.sh`, a TartCI
+`disk_reclaim.py --fix`, and diagnostic processes actively attempting writes
+and reads under `/Volumes/Atelier`. A recursive `lsof +D /Volumes/Atelier`
+itself did not return within 30 seconds. These are plausible amplifiers of an
+already-stalled volume and explain why the host can remain SSH-reachable while
+the CI volume is unusable. They are not proof that any one helper caused the
+stall; cleanup must be scoped to confirmed stale jobs and must not terminate
+the protected cmux process.
+
 ## Workstream history evidence
 
 - The local `~/.cmuxterm/workstream.jsonl` is currently approximately 832 MB
