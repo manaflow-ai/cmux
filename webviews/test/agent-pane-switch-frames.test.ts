@@ -78,12 +78,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     }));
     return { listed, attached: { ...listed, modes: modes(mode) }, events };
   };
-  const A = chat(
-    "0190a000-0000-7000-8000-0000000000f1",
-    "Uploader retry",
-    "Retry added.",
-    "bypassPermissions",
-  );
+  const A = chat("0190a000-0000-7000-8000-0000000000f1", "Uploader retry", "Retry added.", "bypassPermissions");
   const B = chat("0190a000-0000-7000-8000-0000000000f2", "Docs pass", "Docs updated.", "default");
   const chats = new Map([A, B].map((entry) => [entry.listed.sessionId, entry]));
 
@@ -111,6 +106,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
         return null;
     }
   }
+  const sockets = new Set<Bun.ServerWebSocket<unknown>>();
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
@@ -124,11 +120,15 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined })
-          ? undefined
-          : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
+        open(ws) {
+          sockets.add(ws);
+        },
+        close(ws) {
+          sockets.delete(ws);
+        },
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as {
             id?: number;
@@ -173,7 +173,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
-    await daemon?.stop(true);
+    // Not awaited: after the reconnect test's forced close, Bun's stop can wait on that socket for good.
+    void daemon?.stop(true);
   });
 
   test("a chat switch draws the old chat, then the new one, never a frame in between", async () => {
@@ -181,12 +182,9 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     await page.goto(url(A.listed.sessionId));
     await page.getByText("Retry added.").waitFor();
     const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
-    await page.waitForFunction(
-      (selector) => document.querySelector(selector)?.textContent === "Full access",
-      CHIP,
-    );
+    await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Full access", CHIP);
     await page.evaluate((selector) => {
-      const frames: { at: number; chip: string; old: boolean; fresh: boolean }[] = [];
+      const frames: { at: number; chip: string; old: boolean; fresh: boolean; text: string }[] = [];
       (window as unknown as { switchFrames: typeof frames }).switchFrames = frames;
       const start = performance.now();
       const sample = () => {
@@ -201,9 +199,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
         if (performance.now() - start < 1500) requestAnimationFrame(sample);
       };
       requestAnimationFrame(sample);
-      const actions = (
-        window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> }
-      ).cmuxAcpmuxActions;
+      const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
+        .cmuxAcpmuxActions;
       void actions?.["chat.select"]?.({ sessionId: "0190a000-0000-7000-8000-0000000000f2" });
     }, CHIP);
     await page.getByText("Docs updated.").waitFor();
@@ -220,10 +217,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
         ).switchFrames,
     );
     await page.close();
-    const oldFrame = (frame: (typeof frames)[number]) =>
-      frame.old && !frame.fresh && frame.chip === "Full access";
-    const newFrame = (frame: (typeof frames)[number]) =>
-      frame.fresh && !frame.old && frame.chip === "Normal";
+    const oldFrame = (frame: (typeof frames)[number]) => frame.old && !frame.fresh && frame.chip === "Full access";
+    const newFrame = (frame: (typeof frames)[number]) => frame.fresh && !frame.old && frame.chip === "Normal";
     const between = frames.filter((frame) => !oldFrame(frame) && !newFrame(frame));
     const firstNew = frames.findIndex(newFrame);
     const span = between.length ? between.at(-1)!.at - between[0].at : 0;
@@ -233,5 +228,49 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     );
     expect(firstNew).toBeGreaterThanOrEqual(0);
     expect(between).toEqual([]);
+  });
+
+  test("a reconnect keeps the chat on screen until the chat is read again", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(A.listed.sessionId));
+    await page.getByText("Retry added.").waitFor();
+    const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
+    await page.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Full access", CHIP);
+    await page.evaluate((selector) => {
+      const frames: { at: number; chip: string; old: boolean; text: string }[] = [];
+      (window as unknown as { reconnectFrames: typeof frames }).reconnectFrames = frames;
+      const start = performance.now();
+      const sample = () => {
+        const text = document.body.innerText;
+        frames.push({
+          at: performance.now() - start,
+          chip: document.querySelector(selector)?.textContent ?? "",
+          old: text.includes("Retry added."),
+          text: text.slice(0, 160).replace(/\s+/g, " "),
+        });
+        if (performance.now() - start < 2000) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    }, CHIP);
+    // acpmux restarts: the pane's socket drops and it connects again.
+    for (const socket of sockets) socket.close(1012, "restart");
+    await page.waitForFunction(() => {
+      const frames = (window as unknown as { reconnectFrames: { at: number }[] }).reconnectFrames;
+      return frames.length > 0 && frames.at(-1)!.at >= 1900;
+    });
+    const frames = await page.evaluate(
+      () =>
+        (window as unknown as { reconnectFrames: { at: number; chip: string; old: boolean; text: string }[] })
+          .reconnectFrames,
+    );
+    await page.close();
+    const lost = frames.filter((frame) => !frame.old || frame.chip !== "Full access");
+    console.log(
+      `reconnect-frames: ${frames.length} frames, ${lost.length} without the chat or its chip` +
+        (lost.length
+          ? ` over ${(lost.at(-1)!.at - lost[0].at).toFixed(0)} ms (first: ${JSON.stringify(lost[0])})`
+          : ""),
+    );
+    expect(lost).toEqual([]);
   });
 });
