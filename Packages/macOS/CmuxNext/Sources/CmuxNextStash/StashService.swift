@@ -13,6 +13,8 @@ public final class StashService: StashPageSource {
     public let model = StashPageModel()
     /// Each Stashed page's own OneTab paste box, by page key.
     private var drafts: [String: StashImportDraft] = [:]
+    /// Follows the daemon's stash changes (``watchChanges()``); cancelled when the service goes.
+    private var watcher: Task<Void, Never>?
 
     /// Creates the service over `host`'s daemon and starts following its stash changes.
     /// - Parameter host: The App's side of Stash; held weakly.
@@ -22,11 +24,13 @@ public final class StashService: StashPageSource {
         watchChanges()
     }
 
+    nonisolated deinit { watcher?.cancel() }
+
     /// Lists the stashes again once this Mac's daemon serves them, and on each stash change it
     /// publishes (`SessionStateStore.stashChanges`).
     private func watchChanges() {
-        // task-owner: lives as long as the service; ends when it or its host goes.
-        Task { [weak self] in
+        // task-owner: `watcher`, cancelled in deinit (an observation loop never ends on its own).
+        watcher = Task { [weak self] in
             var last: Int?
             let changes = ObservationStream { [weak self] () -> Int? in
                 guard let self, let daemon = self.host?.localDaemon, self.serves(daemon) else { return nil }

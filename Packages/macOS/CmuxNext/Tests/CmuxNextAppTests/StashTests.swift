@@ -11,9 +11,10 @@ import Testing
 /// tabs into stashes land in a later slice of #20706.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct StashTests {
-    /// A stash another client stores (the CLI, MCP, another window) shows on the page without a
-    /// reload: the daemon's `session.events` stash change makes the model list again.
-    @Test func theModelFollowsStashChangesFromAnotherClient() async throws {
+    /// A stash stored or deleted outside the page (as the CLI, MCP or another window does, here
+    /// straight on the connection) shows without a reload: the daemon's `session.events` stash
+    /// change makes the model list again.
+    @Test func theModelFollowsTheDaemonsStashChanges() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let model = services.historyPage.stash.model
             try await PinnedPageTests.until({ services.daemon.store.session.stashChanges > 0 })

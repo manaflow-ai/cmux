@@ -37,6 +37,8 @@ public final class StashPageModel {
     @ObservationIgnored public weak var source: (any StashPageSource)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var tail: Task<Void, Never>?
+    /// The newest `stash.list` read: an older read that lost to it waits for it.
+    @ObservationIgnored private var latestRead: Task<Void, Never>?
 
     public init(source: (any StashPageSource)? = nil) {
         self.source = source
@@ -55,11 +57,24 @@ public final class StashPageModel {
     /// Every tab in every group.
     public var tabCount: Int { groups.reduce(0) { $0 + $1.tabs.count } }
 
-    /// Reads the groups again; a slower older read never replaces a newer one. A good read
-    /// clears a failure notice.
+    /// Reads the groups again; a slower older read never replaces a newer one, and returns once
+    /// the newest read has landed (a stash change event may start one while this one runs). A
+    /// good read clears a failure notice.
     public func reload() async {
         generation += 1
         let current = generation
+        // task-owner: one stash.list read; `latestRead` keeps the newest so older callers await it.
+        let read = Task<Void, Never> { @MainActor [weak self] in await self?.read(current) }
+        latestRead = read
+        var awaited = read
+        await read.value
+        while let newest = latestRead, newest != awaited {
+            awaited = newest
+            await newest.value
+        }
+    }
+
+    private func read(_ current: Int) async {
         do {
             let read = try await source?.stashes() ?? []
             guard current == generation else { return }
