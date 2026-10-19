@@ -165,6 +165,8 @@ on:
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_cmux_next_pr_autofix_settings.py
+      - scripts/cmux-next/check-generator-inputs.sh
+      - tests/test_ci_generator_input_freshness.sh
       - .github/workflows/cmux-next-pr-autofix.yml
       - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py

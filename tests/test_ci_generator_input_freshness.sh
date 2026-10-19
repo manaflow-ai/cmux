@@ -69,14 +69,12 @@ fi
 grep -q 'merge snapshot is stale' "$repo/red.log"
 printf '%s\n' 'red: stale merge resolution refused'
 
-# The docs shortcuts copy (web/data/cmux-shortcuts.generated.json) is rewritten
-# from the merge tree too. A PR that carries an older copy (an earlier autofix
-# commit dropped paletteKey.toggleActions on #21814) and keeps it over the
-# base's newer one in its merge resolution is refused, as is a kept exporter.
-for path in web/data/cmux-shortcuts.generated.json web/scripts/export-docs-shortcuts.ts; do
+# The docs shortcuts exporter is a generator input too: a merge resolution
+# that keeps the PR's older exporter over the base's is refused.
+for path in web/scripts/export-docs-shortcuts.ts; do
   git -C "$repo" checkout -q base
   git -C "$repo" checkout -qb "base-$path" base
-  printf 'base: paletteKey.toggleActions\n' > "$repo/$path"
+  printf 'base: newer exporter\n' > "$repo/$path"
   git -C "$repo" commit -qam "base updates $path"
   newer_base="$(git -C "$repo" rev-parse HEAD)"
   git -C "$repo" checkout -qb "kept-$path" "$pr"
