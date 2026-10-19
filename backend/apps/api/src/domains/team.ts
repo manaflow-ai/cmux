@@ -19,7 +19,7 @@ import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
-import { memberAuthorityWrite, TABLE_MEMBER_AUTHORITY } from "./team-authority.ts"
+import { TABLE_MEMBER_AUTHORITY } from "./team-authority.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
   /** A Stack team carries its Stack id, and `deleted_at` once Stack deleted it (team-stack.ts). */
@@ -193,7 +193,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         return {
           ok: true,
           state: { ...state, team, member_count: (state.member_count ?? 0) + (prior ? 0 : 1) },
-          writes: [memberUpsert(member), memberAuthorityWrite(member.user, ctx)],
+          writes: [memberUpsert(member)],
           value: team,
           outbox: [
             { kind: "team.upsert", entity: team.id, payload: team },
