@@ -601,7 +601,8 @@
       "targets": [
         "CmuxNextFloating"
       ],
-      "packages": []
+      "packages": [],
+      "reads": []
     },
     "CmuxNextFocus": {
       "kind": "regular",
