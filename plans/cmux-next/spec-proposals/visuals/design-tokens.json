@@ -2171,21 +2171,21 @@
    },
    "zoom": {
     "value": {
-     "response": 0.32,
-     "dampingFraction": 0.9
-    },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
-    "unit": "s",
-    "use": "A pane zooming to fill its screen: its content takes the full size once and the spring rect reveals it (Leo 2026-10-13)"
-   },
-   "exit": {
-    "value": {
-     "response": 0.12,
+     "response": 0.30,
      "dampingFraction": 1
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "The panes a zoom leaves fading out; Motion.exit(nearness:) lengthens it up to 25% for nearer panes, so the farthest (the 2x2 opposite corner) is gone first"
+    "use": "A pane zooming to fill its screen and back (Cmd-Shift-Enter): its content takes the full size once, the spring rect reveals it, and it covers the other panes, which do not fade (Leo 2026-10-13, Lawrence 2026-10-18)"
+   },
+   "exit": {
+    "value": {
+     "response": 0.24,
+     "dampingFraction": 1
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A pane closing: the neighbours that take its space grow over it with their dividers, one spring, critically damped (Lawrence 2026-10-18)"
    },
    "tabOpen": {
     "value": {
@@ -2381,6 +2381,20 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Agent cursor fades out once its agent goes idle"
+   },
+   "hibernateIcon": {
+    "value": 0.25,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Hibernated tab favicon shrinks into its dotted ring and grows back on wake (Chromium TabIcon, 250 ms ease-in)",
+    "curve": "easeIn"
+   },
+   "hibernateRing": {
+    "value": 1.0,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Hibernated tab dotted ring fades in (Chromium TabIcon discard animation, 1 s ease-in)",
+    "curve": "easeIn"
    },
    "pinLift": {
     "value": 0.15,

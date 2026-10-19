@@ -86,24 +86,46 @@ public struct SidebarDocDrag {
     /// The anchor target of a list position (index counted without the moved items; in a group, among its
     /// member rows: workspaces and link, tab and app items, as `SidebarRow.siblingIndex` counts them).
     public func target(_ position: DropPosition, moving: [String], model: SidebarModel) -> SidebarDocTarget? {
+        anchoredTarget(position, moving: moving, model: model)?.target
+    }
+
+    /// ``target(_:moving:model:)`` and the adopt ref of its anchor when the document this client holds does not
+    /// place that row yet.
+    ///
+    /// Every row the list shows counts, as the position counts it. A workspace row with no item here takes the
+    /// item id its adopt gives it (`SidebarDocStore.adoptedID`, the id the daemon uses), and `adopt` names it when
+    /// it is the anchor, so the move sends its adopt first. Leaving such a row out of the count moved the position
+    /// past it: Move to Top over rows the client had no item for landed right above the first group.
+    public func anchoredTarget(_ position: DropPosition, moving: [String], model: SidebarModel) -> (target: SidebarDocTarget, adopt: [[String: String]])? {
         guard let section = section(position.section), let shown = model.section(position.section) else { return nil }
+        var pending: [String: [String: String]] = [:]
+        func workspaceItem(_ id: WorkspaceID) -> String? {
+            if let placed = item(.workspace(id)) { return placed }
+            guard let ref = adoptRef(id), let session = ref["session_id"], let workspace = ref["workspace_id"] else { return nil }
+            let adopted = SidebarDocStore.adoptedID(SidebarDocWorkspaceRef(sessionID: session, workspaceID: workspace))
+            pending[adopted] = ref
+            return adopted
+        }
         let siblings: [String] = if let group = position.group {
             (model.group(group)?.members ?? []).compactMap { member in
                 switch member {
-                case .workspace(let workspace): item(.workspace(workspace.id))
+                case .workspace(let workspace): workspaceItem(workspace.id)
                 case .item(let listed): listed.id
                 }
             }
         } else {
             shown.nodes.compactMap { node in
                 switch node {
-                case .workspace(let workspace): item(.workspace(workspace.id))
+                case .workspace(let workspace): workspaceItem(workspace.id)
                 case .group(let group): group.id.rawValue
                 case .item(let listed): listed.id
                 }
             }
         }
-        return SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings, moving: Set(moving))
+        let target = SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings,
+                                            moving: Set(moving))
+        let adopt = (target.before ?? target.after).flatMap { pending[$0] }.map { [$0] } ?? []
+        return (target, adopt)
     }
 
     /// The anchor target of a band position: `index` among `section`'s items in `layout`.

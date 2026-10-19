@@ -680,6 +680,53 @@ impl WorkspaceRegistry {
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<ResourceEffectPreparation> {
+        self.prepare_resource_effect_in(
+            mutation,
+            operation,
+            fingerprint,
+            intent,
+            expected_generation,
+            expected_revision,
+            false,
+        )
+        .map(|(preparation, _)| preparation)
+    }
+
+    /// [`Self::prepare_resource_effect_for`] that records a new intent
+    /// directly as `executing`, as [`Self::mark_resource_effect_executing`]
+    /// would, in the same transaction: one durable commit before the effect
+    /// instead of two. Returns `true` when it did; an existing receipt comes
+    /// back unchanged with `false` (a `pending` one still needs the mark).
+    pub fn prepare_resource_effect_executing_for(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        intent: &Value,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<(ResourceEffectPreparation, bool)> {
+        self.prepare_resource_effect_in(
+            mutation,
+            operation,
+            fingerprint,
+            intent,
+            None,
+            expected_revision,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_resource_effect_in(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        intent: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        start: bool,
+    ) -> anyhow::Result<(ResourceEffectPreparation, bool)> {
         let (idempotency_key, actor) = (mutation.id.as_str(), &mutation.actor);
         validate_identifier("resource operation", operation)?;
         let fingerprint = self.stored_fingerprint(fingerprint)?;
@@ -690,7 +737,7 @@ impl WorkspaceRegistry {
             read_effect_preparation(&tx, idempotency_key, operation, &fingerprint)?
         {
             tx.commit()?;
-            return Ok(preparation);
+            return Ok((preparation, false));
         }
         if let Some(expected) = expected_generation
             && expected != self.generation
@@ -710,11 +757,21 @@ impl WorkspaceRegistry {
             "INSERT INTO resource_effect_receipts(
                idempotency_key, operation, fingerprint, intent_json, state,
                outcome_json, committed_revision, actor
-             ) VALUES(?1, ?2, ?3, ?4, 'pending', NULL, NULL, ?5)",
-            params![idempotency_key, operation, fingerprint, intent_json, actor.wire()],
+             ) VALUES(?1, ?2, ?3, ?4, ?5, NULL, NULL, ?6)",
+            params![
+                idempotency_key,
+                operation,
+                fingerprint,
+                intent_json,
+                if start { "executing" } else { "pending" },
+                actor.wire()
+            ],
         )?;
+        if start {
+            start_correlated_creation(&tx, idempotency_key, &self.generation)?;
+        }
         tx.commit()?;
-        Ok(ResourceEffectPreparation::Execute { intent: intent.clone(), resumed: false })
+        Ok((ResourceEffectPreparation::Execute { intent: intent.clone(), resumed: false }, start))
     }
 
     pub fn mark_resource_effect_executing(
@@ -750,21 +807,7 @@ impl WorkspaceRegistry {
              WHERE idempotency_key = ?1 AND state = 'pending'",
             [idempotency_key],
         )?;
-        let correlated = tx.execute(
-            "UPDATE resource_creation_receipts
-             SET state = 'executing', execution_generation = ?2
-             WHERE idempotency_key = ?1 AND execution_kind = 'effect' AND state = 'prepared'",
-            params![idempotency_key, generation],
-        )?;
-        let creation_count: i64 = tx.query_row(
-            "SELECT COUNT(*) FROM resource_creation_receipts WHERE idempotency_key = ?1",
-            [idempotency_key],
-            |row| row.get(0),
-        )?;
-        anyhow::ensure!(
-            creation_count == 0 || correlated == 1,
-            "correlated resource effect could not enter executing state"
-        );
+        start_correlated_creation(&tx, idempotency_key, &generation)?;
         tx.commit()?;
         Ok(serde_json::from_str(&intent_json)?)
     }
@@ -1113,6 +1156,32 @@ fn validate_correlation_key(correlation_key: &str) -> anyhow::Result<()> {
             "correlation_key must contain 1 to 128 UTF-8 bytes",
         )));
     }
+    Ok(())
+}
+
+/// Moves the creation receipt correlated with an effect that enters
+/// `executing` along with it; a creation receipt that cannot follow fails the
+/// transaction.
+fn start_correlated_creation(
+    tx: &Transaction<'_>,
+    idempotency_key: &str,
+    generation: &str,
+) -> anyhow::Result<()> {
+    let correlated = tx.execute(
+        "UPDATE resource_creation_receipts
+         SET state = 'executing', execution_generation = ?2
+         WHERE idempotency_key = ?1 AND execution_kind = 'effect' AND state = 'prepared'",
+        params![idempotency_key, generation],
+    )?;
+    let creation_count: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM resource_creation_receipts WHERE idempotency_key = ?1",
+        [idempotency_key],
+        |row| row.get(0),
+    )?;
+    anyhow::ensure!(
+        creation_count == 0 || correlated == 1,
+        "correlated resource effect could not enter executing state"
+    );
     Ok(())
 }
 

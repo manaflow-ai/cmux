@@ -3,7 +3,14 @@
 // Picture clears it on the daemon (`clear: true`).
 import { expect, test } from "bun:test";
 import { DaemonPeople } from "../src/pages/home-channels/daemonPeople";
-import { CENTERED, cropSquare, dragCrop, preparePicture, PICTURE_SIDE } from "../src/pages/home-channels/picture";
+import {
+  CENTERED,
+  cropSquare,
+  dragCrop,
+  preparePicture,
+  PICTURE_SIDE,
+  withinPixels,
+} from "../src/pages/home-channels/picture";
 
 test("the crop square stays inside the image at every zoom and drag", () => {
   // A landscape photo: centered, the square is its full height in the middle.
@@ -52,6 +59,13 @@ test("a still is drawn at its crop, a GIF goes as it is, and sizes are refused w
   expect(await preparePicture(bigGif, CENTERED, { width: 1, height: 1 }, render)).toEqual({ error: "size" });
   const svg = new File(["<svg/>"], "a.svg", { type: "image/svg+xml" });
   expect(await preparePicture(svg, CENTERED, { width: 1, height: 1 }, render)).toEqual({ error: "type" });
+  // A small file that decodes to too many pixels is refused before anything decodes it.
+  const bomb = new File([new Uint8Array(1000)], "bomb.png", { type: "image/png" });
+  const before = drawn.length;
+  expect(await preparePicture(bomb, CENTERED, { width: 30_000, height: 30_000 }, render)).toEqual({ error: "pixels" });
+  expect(drawn.length).toBe(before);
+  expect(withinPixels({ width: 8000, height: 6000 })).toBe(true);
+  expect(withinPixels({ width: 10_000, height: 6000 })).toBe(false);
   // A still small enough is drawn at its own size, never scaled up.
   await preparePicture(
     new File([new Uint8Array(10)], "s.png", { type: "image/png" }),
