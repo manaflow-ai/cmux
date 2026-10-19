@@ -10,8 +10,9 @@
 //!
 //! The same server has the session tools (`session_mcp.rs`): `start_session`,
 //! `list_sessions`, `read_session`, `send_to_session`. Its env says which sets
-//! it lists: [`OFFERS_ENV`] `1` for the offer tools (the app shows the chips),
-//! [`SESSIONS_ENV`] `1` for the session tools.
+//! it lists: the offer tools unless [`OFFERS_ENV`] is `0` (`agent_tools.rs`
+//! sets it from whether the app shows the chips), the session tools when
+//! [`SESSIONS_ENV`] is `1`.
 
 use crate::client::Client;
 use crate::rpc::method;
@@ -25,7 +26,7 @@ pub const SERVER_NAME: &str = "cmux-sessions";
 pub const SESSION_ENV: &str = "ACPMUX_OFFER_SESSION";
 /// Most tasks one `suggest_tasks` call offers.
 pub const MAX_TASKS: usize = 5;
-/// `1` in this server's env: it lists `offer_session` and `suggest_tasks`.
+/// `0` in this server's env: it leaves out `offer_session` and `suggest_tasks`.
 pub const OFFERS_ENV: &str = "ACPMUX_OFFER_TOOLS";
 /// `1` in this server's env: it lists the session tools (`session_mcp.rs`).
 pub const SESSIONS_ENV: &str = "ACPMUX_SESSION_TOOLS";
@@ -39,8 +40,11 @@ struct Sets {
 
 impl Sets {
     fn from_env() -> Self {
-        let on = |key: &str| std::env::var(key).is_ok_and(|v| v == "1");
-        Sets { offers: on(OFFERS_ENV), sessions: on(SESSIONS_ENV) }
+        let var = |key: &str| std::env::var(key).ok();
+        Sets {
+            offers: var(OFFERS_ENV).is_none_or(|v| v != "0"),
+            sessions: var(SESSIONS_ENV).is_some_and(|v| v == "1"),
+        }
     }
 
     fn tools(self) -> Value {
