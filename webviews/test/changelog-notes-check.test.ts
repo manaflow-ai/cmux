@@ -22,25 +22,32 @@ function withEntries(notes: ReleaseNotes, entries: WhatsNewEntry[]): ReleaseNote
   return { ...notes, whatsNew: { ...notes.whatsNew!, entries } };
 }
 
-test("3917159104301 as published fails on its cut digest title; the page and card show it whole", () => {
+test("3917159104301 as published fails on its cut digest title and its tool-name line", () => {
   const { notes, previous } = at("3917159104301");
-  const defects = checkNightlyNotes(notes, previous);
-  expect(defects).toEqual([
-    {
-      kind: "truncated",
-      where: "notes",
-      text: "Export-backdrop-art reads each entry's subject box and…",
-    },
-  ]);
+  const defects = checkNightlyNotes(notes, previous).map((d) => `${d.where} ${d.kind} ${d.text}`);
+  expect(defects).toContain("notes truncated Export-backdrop-art reads each entry's subject box and…");
+  expect(defects).toContain("notes internal Export-backdrop-art reads each entry's subject box and exports it");
+  expect(defects.every((d) => d.startsWith("notes "))).toBe(true);
 });
 
 test("notes as the current pipeline writes them pass, alone and with the nine nightlies before them", () => {
   const { notes, previous } = at("3917159104301");
-  const fixed = withEntries(notes, [
-    { ...notes.whatsNew!.entries[0]!, category: "fixed" },
-    digestEntry("summary-1", "Export-backdrop-art reads each entry's subject box and exports it"),
-  ]);
+  const fixed = {
+    ...withEntries(notes, [{ ...notes.whatsNew!.entries[0]!, category: "fixed" }]),
+    summary: (notes.summary ?? []).filter((line) => !line.title.startsWith("Export-backdrop-art")),
+  };
   expect(checkNightlyNotes(fixed, previous)).toEqual([]);
+});
+
+test("published summary lines naming PR numbers or a squash fail as internal work", () => {
+  const tour = at("3917061587901");
+  expect(checkNightlyNotes(tour.notes, tour.previous).map((d) => `${d.where} ${d.kind} ${d.text}`)).toContain(
+    "notes internal Tour uploads stop naming the PR as #N",
+  );
+  const squash = at("3914841887501");
+  const defects = checkNightlyNotes(squash.notes, squash.previous).map((d) => `${d.where} ${d.kind} ${d.text}`);
+  expect(defects).toContain("notes internal Restore the URL chip hover card styles lost in the Chief Dock squash");
+  expect(defects).toContain("notes internal Restore #21369 and #21384, undone by the Chief Dock squash");
 });
 
 test("a leaked bead id, a cut title and internal work in the build's own lines fail", () => {

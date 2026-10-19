@@ -40,6 +40,24 @@ test("All Changes lists each human change once and folds internal work into a co
   expect(view.changes.find((c) => c.pr === 21592)?.title).toBe("Restore workspace title motion tunable");
 });
 
+// The 49-nightly gallery range (2026-10-19) showed these published commit subjects under Improved
+// and Fixed: a tool name, PR numbers and history repair are work no user sees.
+test("tool-name, PR-number and history-repair commits are internal work", () => {
+  for (const subject of [
+    "cmux-next: export-backdrop-art reads each entry's subject box and exports it",
+    "cmux-next media: tour uploads stop naming the PR as #N",
+    "fix(cmux-next): restore the URL chip hover card styles lost in the Chief Dock squash",
+    "fix(cmux-next): restore #21369 and #21384, undone by the Chief Dock squash",
+  ])
+    expect(readableChange(subject).internal).toBe(true);
+  for (const subject of [
+    "fix(cmux-next): keep the sidebar up-to-date after a rename",
+    "feat(cmux-next): drag-and-drop a file into a terminal",
+    "feat: side-by-side diffs in the review pane",
+  ])
+    expect(readableChange(subject).internal).toBe(false);
+});
+
 test("readable change titles", () => {
   expect(readableChange("cmux NEXT perf-split: snapshot sources name a new pane's first runs (cx-8w027.14)")).toEqual({
     title: "Snapshot sources name a new pane's first runs",
