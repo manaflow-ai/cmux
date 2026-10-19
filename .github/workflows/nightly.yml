@@ -1740,9 +1740,10 @@ jobs:
           scripts/ci/clear-dirs.sh build-universal
           mkdir -p build-universal
           if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
-            # A trusted worker keeps only its package checkouts and deletes
-            # the build state that earlier revisions kept. NEXT restores no
-            # compilation cache today, so its build is fully cold.
+            # A trusted worker keeps only its package checkouts and its
+            # content-keyed compilation cache on disk, and deletes the build
+            # state that earlier revisions kept. Elsewhere NEXT restores no
+            # compilation cache, so its build is fully cold.
             python3 scripts/ci/nightly_build_state.py prepare nightly-next
             exit 0
           fi
@@ -2081,6 +2082,9 @@ jobs:
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
+          # A trusted NEXT worker links it to the cache it keeps on disk
+          # (nightly_build_state.py); measure and bound the cache itself.
+          if [ -L "$cache_path" ]; then cache_path="$(readlink "$cache_path")"; fi
           max_cache_kib=$((5 * 1024 * 1024))
           if [ -d "$cache_path" ]; then
             # Xcode's CAS chains v1.N generations: the newest is the primary,
