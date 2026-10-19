@@ -159,7 +159,7 @@ final class HomeHostView: NSView {
         let switchKeys = services.homeSwitchKeys
         transcript.onHideSwitchKeys = { switchKeys.hide() }
         transcript.onOpenKeyboardShortcutSettings = {
-            if let url = HomeSwitchKeysSource.keyboardShortcutsURL { NSWorkspace.shared.open(url) }
+            if let url = HomeSwitchKeysSource.keyboardShortcutsURL { NSWorkspace.shared.openInBackground(url) }
         }
         // task-owner: lives as long as this view; event-driven (Observation of the registry)
         shortcutsWatch = Task { [weak self] in
