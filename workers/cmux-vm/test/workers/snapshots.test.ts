@@ -420,6 +420,32 @@ describe("capture controls", () => {
     expect(h.upstream.callsTo("POST", /\/snapshot$/)).toHaveLength(1);
   });
 
+  it("cancels a key before capture admission so a late create cannot allocate", async () => {
+    const { vmId } = h.addVm(TENANT_A);
+    const token = await h.addKey(TENANT_A, ["snapshot:write"]);
+    const headers = { ...bearer(token), "idempotency-key": "cancel-before-admission" };
+    const cancelled = await h.request("/v1/snapshot-creations/by-key/cancel", headers, { method: "POST", body: { expectedSnapshotId: null } });
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toMatchObject({ state: "cancelled", id: null });
+    expect((await create(vmId, headers)).status).toBe(409);
+    expect(h.upstream.calls).toHaveLength(0);
+  });
+
+  it("cancels an uncertain keyed capture and deletes a committed capture by that exact key", async () => {
+    const { id, headers, vmId } = await pending("delete-exact-capture");
+    const result = await h.request("/v1/snapshot-creations/by-key/cancel", headers, { method: "POST", body: { expectedSnapshotId: id } });
+    expect(result.status).toBe(200);
+    expect(await result.json()).toMatchObject({ state: "cancelled", id });
+    expect(h.upstream.snapshots.size).toBe(0);
+    expect((await create(vmId, headers)).status).toBe(409);
+    const committedHeaders = { ...headers, "idempotency-key": "committed-capture" };
+    const committed = await (await create(vmId, committedHeaders)).json<{ id: string }>();
+    const deleted = await h.request("/v1/snapshot-creations/by-key/cancel", committedHeaders, { method: "POST", body: { expectedSnapshotId: committed.id } });
+    expect(deleted.status).toBe(200);
+    expect(await deleted.json()).toMatchObject({ state: "cancelled", id: committed.id });
+    expect(h.upstream.snapshots.size).toBe(0);
+  });
+
   it("looks up a keyed capture without source access or a provider request", async () => {
     const { vmId, id, headers } = await pending("cloud-snapshot:base");
     expect((await h.request(`/v1/vms/${vmId}`, headers, { method: "DELETE" })).status).toBe(204);
