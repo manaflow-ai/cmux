@@ -1,13 +1,17 @@
 /* A session reference's hover card (SessionHoverCard.tsx), as a row of Claude Code's PR list reads:
    the title in the body step (two lines at most), then the status line (SessionStatusLine, styled
    in startedSessions.css). It is as wide as its title, 240px to 420px, on a raised surface with a
-   shadow so it reads as a layer over the transcript. The whole card is one button that opens the
+   shadow (the app's popup surface a step lighter, so it stands apart from a user bubble under it) so it
+   reads as a layer over the transcript. The whole card is one button that opens the
    session. Sizes are the type scale's steps (desktop.css). */
 .acpmux-session-hover-card.ui-card {
+  max-width: min(420px, calc(100vw - 12px));
   padding: 0;
-  border-color: color-mix(in srgb, var(--agent-text) 16%, transparent);
-  background: color-mix(in srgb, var(--agent-text) 6%, var(--agent-surface-elevated, var(--agent-page-bg)));
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  border-color: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--surface-popup));
+  box-shadow:
+    var(--elevation-2),
+    0 8px 24px color-mix(in srgb, black 40%, transparent);
 }
 .acpmux-session-hover {
   box-sizing: border-box;
