@@ -125,7 +125,8 @@ fn the_daemon_publishes_its_tree_and_runs_only_the_owners_allowed_ops() {
     assert_eq!(connected[0].url, format!("wss://api.cmux.test/v1/wire/host/{HOST}"));
     assert_eq!(connected[0].bearer, INSTALL_TOKEN);
     assert_eq!(snapshot["stream"], stream());
-    assert_eq!(snapshot["snapshot"]["seq"], 1);
+    // A stream the replica does not hold starts at the wall clock (ms).
+    assert!(snapshot["snapshot"]["seq"].as_u64().unwrap() > 1_600_000_000_000);
     assert!(snapshot["snapshot"]["state"].to_string().contains("before"));
 
     // The owner's rename: the daemon runs it, publishes the change, then answers.
@@ -251,4 +252,71 @@ fn only_the_verified_app_leases_and_never_with_a_chief_token() {
         run(&mux, client, json!({"cmd":"cloud-host-replica-status"})).unwrap()["state"],
         "off"
     );
+}
+
+fn status(mux: &Arc<Mux>, client: u64) -> Value {
+    run(mux, client, json!({"cmd":"cloud-host-replica-status"})).unwrap()
+}
+
+fn connect_again(backend: &FakeBackend, heads: Value) -> ScriptedWire {
+    backend.reply("/v1/ops", 200, json!({"ok":true,"value":{"id":HOST,"name":"studio"}}));
+    let wire = backend.wire();
+    wire.push_text(json!({"t":"welcome","role":"publisher","host":HOST,"heads":heads}).to_string());
+    wire
+}
+
+/// The off switch answers an op that arrives while it runs, and the next
+/// lease publishes ahead of every seq a reader saw before the purge. A host
+/// the cloud removed (close 4403) stays off through a token refresh and
+/// enrolls again only after the app clears the replica.
+#[test]
+fn the_off_switch_never_moves_a_reader_back_and_a_removed_host_stays_off() {
+    let (mux, client, backend) = replica_mux();
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    create_workspace(&mux, "tree");
+    let first = connect_again(&backend, json!({}));
+    lease(&mux, client, INSTALL_TOKEN).unwrap();
+    let before = wait_frame(&first, "the first snapshot", |f| f["snapshot"].is_object());
+    let seen = before["snapshot"]["seq"].as_u64().unwrap();
+
+    // The off switch, with an op forwarded before the replica confirmed it.
+    run(&mux, client, json!({"cmd":"cloud-host-replica-clear","purge":true})).unwrap();
+    wait_frame(&first, "the purge", |f| f["t"] == "replica.purge");
+    first.push_text(
+        json!({"t":"op","stream":stream(),"op":"workspace.rename","params":{},"idempotency_key":"late",
+               "origin":"user","to":"r9","principal":{"user":ME,"kind":"session"}})
+        .to_string(),
+    );
+    let late = wait_frame(&first, "the late op's answer", |f| f["t"] == "reject" && f["to"] == "r9");
+    assert_eq!(late["retryable"], true);
+    wait_frame(&first, "its settle", |f| f["t"] == "request-settled" && f["to"] == "r9" && f["ok"] == false);
+    first.push_text(json!({"t":"replica.purged"}).to_string());
+    wait_until("off", || status(&mux, client)["state"] == "off");
+
+    // On again: the replica holds nothing (no head), and the new snapshot is
+    // still ahead of the reader's old cursor.
+    let second = connect_again(&backend, json!({}));
+    lease(&mux, client, INSTALL_TOKEN).unwrap();
+    let after = wait_frame(&second, "the snapshot after the purge", |f| f["snapshot"].is_object());
+    assert!(after["snapshot"]["seq"].as_u64().unwrap() > seen, "{after} after {seen}");
+
+    // The cloud removes the host: the socket closes 4403 and a token refresh
+    // does not enroll it again.
+    wait_until("online", || status(&mux, client)["state"] == "online");
+    second.push_close(Some(4403));
+    wait_until("forbidden", || status(&mux, client)["state"] == "forbidden");
+    let enrolls = backend.posted().len();
+    let refreshed = lease(&mux, client, INSTALL_TOKEN).unwrap();
+    assert_eq!(refreshed["state"], "forbidden");
+    assert!(refreshed["last_error"].as_str().unwrap().contains("removed"));
+    assert_eq!(status(&mux, client)["state"], "forbidden");
+    assert_eq!(backend.posted().len(), enrolls, "no enrollment after a refresh");
+
+    // Clearing, then a lease: the explicit action enrolls the host again.
+    run(&mux, client, json!({"cmd":"cloud-host-replica-clear"})).unwrap();
+    let third = connect_again(&backend, json!({}));
+    lease(&mux, client, INSTALL_TOKEN).unwrap();
+    wait_frame(&third, "the snapshot after enrolling again", |f| f["snapshot"].is_object());
+    assert_eq!(backend.posted().len(), enrolls + 1);
 }
