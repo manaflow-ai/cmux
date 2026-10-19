@@ -1,0 +1,36 @@
+# The Cloud app server is a separate Cargo workspace; cmux-tui's workspace tests do not run it.
+name: Cloud app server
+on:
+  push:
+    branches: ["codex/vm-api-cloud-app-scope-*"]
+    paths: ["first-party-apps/cloud/**", "cmux-tui/crates/cmux-terminal-iface/**", "cmux-tui/crates/cmux-app-manifest/**", ".github/workflows/cmux-cloud-server.yml"]
+  pull_request:
+    paths: ["first-party-apps/cloud/**", "cmux-tui/crates/cmux-terminal-iface/**", "cmux-tui/crates/cmux-app-manifest/**", "backend/catalog/cloud-vectors.json", "cmux-tui/rust-toolchain.toml", ".github/workflows/cmux-cloud-server.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: cloud-server-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  check:
+    name: Cloud server (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, macos]
+    runs-on: ${{ matrix.os == 'linux' && (github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || (github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15') }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Require exact checkout
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Format
+        run: cargo fmt --manifest-path first-party-apps/cloud/server/Cargo.toml --check
+      - name: Lint
+        run: cargo clippy --manifest-path first-party-apps/cloud/server/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Test
+        run: bash scripts/ci/cargo-test-selected.sh --manifest-path first-party-apps/cloud/server/Cargo.toml --locked --all-targets
